@@ -42,8 +42,6 @@ public class NewSettingsCategoriesIntegrationTests(SharedWebAppFixture fixture)
         var putResponse = await fixture.AdminClient.PutAsJsonAsync("/api/settings/llm", updated);
         putResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        await Task.Delay(500);
-
         // Verify
         var verifyResponse = await fixture.AdminClient.GetAsync("/api/settings/llm");
         var verified = await verifyResponse.Content.ReadFromJsonAsync<LlmSettings>(JsonOptions);

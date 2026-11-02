@@ -1,9 +1,10 @@
-﻿using Connapse.Core;
+﻿using Connapse.Application;
+using Connapse.Application.Search;
+using Connapse.Application.Settings;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Connapse.Core.Utilities;
 using Connapse.Storage.Vectors;
-using System.Security.Claims;
-using Connapse.Web.Services;
+using Connapse.Web.Problems;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -14,96 +15,50 @@ public static class SearchEndpoints
     public static IEndpointRouteBuilder MapSearchEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/containers/{containerId:guid}/search").WithTags("Search")
-            .RequireAuthorization("RequireViewer");
+            .RequireAuthorization("RequireViewer")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         // GET /api/containers/{containerId}/search - Simple search with query parameters
         group.MapGet("/", async (
             Guid containerId,
-            [FromQuery] string q,
+            [FromQuery] string? q,
             [FromQuery] string? mode,
             [FromQuery] int? topK,
             [FromQuery] string? path,
             [FromQuery] float? minScore,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IKnowledgeSearch searchService,
-            [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
-            ClaimsPrincipal user,
+            [FromServices] SearchContainer search,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            if (string.IsNullOrWhiteSpace(q))
-                return Results.BadRequest(new { error = "Query parameter 'q' is required" });
-
-            var searchParamError = ValidateSearchParams(q, topK, minScore);
-            if (searchParamError is not null) return searchParamError;
-
             var searchMode = Enum.TryParse<SearchMode>(mode, ignoreCase: true, out var parsed)
                 ? parsed
                 : SearchMode.Hybrid;
-
-            var filters = new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(path))
-                filters["pathPrefix"] = path;
-
-            var effectiveMinScore = minScore ?? (float)searchSettings.CurrentValue.MinimumScore;
-
-            var options = new SearchOptions(
-                Mode: searchMode,
-                TopK: topK ?? 10,
-                MinScore: effectiveMinScore,
-                ContainerId: containerId.ToString(),
-                Filters: filters.Count > 0 ? filters : null,
-                UserId: SearchPrincipal.Resolve(user));
-
-            var results = await searchService.SearchAsync(q, options, ct);
-            return Results.Ok(results);
+            var searched = await search.RunAsync(Rest(http), containerId,
+                new SearchRequest(q, searchMode, topK, minScore, path), ct);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, q);
         })
-        .WithName("SimpleSearch")
+        .Produces<SearchResult>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("search.containerByQuery")
         .WithDescription("Search within a container using query string parameters");
 
         // POST /api/containers/{containerId}/search - Advanced search with complex filters
         group.MapPost("/", async (
             Guid containerId,
-            [FromBody] ContainerSearchRequest request,
-            [FromServices] IContainerStore containerStore,
-            [FromServices] IKnowledgeSearch searchService,
-            [FromServices] IOptionsMonitor<SearchSettings> searchSettings,
-            ClaimsPrincipal user,
+            [FromBody] SearchApiRequest request,
+            [FromServices] SearchContainer search,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var container = await containerStore.GetAsync(containerId, ct);
-            if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
-
-            if (string.IsNullOrWhiteSpace(request.Query))
-                return Results.BadRequest(new { error = "Query is required" });
-
-            var searchParamError = ValidateSearchParams(request.Query, request.TopK, request.MinScore);
-            if (searchParamError is not null) return searchParamError;
-
-            var filters = request.Filters ?? new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(request.Path) && !filters.ContainsKey("pathPrefix"))
-                filters["pathPrefix"] = request.Path;
-
-            var effectiveMinScore = request.MinScore ?? (float)searchSettings.CurrentValue.MinimumScore;
-
-            var requestMode = request.Mode ?? SearchMode.Hybrid;
-
-            var options = new SearchOptions(
-                Mode: requestMode,
-                TopK: request.TopK ?? 10,
-                MinScore: effectiveMinScore,
-                ContainerId: containerId.ToString(),
-                Filters: filters.Count > 0 ? filters : null,
-                UserId: SearchPrincipal.Resolve(user));
-
-            var results = await searchService.SearchAsync(request.Query, options, ct);
-            return Results.Ok(results);
+            var searched = await search.RunAsync(Rest(http), containerId, request.ToSearch(), ct);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, request.Query);
         })
-        .WithName("AdvancedSearch")
+        .Produces<SearchResult>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("search.container")
         .WithDescription("Search within a container with advanced filters and options");
 
         // GET /api/containers/{containerId}/search/models - Get embedding models with vectors
@@ -116,51 +71,79 @@ public static class SearchEndpoints
         {
             var container = await containerStore.GetAsync(containerId, ct);
             if (container is null)
-                return Results.NotFound(new { error = $"Container {containerId} not found" });
+                return ApiProblem.NotFound($"Container {containerId} not found");
 
             var models = await modelDiscovery.GetModelsAsync(containerId, ct);
             var currentModel = EmbeddingIdentity.For(embeddingSettings.CurrentValue);
 
-            return Results.Ok(new
-            {
-                currentModel,
-                models = models.Select(m => new
-                {
-                    m.ModelId,
-                    m.Dimensions,
-                    m.VectorCount,
-                    isCurrent = string.Equals(m.ModelId, currentModel, StringComparison.OrdinalIgnoreCase)
-                })
-            });
+            return Results.Ok(new ContainerEmbeddingModelsResponse(currentModel, EmbeddingModelUsage.From(models, currentModel)));
         })
+        .Produces<ContainerEmbeddingModelsResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetEmbeddingModels")
         .WithDescription("Get embedding models with vectors in this container");
+
+        // POST /api/sources/{sourceId}/search - Search a source, as a container is searched (#916)
+        app.MapPost("/api/sources/{sourceId:guid}/search", async (
+            Guid sourceId,
+            [FromBody] SearchApiRequest request,
+            [FromServices] SearchSource search,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var searched = await search.RunAsync(Rest(http), sourceId, request.ToSearch(), ct);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, request.Query);
+        })
+        .WithTags("Search")
+        .RequireAuthorization("RequireViewer")
+        .Produces<SearchResult>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("search.source")
+        .WithDescription("Search a source. Every hit is checked for the caller, as a container search's are; a source the caller may not know exists reads as not found.");
 
         return app;
     }
 
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 
-    private static IResult? ValidateSearchParams(string query, int? topK, float? minScore)
+    /// <summary>
+    /// A failed search's problem. Before search moved onto its operation (#916), a bad topK or minScore or an
+    /// over-long query was answered with these codes in <c>error</c>, which scripts branch on, so they keep them.
+    /// </summary>
+    private static IResult Problem(Attempt<SearchResult, SearchStatus> failed, string? query)
     {
-        if (query.Length > ValidationConstants.MaxQueryLength)
-            return Results.BadRequest(new { error = "query_too_long", message = $"Query must not exceed {ValidationConstants.MaxQueryLength} characters" });
-
-        if (topK.HasValue && (topK.Value < ValidationConstants.MinTopK || topK.Value > ValidationConstants.MaxTopK))
-            return Results.BadRequest(new { error = "topk_out_of_range", message = $"topK must be between {ValidationConstants.MinTopK} and {ValidationConstants.MaxTopK}" });
-
-        if (minScore.HasValue && (minScore.Value < ValidationConstants.MinScore || minScore.Value > ValidationConstants.MaxScore))
-            return Results.BadRequest(new { error = "minscore_out_of_range", message = $"minScore must be between {ValidationConstants.MinScore:F1} and {ValidationConstants.MaxScore:F1}" });
-
-        return null;
+        var problem = OperationProblems.For(failed.Status, failed.Detail);
+        if (failed.Field is { } field)
+            problem.Extensions["field"] = field;
+        if (failed.Status == SearchStatus.Invalid && ErrorCode(failed.Field, query) is { } code)
+            problem.Extensions["error"] = code;
+        return Results.Problem(problem);
     }
 
+    private static string? ErrorCode(string? field, string? query) => field switch
+    {
+        "topK" => "topk_out_of_range",
+        "minScore" => "minscore_out_of_range",
+        "query" when !string.IsNullOrWhiteSpace(query) => "query_too_long",
+        _ => null,
+    };
 }
 
-// Request DTO
-public record ContainerSearchRequest(
-    string Query,
+/// <summary>A search's body, for a container or a source.</summary>
+public record SearchApiRequest(
+    string? Query,
     string? Path = null,
     SearchMode? Mode = null,
     int? TopK = null,
     float? MinScore = null,
-    Dictionary<string, string>? Filters = null);
+    Dictionary<string, string>? Filters = null)
+{
+    public SearchRequest ToSearch() => new(Query, Mode ?? SearchMode.Hybrid, TopK, MinScore, Path, Filters);
+}
+
+// Response DTOs
+public record ContainerEmbeddingModelsResponse(string CurrentModel, IReadOnlyList<EmbeddingModelUsage> Models);
+

@@ -16,7 +16,7 @@ namespace Connapse.Background.Tests.Integration;
 /// Verifies the WIRING (HangfireIngestionQueue marks the document Queued, creates an Enqueued
 /// ingest job carrying the new generation, and records that job on the document) in Hangfire's
 /// in-memory storage. The work inside each job handler is unit-tested separately in
-/// IngestionJobsTests + SummaryJobsTests; this test deliberately does not boot a
+/// IngestionJobsTests; this test deliberately does not boot a
 /// BackgroundJobServer because the worker resolves job handlers via the ambient DI activator
 /// and would require Postgres / a full app host.
 /// </summary>
@@ -62,8 +62,6 @@ public sealed class HangfireEndToEndTests
         details.Job!.Method.Name.Should().Be(nameof(Connapse.Background.Jobs.IIngestionJobs.IngestAsync));
         details.Job.Args[1].Should().BeOfType<IngestionOptions>()
             .Which.Generation.Should().Be(42, "the worker must be able to tell it is still the latest");
-        details.Properties.Should().NotContainKey("Continuations",
-            "the per-doc summary is decided inside IngestAsync, not attached up front");
 
         await lifecycle.Received(1).RecordJobAsync(documentId, 42, jobId!, Arg.Any<CancellationToken>());
     }

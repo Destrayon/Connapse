@@ -148,4 +148,53 @@ public class SentenceWindowChunkerTests
             c.Metadata["window_size"].Should().Be("2");
         });
     }
+
+    private const string CodeSample = """
+        namespace Connapse.Search;
+
+        /// <summary>Reads the current search settings.</summary>
+        public sealed class SearchReader(IOptionsMonitor<SearchSettings> searchSettings)
+        {
+            private readonly List<Group> groups = new();
+
+            public int TopK => searchSettings.CurrentValue.TopK;
+        }
+        """;
+
+    private static IEnumerable<string> CodeLines() =>
+        CodeSample.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0);
+    [Fact]
+    public async Task ChunkAsync_Code_SentencesAndWindowsAreSourceSlices()
+    {
+        // CON-143: Content was the segmenter's sentence ("List groups") and the window its sentences
+        // joined with spaces; both are now slices of the source.
+        var doc = new ParsedDocument(CodeSample, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 1000, MinChunkSize = 1, SentenceWindowSize = 1 };
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(doc, settings);
+
+        result.Should().HaveCountGreaterThan(2);
+        result.Should().OnlyContain(c => !c.Metadata.ContainsKey("OffsetEstimated"));
+        foreach (ChunkInfo c in result)
+        {
+            CodeSample[c.StartOffset..c.EndOffset].Should().Be(c.Content);
+            c.Metadata["original_text"].Should().Be(c.Content);
+        }
+        foreach (string line in CodeLines())
+            result.Should().Contain(c => c.Content.Contains(line), $"the line '{line}' must be stored as written");
+        result[1].Metadata["window"].Should().Be(CodeSample[result[0].StartOffset..result[2].EndOffset]);
+    }
+
+    [Fact]
+    public async Task ChunkAsync_RepeatedDottedCalls_NoSentenceOverTheLimit()
+    {
+        string content = string.Concat(Enumerable.Repeat("foo.Bar(); ", 300));
+        var doc = new ParsedDocument(content, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = 50, MinChunkSize = 1, SentenceWindowSize = 1 };
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(doc, settings);
+
+        result.Should().HaveCountGreaterThan(1);
+        result.Should().OnlyContain(c => c.TokenCount <= 50);
+    }
 }

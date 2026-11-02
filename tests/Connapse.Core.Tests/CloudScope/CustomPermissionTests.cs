@@ -16,6 +16,7 @@ namespace Connapse.Core.Tests.CloudScope;
 /// verifier asks the middle man about every <c>custom://</c> hit, denying anything it cannot confirm.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class CustomPermissionTests
 {
     private static readonly Guid Alice = Guid.NewGuid();

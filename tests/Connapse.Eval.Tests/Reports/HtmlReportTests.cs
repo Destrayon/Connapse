@@ -8,6 +8,7 @@ using FluentAssertions;
 namespace Connapse.Eval.Tests.Reports;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class HtmlReportTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "eval-html-" + Guid.NewGuid().ToString("N"));

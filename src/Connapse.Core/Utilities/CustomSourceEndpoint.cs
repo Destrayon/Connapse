@@ -7,9 +7,27 @@ namespace Connapse.Core.Utilities;
 /// </summary>
 public static class CustomSourceEndpoint
 {
-    /// <summary>Whether two middle man addresses are the same, ignoring case and a trailing slash.</summary>
-    public static bool SameAddress(string? a, string? b) =>
-        string.Equals(a?.Trim().TrimEnd('/'), b?.Trim().TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Whether two middle man addresses are the same, ignoring scheme and host case, a default port and a trailing
+    /// slash. The path is compared exactly: a server may route paths by case, so a case-only change can reach a
+    /// different application, and a stored token must never be sent there.
+    /// </summary>
+    public static bool SameAddress(string? a, string? b)
+    {
+        if (a is null || b is null)
+            return a is null && b is null;
+
+        if (!Uri.TryCreate(a.Trim(), UriKind.Absolute, out Uri? x) || !Uri.TryCreate(b.Trim(), UriKind.Absolute, out Uri? y))
+            return string.Equals(a.Trim().TrimEnd('/'), b.Trim().TrimEnd('/'), StringComparison.Ordinal);
+
+        return x.Scheme == y.Scheme
+            && string.Equals(x.Host, y.Host, StringComparison.OrdinalIgnoreCase)
+            && x.Port == y.Port
+            && x.UserInfo == y.UserInfo
+            && x.Query == y.Query
+            && x.Fragment == y.Fragment
+            && string.Equals(x.AbsolutePath.TrimEnd('/'), y.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
+    }
 
     public const string AllowedHttpHostsKey = CustomSourceSettings.SectionName + ":AllowedHttpHosts";
 

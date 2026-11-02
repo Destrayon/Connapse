@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Connapse.Identity.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AdminSeedServiceTests : IDisposable
 {
     private readonly ServiceProvider _provider;

@@ -1,5 +1,5 @@
 using Bunit;
-using Connapse.Identity.Data.Entities;
+using Connapse.Application.Links;
 using Connapse.Web.Components.Shared;
 using FluentAssertions;
 
@@ -41,11 +41,7 @@ public class AtlassianIdentityCardTests : IDisposable
     public void Render_Linked_ShowsTheLinkDateAndUnlinks()
     {
         bool disconnected = false;
-        var link = new UserAtlassianIdentityLinkEntity
-        {
-            Id = Guid.NewGuid(), UserId = Guid.NewGuid(), AccountId = "acc-1",
-            ConnectedAt = new DateTime(2026, 10, 11, 0, 0, 0, DateTimeKind.Utc),
-        };
+        var link = new AtlassianAccountLink("acc-1", new DateTime(2026, 10, 11, 0, 0, 0, DateTimeKind.Utc));
 
         var cut = ctx.Render<AtlassianIdentityCard>(p => p
             .Add(c => c.Link, link)
@@ -68,10 +64,7 @@ public class AtlassianIdentityCardTests : IDisposable
         cut.Markup.Should().Contain("Providers → Atlassian");
     }
 
-    private static UserAtlassianIdentityLinkEntity Linked() => new()
-    {
-        Id = Guid.NewGuid(), UserId = Guid.NewGuid(), AccountId = "acc-1", ConnectedAt = DateTime.UtcNow,
-    };
+    private static AtlassianAccountLink Linked() => new("acc-1", DateTime.UtcNow);
 
     [Fact]
     public void Disconnect_MovesFocusIntoTheConfirmation_AndCancelReturnsItToDisconnect()

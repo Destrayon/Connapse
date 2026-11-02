@@ -10,6 +10,7 @@ using NSubstitute;
 namespace Connapse.Identity.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AzureIdTokenValidatorTests
 {
     private const string TenantId = "11111111-1111-1111-1111-111111111111";

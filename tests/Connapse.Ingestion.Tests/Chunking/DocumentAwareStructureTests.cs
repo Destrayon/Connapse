@@ -12,6 +12,7 @@ namespace Connapse.Ingestion.Tests.Chunking;
 /// long tables and the breadcrumb's share of the token budget.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class DocumentAwareStructureTests
 {
     private readonly TiktokenTokenCounter _counter = new();

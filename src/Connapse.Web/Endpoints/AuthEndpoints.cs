@@ -1,4 +1,9 @@
 using System.Security.Claims;
+using Connapse.Application;
+using Connapse.Application.Links;
+using Connapse.Application.Ports;
+using Connapse.Application.Tokens;
+using Connapse.Application.Users;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -9,6 +14,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using Connapse.Web;
+using Connapse.Web.Problems;
 
 namespace Connapse.Web.Endpoints;
 
@@ -27,6 +33,9 @@ public static class AuthEndpoints
             [FromServices] IAuditLogger auditLogger,
             CancellationToken ct) =>
         {
+            if (string.IsNullOrEmpty(request.Email) || string.IsNullOrEmpty(request.Password))
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "email and password are required.");
+
             var user = await userManager.FindByEmailAsync(request.Email);
             if (user is null)
                 return Results.Unauthorized();
@@ -52,6 +61,10 @@ public static class AuthEndpoints
 
             return Results.Ok(tokenResponse);
         })
+        .Produces<TokenResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .AddEndpointFilter<MalformedSignInInputFilter>()
         .WithName("GetToken")
         .WithDescription("Exchange email/password for a JWT access token and refresh token")
         .AllowAnonymous()
@@ -65,21 +78,25 @@ public static class AuthEndpoints
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
+            if (string.IsNullOrEmpty(request.RefreshToken))
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "refreshToken is required.");
+
             // Reject OAuth-issued refresh tokens — they must go through /oauth/token
             var tokenHash = OAuthEndpoints.ComputeSha256Hex(request.RefreshToken);
             var existingToken = await dbContext.RefreshTokens
                 .FirstOrDefaultAsync(r => r.TokenHash == tokenHash, ct);
             if (existingToken?.ClientId is not null)
-                return Results.Json(new { error = "OAuth tokens must use /oauth/token endpoint" },
-                    statusCode: StatusCodes.Status400BadRequest);
+                return ApiProblem.BadRequest("OAuth tokens must use /oauth/token endpoint");
 
             var tokenResponse = await tokenService.RefreshTokenAsync(request.RefreshToken, cancellationToken: ct);
             if (tokenResponse is null)
-                return Results.Json(new { error = "Invalid or expired refresh token" },
-                    statusCode: StatusCodes.Status401Unauthorized);
+                return ApiProblem.Unauthorized("Invalid or expired refresh token");
 
             return Results.Ok(tokenResponse);
         })
+        .Produces<TokenResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
         .WithName("RefreshToken")
         .WithDescription("Exchange a refresh token for a new JWT access token and refresh token")
         .AllowAnonymous();
@@ -107,177 +124,150 @@ public static class AuthEndpoints
                 roles.ToList(),
                 user.CreatedAt));
         })
+        .Produces<MeResponse>()
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
         .WithName("GetMe")
         .WithDescription("Return the authenticated caller's identity (id, email, display name, roles).")
         .RequireAuthorization();
 
-        // GET /api/v1/auth/pats — list the authenticated user's PATs
-        group.MapGet("/pats", async (
-            HttpContext httpContext,
-            [FromServices] PatService patService,
+        // GET /api/v1/auth/links — the caller's linked accounts, so an agent can say why search hides a document (#865)
+        group.MapGet("/links", async (
+            HttpContext http,
+            [FromServices] ListAccountLinks list,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null)
-                return Results.Unauthorized();
-
-            var pats = await patService.ListAsync(userId.Value, ct);
-            return Results.Ok(pats);
+            var read = await list.RunAsync(new OperationContext(http.User, OperationSurface.Rest), new ListAccountLinksQuery(), ct);
+            return read.Succeeded
+                ? Results.Ok(AccountLinksResponse.From(read.Result!))
+                : OperationProblems.Result(read);
         })
-        .WithName("ListPats")
-        .WithDescription("List personal access tokens for the authenticated user")
-        .RequireAuthorization();
+        .Produces<AccountLinksResponse>()
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .WithName("ListAccountLinks")
+        .WithDescription("List the caller's linked accounts (AWS, Entra ID, GitHub, Atlassian, custom providers): whether each is linked, as whom, since when, and whether this server offers linking. Search hides documents that only an unlinked account may read. Linking itself happens in a browser at /profile/integrations.")
+        .RequireAuthorization(Policies.Account);
 
-        // POST /api/v1/auth/pats — create a PAT (token shown only once)
+        // GET /api/v1/auth/pats — list the caller's own personal access tokens
+        group.MapGet("/pats", async (
+            HttpContext http,
+            [FromServices] ListPersonalTokens list,
+            CancellationToken ct) =>
+        {
+            var listed = await list.RunAsync(Rest(http), ct);
+            return listed.Succeeded ? Results.Ok(listed.Result) : OperationProblems.Result(listed);
+        })
+        .Produces<IReadOnlyList<PatListItem>>()
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .WithName("pats.list")
+        .WithDescription("List your personal access tokens, newest first, revoked ones included. Only a person signed in themselves may: not a personal access token or agent key.")
+        .RequireAuthorization(Policies.Person);
+
+        // POST /api/v1/auth/pats — create a personal access token (its value is shown only once)
         group.MapPost("/pats", async (
             [FromBody] PatCreateRequest request,
-            HttpContext httpContext,
-            [FromServices] PatService patService,
-            [FromServices] IAuditLogger auditLogger,
+            HttpContext http,
+            [FromServices] CreatePersonalToken create,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null)
-                return Results.Unauthorized();
-
-            var pat = await patService.CreateAsync(userId.Value, request, ct);
-            await auditLogger.LogAsync("pat.created", "pat", pat.Id.ToString(),
-                new { pat.Name, pat.Scopes }, ct);
-
-            return Results.Ok(pat);
+            var created = await create.RunAsync(Rest(http), request, ct);
+            return created.Succeeded ? Results.Ok(created.Result) : OperationProblems.Result(created);
         })
-        .WithName("CreatePat")
-        .WithDescription("Create a personal access token (the raw token is returned only on creation)")
-        .RequireAuthorization();
+        .Produces<PatCreateResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .WithName("pats.create")
+        .WithDescription("Create a personal access token; its value is returned only here. The name is required (at most 256 characters), scopes are from knowledge:read, knowledge:write, admin:users, admin:audit, admin:oauth-clients, admin:settings and admin:sources (the deprecated agent:ingest is accepted and dropped), and an expiry must be in the future. Only a person signed in themselves may: not a personal access token or agent key.")
+        .RequireAuthorization(Policies.Person);
 
-        // DELETE /api/v1/auth/pats/{id} — revoke a PAT
+        // DELETE /api/v1/auth/pats/{id} — revoke one of the caller's own personal access tokens
         group.MapDelete("/pats/{id:guid}", async (
             Guid id,
-            HttpContext httpContext,
-            [FromServices] PatService patService,
-            [FromServices] IAuditLogger auditLogger,
+            HttpContext http,
+            [FromServices] RevokePersonalToken revoke,
             CancellationToken ct) =>
         {
-            var userId = GetUserId(httpContext);
-            if (userId is null)
-                return Results.Unauthorized();
-
-            var revoked = await patService.RevokeAsync(userId.Value, id, ct);
-            if (!revoked)
-                return Results.NotFound(new { error = "PAT not found or already revoked" });
-
-            await auditLogger.LogAsync("pat.revoked", "pat", id.ToString(), null, ct);
-            return Results.NoContent();
+            var revoked = await revoke.RunAsync(Rest(http), id, ct);
+            return revoked.Succeeded ? Results.NoContent() : OperationProblems.Result(revoked);
         })
-        .WithName("RevokePat")
-        .WithDescription("Revoke a personal access token by ID")
-        .RequireAuthorization();
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("pats.revoke")
+        .WithDescription("Revoke one of your personal access tokens by id. Only a person signed in themselves may: not a personal access token or agent key.")
+        .RequireAuthorization(Policies.Person);
 
         // GET /api/v1/auth/users — list users (Admin only, paginated)
         group.MapGet("/users", async (
             [FromQuery] int? skip,
             [FromQuery] int? take,
-            [FromServices] ConnapseIdentityDbContext dbContext,
+            [FromServices] ListUsers list,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var effectiveSkip = skip ?? 0;
-            var effectiveTake = take ?? 50;
-            var validationError = PaginationValidator.Validate(effectiveSkip, effectiveTake);
-            if (validationError is not null) return validationError;
+            var listed = await list.RunAsync(Rest(http), new ListUsersQuery(skip ?? 0, take ?? 50), ct);
+            if (!listed.Succeeded)
+                return OperationProblems.Result(listed);
 
-            var totalCount = await dbContext.Users.CountAsync(ct);
-
-            var users = await dbContext.Users
-                .OrderBy(u => u.CreatedAt)
-                .Skip(effectiveSkip)
-                .Take(effectiveTake)
-                .ToListAsync(ct);
-
-            var userIds = users.Select(u => u.Id).ToList();
-
-            // Batch-load role mappings only for this page of users
-            var rolesByUserId = await dbContext.UserRoles
-                .Where(ur => userIds.Contains(ur.UserId))
-                .Join(
-                    dbContext.Roles,
-                    ur => ur.RoleId,
-                    r => r.Id,
-                    (ur, r) => new { ur.UserId, RoleName = r.Name! })
-                .ToListAsync(ct);
-
-            var roleLookup = rolesByUserId
-                .GroupBy(x => x.UserId)
-                .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.RoleName).ToList());
-
-            var items = users.Select(u => new UserListItem(
-                u.Id,
-                u.Email ?? "",
-                u.DisplayName,
-                roleLookup.GetValueOrDefault(u.Id, []),
-                u.CreatedAt,
-                u.LastLoginAt)).ToList();
-
-            return Results.Ok(new PagedResponse<UserListItem>(items, totalCount, effectiveSkip + effectiveTake < totalCount));
+            var page = listed.Result!;
+            var items = page.Items.Select(u => new UserListItem(u.Id, u.Email, u.DisplayName, u.Roles, u.CreatedAt, u.LastLoginAt)).ToList();
+            return Results.Ok(new PagedResponse<UserListItem>(items, page.TotalCount, page.HasMore));
         })
-        .WithName("ListUsers")
+        .Produces<PagedResponse<UserListItem>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .WithName("users.list")
         .WithDescription("List users with pagination (?skip=0&take=50) (Admin only)")
         .RequireAuthorization("RequireAdmin");
 
-        // PUT /api/v1/auth/users/{id}/roles — assign roles to a user (Admin only)
+        // PUT /api/v1/auth/users/{id}/roles — replace a user's roles (Admin only; Admins only by the Owner)
         group.MapPut("/users/{id:guid}/roles", async (
             Guid id,
             [FromBody] AssignRolesRequest request,
-            [FromServices] UserManager<ConnapseUser> userManager,
-            [FromServices] IAuditLogger auditLogger,
+            [FromServices] SetUserRoles setRoles,
+            HttpContext http,
             CancellationToken ct) =>
         {
-            var targetUser = await userManager.FindByIdAsync(id.ToString());
-            if (targetUser is null)
-                return Results.NotFound(new { error = "User not found" });
-
-            // Owner and Agent roles cannot be assigned via this endpoint
-            var reservedRoles = new[] { "Owner", "Agent" };
-            var blocked = request.Roles.FirstOrDefault(r =>
-                reservedRoles.Contains(r, StringComparer.OrdinalIgnoreCase));
-            if (blocked is not null)
-                return Results.BadRequest(new { error = $"The '{blocked}' role cannot be assigned via this endpoint." });
-
-            var currentRoles = await userManager.GetRolesAsync(targetUser);
-
-            // Never remove the Owner role — preserve it regardless of requested roles
-            var ownerRoles = currentRoles
-                .Where(r => r.Equals("Owner", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            var rolesToRemove = currentRoles
-                .Except(ownerRoles, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (rolesToRemove.Count > 0)
-                await userManager.RemoveFromRolesAsync(targetUser, rolesToRemove);
-
-            var rolesToAdd = request.Roles
-                .Where(r => !currentRoles.Contains(r, StringComparer.OrdinalIgnoreCase))
-                .ToList();
-
-            if (rolesToAdd.Count > 0)
-            {
-                var addResult = await userManager.AddToRolesAsync(targetUser, rolesToAdd);
-                if (!addResult.Succeeded)
-                    return Results.BadRequest(new { errors = addResult.Errors.Select(e => e.Description) });
-            }
-
-            await auditLogger.LogAsync("user.roles.updated", "user", id.ToString(),
-                new { Roles = request.Roles }, ct);
-
-            return Results.NoContent();
+            var set = await setRoles.RunAsync(Rest(http), new SetUserRolesRequest(id, request.Roles), ct);
+            return set.Succeeded ? Results.NoContent() : OperationProblems.Result(set);
         })
-        .WithName("AssignUserRoles")
-        .WithDescription("Assign roles to a user (Admin only)")
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("users.setRoles")
+        .WithDescription("Replace a user's roles (Admin only). Nobody changes their own account or the Owner's, only the Owner manages Admins, and Owner and Agent are never assigned.")
         .RequireAuthorization("RequireAdmin");
+
+        // DELETE /api/v1/auth/users/{id} — delete a user (Admin only), queuing their custom-provider unlinks
+        group.MapDelete("/users/{id:guid}", async (
+            Guid id,
+            [FromServices] DeleteUser delete,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var deleted = await delete.RunAsync(Rest(http), id, ct);
+            return deleted.Succeeded ? Results.NoContent() : OperationProblems.Result(deleted);
+        })
+        .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status500InternalServerError)
+        .WithName("users.delete")
+        .WithDescription("Delete a user (Admin only). Nobody deletes their own account or the Owner's, and only the Owner deletes an Admin. Their custom-provider links are unlinked afterwards.")
+        // The scope too: an administrator's token issued for less (knowledge:read) is refused here, before the operation.
+        .RequireAuthorization("RequireAdmin", "Scope:AdminUsers");
 
         return app;
     }
+
+    private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 
     private static Guid? GetUserId(HttpContext httpContext)
     {

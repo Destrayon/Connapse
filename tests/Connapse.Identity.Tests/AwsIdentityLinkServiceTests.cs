@@ -19,6 +19,7 @@ namespace Connapse.Identity.Tests;
 /// longer exist to test.
 /// </remarks>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AwsIdentityLinkServiceTests
 {
     private static AwsIdentityLinkStore CreateStore(string dbName) =>

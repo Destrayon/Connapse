@@ -10,6 +10,7 @@ using FluentAssertions;
 namespace Connapse.Eval.Tests.Datasets;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Large")]
 public class ExtractionAdapterTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "eval-extract-" + Guid.NewGuid().ToString("N"));

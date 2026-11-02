@@ -3,6 +3,7 @@ using FluentAssertions;
 namespace Connapse.CustomSource.Example.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class LinkStoreTests
 {
     [Fact]

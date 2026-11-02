@@ -20,6 +20,22 @@ public sealed record CustomProvider(
     DateTime UpdatedAt,
     bool HasLinkSecret = false);
 
+/// <summary>What checking a custom provider's middle man found, step by step.</summary>
+/// <param name="EndpointOk">The address is acceptable, the middle man speaks protocol 1, accepts the token and refuses a wrong one.</param>
+/// <param name="PermissionsOk">It advertises <c>permissions.check</c> and answered a real check call.</param>
+/// <param name="Field">The form field an error belongs to: <c>baseUrl</c> or <c>secret</c>.</param>
+/// <param name="Name">The name the middle man reports in its discovery document, once it was reached.</param>
+public sealed record CustomProviderCheck(
+    string? BaseUrl,
+    bool EndpointOk,
+    bool PermissionsOk,
+    int MaxCheckBatch = 0,
+    bool SupportsAccessKeys = false,
+    string? LinkUrl = null,
+    string? Error = null,
+    string? Field = null,
+    string? Name = null);
+
 /// <summary>What a custom provider is saved with, after its middle man was checked.</summary>
 /// <param name="Token">The bearer token; null on an update keeps the stored one.</param>
 public sealed record SaveCustomProviderRequest(

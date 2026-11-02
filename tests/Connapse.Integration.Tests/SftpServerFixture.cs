@@ -58,9 +58,10 @@ public sealed class SftpServerFixture : IAsyncLifetime
                 $"{Home}/.ssh/keys/generated.pub")
 
             .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(22))
+            .WithCreateParameterModifier(TestContainerLimits.Apply)
             .Build();
 
-        await _container.StartAsync();
+        await ContainerStart.StartAsync(_container);
     }
 
     public async Task DisposeAsync() => await _container.DisposeAsync();

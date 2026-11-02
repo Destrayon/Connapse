@@ -101,7 +101,6 @@ public sealed class EvalHost : IAsyncDisposable
                 builder.UseSetting("Knowledge:Storage:MinIO:AccessKey", MinioBuilder.DefaultUsername);
                 builder.UseSetting("Knowledge:Storage:MinIO:SecretKey", MinioBuilder.DefaultPassword);
                 builder.UseSetting("Knowledge:Storage:MinIO:UseSSL", "false");
-                builder.UseSetting("Knowledge:Summary:Enabled", "false");
                 builder.UseSetting("CONNAPSE_ADMIN_EMAIL", AdminEmail);
                 builder.UseSetting("CONNAPSE_ADMIN_PASSWORD", AdminPassword);
                 builder.UseSetting("Identity:Jwt:Secret", JwtSecret);

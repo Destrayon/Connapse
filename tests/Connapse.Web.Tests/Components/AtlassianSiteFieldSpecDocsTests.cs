@@ -15,7 +15,7 @@ namespace Connapse.Web.Tests.Components;
 [Trait("Category", "Unit")]
 public class AtlassianSiteFieldSpecDocsTests
 {
-    private static string GuidePath => Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "atlassian-setup.md");
+    private static string GuidePath => Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "sources", "atlassian-setup.md");
 
     [Fact]
     public void TheGuideMustName_TheseLabels()
@@ -218,11 +218,11 @@ public class ConnectionsPageLifecycleTests
     }
 
     [Fact]
-    public void RenameDeleteAndPause_GoThroughTheSharedServiceTheRestApiUses()
+    public void RenameDeleteAndPause_GoThroughTheOperationsTheRestApiUses()
     {
-        Markup.Should().Contain("await Admin.SaveAsync(editing!.Id,")
-            .And.Contain("await Admin.DeleteAsync(connection.Id, connection.Name)")
-            .And.Contain("await Admin.SetSyncingAsync(connection, enabled, only)")
+        Markup.Should().Contain("await Operations.SaveAsync(await Authentication, editing!,")
+            .And.Contain("await Operations.DeleteAsync(await Authentication, connection, Fail)")
+            .And.Contain("await Operations.SetSyncingAsync(await Authentication, connection, enabled, only, Succeed, Fail)")
             .And.NotContain("ConnectionStore.DeleteAsync(")
             .And.NotContain("ConnectionStore.UpdateAsync(");
     }

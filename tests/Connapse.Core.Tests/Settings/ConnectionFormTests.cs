@@ -17,6 +17,7 @@ namespace Connapse.Core.Tests.Settings;
 /// </para>
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ConnectionFormTests
 {
     private static Connection Stored(ConnectionProvider provider, string configJson, bool hasSecret = false) => new(
@@ -263,7 +264,6 @@ public class ConnectionFormTests
     // ── AzureBlob ────────────────────────────────────────────────────────
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void ConnectionForm_AzureBlob_BuildsConfigJson()
     {
         // Name is required for every provider (see Validate_RequiresAName above), so it is set
@@ -274,7 +274,6 @@ public class ConnectionFormTests
     }
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void ConnectionForm_AzureBlob_MissingAccount_FailsValidation()
     {
         var form = new ConnectionForm { Provider = ConnectionProvider.AzureBlob };
@@ -704,8 +703,11 @@ public class ConnectionFormTests
     {
         ConnectionForm form = new()
         {
-            Name = "acme", Provider = ConnectionProvider.Custom, CustomContentOnly = true,
-            CustomBaseUrl = " https://bridge.example.com ", CustomToken = " tok "
+            Name = "acme",
+            Provider = ConnectionProvider.Custom,
+            CustomContentOnly = true,
+            CustomBaseUrl = " https://bridge.example.com ",
+            CustomToken = " tok "
         };
 
         form.Validate().Should().BeNull();
@@ -746,7 +748,10 @@ public class ConnectionFormTests
     {
         ConnectionForm form = new()
         {
-            Name = "acme", Provider = ConnectionProvider.Custom, CustomProviderId = Guid.NewGuid(), CustomToken = "tok"
+            Name = "acme",
+            Provider = ConnectionProvider.Custom,
+            CustomProviderId = Guid.NewGuid(),
+            CustomToken = "tok"
         };
 
         form.ToSecretJson().Should().BeNull("a connection that names a provider reads with the provider's token");

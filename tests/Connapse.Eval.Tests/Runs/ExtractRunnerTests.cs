@@ -8,6 +8,7 @@ using FluentAssertions;
 namespace Connapse.Eval.Tests.Runs;
 
 [Trait("Category", "Integration")]
+[Trait("Size", "Large")]
 [Collection(EvalHostCollection.Name)]
 public class ExtractRunnerTests
 {

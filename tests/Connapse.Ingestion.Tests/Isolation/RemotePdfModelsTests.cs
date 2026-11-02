@@ -7,6 +7,7 @@ namespace Connapse.Ingestion.Tests.Isolation;
 
 // #680 review: how a parser host's model calls fail when the shared inference host can't run them.
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class RemotePdfModelsTests
 {
     private static readonly PdfImage Page = new(PdfLayout.InputSide, PdfLayout.InputSide, new byte[PdfLayout.InputSide * PdfLayout.InputSide * 4]);

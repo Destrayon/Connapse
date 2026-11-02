@@ -25,7 +25,6 @@ public class SettingsCoverageTests
         (typeof(SearchSettings), "SearchSettingsTab.razor"),
         (typeof(LlmSettings), "LlmSettingsTab.razor"),
         (typeof(UploadSettings), "UploadSettingsTab.razor"),
-        (typeof(SummarySettings), "SummarySettingsTab.razor"),
         (typeof(AzureAdSignInSettings), "AzureAdSignInSettingsTab.razor"),
         (typeof(AzureProviderSettings), "AzureProviderSettingsTab.razor"),
         (typeof(IdentityCenterSettings), "IdentityCenterSettingsTab.razor"),
@@ -39,6 +38,7 @@ public class SettingsCoverageTests
         // which take precedence.
         ["EmbeddingSettings.ApiKey"] = "legacy shared key, superseded by per-provider keys",
         ["LlmSettings.ApiKey"] = "legacy shared key, superseded by per-provider keys",
+        ["UploadSettings.ParallelWorkers"] = "deprecated and ignored; the worker count is Hangfire:IngestionWorkerCount, read at startup",
         // The link layer ships off by default with no page yet (CON-32); it is set through configuration.
         ["SearchSettings.EnableLinkSearch"] = "link layer is off by default and has no page yet",
         ["SearchSettings.LinkWeight"] = "link layer is off by default and has no page yet",

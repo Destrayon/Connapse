@@ -41,7 +41,7 @@ public class AtlassianOperationNamesTests
     {
         foreach (string surface in Surfaces)
             Read(surface).Should().NotContain(retired, $"{surface} names the operation as every other surface does");
-        foreach (string doc in new[] { "atlassian-setup.md", "confluence-test-site.md" })
+        foreach (string doc in new[] { Path.Combine("sources", "atlassian-setup.md"), Path.Combine("contributing", "confluence-test-site.md") })
             File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", doc)).Should().NotContain($"**{retired}**");
     }
 

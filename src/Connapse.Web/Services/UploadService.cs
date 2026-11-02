@@ -1,6 +1,7 @@
 ﻿using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Pipeline;
 
 namespace Connapse.Web.Services;
 
@@ -11,7 +12,8 @@ public class UploadService(
     IIngestionQueue ingestionQueue,
     IDocumentStore documentStore,
     IFileTypeValidator fileTypeValidator,
-    IAuditLogger auditLogger) : IUploadService
+    IAuditLogger auditLogger,
+    ILogger<UploadService> logger) : IUploadService
 {
     private static readonly Dictionary<string, string> ContentTypeMap = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -141,13 +143,18 @@ public class UploadService(
 
         var contentType = request.ContentType ?? InferContentType(request.FileName);
 
-        // Write file
-        await connector.WriteFileAsync(relativePath, request.Content, contentType, ct);
+        // Parse strategy
+        var strategy = ChunkingStrategy.Semantic;
+        bool strategyIsExplicit = false;
+        if (request.Strategy is not null &&
+            Enum.TryParse<ChunkingStrategy>(request.Strategy, true, out var parsed))
+        {
+            strategy = parsed;
+            strategyIsExplicit = true;
+        }
 
-        // Ensure intermediate folders
         var folderPath = PathUtilities.GetParentPath(virtualFilePath);
-        if (folderPath != "/")
-            await EnsureIntermediateFoldersAsync(folderStore, request.ContainerId, folderPath, ct);
+        Folder? folder = folderPath == "/" ? null : await folderStore.EnsureAsync(request.ContainerId, folderPath, ct);
 
         // Cancel any in-flight ingestion for an existing document at the same path.
         var existingDoc = await documentStore.GetByPathAsync(request.ContainerId, virtualFilePath, ct);
@@ -157,7 +164,7 @@ public class UploadService(
         // Eagerly create/update the document row. The upsert atomically increments
         // the generation counter, so any in-flight job for a prior generation will
         // detect it's stale and skip chunk insertion.
-        var storeResult = await documentStore.StoreAsync(new Document(
+        var document = new Document(
             documentId,
             request.ContainerId.ToString(),
             request.FileName,
@@ -170,20 +177,36 @@ public class UploadService(
                 ["OriginalFileName"] = request.FileName,
                 ["UploadedAt"] = DateTime.UtcNow.ToString("O"),
                 ["IngestedVia"] = request.IngestedVia
-            }), ct);
+            });
+        // The caller's strategy goes on the record too, where a job started later by the stuck-job sweep reads it
+        // from, as a reindex does (CON-96). Indexing then records what it actually used.
+        if (strategyIsExplicit)
+        {
+            document.Metadata[IngestionPipeline.MetadataKeyChunkingStrategy] = strategy.ToString();
+            document.Metadata[IngestionPipeline.MetadataKeyStrategyExplicit] = "true";
+        }
+        // In a folder, the file is written while the folder is locked against a delete, so a folder delete either
+        // waits and removes the file with its record, or comes first and the upload is refused before it writes
+        // anything (CON-86).
+        Task WriteFileAsync(CancellationToken token) => connector.WriteFileAsync(relativePath, request.Content, contentType, token);
+        StoreResult? storeResult;
+        try
+        {
+            storeResult = await documentStore.StoreInFolderAsync(
+                document, folder is null ? null : Guid.Parse(folder.Id), WriteFileAsync, ct);
+        }
+        catch
+        {
+            // The file may be in storage with no record pointing to it (CON-88).
+            await RemoveUnrecordedFileAsync(connector, request.ContainerId, virtualFilePath, relativePath);
+            throw;
+        }
+
+        if (storeResult is null)
+            return new UploadResult(false, Error: "Upload not allowed: the folder was deleted while the file was uploading.");
 
         // Use the winning document ID (may differ from our generated one if upsert hit an existing row)
         var winnerDocId = storeResult.DocumentId;
-
-        // Parse strategy
-        var strategy = ChunkingStrategy.Semantic;
-        bool strategyIsExplicit = false;
-        if (request.Strategy is not null &&
-            Enum.TryParse<ChunkingStrategy>(request.Strategy, true, out var parsed))
-        {
-            strategy = parsed;
-            strategyIsExplicit = true;
-        }
 
         // Build and enqueue ingestion job with the current generation
         var job = new IngestionJob(
@@ -206,7 +229,18 @@ public class UploadService(
             },
             BatchId: batchId);
 
-        string? jobId = await ingestionQueue.EnqueueAsync(job, ct);
+        // The file and its record are stored, so the upload has succeeded even if its job cannot start: the record
+        // stays Queued with no job, and the stuck-job sweep starts one (CON-96). Failing here would report an upload
+        // whose document later appears.
+        string? jobId = null;
+        try
+        {
+            jobId = await ingestionQueue.EnqueueAsync(job, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not start indexing document {DocumentId}; the stuck-job sweep will start it", winnerDocId);
+        }
 
         // Audit log
         await auditLogger.LogAsync("doc.uploaded", "document", winnerDocId,
@@ -215,26 +249,25 @@ public class UploadService(
         return new UploadResult(true, winnerDocId, jobId);
     }
 
+    private async Task RemoveUnrecordedFileAsync(IWritableConnector connector, Guid containerId, string virtualFilePath, string relativePath)
+    {
+        // Not the request's token: a cancelled upload must still clean up after itself.
+        try
+        {
+            // A record at the path, a replaced document's or a newer upload's, still points to the file, so it stays.
+            await documentStore.RemoveUnrecordedFileAsync(containerId, virtualFilePath,
+                token => connector.DeleteFileAsync(relativePath, token), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not remove the stored file {Path} in container {ContainerId} after its upload failed",
+                LogSanitizer.Sanitize(relativePath), containerId);
+        }
+    }
+
     private static string InferContentType(string fileName)
     {
         var ext = Path.GetExtension(fileName);
         return ext is not null && ContentTypeMap.TryGetValue(ext, out var ct) ? ct : "application/octet-stream";
-    }
-
-    private static async Task EnsureIntermediateFoldersAsync(
-        IFolderStore folderStore, Guid containerId, string normalizedFolderPath, CancellationToken ct)
-    {
-        if (normalizedFolderPath == "/")
-            return;
-
-        var segments = normalizedFolderPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var currentPath = "/";
-
-        foreach (var segment in segments)
-        {
-            currentPath += segment + "/";
-            if (!await folderStore.ExistsAsync(containerId, currentPath, ct))
-                await folderStore.CreateAsync(containerId, currentPath, ct);
-        }
     }
 }

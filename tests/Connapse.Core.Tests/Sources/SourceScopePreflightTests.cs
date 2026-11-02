@@ -13,6 +13,7 @@ namespace Connapse.Core.Tests.Sources;
 /// one is worse than none: it either blocks a valid source or promises one that will fail.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SourceScopePreflightTests
 {
     private static SourceScopePreflight Build(params string[] allowedFilesystemRoots)

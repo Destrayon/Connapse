@@ -28,28 +28,15 @@ public class SentenceAwareFixedSizeChunker(
         if (string.IsNullOrWhiteSpace(content))
             return chunks;
 
-        IReadOnlyList<string> rawSentences = sentenceSegmenter.Split(content);
-        if (rawSentences.Count == 0)
-        {
-            chunks.Add(BuildChunk(parsedDocument, content, 0, content.Length, 0, offsetEstimated: false));
-            return chunks;
-        }
-
-        // Locate every sentence's source offset (moving cursor; fallback to cursor if
-        // the segmenter normalized whitespace and the sentence isn't a verbatim slice).
-        // If any sentence's offset had to be estimated (IndexOf miss), every emitted
-        // chunk in this run gets a metadata flag so downstream consumers can spot it.
+        // The segmenter's sentences are not verbatim (it strips <...> and splits inside a.b), so
+        // each sentence is the source text of its span, trimmed, never the segmenter's string (CON-143).
+        // Every span holds some non-whitespace, and a segmenter that returns nothing yields one span.
         var sentenceSpans = new List<(string Text, int Offset, int Tokens)>();
-        int cursor = 0;
-        bool anyOffsetEstimated = false;
-        foreach (string s in rawSentences)
+        foreach ((int Start, int End) span in SentenceSpans.Locate(content, sentenceSegmenter.Split(content)))
         {
-            string trimmed = s.Trim();
-            if (trimmed.Length == 0) continue;
-            int idx = content.IndexOf(trimmed, cursor, StringComparison.Ordinal);
-            if (idx < 0) { idx = cursor; anyOffsetEstimated = true; }
-            sentenceSpans.Add((trimmed, idx, tokenCounter.CountTokens(trimmed)));
-            cursor = idx + trimmed.Length;
+            (int s, int e) = SentenceSpans.Trim(content, span);
+            string text = content[s..e];
+            sentenceSpans.Add((text, s, tokenCounter.CountTokens(text)));
         }
 
         var rawChunks = new List<(int Start, int End)>();
@@ -110,16 +97,11 @@ public class SentenceAwareFixedSizeChunker(
         Flush();
 
         var merged = MergeForwardSmallChunks(rawChunks, settings.MinChunkSize, content);
-        if (merged.Count == 0)
-        {
-            chunks.Add(BuildChunk(parsedDocument, content, 0, content.Length, 0, anyOffsetEstimated));
-            return chunks;
-        }
 
         int chunkIndex = 0;
         foreach ((int start, int end) span in merged)
         {
-            chunks.Add(BuildChunk(parsedDocument, content, span.start, span.end, chunkIndex++, anyOffsetEstimated));
+            chunks.Add(BuildChunk(parsedDocument, content, span.start, span.end, chunkIndex++));
         }
 
         return chunks;
@@ -130,8 +112,7 @@ public class SentenceAwareFixedSizeChunker(
         string content,
         int start,
         int end,
-        int chunkIndex,
-        bool offsetEstimated)
+        int chunkIndex)
     {
         // Snap offsets to the non-whitespace span so Content round-trips exactly with
         // the recorded (StartOffset, EndOffset) — needed when the RecursiveChunker
@@ -148,8 +129,6 @@ public class SentenceAwareFixedSizeChunker(
             ["ChunkingStrategy"] = Name,
             ["ChunkIndex"] = chunkIndex.ToString()
         };
-        if (offsetEstimated)
-            metadata["OffsetEstimated"] = "true";
         return new ChunkInfo(
             Content: text,
             ChunkIndex: chunkIndex,

@@ -15,6 +15,7 @@ namespace Connapse.Core.Tests.Web;
 
 /// <summary>The GitHub entry on the Providers page: whether the App is set up, installed, and still accepted.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class ProviderSetupReaderGitHubTests
 {
     private static readonly GitHubAppRegistration App =
@@ -36,7 +37,8 @@ public sealed class ProviderSetupReaderGitHubTests
 
         var gitHubApp = new ConnapseGitHubApp(
             services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), http,
-            NullLogger<ConnapseGitHubApp>.Instance) { ApiBaseUrl = "https://api.github.test" };
+            NullLogger<ConnapseGitHubApp>.Instance)
+        { ApiBaseUrl = "https://api.github.test" };
 
         var connections = Substitute.For<IConnectionStore>();
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
@@ -119,6 +121,21 @@ public sealed class ProviderSetupReaderGitHubTests
     }
 
     [Fact]
+    public async Task ReadAsync_StoredKeyUnreadable_FailsAndAsksForTheKeyAgain()
+    {
+        _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
+        var reader = Reader(HttpStatusCode.OK, 1);
+        _credentials.GetGitHubAppMaterialAsync(Arg.Any<CancellationToken>())
+            .Returns<GitHubAppCredentialMaterial?>(_ => throw new ProviderCredentialUnavailableException("github", new InvalidOperationException()));
+
+        var requirement = (await GitHubAsync(reader)).Requirements.Single();
+
+        requirement.Status.Should().Be(RequirementStatus.Failed, "asking GitHub again will not make the key readable");
+        requirement.Detail.Should().Contain("can't be read").And.Contain("Manual values");
+        requirement.ActionHref.Should().Be("#github-app");
+    }
+
+    [Fact]
     public async Task ReadAsync_KeyRefused_Fails()
     {
         _credentials.GetGitHubAppAsync(Arg.Any<CancellationToken>()).Returns(App);
@@ -138,8 +155,10 @@ public sealed class ProviderSetupReaderGitHubTests
 
             var items = Enumerable.Range(1, installations).Select(i => new
             {
-                id = i, account = new { login = "octo-org", type = "Organization" },
-                repository_selection = "all", html_url = "https://github.com/x",
+                id = i,
+                account = new { login = "octo-org", type = "Organization" },
+                repository_selection = "all",
+                html_url = "https://github.com/x",
             });
 
             return Task.FromResult(new HttpResponseMessage(status)

@@ -107,6 +107,132 @@ public class ContainerSettingsIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task SaveContainerSettings_WithKeys_ReadsBackWithoutThemAndKeepsThemWhenLeftOut()
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = "settings-keys-test" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        var id = Guid.Parse(container!.Id);
+
+        var put = await fixture.AdminClient.PutAsJsonAsync($"/api/containers/{id}/settings", new ContainerSettingsOverrides
+        {
+            Embedding = new EmbeddingSettings { Provider = "OpenAI", Model = "text-embedding-3-small", Dimensions = 1536, OpenAiApiKey = "sk-con186-embedding" },
+            Search = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderApiKey = "co-con186-rerank" },
+        });
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await put.Content.ReadAsStringAsync()).Should().NotContain("con186");
+
+        // Every read leaves the keys out: the settings, the container, and the container list.
+        foreach (var path in new[] { $"/api/containers/{id}/settings", $"/api/containers/{id}", "/api/containers/by-name/settings-keys-test", "/api/containers" })
+            (await fixture.AdminClient.GetStringAsync(path)).Should().NotContain("con186", path);
+        var read = await fixture.AdminClient.GetFromJsonAsync<ContainerSettingsOverrides>($"/api/containers/{id}/settings", JsonOptions);
+        read!.Embedding!.OpenAiApiKey.Should().BeNull();
+        read.Search!.CrossEncoderApiKey.Should().BeNull();
+
+        // Saving what was read back keeps the stored keys.
+        (await fixture.AdminClient.PutAsJsonAsync($"/api/containers/{id}/settings", read)).StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+            (await resolver.GetEmbeddingSettingsAsync(id)).OpenAiApiKey.Should().Be("sk-con186-embedding");
+            (await resolver.GetSearchSettingsAsync(id)).CrossEncoderApiKey.Should().Be("co-con186-rerank");
+        }
+
+        // An empty key clears it.
+        read.Search.CrossEncoderApiKey = "";
+        (await fixture.AdminClient.PutAsJsonAsync($"/api/containers/{id}/settings", read)).StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+            (await resolver.GetEmbeddingSettingsAsync(id)).OpenAiApiKey.Should().Be("sk-con186-embedding");
+            (await resolver.GetSearchSettingsAsync(id)).CrossEncoderApiKey.Should().BeNull();
+        }
+
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
+    }
+
+    [Theory]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","topK":9}}""", "co-con197-rerank")]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","crossEncoderApiKey":null}}""", "co-con197-rerank")]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","crossEncoderApiKey":""}}""", null)]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://elsewhere.example"}}""", null)]
+    [InlineData("""{"search":{"crossEncoderProvider":"Cohere","topK":9}}""", null)]
+    public async Task SaveContainerSettings_JsonLeavesTheKeyOut_KeepsItOnlyForTheSameNamedDestinations(string json, string? expected)
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"settings-json-key-{Guid.NewGuid():N}"[..40] });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        string url = $"/api/containers/{container!.Id}/settings";
+        using StringContent stored = new("""{"search":{"crossEncoderProvider":"Cohere","crossEncoderBaseUrl":"https://rerank.example","crossEncoderApiKey":"co-con197-rerank"}}""",
+            System.Text.Encoding.UTF8, "application/json");
+        (await fixture.AdminClient.PutAsync(url, stored)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using StringContent body = new(json, System.Text.Encoding.UTF8, "application/json");
+        var put = await fixture.AdminClient.PutAsync(url, body);
+
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await put.Content.ReadAsStringAsync()).Should().NotContain("con197");
+        await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+        IContainerStore store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+        (await store.GetSettingsOverridesAsync(Guid.Parse(container.Id)))!.Search!.CrossEncoderApiKey.Should().Be(expected);
+
+        await fixture.AdminClient.DeleteAsync(url[..^"/settings".Length]);
+    }
+
+    [Theory]
+    [InlineData("", null)]
+    [InlineData("co-con186-replaced", "co-con186-replaced")]
+    public async Task UpdateSettingsOverrides_KeyChangedDuringASaveThatLeftItOut_KeepsTheChange(string change, string? expected)
+    {
+        var createResponse = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = $"settings-race-{(change == "" ? "clear" : "replace")}" });
+        var container = await createResponse.Content.ReadFromJsonAsync<ContainerDto>(JsonOptions);
+        var id = Guid.Parse(container!.Id);
+        using var scope = fixture.Factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+        await store.SaveSettingsOverridesAsync(id, new ContainerSettingsOverrides
+        {
+            Search = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderApiKey = "co-con186-original" },
+        });
+
+        // A save that leaves the key out holds the row while it merges; the key changes in the middle of it.
+        var leftOut = new ContainerSettingsOverrides { Search = new SearchSettings { CrossEncoderProvider = "Cohere", TopK = 9 } };
+        var changed = new ContainerSettingsOverrides { Search = new SearchSettings { CrossEncoderProvider = "Cohere", CrossEncoderApiKey = change } };
+        Task<ContainerSettingsOverrides?>? changing = null;
+        await store.UpdateSettingsOverridesAsync(id, stored =>
+        {
+            changing = Task.Run(() => store.UpdateSettingsOverridesAsync(id, changed.KeepingSecretsOf));
+            WaitUntilALockIsAwaitedAsync(changing).GetAwaiter().GetResult();
+            return leftOut.KeepingSecretsOf(stored);
+        });
+        await changing!;
+
+        var resolver = scope.ServiceProvider.GetRequiredService<IContainerSettingsResolver>();
+        (await resolver.GetSearchSettingsAsync(id)).CrossEncoderApiKey.Should().Be(expected);
+
+        await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
+    }
+
+    /// <summary>Waits until some session is blocked on a row lock, failing if <paramref name="other"/> finishes without one.</summary>
+    private async Task WaitUntilALockIsAwaitedAsync(Task other)
+    {
+        using var scope = fixture.Factory.Services.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline && !other.IsCompleted)
+        {
+            await using var context = await factory.CreateDbContextAsync();
+            var waiting = await context.Database
+                .SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pg_locks WHERE NOT granted AND locktype IN ('tuple', 'transactionid')")
+                .ToListAsync();
+            if (waiting[0] > 0)
+                return;
+        }
+        await other;
+        throw new InvalidOperationException("The other save never waited for the row, so it could land in the middle of this one.");
+    }
+
+    [Fact]
     public async Task GetContainerSettings_NonExistentContainer_Returns404()
     {
         var fakeId = Guid.NewGuid();

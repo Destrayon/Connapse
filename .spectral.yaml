@@ -1,0 +1,45 @@
+# The REST API's style rules (epic #783, Phase 3.2, CON-53), run against docs/api/openapi.json on every PR.
+# Today's violations are listed in .github/spectral-known.json; .github/scripts/spectral_baseline.py
+# compares the two exactly, so a new violation fails and a fixed one must be deleted from the list.
+rules:
+  connapse-no-bare-object:
+    description: An object schema says what it holds, so a client can be generated from it.
+    message: "An object schema needs properties, additionalProperties or a composition: {{path}}"
+    severity: error
+    given: "$..[?(@ && @.type === 'object')]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          anyOf:
+            - required: [properties]
+            - required: [additionalProperties]
+            - required: [allOf]
+            - required: [anyOf]
+            - required: [oneOf]
+
+  connapse-operation-id-feature-verb:
+    description: Every operation is named <feature>.<verb>, such as sources.list, as the capability manifest names it.
+    message: "operationId must be <feature>.<verb> in camel case: {{path}}"
+    severity: error
+    given: "$.paths[*][get,put,post,delete,patch]"
+    then:
+      - field: operationId
+        function: truthy
+      - field: operationId
+        function: pattern
+        functionOptions:
+          match: "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)+$"
+
+  connapse-problem-details-on-errors:
+    description: Every documented 4xx or 5xx response is a ProblemDetails, as application/problem+json.
+    message: "An error response must be documented as application/problem+json: {{path}}"
+    severity: error
+    given: "$.paths[*][*].responses[?(@property.match(/^[45]/))]"
+    then:
+      field: content
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: ["application/problem+json"]

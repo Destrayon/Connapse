@@ -55,7 +55,6 @@ public class ResourceUriTests
     }
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void ForAzureBlob_BuildsAzblobUri()
     {
         ResourceUri.ForAzureBlob("acct", "docs", "reports/q1.pdf")
@@ -63,7 +62,6 @@ public class ResourceUriTests
     }
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void ForAzureBlob_LowerCasesAccountAndContainer_KeepsThePathAsIs()
     {
         // Azure names accounts and containers in lower case, and the deny assignments the
@@ -74,7 +72,6 @@ public class ResourceUriTests
     }
 
     [Fact]
-    [Trait("Category", "Unit")]
     public void ForAzureBlob_BlankAccount_Throws()
     {
         var act = () => ResourceUri.ForAzureBlob("", "docs", "k");

@@ -9,12 +9,6 @@
         <div class="col-12"><h6 class="mb-0">Ingestion</h6></div>
 
         <div class="col-md-6">
-            <label class="form-label" for="parallelWorkers">Parallel Workers</label>
-            <InputNumber @bind-Value="localSettings.ParallelWorkers" class="form-control" id="parallelWorkers" min="1" />
-            <small class="form-text text-muted">Number of concurrent ingestion workers (default 4).</small>
-        </div>
-
-        <div class="col-md-6">
             <label class="form-label" for="parseTimeout">Parse Timeout (seconds)</label>
             <InputNumber @bind-Value="localSettings.ParseTimeoutSeconds" class="form-control" id="parseTimeout" min="1" />
             <small class="form-text text-muted">

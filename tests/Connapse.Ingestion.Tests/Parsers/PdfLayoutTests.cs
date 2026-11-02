@@ -4,6 +4,7 @@ using FluentAssertions;
 namespace Connapse.Ingestion.Tests.Parsers;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Large")]
 public class PdfLayoutTests
 {
     /// <summary>

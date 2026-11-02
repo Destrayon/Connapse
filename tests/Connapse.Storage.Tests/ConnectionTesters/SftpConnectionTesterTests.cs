@@ -7,6 +7,7 @@ using Xunit;
 namespace Connapse.Storage.Tests.ConnectionTesters;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Large")]
 public class SftpConnectionTesterTests
 {
     [Fact]

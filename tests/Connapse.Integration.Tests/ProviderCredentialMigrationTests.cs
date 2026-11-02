@@ -25,6 +25,7 @@ public sealed class ProviderCredentialMigrationTests : IAsyncLifetime
 
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg17")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     private NpgsqlDataSource _dataSource = null!;

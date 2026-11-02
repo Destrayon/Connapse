@@ -433,13 +433,13 @@ For each documentation file, verify key claims:
 - [ ] Architecture diagram matches actual components
 - [ ] All linked docs files exist
 
-### docs/api.md
+### docs/reference/rest-api.md
 - [ ] All documented endpoints exist and respond
 - [ ] Request/response formats match documentation
 - [ ] Auth requirements match documentation
 - [ ] Error codes match documentation
 
-### docs/deployment.md
+### docs/self-host/install.md
 - [ ] Docker deployment instructions work
 - [ ] Environment variables are correct and complete
 - [ ] Port numbers and service names are accurate
@@ -462,18 +462,18 @@ Evaluate each doc file holistically. This is about the experience of reading the
 - [ ] No broken links or missing images
 - [ ] Badges are current and accurate
 
-### docs/api.md
+### docs/reference/rest-api.md
 - [ ] Examples are copy-pasteable (correct curl syntax, valid JSON)
 - [ ] Auth requirements are clear for each endpoint
 - [ ] Error responses are documented, not just happy paths
 - [ ] Organized logically (auth → resources → search → settings)
 
-### docs/deployment.md
+### docs/self-host/install.md
 - [ ] Covers common gotchas (env vars, port conflicts, first-run behavior)
 - [ ] Production vs development setup is clear
 - [ ] SSL/HTTPS guidance is present or noted as TODO
 
-### docs/connectors.md
+### docs/sources/index.md
 - [ ] Each connector type has setup instructions
 - [ ] Write guard behavior is explained clearly
 - [ ] Cloud connector prerequisites are listed

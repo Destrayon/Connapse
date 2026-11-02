@@ -5,6 +5,7 @@ using FluentAssertions;
 namespace Connapse.Storage.Tests.CloudScope;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AzureCertificateGeneratorTests
 {
     [Fact]

@@ -8,6 +8,7 @@ using NSubstitute;
 namespace Connapse.Storage.Tests.CloudScope;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AncestorTraverseResolverTests
 {
     private const Gen2Permission RX = Gen2Permission.Read | Gen2Permission.Execute;

@@ -28,4 +28,19 @@ public interface IConnectionStore
     /// or null when the connection is gone.
     /// </summary>
     Task<ConnectionHealth?> RecordHealthAsync(Guid id, ConnectionHealth health, CancellationToken ct = default);
+
+    /// <summary>
+    /// The stored secret as <see cref="GetSecretAsync"/> returns it, read only if the connection is still at
+    /// <paramref name="version"/> (its <see cref="Connection.UpdatedAt"/>), so the secret belongs to the settings that
+    /// were read with it. Null when the connection is gone or has no secret. Throws
+    /// <see cref="ConnectionChangedException"/> when it was saved since.
+    /// </summary>
+    Task<string?> GetSecretAtAsync(Guid id, DateTime version, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records health as <see cref="RecordHealthAsync"/> does, only if the connection is still at
+    /// <paramref name="version"/>: a check of settings that were replaced since says nothing about the new ones.
+    /// Null when the connection is gone or changed.
+    /// </summary>
+    Task<ConnectionHealth?> RecordHealthAtAsync(Guid id, ConnectionHealth health, DateTime version, CancellationToken ct = default);
 }

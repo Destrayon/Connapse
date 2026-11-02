@@ -21,6 +21,8 @@ public class OAuthClientService(
         string? registeredFromIp = null,
         CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(clientName))
+            throw new ArgumentException("client_name is required.");
         ValidateRedirectUris(redirectUris, applicationType);
 
         string clientId = Guid.NewGuid().ToString();
@@ -159,7 +161,7 @@ public class OAuthClientService(
 
     private static void ValidateRedirectUris(List<string> redirectUris, string applicationType)
     {
-        if (redirectUris.Count == 0)
+        if (redirectUris is null || redirectUris.Count == 0)
             throw new ArgumentException("At least one redirect_uri is required.");
 
         foreach (string uri in redirectUris)

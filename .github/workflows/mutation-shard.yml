@@ -1,0 +1,121 @@
+name: Mutation shard
+
+# One shard of mutation.yml's run (CON-138): Stryker on Connapse.Application with --mutate limited to the shard's
+# files (none for a run of one shard), re-testing only what changed since `since` when it is set. Stryker's own
+# break is off, since it would score the shard's files alone; mutation.yml scores the merged shards.
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: partial or full, to name the shard's report
+        type: string
+        required: true
+      shard:
+        description: the shard from mutation_shards.py plan, as JSON
+        type: string
+        required: true
+      since:
+        description: the baseline's commit for --since, or empty for every mutant
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  shard:
+    name: shard ${{ fromJSON(inputs.shard).index }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # A fresh runner's first dotnet command makes an HTTPS dev certificate, which nothing here uses.
+    env:
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+    # The build action minus its build: Stryker builds the test project itself, so building it first only
+    # added a second, incremental build of about 40 s.
+    # Some runner images already have an SDK global.json accepts, and downloading one again took about 9 s.
+    # dotnet --version fails when none is installed.
+    - name: Find an installed SDK
+      id: sdk
+      run: |
+        if dotnet --version > /dev/null 2>&1; then
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Setup .NET
+      if: steps.sdk.outputs.installed != 'true'
+      uses: actions/setup-dotnet@v4
+      with:
+        global-json-file: global.json
+
+    - name: Cache layout model
+      uses: actions/cache@v4
+      with:
+        path: .models
+        key: pdf-models-250dbad1-d57a942a
+
+    - uses: ./.github/actions/restore
+      with:
+        project: tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj
+
+    - name: Restore tools
+      run: dotnet tool restore
+
+    - name: Fetch the baseline's commit
+      if: inputs.since != ''
+      run: git fetch --no-tags --depth=1 origin "$SINCE"
+      env:
+        SINCE: ${{ inputs.since }}
+
+    # The patterns and commit come in through the environment, so a file name can't reach the shell as code.
+    # All the runner's CPUs run mutants (Stryker defaults to half), and Release matches ci.yml's build.
+    # Stryker has no option to shape its build, and MSBuild reads environment variables as properties: the
+    # build skips analyzers (diagnostics only; source generators still run) and Connapse.Web's build-time
+    # OpenAPI document, which Core.Tests never reads. Neither changes the compiled code (CON-138).
+    - name: Mutation test Connapse.Application
+      working-directory: tests/Connapse.Core.Tests
+      env:
+        SHARD: ${{ inputs.shard }}
+        SINCE: ${{ inputs.since }}
+        RunAnalyzers: 'false'
+        OpenApiGenerateDocuments: 'false'
+        # Core.Tests, Connapse.Web and Connapse.ParserHost each get about 1 GB of native runtimes and models
+        # copied into their output, about 3.4 GB written per build. Hard links make those copies near free.
+        CreateHardLinksForCopyLocalIfPossible: 'true'
+        CreateHardLinksForCopyFilesToOutputDirectoryIfPossible: 'true'
+        CreateHardLinksForAdditionalFilesIfPossible: 'true'
+      run: |
+        args=(--concurrency "$(nproc)" --configuration Release --break-at 0)
+        while IFS= read -r pattern; do
+          args+=(--mutate "$pattern")
+        done < <(jq -r '.mutate[]' <<< "$SHARD")
+        if [ -n "$SINCE" ]; then
+          args+=("--since:$SINCE")
+        fi
+        dotnet tool run dotnet-stryker "${args[@]}"
+
+    # Stryker writes its reports under StrykerOutput/<date-time>/reports; a missing report fails here rather
+    # than leaving the shard's files out of the score.
+    - name: Collect the shard's report
+      run: |
+        reports=$(ls -d tests/Connapse.Core.Tests/StrykerOutput/*/reports 2>/dev/null | tail -1)
+        if [ -z "$reports" ] || [ ! -f "$reports/mutation-report.json" ]; then
+          echo "::error::Stryker wrote no mutation report"
+          exit 1
+        fi
+        cat "$reports/mutation-report.md" >> "$GITHUB_STEP_SUMMARY"
+        mkdir -p shard-report && cp "$reports"/mutation-report.* shard-report/
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: mutation-${{ inputs.stage }}-shard-${{ fromJSON(inputs.shard).index }}
+        path: shard-report/
+        if-no-files-found: error
+        retention-days: 7

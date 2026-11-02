@@ -21,9 +21,6 @@ public record Source(
     string? LastSyncError = null,
     int? SyncIntervalSeconds = null,
     ContainerSettingsOverrides? SettingsOverrides = null,
-    string? Summary = null,
-    DateTime? SummaryGeneratedAt = null,
-    string? SummaryDocSetHash = null,
     int DocumentCount = 0,
     int? WithheldDeletions = null,
 
@@ -67,6 +64,9 @@ public class SourceAccessRevokedException(string message, Exception inner) : IOE
 /// <summary>A custom connection already has a source for the scope a new one names.</summary>
 public sealed class DuplicateSourceScopeException(string message) : InvalidOperationException(message);
 
+/// <summary>Another source already has the name a rename asks for.</summary>
+public sealed class DuplicateSourceNameException(string message) : InvalidOperationException(message);
+
 public record CreateSourceRequest(
     string Name,
     Guid? ConnectionId,
@@ -92,12 +92,13 @@ public record UpdateSourceRequest(
     string? ScopeJson = null,
     int? SyncIntervalSeconds = null,
     bool? Enabled = null,
-    string? Secret = null)
+    string? Secret = null,
+    SourceScope? Scope = null)
 {
     // The generated ToString would print the token into any log line or message it reached.
     protected virtual bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Name = {Name}, Description = {Description}, ScopeJson = {ScopeJson}, ")
+        builder.Append($"Name = {Name}, Description = {Description}, ScopeJson = {ScopeJson}, Scope = {Scope}, ")
             .Append($"SyncIntervalSeconds = {SyncIntervalSeconds}, Enabled = {Enabled}, Secret = {(Secret is null ? "null" : "***")}");
         return true;
     }

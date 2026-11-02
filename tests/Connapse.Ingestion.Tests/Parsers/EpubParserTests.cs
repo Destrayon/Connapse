@@ -9,6 +9,7 @@ using NSubstitute;
 namespace Connapse.Ingestion.Tests.Parsers;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class EpubParserTests
 {
     private readonly EpubParser _parser = new();

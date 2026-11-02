@@ -27,12 +27,20 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
         await using var ctx = await dbFactory.CreateDbContextAsync();
         ctx.Containers.Add(new ContainerEntity
         {
-            Id = containerId, Name = $"lc-{containerId:N}", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            Id = containerId,
+            Name = $"lc-{containerId:N}",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
         });
         ctx.Documents.Add(new DocumentEntity
         {
-            Id = documentId, ContainerId = containerId, FileName = "doc.md", Path = "/doc.md",
-            ContentHash = "", CreatedAt = DateTime.UtcNow, Metadata = [],
+            Id = documentId,
+            ContainerId = containerId,
+            FileName = "doc.md",
+            Path = "/doc.md",
+            ContentHash = "",
+            CreatedAt = DateTime.UtcNow,
+            Metadata = [],
         });
         await ctx.SaveChangesAsync();
         return (containerId, documentId);
@@ -146,33 +154,74 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task GetDocumentTextAsync_OverlappingChunks_AreJoinedWithoutRepeatingTheOverlap()
+    public async Task IngestAsync_JobWhoseDocumentWasDeletedAfterItReadTheFile_DoesNotRecreateTheDocument()
     {
+        // A folder delete removes the record while the job is parsing the file it already read, then removes the
+        // stored file. A job that wrote the record back would leave a document whose file is gone (CON-98).
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var sp = scope.ServiceProvider;
         var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
+        var lifecycle = sp.GetRequiredService<IDocumentLifecycle>();
+        int generation = (await lifecycle.EnqueuedAsync(documentId, resetAttempts: true))!.Value;
+        (await lifecycle.TryClaimAsync(documentId, generation)).Should().BeTrue();
 
-        const string text = "alpha beta gamma delta";
         var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         await using (var ctx = await dbFactory.CreateDbContextAsync())
+            await ctx.Documents.Where(d => d.Id == documentId).ExecuteDeleteAsync();
+
+        var result = await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(
+            new MemoryStream("# Deleted\n\nA document deleted while it was being indexed."u8.ToArray()),
+            new IngestionOptions(
+                DocumentId: documentId.ToString(), FileName: "doc.md", ContentType: "text/markdown",
+                ContainerId: containerId.ToString(), Path: "/doc.md", Generation: generation));
+
+        result.ChunkCount.Should().Be(0, "the work was superseded by the delete");
+        await using (var ctx = await dbFactory.CreateDbContextAsync())
         {
-            // "alpha beta " [0,11) and "beta gamma delta" [6,22): "beta " is shared.
-            ctx.Chunks.Add(new ChunkEntity
-            {
-                Id = Guid.NewGuid(), DocumentId = documentId, OwnerId = containerId, ChunkIndex = 0,
-                Content = text[..11], StartOffset = 0, EndOffset = 11, TokenCount = 2, Metadata = [],
-            });
-            ctx.Chunks.Add(new ChunkEntity
-            {
-                Id = Guid.NewGuid(), DocumentId = documentId, OwnerId = containerId, ChunkIndex = 1,
-                Content = text[6..], StartOffset = 6, EndOffset = 22, TokenCount = 3, Metadata = [],
-            });
-            await ctx.SaveChangesAsync();
+            (await ctx.Documents.AnyAsync(d => d.Id == documentId)).Should().BeFalse();
+            (await ctx.Chunks.AnyAsync(c => c.DocumentId == documentId)).Should().BeFalse();
         }
+    }
 
-        string? rebuilt = await sp.GetRequiredService<IDocumentStore>().GetDocumentTextAsync(documentId.ToString());
+    [Fact]
+    public async Task IngestAsync_ReUploadWhileAnOlderJobIsReadingTheFile_IndexesTheNewContent()
+    {
+        // The re-upload sets the row back to Queued under a newer generation while the older job is still reading
+        // the old file. Seeing a row that was not Processing, the older job used to claim it as a direct caller
+        // would, index the old content, and leave the newer job nothing to claim (CON-102).
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
+        var lifecycle = sp.GetRequiredService<IDocumentLifecycle>();
+        var ingester = sp.GetRequiredService<IKnowledgeIngester>();
+        IngestionOptions Options(int generation) => new(
+            DocumentId: documentId.ToString(), FileName: "doc.md", ContentType: "text/markdown",
+            ContainerId: containerId.ToString(), Path: "/doc.md", Generation: generation);
 
-        rebuilt.Should().Be(text);
+        int oldGeneration = (await lifecycle.EnqueuedAsync(documentId, resetAttempts: true))!.Value;
+        (await lifecycle.TryClaimAsync(documentId, oldGeneration)).Should().BeTrue();
+        var oldFile = new GatedStream("# Old\n\nThe first upload's stale text."u8.ToArray());
+        Task<IngestionResult> oldJob = ingester.IngestAsync(oldFile, Options(oldGeneration));
+        await oldFile.ReadStarted.WaitAsync(TimeSpan.FromSeconds(30));
+
+        int newGeneration = (await lifecycle.EnqueuedAsync(documentId, resetAttempts: true))!.Value;
+        oldFile.Release();
+        (await oldJob).ChunkCount.Should().Be(0, "the re-upload superseded the older job");
+
+        (await lifecycle.TryClaimAsync(documentId, newGeneration)).Should().BeTrue("the newer upload's job still owns the document");
+        (await ingester.IngestAsync(
+            new MemoryStream("# New\n\nThe re-upload's current text."u8.ToArray()), Options(newGeneration)))
+            .ChunkCount.Should().BeGreaterThan(0);
+
+        var doc = await ReadAsync(sp, documentId);
+        doc.IngestionStatus.Should().Be(DocumentStatus.Ready);
+        doc.Generation.Should().Be(newGeneration);
+        (await lifecycle.CurrentGenerationAsync(documentId)).Should().Be(newGeneration);
+        var dbFactory = sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using var ctx = await dbFactory.CreateDbContextAsync();
+        var contents = await ctx.Chunks.Where(c => c.DocumentId == documentId).Select(c => c.Content).ToListAsync();
+        contents.Should().Contain(c => c.Contains("current text"));
+        contents.Should().NotContain(c => c.Contains("stale text"));
     }
 
     [Fact]
@@ -376,6 +425,39 @@ public class DocumentLifecycleTests(SharedWebAppFixture fixture)
         foreach (int offset in offsets) body.Append($"{offset:D10} 00000 n \n");
         body.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
         return System.Text.Encoding.ASCII.GetBytes(body.ToString());
+    }
+
+    /// <summary>A non-seekable file whose first read waits for <see cref="Release"/> — a job slow to read its upload.</summary>
+    private sealed class GatedStream(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream _inner = new(bytes);
+        private readonly TaskCompletionSource _readStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task ReadStarted => _readStarted.Task;
+        public void Release() => _released.TrySetResult();
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            _readStarted.TrySetResult();
+            await _released.Task.WaitAsync(ct);
+            return await _inner.ReadAsync(buffer, ct);
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
+            ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("Read asynchronously.");
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     /// <summary>Embeds normally, but re-enqueues the document first — a re-upload landing mid-embed.</summary>

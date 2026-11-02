@@ -4,6 +4,7 @@ using FluentAssertions;
 namespace Connapse.Core.Tests.Connectors;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ConfluenceStorageRendererTests
 {
     private static readonly IReadOnlyDictionary<string, string> NoUsers = new Dictionary<string, string>();

@@ -9,6 +9,7 @@ using FluentAssertions;
 namespace Connapse.Eval.Tests.Runs;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ScoringTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "eval-runs-" + Guid.NewGuid().ToString("N"));

@@ -15,7 +15,7 @@ public class McpToolsBulkDeleteTests
 
     private readonly IContainerStore _containerStore;
     private readonly IDocumentStore _documentStore;
-    private readonly IKnowledgeFileSystem _fileSystem;
+    private readonly IWritableConnector _fileSystem;
     private readonly ILogger<McpTools> _logger;
     private readonly IFolderStore _folderStore;
     private readonly IIngestionQueue _ingestionQueue;
@@ -25,7 +25,8 @@ public class McpToolsBulkDeleteTests
     {
         _containerStore = Substitute.For<IContainerStore>();
         _documentStore = Substitute.For<IDocumentStore>();
-        _fileSystem = Substitute.For<IKnowledgeFileSystem>();
+        _documentStore.RemovesUnrecordedFiles();
+        _fileSystem = Substitute.For<IWritableConnector>();
         _logger = Substitute.For<ILogger<McpTools>>();
         _folderStore = Substitute.For<IFolderStore>();
         _ingestionQueue = Substitute.For<IIngestionQueue>();
@@ -37,7 +38,9 @@ public class McpToolsBulkDeleteTests
         var services = Substitute.For<IServiceProvider>();
         services.GetService(typeof(IContainerStore)).Returns(_containerStore);
         services.GetService(typeof(IDocumentStore)).Returns(_documentStore);
-        services.GetService(typeof(IKnowledgeFileSystem)).Returns(_fileSystem);
+        var storage = Substitute.For<IManagedStorageProvider>();
+        storage.CreateConnector(Arg.Any<string>()).Returns(_fileSystem);
+        services.GetService(typeof(IManagedStorageProvider)).Returns(storage);
         services.GetService(typeof(ILogger<McpTools>)).Returns(_logger);
         services.GetService(typeof(IFolderStore)).Returns(_folderStore);
         services.GetService(typeof(IIngestionQueue)).Returns(_ingestionQueue);
@@ -56,7 +59,7 @@ public class McpToolsBulkDeleteTests
         _documentStore.GetAsync("file-3", Arg.Any<CancellationToken>()).Returns(doc3);
 
         var json = """["file-1","file-2","file-3"]""";
-        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Deleted 3 of 3");
         await _documentStore.Received(3).DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -70,7 +73,7 @@ public class McpToolsBulkDeleteTests
         _documentStore.GetAsync("file-2", Arg.Any<CancellationToken>()).Returns((Document?)null);
 
         var json = """["file-1","file-2"]""";
-        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Deleted 1 of 2");
         result.Should().Contain("file-2");
@@ -82,11 +85,11 @@ public class McpToolsBulkDeleteTests
         var doc1 = MakeDocument("file-1", "a.txt", "/a.txt");
         _documentStore.GetAsync("file-1", Arg.Any<CancellationToken>()).Returns(doc1);
         _fileSystem
-            .DeleteAsync("/a.txt", Arg.Any<CancellationToken>())
+            .DeleteFileAsync("/a.txt", Arg.Any<CancellationToken>())
             .ThrowsAsync(new IOException("disk error"));
 
         var json = """["file-1"]""";
-        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Deleted 1 of 1");
         result.Should().Contain("Warnings");
@@ -97,7 +100,7 @@ public class McpToolsBulkDeleteTests
     public async Task BulkDelete_ContainerNotFound_ReturnsError()
     {
         var json = """["file-1"]""";
-        var result = await McpTools.BulkDelete(_services, "nonexistent", json);
+        var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, "nonexistent", json);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found");
@@ -108,7 +111,7 @@ public class McpToolsBulkDeleteTests
     {
         var ids = Enumerable.Range(0, 101).Select(i => $"\"file-{i}\"");
         var json = $"[{string.Join(",", ids)}]";
-        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("100");
@@ -117,7 +120,7 @@ public class McpToolsBulkDeleteTests
     [Fact]
     public async Task BulkDelete_EmptyArray_ReturnsError()
     {
-        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), "[]");
+        var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "[]");
 
         result.Should().StartWith("Error:");
     }
@@ -125,7 +128,7 @@ public class McpToolsBulkDeleteTests
     [Fact]
     public async Task BulkDelete_InvalidJson_ReturnsError()
     {
-        var result = await McpTools.BulkDelete(_services, ContainerId.ToString(), "not json");
+        var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), "not json");
 
         result.Should().StartWith("Error:");
     }
@@ -139,7 +142,7 @@ public class McpToolsBulkDeleteTests
         _documentStore.GetAsync("file-2", Arg.Any<CancellationToken>()).Returns(doc2);
 
         var json = """["file-1","file-2"]""";
-        await McpTools.BulkDelete(_services, ContainerId.ToString(), json);
+        await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         await _ingestionQueue.Received(1).CancelJobForDocumentAsync("file-1");
         await _ingestionQueue.Received(1).CancelJobForDocumentAsync("file-2");

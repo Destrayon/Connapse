@@ -187,16 +187,27 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
             Guid doc = Guid.NewGuid(), chunk = Guid.NewGuid();
             ctx.Documents.Add(new DocumentEntity
             {
-                Id = doc, ContainerId = container, FileName = $"{i}.txt", ContentType = "text/plain",
-                Path = path(i).Replace("doc.txt", $"{i}.txt"), ContentHash = $"h{i}", SizeBytes = 1, ChunkCount = 1,
-                IngestionStatus = DocumentStatus.Ready, StatusChangedAt = now, CreatedAt = now,
+                Id = doc,
+                ContainerId = container,
+                FileName = $"{i}.txt",
+                ContentType = "text/plain",
+                Path = path(i).Replace("doc.txt", $"{i}.txt"),
+                ContentHash = $"h{i}",
+                SizeBytes = 1,
+                ChunkCount = 1,
+                IngestionStatus = DocumentStatus.Ready,
+                StatusChangedAt = now,
+                CreatedAt = now,
             });
             ctx.Chunks.Add(new ChunkEntity { Id = chunk, DocumentId = doc, OwnerId = container, Content = "", TokenCount = 1 });
             ctx.ChunkVectors.Add(new ChunkVectorEntity
             {
-                ChunkId = chunk, DocumentId = doc, OwnerId = container,
+                ChunkId = chunk,
+                DocumentId = doc,
+                OwnerId = container,
                 Embedding = new Vector(dims == 3 ? Vector(i) : [.. Vector(i), .. new float[dims - 3]]),
-                ModelId = Model, Dimensions = dims,
+                ModelId = Model,
+                Dimensions = dims,
             });
         }
         await ctx.SaveChangesAsync();

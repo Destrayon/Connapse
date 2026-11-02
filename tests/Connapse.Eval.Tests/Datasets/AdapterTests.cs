@@ -6,6 +6,7 @@ using Parquet.Serialization;
 namespace Connapse.Eval.Tests.Datasets;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AdapterTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "eval-adapters-" + Guid.NewGuid().ToString("N"));

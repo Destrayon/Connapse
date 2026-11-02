@@ -35,7 +35,7 @@ public sealed class DocumentLifecycle(
                 attempt_count     = CASE WHEN @reset THEN 0 ELSE attempt_count END,
                 job_id            = NULL
             WHERE id = @id
-            RETURNING ingestion_status AS "Status", summary_status AS "SummaryStatus", generation AS "Generation"
+            RETURNING ingestion_status AS "Status", generation AS "Generation"
             """,
             ct,
             new NpgsqlParameter("id", documentId),
@@ -58,7 +58,7 @@ public sealed class DocumentLifecycle(
             WHERE id = @id
               AND ingestion_status = @queued
               AND (@gen = 0 OR generation = @gen)
-            RETURNING ingestion_status AS "Status", summary_status AS "SummaryStatus", generation AS "Generation"
+            RETURNING ingestion_status AS "Status", generation AS "Generation"
             """,
             ct,
             new NpgsqlParameter("id", documentId),
@@ -93,7 +93,7 @@ public sealed class DocumentLifecycle(
             WHERE id = @id
               AND ingestion_status = @processing
               AND (@gen = 0 OR generation = @gen)
-            RETURNING ingestion_status AS "Status", summary_status AS "SummaryStatus", generation AS "Generation"
+            RETURNING ingestion_status AS "Status", generation AS "Generation"
             """,
             ct,
             new NpgsqlParameter("id", documentId),
@@ -113,7 +113,7 @@ public sealed class DocumentLifecycle(
             WHERE id = @id
               AND ingestion_status = @processing
               AND (@gen = 0 OR generation = @gen)
-            RETURNING ingestion_status AS "Status", summary_status AS "SummaryStatus", generation AS "Generation"
+            RETURNING ingestion_status AS "Status", generation AS "Generation"
             """,
             ct,
             new NpgsqlParameter("id", documentId),
@@ -141,7 +141,7 @@ public sealed class DocumentLifecycle(
             WHERE id = @id
               AND ingestion_status IN (@queued, @processing)
               AND (@gen = 0 OR generation = @gen)
-            RETURNING ingestion_status AS "Status", summary_status AS "SummaryStatus", generation AS "Generation"
+            RETURNING ingestion_status AS "Status", generation AS "Generation"
             """,
             ct,
             new NpgsqlParameter("id", documentId),
@@ -174,20 +174,14 @@ public sealed class DocumentLifecycle(
             ct);
     }
 
-    public async Task SetSummaryStatusAsync(Guid documentId, SummaryStatus status, CancellationToken ct = default)
+    public async Task<int?> CurrentGenerationAsync(Guid documentId, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
-
-        var rows = await RunAsync(context, """
-            UPDATE documents SET summary_status = @summary
-            WHERE id = @id
-            RETURNING ingestion_status AS "Status", summary_status AS "SummaryStatus", generation AS "Generation"
-            """,
-            ct,
-            new NpgsqlParameter("id", documentId),
-            new NpgsqlParameter("summary", status.ToString()));
-
-        await PublishAsync(documentId, rows, ct);
+        return await context.Documents
+            .AsNoTracking()
+            .Where(d => d.Id == documentId)
+            .Select(d => (int?)d.Generation)
+            .FirstOrDefaultAsync(ct);
     }
 
     public async Task NotifyAsync(Guid documentId, CancellationToken ct = default)
@@ -195,7 +189,7 @@ public sealed class DocumentLifecycle(
         await using var context = await factory.CreateDbContextAsync(ct);
 
         var rows = await RunAsync(context, """
-            SELECT ingestion_status AS "Status", summary_status AS "SummaryStatus", generation AS "Generation"
+            SELECT ingestion_status AS "Status", generation AS "Generation"
             FROM documents WHERE id = @id
             """,
             ct,
@@ -231,7 +225,6 @@ public sealed class DocumentLifecycle(
             await broadcaster.BroadcastStatusChangedAsync(
                 documentId.ToString(),
                 Enum.Parse<DocumentStatus>(rows[0].Status),
-                Enum.Parse<SummaryStatus>(rows[0].SummaryStatus),
                 CancellationToken.None);
         }
         catch (Exception ex)
@@ -243,5 +236,5 @@ public sealed class DocumentLifecycle(
         return true;
     }
 
-    public sealed record StatusRow(string Status, string SummaryStatus, int Generation);
+    public sealed record StatusRow(string Status, int Generation);
 }

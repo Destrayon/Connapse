@@ -1,0 +1,13 @@
+﻿{
+  Result: ok,
+  State: [
+    source {name} enabled=True connection={connection} status=Succeeded synced=True cursor=none,
+    documents owned: 1
+  ],
+  Audit: [
+    source.synced source {id1} actor={admin} details={"Name": "{name}", "Deleted": 0, "Upserted": 1, "WithheldDeletions": 0}
+  ],
+  Jobs: [
+    IIngestionJobs.IngestAsync("Guid_1", {"DocumentId":"Guid_1","FileName":"doc.txt","Path":"{root}/doc.txt","Metadata":{"OriginalFileName":"doc.txt","Source":"SourceSync","SyncedAt":"{time}","RemoteLastModified":"{time}","RemoteSize":"25"},"Generation":2,"Owner":{"Id":"{id1}","IsSource":true,"SourceId":"{id1}"}}, null)
+  ]
+}

@@ -5,7 +5,7 @@
 @using Connapse.Core.Interfaces
 @using Connapse.Core.Utilities
 @using Connapse.Web.Services
-@inject IContainerStore ContainerStore
+@inject Connapse.Application.Containers.ContainerOperations Operations
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthStateProvider
 
@@ -240,9 +240,15 @@ else
         try
         {
             var skip = currentPage * pageSize;
-            var result = await ContainerStore.ListAsync(skip, pageSize + 1);
-            hasMoreContainers = result.Count > pageSize;
-            containers = (hasMoreContainers ? result.Take(pageSize).ToList() : result.ToList());
+            var listed = await Operations.List.RunAsync(await AuthStateProvider.OperationContextAsync(), new Connapse.Application.Containers.ListContainersQuery(skip, pageSize));
+            if (!listed.Succeeded)
+            {
+                errorMessage = listed.Detail;
+                containers = [];
+                return;
+            }
+            hasMoreContainers = listed.Result!.HasMore;
+            containers = listed.Result.Items.ToList();
             totalContainers = hasMoreContainers ? skip + containers.Count + 1 : skip + containers.Count;
         }
         catch (Exception ex)
@@ -276,34 +282,18 @@ else
 
     private async Task CreateContainer()
     {
-        if (string.IsNullOrWhiteSpace(newContainerName))
-        {
-            createError = "Container name is required.";
-            return;
-        }
-
         isCreating = true;
         createError = null;
 
         try
         {
-            var normalizedName = newContainerName.Trim();
-
-            if (!PathUtilities.IsValidContainerName(normalizedName))
+            var created = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(),
+                new CreateContainerRequest(newContainerName, newContainerDescription));
+            if (!created.Succeeded)
             {
-                createError = "Container name must be 2-128 characters, lowercase alphanumeric and hyphens, cannot start or end with a hyphen.";
+                createError = created.Detail;
                 return;
             }
-
-            var existing = await ContainerStore.GetByNameAsync(normalizedName);
-            if (existing is not null)
-            {
-                createError = $"Container '{normalizedName}' already exists.";
-                return;
-            }
-
-            var container = await ContainerStore.CreateAsync(new CreateContainerRequest(
-                normalizedName, newContainerDescription?.Trim()));
 
             showCreateModal = false;
             await LoadContainers();
@@ -339,26 +329,16 @@ else
 
         try
         {
-            if (!Guid.TryParse(containerToDelete.Id, out var containerId))
+            var deleted = await Operations.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(),
+                Connapse.Application.Containers.ContainerKey.Parse(containerToDelete.Id));
+            if (!deleted.Succeeded)
             {
-                deleteError = "Invalid container ID.";
+                deleteError = deleted.Detail;
                 return;
             }
 
-            var deleted = await ContainerStore.DeleteAsync(containerId);
-            if (deleted)
-            {
-                containerToDelete = null;
-                await LoadContainers();
-            }
-            else
-            {
-                deleteError = "Container not found.";
-            }
-        }
-        catch (InvalidOperationException ex)
-        {
-            deleteError = ex.Message;
+            containerToDelete = null;
+            await LoadContainers();
         }
         catch (Exception ex)
         {
@@ -369,6 +349,4 @@ else
             isDeleting = false;
         }
     }
-
-
 }

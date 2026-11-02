@@ -12,6 +12,7 @@ using NSubstitute;
 namespace Connapse.Core.Tests.Llm;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class OllamaLlmProviderTests
 {
     private static OllamaLlmProvider CreateProvider(

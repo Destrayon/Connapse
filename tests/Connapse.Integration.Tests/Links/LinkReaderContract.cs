@@ -207,6 +207,7 @@ public static class LinkContractCases
 /// Subclass once per <see cref="ILinkReader"/> and supply <see cref="Factory"/>; the link layer (#839 ticket 3)
 /// adds a PostgreSQL-backed subclass that must pass unchanged.
 /// </summary>
+[Trait("Category", "Integration")]
 public abstract class LinkReaderContract
 {
     protected abstract LinkReaderFactory Factory { get; }

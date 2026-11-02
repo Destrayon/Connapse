@@ -1,0 +1,9 @@
+﻿{
+  Result: ok,
+  State: [
+    container {name} description=snapshot
+  ],
+  Audit: [
+    container.created container {id1} actor={admin} details={"Name": "{name}"}
+  ]
+}

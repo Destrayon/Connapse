@@ -64,6 +64,7 @@ public class JiraProjectFormTests : IDisposable
         auth.SetAuthorized("admin");
         auth.SetRoles("Admin");
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
 
         var http = Substitute.For<IHttpClientFactory>();
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(stub, disposeHandler: false));
@@ -74,6 +75,7 @@ public class JiraProjectFormTests : IDisposable
         {
             connections.GetAsync(site.Id, Arg.Any<CancellationToken>()).Returns(site);
             connections.GetSecretAsync(site.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
+            connections.GetSecretAtAsync(site.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-secret");
             sources.ListByConnectionAsync(site.Id, Arg.Any<CancellationToken>())
                 .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
         }
@@ -108,7 +110,12 @@ public class JiraProjectFormTests : IDisposable
             NSubstitute.Substitute.For<Connapse.Core.Interfaces.ICustomProviderStore>(),
             NSubstitute.Substitute.For<Connapse.Core.Interfaces.IConnectionStore>()));
         ctx.Services.AddSingleton(new AtlassianSiteService(
-            http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens));
+            http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens,
+            new Connapse.Application.Connections.CreateConnection(connections, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
+                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>()),
+            new Connapse.Application.Connections.ReplaceConnectionSecret(connections, Substitute.For<Connapse.Core.Interfaces.ISourceStore>(),
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), Substitute.For<IAuditLogger>(),
+                Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));

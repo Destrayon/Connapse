@@ -7,6 +7,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Connapse.Agents/Connapse.Agents.csproj" />
+    <Project Path="src/Connapse.Application/Connapse.Application.csproj" />
     <Project Path="src/Connapse.Background/Connapse.Background.csproj" />
     <Project Path="src/Connapse.Core/Connapse.Core.csproj" />
     <Project Path="src/Connapse.Identity/Connapse.Identity.csproj" />
@@ -17,6 +18,7 @@
     <Project Path="src/Connapse.Web/Connapse.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Connapse.Architecture.Tests/Connapse.Architecture.Tests.csproj" />
     <Project Path="tests/Connapse.Background.Tests/Connapse.Background.Tests.csproj" />
     <Project Path="tests/Connapse.Core.Tests/Connapse.Core.Tests.csproj" />
     <Project Path="tests/Connapse.Identity.Tests/Connapse.Identity.Tests.csproj" />
@@ -24,6 +26,7 @@
     <Project Path="tests/Connapse.Integration.Tests/Connapse.Integration.Tests.csproj" />
     <Project Path="tests/Connapse.ParserHost.TestHost/Connapse.ParserHost.TestHost.csproj" />
     <Project Path="tests/Connapse.Storage.Tests/Connapse.Storage.Tests.csproj" />
+    <Project Path="tests/Connapse.TestSuite.Tests/Connapse.TestSuite.Tests.csproj" />
     <Project Path="tests/Connapse.Web.Tests/Connapse.Web.Tests.csproj" />
     <Project Path="tests/Connapse.Eval/Connapse.Eval.csproj" />
     <Project Path="tests/Connapse.Eval.Tests/Connapse.Eval.Tests.csproj" />

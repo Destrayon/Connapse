@@ -62,7 +62,10 @@ public class EmbeddingPromptsTests
     {
         EmbeddingSettings settings = new()
         {
-            Model = "custom-model", UseModelPrefixes = false, QueryPrefix = "query: ", DocumentPrefix = null,
+            Model = "custom-model",
+            UseModelPrefixes = false,
+            QueryPrefix = "query: ",
+            DocumentPrefix = null,
         };
 
         EmbeddingPrompts.Resolve(settings).Should().Be(new EmbeddingPrompts("query: ", ""));
@@ -146,7 +149,10 @@ public class EmbeddingPromptsTests
         string again = EmbeddingIdentity.For(new EmbeddingSettings { Model = "nomic-embed-text" });
         string other = EmbeddingIdentity.For(new EmbeddingSettings
         {
-            Model = "nomic-embed-text", UseModelPrefixes = false, QueryPrefix = "q: ", DocumentPrefix = "search_document: ",
+            Model = "nomic-embed-text",
+            UseModelPrefixes = false,
+            QueryPrefix = "q: ",
+            DocumentPrefix = "search_document: ",
         });
 
         first.Should().MatchRegex("^nomic-embed-text-recipe-[0-9a-f]{8}$");

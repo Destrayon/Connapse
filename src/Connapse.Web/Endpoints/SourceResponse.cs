@@ -33,7 +33,6 @@ public record SourceResponse(
     DateTime? LastSyncedAt,
     int? SyncIntervalSeconds,
     int DocumentCount,
-    string? Summary,
     DateTime CreatedAt,
     DateTime UpdatedAt,
     /// <summary>
@@ -72,7 +71,13 @@ public record SourceResponse(
     /// A Jira source's project and attachment settings, for administrators only, as
     /// <see cref="Confluence"/> is for a space; null for every other source.
     /// </summary>
-    JiraSourceSettings? Jira = null)
+    JiraSourceSettings? Jira = null,
+    /// <summary>
+    /// Only on a create's answer, and only when there is something to say: what the connection's
+    /// scope check warns about (a connection that declares no allowed locations). Left out otherwise.
+    /// </summary>
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? Warning = null)
 {
     public static SourceResponse From(Source source, bool includeDiagnostics) => new(
         Id: source.Id,
@@ -84,7 +89,6 @@ public record SourceResponse(
         LastSyncedAt: source.LastSyncedAt,
         SyncIntervalSeconds: source.SyncIntervalSeconds,
         DocumentCount: source.DocumentCount,
-        Summary: source.Summary,
         CreatedAt: source.CreatedAt,
         UpdatedAt: source.UpdatedAt,
         WithheldDeletions: source.WithheldDeletions,
@@ -132,8 +136,7 @@ public sealed record ConfluenceSourceSettings(
     public const string Kind = "confluence-space";
 
     internal static bool IsConfluence(JsonObject scope) =>
-        scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k)
-        && string.Equals(k, Kind, StringComparison.OrdinalIgnoreCase);
+        SourceScopeCodec.AtlassianKindOf(scope) == AtlassianScopeKind.ConfluenceSpace;
 
     /// <summary>The settings, or null when <paramref name="scope"/> is not a Confluence space's.</summary>
     internal static ConfluenceSourceSettings? From(JsonObject? scope)
@@ -179,7 +182,7 @@ public sealed record JiraSourceSettings(
     string? ProjectId, string? ProjectKey, string? ProjectName, bool IncludeAttachments, int MaxAttachmentMb)
 {
     internal static bool IsJira(JsonObject scope) =>
-        scope["kind"] is JsonValue kind && kind.TryGetValue(out string? k) && AtlassianSourceScope.IsJiraKind(k);
+        SourceScopeCodec.AtlassianKindOf(scope) == AtlassianScopeKind.JiraProject;
 
     /// <summary>The settings, or null when <paramref name="scope"/> is not a Jira project's.</summary>
     internal static JiraSourceSettings? From(JsonObject? scope)

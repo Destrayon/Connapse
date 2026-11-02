@@ -1,8 +1,13 @@
-﻿using Connapse.Core;
+﻿using System.Security.Claims;
+using Connapse.Application.Containers;
+using Connapse.Application.Sources;
+using Connapse.Application.Files;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Web.Mcp;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -23,6 +28,18 @@ namespace Connapse.Integration.Tests;
 public class McpSourceKindTests(SharedWebAppFixture fixture)
 {
     private static string ShortName(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20];
+
+    /// <summary>The MCP caller: an admin, so the container operations let every tool through.</summary>
+    private static IHttpContextAccessor AsAdmin(IServiceProvider sp)
+    {
+        var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(
+                [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin")], "test")),
+        };
+        return accessor;
+    }
 
     private async Task<Source> SeedSourceAsync(IServiceProvider sp, string? name = null)
     {
@@ -53,7 +70,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
         var container = await SeedContainerAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerList(scope.ServiceProvider);
+        string output = await McpTools.ContainerList(
+            scope.ServiceProvider.GetRequiredService<ListContainers>(), scope.ServiceProvider.GetRequiredService<ListSources>(), AsAdmin(scope.ServiceProvider));
 
         output.Should().Contain($"{source.Name} [source]");
         output.Should().Contain($"{container.Name} [managed]",
@@ -66,7 +84,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerDescribe(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ContainerDescribe(
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), scope.ServiceProvider.GetRequiredService<GetSourceStats>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain($"Source: {source.Name}");
         output.Should().Contain("Kind: source");
@@ -80,7 +99,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerDescribe(scope.ServiceProvider, source.Name);
+        string output = await McpTools.ContainerDescribe(
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), scope.ServiceProvider.GetRequiredService<GetSourceStats>(), AsAdmin(scope.ServiceProvider), source.Name);
 
         output.Should().Contain("Kind: source");
     }
@@ -94,12 +114,26 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         // Keyword mode deliberately: the default Hybrid path embeds the query, which would
         // make this a test of whether Ollama happens to be running rather than of whether a
         // source id resolves.
-        string output = await McpTools.SearchKnowledge(
-            scope.ServiceProvider, "anything", source.Id.ToString(), mode: "Keyword");
+        // As an administrator: the search operation decides who may search (#916).
+        var accessor = scope.ServiceProvider.GetRequiredService<IHttpContextAccessor>();
+        accessor.HttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "Admin")], "test")),
+        };
+        string output;
+        try
+        {
+            output = await McpTools.SearchKnowledge(scope.ServiceProvider.GetRequiredService<Connapse.Application.Search.SearchKnowledge>(),
+                accessor, "anything", source.Id.ToString(), mode: "Keyword");
+        }
+        finally
+        {
+            accessor.HttpContext = null;
+        }
 
         // The corpus is empty, so this asserts the scope resolved rather than that results
         // came back — "not found" would mean the resolver rejected the source outright.
-        output.Should().NotContain("not found");
+        output.Should().NotContain("not found").And.NotStartWith("Error");
     }
 
     // ── Not enumerable ────────────────────────────────────────────────────
@@ -111,10 +145,11 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         // The single most important assertion in this file. list_files routes through
-        // ResolveContainerIdAsync, which never resolves a source; teaching that method about
+        // containers.get, which never resolves a source; teaching that operation about
         // sources to make search work would silently turn this into a file-enumeration route
         // over somebody else's S3 bucket.
-        string output = await McpTools.ListFiles(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ListFiles(
+            scope.ServiceProvider.GetRequiredService<ListFiles>(), scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain("not found",
             "a source must be refused outright, not returned as an empty listing");
@@ -126,7 +161,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ListFiles(scope.ServiceProvider, source.Name);
+        string output = await McpTools.ListFiles(
+            scope.ServiceProvider.GetRequiredService<ListFiles>(), scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Name);
 
         output.Should().Contain("not found");
     }
@@ -138,7 +174,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
         var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
 
-        string output = await McpTools.ContainerDelete(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ContainerDelete(
+            scope.ServiceProvider.GetRequiredService<DeleteContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain("not found");
 
@@ -154,7 +191,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         string output = await McpTools.GetDocument(
-            scope.ServiceProvider, source.Id.ToString(), fileId: "/anything.md");
+            scope.ServiceProvider.GetRequiredService<GetFile>(), scope.ServiceProvider.GetRequiredService<GetFileContent>(),
+            scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString(), fileId: "/anything.md");
 
         output.Should().Contain("not found");
     }
@@ -165,7 +203,8 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
-        string output = await McpTools.ContainerStats(scope.ServiceProvider, source.Id.ToString());
+        string output = await McpTools.ContainerStats(
+            scope.ServiceProvider.GetRequiredService<GetContainerStats>(), AsAdmin(scope.ServiceProvider), source.Id.ToString());
 
         output.Should().Contain("not found");
     }

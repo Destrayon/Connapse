@@ -1,4 +1,6 @@
-﻿namespace Connapse.Core;
+﻿using System.Text.Json;
+
+namespace Connapse.Core;
 
 public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6, Atlassian = 7, Custom = 8 }
 
@@ -8,7 +10,43 @@ public record ContainerSettingsOverrides
     public EmbeddingSettings? Embedding { get; init; }
     public SearchSettings? Search { get; init; }
     public UploadSettings? Upload { get; init; }
-    public SummarySettings? Summary { get; init; }
+
+    /// <summary>A copy with every secret (an API key or a password) left out, as anyone reading the overrides sees them.</summary>
+    public ContainerSettingsOverrides WithoutSecrets() => new()
+    {
+        Chunking = Copy(Chunking, stored: null, keep: false),
+        Embedding = Copy(Embedding, stored: null, keep: false),
+        Search = Copy(Search, stored: null, keep: false),
+        Upload = Copy(Upload, stored: null, keep: false),
+    };
+
+    /// <summary>
+    /// A copy to store in place of <paramref name="stored"/>. Read back, the overrides have no secrets, so a secret left
+    /// null keeps the stored one, but only while its section's provider and addresses are the stored ones: a kept key
+    /// never goes somewhere it wasn't saved for. An empty secret clears it.
+    /// </summary>
+    public ContainerSettingsOverrides KeepingSecretsOf(ContainerSettingsOverrides? stored) => new()
+    {
+        Chunking = Copy(Chunking, stored?.Chunking, keep: true),
+        Embedding = Copy(Embedding, stored?.Embedding, keep: true),
+        Search = Copy(Search, stored?.Search, keep: true),
+        Upload = Copy(Upload, stored?.Upload, keep: true),
+    };
+
+    private static T? Copy<T>(T? section, T? stored, bool keep) where T : class
+    {
+        if (section is null)
+            return null;
+        var copy = JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(section))!;
+        bool sameDestinations = stored is not null && SettingsSecrets.DestinationsOf(typeof(T))
+            .All(d => string.Equals((string?)d.GetValue(copy), (string?)d.GetValue(stored), StringComparison.Ordinal));
+        foreach (var secret in SettingsSecrets.Of(typeof(T)))
+        {
+            string? value = (string?)secret.GetValue(copy);
+            secret.SetValue(copy, !keep || value is "" ? null : value ?? (sameDestinations ? secret.GetValue(stored) : null));
+        }
+        return copy;
+    }
 }
 
 /// <summary>One file a connector found, as the connector sees it.</summary>
@@ -61,10 +99,7 @@ public record Container(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int DocumentCount = 0,
-    ContainerSettingsOverrides? SettingsOverrides = null,
-    string? Summary = null,
-    DateTime? SummaryGeneratedAt = null,
-    string? SummaryDocSetHash = null);
+    ContainerSettingsOverrides? SettingsOverrides = null);
 
 public record CreateContainerRequest(
     string Name,
@@ -81,11 +116,7 @@ public record Document(
     long SizeBytes,
     DateTime CreatedAt,
     Dictionary<string, string> Metadata,
-    string? Summary = null,
-    DateTime? SummaryGeneratedAt = null,
-    string? SummaryContentHash = null,
-    DocumentStatus Status = DocumentStatus.Queued,
-    SummaryStatus SummaryStatus = SummaryStatus.NotNeeded)
+    DocumentStatus Status = DocumentStatus.Queued)
 {
     /// <summary>
     /// Which owner the row actually has. Needed because <see cref="ContainerId"/> carries

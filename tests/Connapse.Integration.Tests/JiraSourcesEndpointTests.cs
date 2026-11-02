@@ -57,7 +57,10 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
                 new { id = "10000", key = "ENG", name = "Engineering", projectTypeKey = "software", style = "classic" },
                 new { id = "10001", key = "OPS", name = "Operations", projectTypeKey = "service_desk", style = "next-gen" },
             },
-            startAt = 0, maxResults = 100, total = 2, isLast = true,
+            startAt = 0,
+            maxResults = 100,
+            total = 2,
+            isLast = true,
         });
 
         using var scope = fixture.Factory.Services.CreateScope();
@@ -66,8 +69,11 @@ public sealed class JiraSourcesEndpointTests(SharedWebAppFixture fixture) : IAsy
         {
             var user = new ConnapseUser
             {
-                UserName = EditorEmail, Email = EditorEmail, EmailConfirmed = true,
-                DisplayName = EditorEmail, CreatedAt = DateTime.UtcNow,
+                UserName = EditorEmail,
+                Email = EditorEmail,
+                EmailConfirmed = true,
+                DisplayName = EditorEmail,
+                CreatedAt = DateTime.UtcNow,
             };
             (await users.CreateAsync(user, EditorPassword)).Succeeded.Should().BeTrue();
             await users.AddToRoleAsync(user, "Editor");

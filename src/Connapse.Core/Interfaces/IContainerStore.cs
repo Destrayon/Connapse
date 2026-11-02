@@ -7,6 +7,13 @@ public interface IContainerStore
     Task<Container?> GetByNameAsync(string name, CancellationToken ct = default);
     Task<IReadOnlyList<Container>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Renames a container or changes its description; a null argument is left as it is. Null when
+    /// the container doesn't exist. Throws <see cref="InvalidOperationException"/> when the new name
+    /// belongs to another container or isn't a valid container name.
+    /// </summary>
+    Task<Container?> UpdateAsync(Guid id, string? name, string? description, CancellationToken ct = default);
     Task<bool> ExistsAsync(Guid id, CancellationToken ct = default);
     Task<ContainerSettingsOverrides?> GetSettingsOverridesAsync(Guid id, CancellationToken ct = default);
     Task SaveSettingsOverridesAsync(Guid id, ContainerSettingsOverrides overrides, CancellationToken ct = default);
@@ -25,17 +32,19 @@ public interface IContainerStore
     /// its default. Null when the container has none.
     /// </summary>
     Task<System.Text.Json.JsonElement?> GetSettingsOverridesJsonAsync(Guid id, CancellationToken ct = default);
-    Task UpdateSummaryAsync(Guid id, string? summary, DateTime? generatedAt, string? docSetHash, CancellationToken ct = default);
 
     /// <summary>
-    /// Marks the container summary as stale so the next sweep tick (SummaryJobs.SweepStaleContainersAsync)
-    /// flags it as needing a rollup. Required because the sweep's staleness query only fires on
-    /// "any doc summary is newer than the container summary" — pure deletions (no newer doc) wouldn't
-    /// trigger it otherwise, leaving the container summary referencing deleted docs indefinitely.
-    ///
-    /// Behavior: if any docs with summaries still exist, clears generated-at + hash but keeps the
-    /// summary text visible until the next rollup replaces it. If no summarized docs remain, clears
-    /// the entire summary so we don't show stale text for an empty container.
+    /// Replaces a container's overrides with what <paramref name="update"/> makes of the stored ones, with no other save
+    /// landing in between. Answers what was saved, or null when the container doesn't exist.
     /// </summary>
-    Task MarkSummaryStaleAsync(Guid id, CancellationToken ct = default);
+    Task<ContainerSettingsOverrides?> UpdateSettingsOverridesAsync(
+        Guid id, Func<ContainerSettingsOverrides?, ContainerSettingsOverrides> update, CancellationToken ct = default);
+
+    /// <summary>
+    /// As <see cref="UpdateSettingsOverridesAsync(Guid, Func{ContainerSettingsOverrides?, ContainerSettingsOverrides}, CancellationToken)"/>,
+    /// storing only the search settings named in <paramref name="searchSettingsNamed"/>.
+    /// </summary>
+    Task<ContainerSettingsOverrides?> UpdateSettingsOverridesAsync(
+        Guid id, Func<ContainerSettingsOverrides?, ContainerSettingsOverrides> update, IEnumerable<string> searchSettingsNamed,
+        CancellationToken ct = default);
 }

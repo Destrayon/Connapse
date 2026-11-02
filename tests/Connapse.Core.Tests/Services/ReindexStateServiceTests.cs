@@ -1,4 +1,4 @@
-using Connapse.Web.Services;
+using Connapse.Application.Settings;
 using FluentAssertions;
 
 namespace Connapse.Core.Tests.Services;

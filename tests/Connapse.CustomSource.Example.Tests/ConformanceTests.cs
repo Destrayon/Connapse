@@ -9,6 +9,7 @@ namespace Connapse.CustomSource.Example.Tests;
 /// must pass and none may be skipped, so a change that breaks either the example or the suite is caught here.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed partial class ConformanceTests
 {
     [Fact]

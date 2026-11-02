@@ -43,7 +43,7 @@ public class AtlassianSetupGuideDocsTests
     ];
 
     private static string Guide() =>
-        File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "atlassian-setup.md"));
+        File.ReadAllText(Path.Combine(PageTestPaths.RepositoryRoot(), "docs", "sources", "atlassian-setup.md"));
 
     [Fact]
     public void SetupGuide_HasEverySectionTheAppLinksTo()
@@ -71,11 +71,11 @@ public class AtlassianSetupGuideDocsTests
             .Select(line => Regex.Replace(line.TrimStart('#').Trim().ToLowerInvariant(), @"[^a-z0-9 -]", "").Replace(' ', '-'))
             .ToHashSet();
 
-        ConfluenceSpaceSelection.GuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+        ConfluenceSpaceSelection.GuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#");
         anchors.Should().Contain(ConfluenceSpaceSelection.GuideUrl.Split('#')[1]);
-        ConfluenceSpaceSelection.MissingScopeGuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+        ConfluenceSpaceSelection.MissingScopeGuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#");
         anchors.Should().Contain(ConfluenceSpaceSelection.MissingScopeGuideUrl.Split('#')[1]);
-        JiraProjectSelection.GuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+        JiraProjectSelection.GuideUrl.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#");
         anchors.Should().Contain(JiraProjectSelection.GuideUrl.Split('#')[1]);
     }
 
@@ -108,7 +108,7 @@ public class AtlassianSetupGuideDocsTests
 
         foreach (string url in urls)
         {
-            url.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#");
+            url.Should().StartWith("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#");
             anchors.Should().Contain(url.Split('#')[1], "the page links to this section");
         }
     }
@@ -178,9 +178,9 @@ public class AtlassianSetupGuideDocsTests
     public void Docs_GiveTheAttachmentDefaultTheFormAndApiApply()
     {
         // Attachments start on only when the site's last test confirmed their scope (ConfluenceSpaceSelection.ForSite).
-        Doc("connectors.md").Should().NotContain("`includeAttachments` defaults to `true`")
+        Doc(Path.Combine("sources", "index.md")).Should().NotContain("`includeAttachments` defaults to `true`")
             .And.Contain("`includeAttachments` defaults on when the site's last test confirmed the `read:attachment:confluence` scope, otherwise off");
-        Doc("confluence-test-site.md").Should().NotContain("leave **Include attachments** ticked")
+        Doc(Path.Combine("contributing", "confluence-test-site.md")).Should().NotContain("leave **Include attachments** ticked")
             .And.Contain("tick **Include attachments** if it isn't already");
     }
 
@@ -243,7 +243,7 @@ public class AtlassianSetupGuideDocsTests
     [Fact]
     public void ApiReference_LinkingAppPut_DocumentsReplaceExisting()
     {
-        Doc("api.md").Should().Contain("`{ \"clientId\", \"clientSecret\", \"replaceExisting\"? }`")
+        Doc(Path.Combine("reference", "rest-api.md")).Should().Contain("`{ \"clientId\", \"clientSecret\", \"replaceExisting\"? }`")
             .And.Contain("Without it the answer is `409` with `{ error, field: \"replaceExisting\" }`");
     }
 

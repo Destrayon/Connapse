@@ -7,6 +7,7 @@ using NSubstitute;
 namespace Connapse.Ingestion.Tests.Parsers;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Large")]
 public class PdfTableStructureTests
 {
     // Boxes in PDF points (left, bottom, right, top) for a 2x3 grid of 100x20 cells from (0, 100).

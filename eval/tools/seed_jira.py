@@ -1,6 +1,6 @@
 """Seed a Jira Cloud test site for the Atlassian connector (#540, #708) with restricted comments.
 
-It adds to the site the Confluence seed already uses (docs/confluence-test-site.md):
+It adds to the site the Confluence seed already uses (docs/contributing/confluence-test-site.md):
 
   ENG  a company-managed software project with 30 short synthetic issues: a few linked, three
        under one epic

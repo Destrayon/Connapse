@@ -9,36 +9,74 @@ on:
 permissions:
   contents: read
 
-jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    # GitHub runners have Docker pre-installed - Testcontainers will use it automatically
-    # Ollama is installed directly on the runner for embedding generation
+# A newer push to the same PR replaces the run in progress, so a mass rebase doesn't leave superseded runs
+# holding the Free plan's 20 concurrent jobs while the current ones queue (CON-91). Pushes to main each get
+# their own group and are never cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
+jobs:
+  # Tests run in three size tiers (epic #783, #788), split into parallel jobs (#789). Small is
+  # Category=Unit with no Size trait: no Docker, no models, no child processes. Medium is the slower
+  # unit tests and the integration tests on the shared PostgreSQL + MinIO pair (SharedWebAppFixture)
+  # with Ollama on the host; Integration.Tests, the long pole, runs as three class shards. Large runs
+  # nightly (nightly.yml). Each job uploads its TRX files and its wall time; build-and-test, at the
+  # end, checks the budgets and the whole pipeline's wall time.
+  small:
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+    - uses: ./.github/actions/free-disk
+
+    - uses: ./.github/actions/build
+
+    - name: Run Small tests
+      run: |
+        mkdir -p walls
+        start=$(date +%s)
+        set +e
+        dotnet test --no-build --configuration Release --filter "Category=Unit&Size!=Medium&Size!=Large" --verbosity normal --logger "trx;LogFileName=small-tests.trx"
+        status=$?
+        echo $(( $(date +%s) - start )) > walls/small.txt
+        exit $status
+
+    # Speed gates time real work, so they run alone: beside the unit tests' parallel projects
+    # the same parse took 3-4x as long (CON-110).
+    - name: Run speed gates
+      if: success() || failure()
+      run: dotnet test tests/Connapse.Ingestion.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=gate-tests.trx"
+
+    - uses: ./.github/actions/disk-report
+      if: always()
+
+    # The CI scripts' own tests: the shard planner decides which tests every PR runs where.
+    - name: Test the CI scripts
+      if: success() || failure()
+      run: python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
       with:
-        dotnet-version: '10.0.x'
+        name: test-results-small
+        path: |
+          **/TestResults/*.trx
+          walls/
 
-    # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
-    # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
-    - name: Cache layout model
-      uses: actions/cache@v4
-      with:
-        path: .models
-        key: pdf-models-250dbad1-d57a942a
+  # Medium for every project but Integration.Tests, which the integration shards run. Integration.Tests
+  # still writes an empty medium-tests.trx here, so the budget check sees every project report.
+  medium:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-    - name: Restore dependencies
-      run: dotnet restore
+    - uses: ./.github/actions/free-disk
 
-    - name: Build
-      run: dotnet build --no-restore --configuration Release
+    - uses: ./.github/actions/build
 
     # The unit tests lint every generated CloudShell script with bash -n and ShellCheck. The runner
     # image ships both, so this is normally a version print; installing it here rather than relying
@@ -47,55 +85,29 @@ jobs:
     - name: Ensure ShellCheck is available
       run: shellcheck --version || sudo apt-get install -y shellcheck
 
-    # Cache must be restored BEFORE Ollama is set up so the pulled model is available immediately
-    - name: Cache Ollama models
-      uses: actions/cache@v4
-      with:
-        path: ~/.ollama
-        key: ${{ runner.os }}-ollama-nomic-embed-text-v1
-        restore-keys: |
-          ${{ runner.os }}-ollama-nomic-embed-text-
-          ${{ runner.os }}-ollama-
+    - uses: ./.github/actions/ollama
 
-    - name: Setup Ollama
-      uses: ai-action/setup-ollama@v2
-
-    - name: Start Ollama service
+    - name: Run Medium tests
       run: |
-        ollama serve &
-        sleep 5
+        mkdir -p walls
+        start=$(date +%s)
+        set +e
+        dotnet test --no-build --configuration Release --filter "((Category=Unit&Size=Medium)|(Category=Integration&Size!=Large))&FullyQualifiedName!~Connapse.Integration.Tests." --verbosity normal --logger "trx;LogFileName=medium-tests.trx" --collect:"XPlat Code Coverage"
+        status=$?
+        echo $(( $(date +%s) - start )) > walls/medium.txt
+        exit $status
 
-    - name: Pull embedding model
-      run: |
-        ollama pull nomic-embed-text
-        ollama list
-
-    # Unit tests run fast with no external dependencies
-    - name: Run unit tests
-      run: dotnet test --no-build --configuration Release --filter "Category=Unit" --verbosity normal --logger "trx;LogFileName=unit-tests.trx"
-
-    # Speed gates time real work, so they run alone: beside the unit tests' parallel projects
-    # the same parse took 3-4x as long (CON-110).
-    - name: Run speed gates
-      run: dotnet test tests/Connapse.Ingestion.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=gate-tests.trx"
-
-    # Integration tests run with coverage collection — no separate coverage-only pass needed
-    - name: Run integration tests
-      run: dotnet test --no-build --configuration Release --filter "Category=Integration" --verbosity normal --logger "trx;LogFileName=integration-tests.trx" --collect:"XPlat Code Coverage"
-      # Testcontainers spins up a single shared PostgreSQL + MinIO pair (SharedWebAppFixture)
-      # Ollama runs directly on the host for embedding generation
-
-    # The memory write gate times real writes against the shared Postgres container, so it runs alone,
-    # after the integration tests (CON-39).
-    - name: Run memory speed gate
-      run: dotnet test tests/Connapse.Integration.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=memory-gate-tests.trx"
+    - uses: ./.github/actions/disk-report
+      if: always()
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: test-results
-        path: '**/*.trx'
+        name: test-results-medium
+        path: |
+          **/TestResults/*.trx
+          walls/
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v4
@@ -105,6 +117,224 @@ jobs:
         fail_ci_if_error: false
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Integration.Tests' Medium tier in three shards by test class, balanced by each class's past run time
+  # (.github/test-timings, #843). Each shard starts its own host and containers; the last shard runs
+  # every class the others don't name (shard_tests.py). Each writes its plan and time to its summary.
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      CONNAPSE_TEST_SHARD: ${{ matrix.shard }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: ./.github/actions/free-disk
+
+    # The test fixtures' container images, pulled while the build runs. Testcontainers otherwise pulls them
+    # inside the test step, where a slow registry looked like slow tests (CON-127: one MinIO pull took 78 s
+    # longer than usual). Keep the list in step with the fixtures' WithImage calls; an image missing here
+    # is still pulled by the fixture, just not ahead of time.
+    - name: Start pulling container images
+      run: |
+        # set +e: the step's bash -e would otherwise end the subshell on a failed pull before it writes
+        # pulls.done, and the wait step would sit out its whole timeout.
+        (set +e; printf '%s\n' pgvector/pgvector:pg17 cgr.dev/chainguard/minio localstack/localstack:3 \
+           mcr.microsoft.com/azure-storage/azurite:3.37.0 atmoz/sftp:alpine \
+           | xargs -P 5 -n 1 docker pull -q > "$RUNNER_TEMP/pulls.log" 2>&1; echo $? > "$RUNNER_TEMP/pulls.done") &
+
+    - uses: ./.github/actions/build
+      with:
+        project: tests/Connapse.Integration.Tests
+
+    - uses: ./.github/actions/ollama
+
+    # Normally done before the build is. A failed pull isn't fatal: the fixture pulls the image itself.
+    - name: Wait for container images
+      run: |
+        timeout 300 bash -c 'until [ -f "$RUNNER_TEMP/pulls.done" ]; do sleep 1; done' || echo "::warning::the image pulls were still running after 5 minutes"
+        cat "$RUNNER_TEMP/pulls.log"
+        [ "$(cat "$RUNNER_TEMP/pulls.done" 2>/dev/null)" = 0 ] || echo "::warning::an image pull failed; the fixtures will pull it themselves"
+
+    - name: Run Integration.Tests shard ${{ matrix.shard }} of 3
+      run: |
+        mkdir -p walls
+        filter=$(python3 .github/scripts/shard_tests.py --project tests/Connapse.Integration.Tests --shards 3 --index ${{ matrix.shard }} \
+          --filter "(Category=Unit&Size=Medium)|(Category=Integration&Size!=Large)" \
+          --timings .github/test-timings/integration-tests.json --strategy timed \
+          --summary "$GITHUB_STEP_SUMMARY" --predicted-out walls/integration-${{ matrix.shard }}.predicted)
+        start=$(date +%s)
+        set +e
+        dotnet test tests/Connapse.Integration.Tests --no-build --configuration Release --filter "$filter" --verbosity normal --logger "trx;LogFileName=medium-tests-shard-${{ matrix.shard }}.trx" --collect:"XPlat Code Coverage"
+        status=$?
+        wall=$(( $(date +%s) - start ))
+        echo $wall > walls/integration-${{ matrix.shard }}.txt
+        echo "Ran in ${wall} s, host start-up included." >> "$GITHUB_STEP_SUMMARY"
+        exit $status
+
+    # The memory write gate times real writes against the shared Postgres container, so it runs alone,
+    # after the shard's tests, and in one shard only (CON-39).
+    - name: Run memory speed gate
+      if: matrix.shard == 1 && (success() || failure())
+      run: dotnet test tests/Connapse.Integration.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=memory-gate-tests.trx"
+
+    - uses: ./.github/actions/disk-report
+      if: always()
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-integration-${{ matrix.shard }}
+        path: |
+          tests/Connapse.Integration.Tests/TestResults/*.trx
+          tests/Connapse.Integration.Tests/TestResults/spec-conformance-*.json
+          walls/
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v4
+      if: success()
+      with:
+        files: '**/coverage.cobertura.xml'
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # The API contract (epic #783, Phase 3.2, CON-53). On a PR, oasdiff compares the spec with its base
+  # branch's and fails on a breaking change; Spectral checks .spectral.yaml's style rules on every run,
+  # against the exact-match list in .github/spectral-known.json. Schemathesis runs nightly only.
+  api-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: The base branch's spec
+      id: base
+      if: github.event_name == 'pull_request'
+      run: |
+        # The spec as it is without this PR: the first parent of the merge commit a PR run checks out. For a
+        # PR in a GitHub stack that is every PR below it merged onto the trunk, which base_ref (the trunk)
+        # isn't. In the workspace, since oasdiff runs in a Docker container that sees only the workspace.
+        if git show "HEAD^1:docs/api/openapi.json" > base-openapi.json 2>/dev/null; then
+          echo "path=base-openapi.json" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::the base has no committed spec yet, so there is nothing to break"
+        fi
+
+    # review: false keeps both specs in CI; the action otherwise uploads them to oasdiff.com.
+    - name: No breaking API changes
+      if: steps.base.outputs.path != ''
+      uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
+      with:
+        base: ${{ steps.base.outputs.path }}
+        revision: docs/api/openapi.json
+        # WARN too: oasdiff rates some real breaks only as warnings, such as a change it can't compare
+        # exactly inside an allOf.
+        fail-on: WARN
+        # One line per intended change, "<METHOD> <path> <oasdiff's message>"; each matches only that
+        # operation's change. Every line is explained in the PR that adds it.
+        err-ignore: .github/oasdiff-err-ignore.txt
+        # The same for the warnings fail-on WARN turns into failures; oasdiff keeps the two lists apart.
+        warn-ignore: .github/oasdiff-warn-ignore.txt
+        review: 'false'
+        github-token: ''
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    # Spectral exits non-zero for any violation; the exact-match list decides.
+    - name: Spec follows the style rules
+      run: |
+        npx --yes @stoplight/spectral-cli@6.17.0 lint docs/api/openapi.json --ruleset .spectral.yaml \
+          --format json --output "$RUNNER_TEMP/spectral.json" || true
+        python3 .github/scripts/spectral_baseline.py --results "$RUNNER_TEMP/spectral.json" --known .github/spectral-known.json
+
+  # Keeps the check name the repository already reports, and fails unless every test job passed.
+  # !cancelled() rather than always(): when the concurrency group cancels a superseded run, this job is
+  # cancelled with it instead of running and failing on the cancelled jobs it waits on (CON-123). A failed
+  # or skipped job still runs it, and it fails.
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: [small, medium, integration, code-quality, mcp-conformance, api-contract]
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download test results
+      uses: actions/download-artifact@v4
+      with:
+        pattern: test-results-*
+        merge-multiple: true
+
+    # Every job this one waits on must have succeeded: a failed, skipped or cancelled one fails here.
+    - name: Every job passed
+      env:
+        RESULTS: ${{ toJSON(needs) }}
+      run: |
+        echo "$RESULTS" | python3 -c '
+        import json, sys
+        bad = {k: v["result"] for k, v in json.load(sys.stdin).items() if v["result"] != "success"}
+        print("all jobs succeeded" if not bad else f"::error::jobs that did not succeed: {bad}")
+        sys.exit(1 if bad else 0)'
+
+    # The integration shards side by side, and the per-class timings this run measured. Commit
+    # integration-timings' file over .github/test-timings/integration-tests.json when the shards drift
+    # apart (classes added, or grown slower): the plan reads only the committed file.
+    - name: Shard times
+      if: success() || failure()
+      run: |
+        {
+          echo "### Integration.Tests shards"
+          echo "| Shard | Predicted tests (s) | Ran (s) |"
+          echo "|---|---|---|"
+          for n in 1 2 3; do
+            echo "| $n | $(cat walls/integration-$n.predicted 2>/dev/null || echo ?) | $(cat walls/integration-$n.txt 2>/dev/null || echo ?) |"
+          done
+        } >> "$GITHUB_STEP_SUMMARY"
+        python3 .github/scripts/shard_tests.py --make-timings --trx "**/medium-tests-shard-*.trx" --out integration-timings/integration-tests.json \
+          || echo "::warning::no shard TRX to refresh the timings from"
+
+    - name: Upload refreshed timings
+      uses: actions/upload-artifact@v4
+      if: success() || failure()
+      with:
+        name: integration-timings
+        path: integration-timings/
+        if-no-files-found: ignore
+
+    # IntegrationSuite_EveryResponse_ConformsToCommittedSpec (CON-8): every shard's /api responses against
+    # docs/api/openapi.json, compared exactly with the list of today's violations.
+    - name: Check responses against the committed spec
+      if: success() || failure()
+      run: python3 .github/scripts/spec_conformance.py --reports "**/spec-conformance-*.json" --known tests/Connapse.Integration.Tests/Spec/known-spec-violations.json --expect-reports 3
+
+    # Every tier is checked even if another fails, and every test project must have reported. The
+    # Medium tier's wall time is its slowest job's, since the jobs run side by side.
+    # The Small tier's 30 s is on a median runner: its wall, divided by how much slower than the
+    # reference this runner ran the same tests (CON-87).
+    - name: Check test-speed budgets
+      if: success() || failure()
+      run: |
+        rc=0
+        small=$(cat walls/small.txt 2>/dev/null || echo -1)
+        medium=$(cat walls/medium.txt walls/integration-*.txt 2>/dev/null | sort -n | tail -1)
+        python3 .github/scripts/test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds "$small" --max-wall-seconds 30 --reference .github/test-timings/small-reference.json || rc=1
+        python3 .github/scripts/test_budgets.py --tier Medium --trx "medium-tests*.trx" --max-test-seconds 30 --wall-seconds "${medium:--1}" --max-wall-seconds 480 || rc=1
+        exit $rc
 
     - name: Generate test badge
       if: always() && github.ref == 'refs/heads/main'
@@ -142,6 +372,21 @@ jobs:
         git commit -m "Update test badge"
         git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
 
+    # Last, so the measurement includes this job's own steps. Steps that only wait on a third-party service
+    # count up to an allowance a little over their usual time (CON-127); the rest is printed as a warning.
+    # On 2026-10-28 the Codecov upload took 105 s instead of 3 s and failed a PR whose tests all passed.
+    # Setup steps (checkout, restore, build, Ollama) count as their median over 30 green runs,
+    # in setup-allowances.json (CON-141): a runner slow at setup put #1023 and #1024 over with no slower tests.
+    # A step renamed or added here needs its line there, or it counts in full.
+    - name: PrPipeline_WallTimeUnder6Min
+      if: success() || failure()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        python3 .github/scripts/pipeline_wall.py --max-seconds 360 --current build-and-test \
+          --network-step "Upload coverage reports=15" --network-step "Wait for container images=15" \
+          --setup-allowances .github/setup-allowances.json
+
   code-quality:
     runs-on: ubuntu-latest
 
@@ -149,10 +394,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - uses: ./.github/actions/free-disk
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.x'
+        global-json-file: global.json
 
     # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
     # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
@@ -162,13 +409,78 @@ jobs:
         path: .models
         key: pdf-models-250dbad1-d57a942a
 
-    - name: Restore dependencies
-      run: dotnet restore
+    - uses: ./.github/actions/restore
 
+    # Both checks block (epic #783, #786). Analysis runs even when formatting fails, so one run
+    # reports both. The analysis build also checks each project's SquiggleCop.Baseline.yaml.
     - name: Check formatting
       run: dotnet format --verify-no-changes --no-restore
-      continue-on-error: true
 
     - name: Run code analysis
-      run: dotnet build --no-restore --configuration Release /p:EnforceCodeStyleInBuild=true /p:TreatWarningsAsErrors=true
-      continue-on-error: true
+      if: success() || failure()
+      run: dotnet build --no-restore --configuration Release -p:EnforceCodeStyleInBuild=true -p:TreatWarningsAsErrors=true -p:SquiggleCop_AutoBaseline=false
+
+    - uses: ./.github/actions/disk-report
+      if: always()
+
+  # The official MCP conformance suite in server mode (#793), against the app run with
+  # `dotnet run` on throwaway Postgres and MinIO. The runner can't send credentials, so the
+  # server allows anonymous MCP discovery; tool calls still need a key. Known failures are in
+  # .github/mcp-conformance-baseline*.yml, and a listed scenario that starts passing fails the job.
+  mcp-conformance:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: ./.github/actions/free-disk
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        global-json-file: global.json
+
+    - name: Cache layout model
+      uses: actions/cache@v4
+      with:
+        path: .models
+        key: pdf-models-250dbad1-d57a942a
+
+    - name: Start Postgres and MinIO
+      run: |
+        docker run -d --name conf-pg -e POSTGRES_USER=connapse -e POSTGRES_PASSWORD=connapse -e POSTGRES_DB=connapse -p 5432:5432 pgvector/pgvector:pg17
+        docker run -d --name conf-minio -e MINIO_ROOT_USER=connapse -e MINIO_ROOT_PASSWORD=connapse_secret -p 9000:9000 cgr.dev/chainguard/minio server /data
+
+    - name: Build
+      run: dotnet build src/Connapse.Web --configuration Release
+
+    - name: Start Connapse
+      env:
+        ASPNETCORE_URLS: http://localhost:5099
+        ConnectionStrings__DefaultConnection: Host=localhost;Port=5432;Database=connapse;Username=connapse;Password=connapse
+        Knowledge__Storage__MinIO__Endpoint: localhost:9000
+        Knowledge__Storage__MinIO__AccessKey: connapse
+        Knowledge__Storage__MinIO__SecretKey: connapse_secret
+        Knowledge__Storage__MinIO__UseSSL: 'false'
+        Identity__Jwt__Secret: conformance-jwt-secret-that-is-long-enough-for-hs256-signing!!
+        Mcp__AllowAnonymousDiscovery: 'true'
+      run: |
+        dotnet run --project src/Connapse.Web --configuration Release --no-build --no-launch-profile > web.log 2>&1 &
+        timeout 120 bash -c 'until curl -sf http://localhost:5099/health > /dev/null; do sleep 2; done' || { tail -50 web.log; exit 1; }
+
+    # The 2025 revisions down-level clients still speak (the SDK's initialize handshake), and the
+    # 2026-07-28 revision Connapse serves (#846), each with its own expected failures.
+    - name: Run the MCP conformance suite (2025 revisions)
+      run: npx -y @modelcontextprotocol/conformance@0.1.16 server --url http://localhost:5099/mcp --expected-failures .github/mcp-conformance-baseline.yml
+
+    - name: Run the MCP conformance suite (2026-07-28)
+      if: success() || failure()
+      run: npx -y @modelcontextprotocol/conformance@0.2.0-alpha.12 server --url http://localhost:5099/mcp --requirements 2026-07-28 --expected-failures .github/mcp-conformance-baseline-2026-07-28.yml
+
+    - name: Server log on failure
+      if: failure()
+      run: tail -100 web.log
+
+    - uses: ./.github/actions/disk-report
+      if: always()

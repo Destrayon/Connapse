@@ -1,0 +1,1118 @@
+[
+  {
+    "id": "qst_0296",
+    "kind": "hard",
+    "area": "slack",
+    "question": "Who on the team committed to producing a short animated demo to embed in the upcoming renewal business review materials, and what was the demo supposed to showcase?",
+    "answer": "Alan (Engineering) committed to making a short demo GIF for the QBR pack. It was meant to showcase the new onboarding dashboard-highlighting onboarding funnel/performance and user journeys (including metrics like time to first successful API call and top errors) in an anonymized, non-prod demo.",
+    "must_include": [
+      "Alan from Engineering committed to producing a short animated demo GIF to embed in the upcoming renewal business review (QBR) materials.",
+      "The demo was supposed to showcase the new onboarding dashboard.",
+      "The demo was supposed to highlight onboarding funnel and performance and user journeys.",
+      "The demo was supposed to include metrics such as time to first successful API call and top errors.",
+      "The demo was supposed to be an anonymized, non-production demo."
+    ],
+    "gold_doc_ids": [
+      "dsid_0d7ec9095f1b41fba11cca1c8887bc2c"
+    ],
+    "word_overlap": 0.286,
+    "fact_overlap": [
+      0.4,
+      0.667,
+      0.75,
+      0.818,
+      0.8
+    ],
+    "facts_grounded": false
+  },
+  {
+    "id": "qst_0248",
+    "kind": "hard",
+    "area": "confluence",
+    "question": "In our hiring workflow, what happens when a candidate is strong but the pay we want to offer is about 20 percent above the middle of the internal range, specifically who has to approve it?",
+    "answer": "An offer at about 20% above the band midpoint falls into the +10% to +25% range, so it requires sign-off from the Hiring Manager and the HR Business Partner (HRBP).",
+    "must_include": [
+      "An offer about 20 percent above the band midpoint falls into the plus 10 percent to plus 25 percent range.",
+      "An offer in the plus 10 percent to plus 25 percent range requires sign-off from the Hiring Manager and the HR Business Partner (HRBP)."
+    ],
+    "gold_doc_ids": [
+      "dsid_0a2cd37d53ff47d4aced289cd9a76fe8"
+    ],
+    "word_overlap": 0.333,
+    "fact_overlap": [
+      0.5,
+      0.786
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0235",
+    "kind": "hard",
+    "area": "gmail",
+    "question": "In the email thread about an AI service pilot for a payments company, what were the four main categories of changes their procurement and counsel asked for in the first contract markup?",
+    "answer": "In their first markup, Greenfield's procurement and counsel asked for changes in four areas: (1) data residency (US-only) plus a 30-day data export guarantee, (2) audit logs and retention (7 years) and SOC 2 evidence, (3) a lower liability cap for the pilot phase, and (4) minor tweaks to IP/derivative works language.",
+    "must_include": [
+      "Changes related to data residency being US-only and a 30-day data export guarantee",
+      "Changes related to audit logs and retention for 7 years and providing SOC 2 evidence",
+      "Changes related to lowering the liability cap for the pilot phase",
+      "Changes related to minor tweaks to the IP and derivative works language"
+    ],
+    "gold_doc_ids": [
+      "dsid_590dd1330a4046e28ac0a2f43b7910cc"
+    ],
+    "word_overlap": 0.353,
+    "fact_overlap": [
+      0.778,
+      0.727,
+      0.714,
+      0.75
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0240",
+    "kind": "hard",
+    "area": "linear",
+    "question": "During a multi region switchover, what is causing some customers to get bursty too many requests and occasional service unavailable responses because different parts of the traffic gatekeeper disagree briefly on the time boundary used for quota calculations?",
+    "answer": "A race between epoch (quota time-boundary) transitions and the async, non-atomically versioned policy cache refresh causes proxy, orchestrator, and host rate controllers to use inconsistent epoch anchors during failover/restarts. That brief mismatch makes the burst evaluator miscompute credits (treating old/missing anchors as no-burst), leading to overly aggressive admission drops and resulting 429 spikes and some downstream 503s.",
+    "must_include": [
+      "During a multi region switchover, a race occurs between quota epoch (time boundary) transitions and an asynchronous, non-atomically versioned policy cache refresh.",
+      "Because of this race, different rate control components (proxy, orchestrator, and host rate controllers) temporarily use inconsistent epoch anchors for quota calculations during failover or restarts.",
+      "The brief epoch anchor mismatch causes the burst evaluator to miscompute burst credits (for example treating old or missing anchors as no-burst).",
+      "The burst credit miscalculation leads to overly aggressive admission drops, producing spikes of 429 Too Many Requests responses and some downstream 503 Service Unavailable responses."
+    ],
+    "gold_doc_ids": [
+      "dsid_5402831508734a51adf649603be4b075"
+    ],
+    "word_overlap": 0.375,
+    "fact_overlap": [
+      0.706,
+      0.882,
+      0.769,
+      0.611
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0251",
+    "kind": "hard",
+    "area": "hubspot",
+    "question": "For a mid sized subscription software company adding AI powered lookup across internal docs and support chats, what are the performance targets for the overnight vectorization run and the interactive top ten results response time that were discussed in the pre sales notes?",
+    "answer": "The notes set a peak batch embedding throughput target of about 400 queries/embeddings per second during nightly vectorization windows, and an interactive semantic search end-to-end latency target of under 150 ms to return and re-rank the top 10 results.",
+    "must_include": [
+      "The pre sales notes set a peak batch embedding throughput target of about 400 queries or embeddings per second during overnight or nightly vectorization windows.",
+      "The pre sales notes set an interactive semantic search end to end latency target of under 150 ms to return and rerank the top 10 results."
+    ],
+    "gold_doc_ids": [
+      "dsid_a15c0247e9de4e128293bd820fc4c659"
+    ],
+    "word_overlap": 0.379,
+    "fact_overlap": [
+      0.706,
+      0.471
+    ],
+    "facts_grounded": false
+  },
+  {
+    "id": "qst_0270",
+    "kind": "hard",
+    "area": "confluence",
+    "question": "Which bank client got a temporary signoff to keep normal processing in Europe but let traffic switch to a US site only during disaster recovery drills or when the EU cluster is degraded, with payload logging turned off, and what were the start and end dates of that allowance?",
+    "answer": "The client was NordBank AB, and the temporary exception allowing US (us-east) failover only during DR tests or when eu-west is degraded (with payload logging disabled) ran from 2025-02-15 through 2025-05-31.",
+    "must_include": [
+      "The bank client was NordBank AB.",
+      "The temporary allowance permitted traffic to switch to the US (us-east) site only during disaster recovery tests or when the eu-west cluster was degraded.",
+      "Payload logging was disabled under the temporary allowance.",
+      "The temporary allowance started on 2025-02-15.",
+      "The temporary allowance ended on 2025-05-31."
+    ],
+    "gold_doc_ids": [
+      "dsid_33de625fcfc045dd967dbc9bdde3a8b4"
+    ],
+    "word_overlap": 0.407,
+    "fact_overlap": [
+      0.5,
+      0.8,
+      1.0,
+      0.833,
+      0.833
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0273",
+    "kind": "hard",
+    "area": "slack",
+    "question": "What dates did the team set for the three stage launch of the new high end compute hardware offering (restricted trial, broader preview, and public release) that follows the late July readiness work and the early August go no go decision?",
+    "answer": "They planned a staged rollout with Pilot (restricted) running Aug 7-21, Beta (broader preview) running Aug 22-Sept 12, and GA (public release) on Sept 20.",
+    "must_include": [
+      "The restricted trial stage (Pilot) was scheduled for Aug 7 through Aug 21.",
+      "The broader preview stage (Beta) was scheduled for Aug 22 through Sept 12.",
+      "The public release stage (GA) was scheduled for Sept 20."
+    ],
+    "gold_doc_ids": [
+      "dsid_451cad750f4548568ebfe6a5d2074f48"
+    ],
+    "word_overlap": 0.407,
+    "fact_overlap": [
+      0.75,
+      0.667,
+      0.714
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0214",
+    "kind": "hard",
+    "area": "linear",
+    "question": "In the mid March 2026 incident where a regional dedicated serving cluster briefly ran out of spare capacity and the automatic scaler couldnt add nodes due to provider limit type errors, what exact build version did on call revert to in order to restore capacity?",
+    "answer": "On-call rolled the runtime back to build runtime-1.21.4 (from runtime-1.21.7) to restore autoscaler function and capacity headroom.",
+    "must_include": [
+      "On-call reverted the runtime to build runtime-1.21.4 to restore capacity headroom.",
+      "The rollback was from runtime-1.21.7 to runtime-1.21.4."
+    ],
+    "gold_doc_ids": [
+      "dsid_303196c831af4d1bb38a1e2546228a09"
+    ],
+    "word_overlap": 0.414,
+    "fact_overlap": [
+      0.8,
+      1.0
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0254",
+    "kind": "hard",
+    "area": "hubspot",
+    "question": "Need the account notes for a tiny two person dev shop building a browser based coding assistant that struggled with keeping API secrets safe in a serverless front end, is pushing hard for incremental responses to keep the UI snappy, and is asking about cheap usage plus some starter credit before converting from prototype to paid.",
+    "answer": "Copper Kite Works is a PLG self-serve indie dev shop (founder + 1) building an in-app/browser code helper that suggests snippets and explains errors. They're embedding via a Vercel frontend and have run into CORS plus API token exposure concerns, so they want a recommended server proxy pattern; their top product need is streaming/chunked responses to keep the UI responsive, along with a cheap small/quantized model option and clarity on free-tier throttling/rate limits due to cost sensitivity. They've used ~18k tokens in the first 48 hours with batch-test spikes and are asking for promo credits (suggested $200) and a 30-day trial with upgraded limits, noting they'll convert quickly if streaming is easy and pricing is reasonable; blockers include unverified billing card, streaming/latency needs, and unclear token limits.",
+    "must_include": [
+      "Copper Kite Works is a PLG self-serve indie dev shop with a founder plus 1 developer",
+      "They are building an in-app or browser-based code helper that suggests code snippets and explains errors",
+      "They are embedding the assistant via a Vercel frontend",
+      "They have concerns about CORS issues and API token exposure in the frontend and want a recommended server-side proxy pattern",
+      "Their top product requirement is streaming or chunked incremental responses to keep the UI responsive",
+      "They want a cheap option such as a small or quantized model due to cost sensitivity",
+      "They want clarity on free-tier throttling and rate limits",
+      "They have used about 18k tokens in the first 48 hours, with spikes from batch testing",
+      "They are asking for promotional starter credits, suggested at around 200 dollars",
+      "They are asking for a 30-day trial with upgraded limits",
+      "They indicate they will convert from prototype to paid quickly if streaming is easy and pricing is reasonable",
+      "Current blockers include an unverified billing card, streaming and latency requirements, and unclear token limits"
+    ],
+    "gold_doc_ids": [
+      "dsid_5d161fbc61f94eaeb6098a9f9275d38f"
+    ],
+    "word_overlap": 0.417,
+    "fact_overlap": [
+      0.769,
+      0.9,
+      0.6,
+      0.692,
+      0.667,
+      0.889,
+      0.857,
+      0.667,
+      0.5,
+      1.0,
+      0.667,
+      0.75
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0239",
+    "kind": "hard",
+    "area": "hubspot",
+    "question": "For the fintech prospect doing merchant reconciliation and dispute handling, what are the specific compliance items their ops and security teams said must be in place before moving past the pilot phase?",
+    "answer": "They said they need SOC 2 evidence (specifically a SOC 2 Type II report/pack) before expanding beyond the POC, and their ops/compliance team flagged SSO and audit logs as blockers. Security also asked for the SAML SSO flow/metadata documentation and notes on KMS integration.",
+    "must_include": [
+      "They require SOC 2 evidence specifically a SOC 2 Type II report or pack before moving past the pilot or POC.",
+      "Their ops and compliance team flagged SSO and audit logs as blockers to moving past the pilot.",
+      "Security requested documentation for the SAML SSO flow and SAML metadata.",
+      "Security requested notes on KMS integration."
+    ],
+    "gold_doc_ids": [
+      "dsid_ef492479c7dc4a3c9dd55d6771e5df54"
+    ],
+    "word_overlap": 0.421,
+    "fact_overlap": [
+      0.538,
+      0.636,
+      0.857,
+      1.0
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0267",
+    "kind": "hard",
+    "area": "slack",
+    "question": "In a recent GPU serving load test with highly uneven prompt lengths, what change gave the biggest reduction in tail latency by preventing the runtime from switching to a slower attention implementation due to temporary scratch memory growth?",
+    "answer": "Adding a small per-pool workspace \"watermark\" (reserving ~8MB extra scratch space) prevented the paged-attn kernel from falling back when transient workspace estimates grew, and it delivered the biggest tail-latency drop (p99 down to ~310ms in the test).",
+    "must_include": [
+      "A small per-pool workspace watermark was added by reserving about 8MB of extra scratch space.",
+      "This workspace watermark prevented the paged-attn kernel from falling back to a slower attention implementation when transient workspace estimates grew.",
+      "This change produced the biggest reduction in tail latency in the load test.",
+      "In the test, p99 latency dropped to about 310 ms after this change."
+    ],
+    "gold_doc_ids": [
+      "dsid_0aebc4d1e7264c6c90136b6b780a0c67"
+    ],
+    "word_overlap": 0.423,
+    "fact_overlap": [
+      0.818,
+      0.714,
+      0.5,
+      0.571
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0256",
+    "kind": "hard",
+    "area": "jira",
+    "question": "During a gradual rollout of a new large model on a single production tenant in early March 2026, some sessions that were supposed to stay on a customer-specified version briefly got routed to a cheaper compressed build, causing worse answers without any server error spike. What was the immediate mitigation applied at the request routing layer to prevent this kind of misrouting when a version lock is provided?",
+    "answer": "They hotfixed the edge route-resolver to enforce the pin header at selection time: if a request includes an explicit model pin, the router rejects any fallback variant whose tokenizer family doesn't match the pinned model (preventing routing to the quantized q4 build when the pin is provided).",
+    "must_include": [
+      "A hotfix was applied to the edge route-resolver (request router).",
+      "The hotfix enforced the model pin header during model selection.",
+      "When a request includes an explicit model pin, the router rejects any fallback variant whose tokenizer family does not match the pinned model (preventing routing to the quantized q4 build when pinned)."
+    ],
+    "gold_doc_ids": [
+      "dsid_df40f9a66b914f29839322d19f8922bb"
+    ],
+    "word_overlap": 0.425,
+    "fact_overlap": [
+      0.857,
+      1.0,
+      0.722
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0191",
+    "kind": "hard",
+    "area": "jira",
+    "question": "During a short surge in vector writes last March, a customer in the western US region saw search answers point to the wrong source records and also couldnt verify charges because telemetry for about twenty minutes never arrived; what was the suspected technical cause behind both symptoms?",
+    "answer": "The suspected cause was indexer pods in us-west-2 being OOM-killed during the high-ingest burst due to aggressive in-memory batching (made worse by a recent batch-size increase). When the process restarted, some commit batches weren't flushed/propagated to the replicated commit log and audit-log Kafka topic before ack, leading to incorrect vector\u2192doc-id mappings and a gap in billing/latency telemetry.",
+    "must_include": [
+      "Indexer pods in us-west-2 were OOM-killed during the high-ingest burst because aggressive in-memory batching used too much memory, worsened by a recent batch-size increase.",
+      "After the indexer process restarted, some commit batches were acknowledged before being flushed or propagated to the replicated commit log and the audit-log Kafka topic.",
+      "Those unflushed commits caused incorrect vector-to-document ID mappings and a gap in billing and latency telemetry for about twenty minutes."
+    ],
+    "gold_doc_ids": [
+      "dsid_ef7f1d5cba204b728e1f4d7cddda7daa"
+    ],
+    "word_overlap": 0.452,
+    "fact_overlap": [
+      0.895,
+      0.923,
+      0.929
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0278",
+    "kind": "hard",
+    "area": "linear",
+    "question": "Our finance team is seeing totals in our accounting system come out a bit higher than what the payment processor exported, mostly when customers switch tiers in the middle of a billing period; what change should we make so each charge or credit line maps 1:1 and we stop the penny level rounding drift?",
+    "answer": "Update the Stripe\u2192NetSuite pipeline to export and import at the invoice_item_id line level (including proration and negative adjustment items) so each charge/credit maps 1:1, and switch all amount calculations to integer cents (no float aggregation) while preserving the original sign and cents exactly to eliminate penny-level rounding drift.",
+    "must_include": [
+      "Update the Stripe to NetSuite pipeline to export and import data at the invoice_item_id line level.",
+      "Include proration and negative adjustment invoice items in the export and import so each charge or credit line maps 1:1.",
+      "Switch all amount calculations to use integer cents rather than floating point aggregation.",
+      "Preserve the original sign and exact cents for each line item to eliminate penny level rounding drift."
+    ],
+    "gold_doc_ids": [
+      "dsid_e5298124a9fd4bee8242a18bdb3829e0"
+    ],
+    "word_overlap": 0.452,
+    "fact_overlap": [
+      0.917,
+      0.846,
+      0.8,
+      0.833
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0186",
+    "kind": "hard",
+    "area": "google_drive",
+    "question": "In the notes about keeping long, stop-and-go chat sessions cheap without replaying the whole history, what storage setup and time-to-live were proposed for keeping the compact per-session state for recent sessions versus longer retention?",
+    "answer": "The notes propose keeping hot, recent per-session anchors in a per-customer LRU store in Redis, while storing longer-term anchors in S3 with a 30-day TTL.",
+    "must_include": [
+      "Hot, recent per-session anchors are kept in a per-customer LRU store in Redis.",
+      "Longer-term per-session anchors are stored in S3 with a 30-day TTL."
+    ],
+    "gold_doc_ids": [
+      "dsid_0ae9b752fef446ec86e376e2dea49c28"
+    ],
+    "word_overlap": 0.458,
+    "fact_overlap": [
+      1.0,
+      0.8
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0204",
+    "kind": "hard",
+    "area": "hubspot",
+    "question": "What are the immediate follow up actions for the mid market product analytics SaaS that wants cheaper and more consistent in app assistant responses and is planning a short trial on the shared service before moving to a private network isolated deployment?",
+    "answer": "The immediate follow-ups are to run a 2-week Hosted API POC using the OpenAI-compat shim and prompt parity test suite, while preparing a Dedicated pricing proposal with committed capacity and burst options. Concretely: Pillarhaven will upload the canonical prompt set and 2k sample chats to the POC sandbox; the SE will deliver the parity-run plan and baseline metrics by 2026-03-04; Redwood will send the Dedicated term sheet and committed tier options by 2026-03-10; and both sides will schedule the security QA kickoff with Pillarhaven infra for the week of 2026-03-08.",
+    "must_include": [
+      "Run a 2-week Hosted API POC using an OpenAI-compatible shim and a prompt parity test suite.",
+      "Prepare a Dedicated pricing proposal that includes committed capacity and burst options.",
+      "Pillarhaven will upload the canonical prompt set and 2,000 sample chats to the POC sandbox.",
+      "The SE will deliver the parity-run plan and baseline metrics by 2026-03-04.",
+      "Redwood will send the Dedicated term sheet and committed tier options by 2026-03-10.",
+      "Both sides will schedule a security QA kickoff with Pillarhaven infrastructure for the week of 2026-03-08."
+    ],
+    "gold_doc_ids": [
+      "dsid_a45c07f3daaf47c18b7bc75d3cbf2112"
+    ],
+    "word_overlap": 0.458,
+    "fact_overlap": [
+      1.0,
+      0.889,
+      0.909,
+      1.0,
+      1.0,
+      0.818
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0243",
+    "kind": "hard",
+    "area": "github",
+    "question": "In our GPU inference service that merges many request streams, what change was made to cut worst case latency spikes that happened when the attention memory footprint abruptly shifted during batch formation, while keeping median latency nearly flat?",
+    "answer": "They added a KV-cache-aware scheduling hint and a jitter-resilient continuous-batching policy: requests are tagged with estimated KV working-set deltas so the scheduler avoids coalescing batches that trigger abrupt KV footprint jumps/evictions, and the batcher uses small adaptive hold windows to align jittery streams without materially increasing median latency.",
+    "must_include": [
+      "A KV-cache-aware scheduling hint was added.",
+      "Requests are tagged with estimated KV working-set delta so the scheduler avoids forming batches that would cause abrupt KV footprint jumps or evictions.",
+      "A jitter-resilient continuous-batching policy was added that uses small adaptive hold windows to align jittery streams without materially increasing median latency."
+    ],
+    "gold_doc_ids": [
+      "dsid_908e8464927742829dcdfe0c6165299b"
+    ],
+    "word_overlap": 0.462,
+    "fact_overlap": [
+      1.0,
+      0.941,
+      0.895
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0179",
+    "kind": "hard",
+    "area": "jira",
+    "question": "What caused an enterprise tenant in Western Europe to suddenly get routed to a Southeast Asia edge during a short mid March 2026 load spike on the vectorization service, adding about 200ms and triggering ingestion timeouts, even though the tenant was supposed to stay in Europe?",
+    "answer": "A transient control-plane heartbeat lag delayed the tenant's residency-stamp refresh under high concurrent embedding load, causing the stamp to be treated as stale and triggering fallback routing. Combined with EU-edge NAT/DNS rebinds and brief EU auth timeouts, the edge selected the \"nearest healthy edge\" bucket-which included ap-southeast-so some requests were routed to Southeast Asia, adding ~220 ms RTT and causing ingestion timeouts.",
+    "must_include": [
+      "A transient control-plane heartbeat lag occurred during high concurrent embedding load.",
+      "The heartbeat lag delayed the tenants residency-stamp refresh.",
+      "The delayed refresh caused the residency stamp to be treated as stale and triggered fallback routing.",
+      "EU-edge NAT or DNS rebinds and brief EU authentication timeouts also occurred during the event.",
+      "Because of these issues, routing selected a nearest healthy edge bucket that included ap-southeast.",
+      "Some requests from the Western Europe tenant were routed to a Southeast Asia edge.",
+      "The Southeast Asia routing added about 200 ms (about 220 ms RTT) latency and caused ingestion timeouts."
+    ],
+    "gold_doc_ids": [
+      "dsid_a0f25cffcb264f0ea6eba5e501de0e08"
+    ],
+    "word_overlap": 0.464,
+    "fact_overlap": [
+      0.8,
+      1.0,
+      1.0,
+      0.545,
+      1.0,
+      0.625,
+      0.667
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0193",
+    "kind": "hard",
+    "area": "gmail",
+    "question": "For the European customer kickoff scheduled the morning of Dec 21, who is assigned as the standby person to handle operational issues during the hands-on portion?",
+    "answer": "Monica Patel is assigned as the ops backstop/standby during the hands-on lab to handle operational issues and escalations.",
+    "must_include": [
+      "Monica Patel is assigned as the standby person for the European customer kickoff on the morning of Dec 21 to handle operational issues during the hands-on portion."
+    ],
+    "gold_doc_ids": [
+      "dsid_942ffdd8280a4cb893aca73dcb376ee5"
+    ],
+    "word_overlap": 0.467,
+    "fact_overlap": [
+      0.562
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0207",
+    "kind": "hard",
+    "area": "github",
+    "question": "In the recent observability change for tool invocation tracking, what is the staged rollout schedule and the temporary kill switch name used to gate it?",
+    "answer": "It's gated behind the experiment flag \"obs.route_tags_tool_calls\" and rolls out as three days in canary, then staged to 25% of traffic, then to full rollout assuming no regressions.",
+    "must_include": [
+      "The change is gated behind the experiment flag obs.route_tags_tool_calls.",
+      "The staged rollout schedule is three days in canary, then staged to 25% of traffic, then full rollout assuming no regressions."
+    ],
+    "gold_doc_ids": [
+      "dsid_1653d1ed11a1403ca8e44bef03a610a9"
+    ],
+    "word_overlap": 0.467,
+    "fact_overlap": [
+      1.0,
+      0.909
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0178",
+    "kind": "hard",
+    "area": "github",
+    "question": "In the recent change that made low bit math safer for inference, what is the default pass rate used to decide when a machine is allowed to step down from the safest numeric mode?",
+    "answer": "The default pass-rate threshold is 0.92 (i.e., 92% of the microbenchmark runs must pass) before a node is allowed to step down from the safest precision.",
+    "must_include": [
+      "The default pass-rate threshold is 0.92.",
+      "A node is allowed to step down from the safest precision only if at least 92% of the microbenchmark runs pass."
+    ],
+    "gold_doc_ids": [
+      "dsid_22a7e9af2760474dbdf611c2c21cd231"
+    ],
+    "word_overlap": 0.474,
+    "fact_overlap": [
+      1.0,
+      0.7
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0245",
+    "kind": "hard",
+    "area": "hubspot",
+    "question": "Which fintech support-chat prospect dropped us after their lawyers rejected non-audited compliance proof and chose a rival that could deliver a private install with formal audit paperwork?",
+    "answer": "It was Onyx Cloud Labs. Their legal/security team rejected self-attestation and required audited SOC2/ISO evidence, so they moved forward with CompetitorX, which offered an on-prem/private deployment plus formal audit paperwork.",
+    "must_include": [
+      "The fintech support-chat prospect was Onyx Cloud Labs.",
+      "Onyx Cloud Labs dropped us because their legal or security team rejected non-audited compliance proof or self-attestation and required audited SOC2 or ISO evidence.",
+      "Onyx Cloud Labs chose CompetitorX instead.",
+      "CompetitorX could deliver an on-prem or private deployment and formal audit paperwork."
+    ],
+    "gold_doc_ids": [
+      "dsid_d79518c427654533a01173792f51f986"
+    ],
+    "word_overlap": 0.5,
+    "fact_overlap": [
+      0.857,
+      0.789,
+      0.667,
+      0.667
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0275",
+    "kind": "hard",
+    "area": "linear",
+    "question": "Im looking for the doc about building a fast system to store and query model performance run histories and a simple UI to compare two runs plus an oncall workflow for investigating detected slowdowns, including how it groups repeated issues and how long detailed vs rolled up data is kept",
+    "answer": "This doc describes implementing a compact, query-friendly benchmark/time-series result store plus a lightweight comparison canvas UI and an operator-focused anomaly triage playbook. It proposes an index-first design (compact columnar time-series index with a cold blob store for raw traces), supports fast p50/p95/tokens/sec lookups and top regression queries, and adds a React comparison canvas for pairwise time-aligned overlays, delta histograms, and deltas by model variant/quantization/hardware.\n\nFor repeated-issue grouping, it uses fingerprint-based regression grouping (prompt hashing plus exemplar embeddings, via a 64-bit locality-preserving hash plus a sample embedding signature) to reduce duplicate alerts. Retention is high-resolution traces for 30 days and aggregated rollups for 1 year (with a review suggestion to retain raw KV-cache hit logs for 7 days), and the triage playbook includes RBAC owners, severity mapping, automatic triage suggestions, and links to infra metrics like GPU utilization and kernel selection logs.",
+    "must_include": [
+      "The doc describes implementing a compact, query-friendly benchmark or time-series result store for model run histories.",
+      "The proposed storage design is index-first, using a compact columnar time-series index plus a cold blob store for raw traces.",
+      "The system supports fast lookups for metrics such as p50, p95, and tokens per second and supports top regression queries.",
+      "The doc includes a lightweight UI for comparing two runs, implemented as a React comparison canvas.",
+      "The comparison UI supports pairwise time-aligned overlays, delta histograms, and deltas broken down by model variant, quantization, and hardware.",
+      "For grouping repeated issues, the doc uses fingerprint-based regression grouping using prompt hashing plus exemplar embeddings.",
+      "The fingerprinting approach uses a 64-bit locality-preserving hash plus a sample embedding signature to reduce duplicate alerts.",
+      "The retention policy keeps high-resolution traces for 30 days and aggregated rollups for 1 year.",
+      "The doc suggests retaining raw KV-cache hit logs for 7 days.",
+      "The doc includes an operator-focused anomaly triage playbook for oncall investigation of detected slowdowns.",
+      "The triage playbook includes RBAC owners, severity mapping, and automatic triage suggestions.",
+      "The triage playbook links investigations to infrastructure metrics such as GPU utilization and kernel selection logs."
+    ],
+    "gold_doc_ids": [
+      "dsid_a55032c4c2064671a4b0abf975438e1a"
+    ],
+    "word_overlap": 0.5,
+    "fact_overlap": [
+      0.857,
+      0.938,
+      0.846,
+      1.0,
+      0.929,
+      0.846,
+      0.933,
+      0.917,
+      1.0,
+      0.727,
+      1.0,
+      0.818
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0203",
+    "kind": "hard",
+    "area": "jira",
+    "question": "How should we automate the creation and teardown of short-lived experiment workspaces so that a request ticket spins up the needed tracking/docs/chat area, requires an approver before access is enabled, expires on a default one month timer with a simple extension, and writes an encrypted audit bundle to object storage when it shuts down?",
+    "answer": "Implement a single auditable orchestration (e.g., a lightweight Lambda/worker) triggered by creating a Jira issue in the \"Sandbox Requests\" project. On trigger, have it (1) create a team-scoped Jira namespace/subproject with templated issue types (Experiment, Runbook, Cleanup), (2) instantiate Confluence child pages from the \"Sandbox Playbook\" template and link them to the Jira workspace, and (3) create a private Slack channel named `sandbox-{team}-{shortid}` inviting the requester and the approver group (e.g., `model-eval-admins`). Keep the Slack channel inactive/muted until an approval step is completed (via Slack approval flow or Okta group-based approver validation), then enable access.\n\nFor teardown, store a TTL per sandbox (default 30 days) and run an archive job when it expires, with a grace/renew option via a single Slack command limited to the owner (and/or approvers). At archive time, export an audit bundle to S3 at `s3://redwood-audit/sandboxes/{sandbox-id}/` containing a Confluence snapshot plus a channel membership CSV, encrypted with SSE-KMS and controlled by a reviewed bucket policy and retention rules; also emit step-by-step logs to the central ops log index and publish success/failure metrics.",
+    "must_include": [
+      "Use a single auditable orchestration service (for example, a lightweight Lambda or worker) triggered by creation of a Jira issue in a Sandbox Requests project.",
+      "On trigger, automatically create a team-scoped Jira workspace (namespace or subproject) with templated issue types such as Experiment, Runbook, and Cleanup.",
+      "On trigger, automatically instantiate Confluence child pages from a Sandbox Playbook template and link them to the Jira workspace.",
+      "On trigger, automatically create a private Slack channel named sandbox-{team}-{shortid} and invite the requester and an approver group (for example, model-eval-admins).",
+      "Keep the Slack channel inactive or muted until an approval step is completed, then enable access (approval can be via a Slack approval flow or Okta group-based approver validation).",
+      "Store a per-sandbox TTL with a default of 30 days (one month) and run an archive or teardown job when the TTL expires.",
+      "Provide a simple renewal or extension mechanism via a single Slack command restricted to the sandbox owner and or approvers.",
+      "At teardown time, export an audit bundle to object storage (for example, S3 under s3://redwood-audit/sandboxes/{sandbox-id}/) that includes a Confluence snapshot and a Slack channel membership CSV.",
+      "Encrypt the stored audit bundle using SSE-KMS and enforce access and retention through a reviewed bucket policy and retention rules."
+    ],
+    "gold_doc_ids": [
+      "dsid_3d745c88c7e4426c9548350824f0d9b8"
+    ],
+    "word_overlap": 0.515,
+    "fact_overlap": [
+      0.938,
+      1.0,
+      1.0,
+      0.944,
+      0.812,
+      0.643,
+      0.692,
+      0.684,
+      0.857
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0282",
+    "kind": "hard",
+    "area": "jira",
+    "question": "During a traffic surge in the US East production cluster for a healthcare customer with dedicated capacity, why did conversations that were supposed to stay locked to a specific model version sometimes get served by an experimental fallback instead?",
+    "answer": "Because the edge rate-shedding policy in prod-us-east didn't include an explicit exemption for pinned sessions, the edge proxy marked traffic with a shed tag and the routing layer's shed-handling logic deprioritized the pinned route and reordered candidates for capacity/SLOs, intermittently selecting the gpt-large-v1 canary fallback instead of the pinned gpt-large-v1.",
+    "must_include": [
+      "The edge rate-shedding policy in prod-us-east did not explicitly exempt pinned sessions.",
+      "During the surge, the edge proxy marked some traffic with a shed tag.",
+      "The routing layer's shed-handling logic deprioritized the pinned route and reordered routing candidates based on capacity and SLOs.",
+      "Because of this, requests that were supposed to be pinned sometimes got routed to the gpt-large-v1 canary (experimental fallback) instead of the pinned gpt-large-v1."
+    ],
+    "gold_doc_ids": [
+      "dsid_9adc7c1c81f54e0a88d0e0bee59a6588"
+    ],
+    "word_overlap": 0.522,
+    "fact_overlap": [
+      1.0,
+      0.714,
+      0.833,
+      0.615
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0297",
+    "kind": "hard",
+    "area": "google_drive",
+    "question": "For the tiny production experiment that tweaks how the model serving layer keeps and evicts attention memory, what are the concrete pass or fail thresholds for error rate and tail latency during the first hour?",
+    "answer": "During the first 60 minutes, the canary fails if the hosted-api 5xx rate spikes by more than 0.1% relative to baseline, or if p99 (tail) latency increases by more than +10 ms versus the baseline/pinned cohort.",
+    "must_include": [
+      "The thresholds apply during the first 60 minutes (first hour) of the canary.",
+      "The canary fails if the hosted-api 5xx error rate increases by more than 0.1 percentage points relative to baseline.",
+      "The canary fails if p99 (tail) latency increases by more than 10 ms versus the baseline or pinned cohort."
+    ],
+    "gold_doc_ids": [
+      "dsid_02a6857f487642dca0732a4ac480ea5f"
+    ],
+    "word_overlap": 0.524,
+    "fact_overlap": [
+      0.429,
+      0.929,
+      0.75
+    ],
+    "facts_grounded": false
+  },
+  {
+    "id": "qst_0213",
+    "kind": "hard",
+    "area": "hubspot",
+    "question": "For a content templating company planning tens of millions of very short generations during a Q3 ramp, what was the requested plan for a time limited evaluation that included a large free usage allowance?",
+    "answer": "They requested a time-limited evaluation consisting of a 14-day trial with hosted API keys and a large benchmark allowance of 50 million free tokens.",
+    "must_include": [
+      "They requested a time-limited evaluation.",
+      "The time-limited evaluation was a 14-day trial.",
+      "The trial included hosted API keys.",
+      "The evaluation included a large benchmark allowance of 50 million free tokens."
+    ],
+    "gold_doc_ids": [
+      "dsid_ad14c3cb06c4494093dfcfff5098d89d"
+    ],
+    "word_overlap": 0.526,
+    "fact_overlap": [
+      0.75,
+      1.0,
+      0.8,
+      0.556
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0221",
+    "kind": "hard",
+    "area": "confluence",
+    "question": "When someone new starts at Redwood Inference, what is the target turnaround time for getting them fully set up with accounts and tools in North America versus Europe/Asia-Pacific?",
+    "answer": "Redwood Inference's target new-hire full provisioning SLA is 5 business days for the US (North America) and 10 business days for EMEA/APAC (Europe and Asia-Pacific).",
+    "must_include": [
+      "Redwood Inference targets a new-hire full provisioning SLA of 5 business days in North America (US).",
+      "Redwood Inference targets a new-hire full provisioning SLA of 10 business days in Europe and Asia-Pacific (EMEA/APAC)."
+    ],
+    "gold_doc_ids": [
+      "dsid_5323aeb9f89042c9a62505d409c4d94a"
+    ],
+    "word_overlap": 0.526,
+    "fact_overlap": [
+      0.857,
+      0.812
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0196",
+    "kind": "hard",
+    "area": "google_drive",
+    "question": "In the quick A100 microbenchmark notes comparing 4-bit weight compression to half precision on a 7B model at single-item batching, what speedup and quality hit were observed for the simplest run?",
+    "answer": "For the simplest A100 batch=1 run, NF4 post-training quantization on the 7B model achieved about a 1.8\u00d7 token-throughput speedup versus fp16, with an estimated quality hit of roughly +0.6 perplexity on a small set of story prompts.",
+    "must_include": [
+      "The simplest run was on an A100 with batch size 1 on a 7B model",
+      "The simplest run used NF4 post-training 4-bit weight quantization and compared it against fp16",
+      "NF4 achieved about a 1.8x token-throughput speedup versus fp16",
+      "The estimated quality hit was roughly +0.6 perplexity"
+    ],
+    "gold_doc_ids": [
+      "dsid_3413f1905a0740d88b66c196b54f4df5"
+    ],
+    "word_overlap": 0.545,
+    "fact_overlap": [
+      0.875,
+      0.5,
+      0.667,
+      0.857
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0218",
+    "kind": "hard",
+    "area": "linear",
+    "question": "In the private network hosted cluster console, what are the planned quick actions on the compact outage summary tile that on call engineers can use to stop a risky release or switch to a safer model option?",
+    "answer": "The incident card's planned quick actions include **Pause Rollout** (to stop a risky release) and **Trigger Fallback Variant** (to switch to a safer model option). It also supports **Add to Canary** as a rollout-control action.",
+    "must_include": [
+      "The planned quick action Pause Rollout can be used to stop a risky release.",
+      "The planned quick action Trigger Fallback Variant can be used to switch to a safer model option."
+    ],
+    "gold_doc_ids": [
+      "dsid_462ab0251b704d878310f53e13d6f515"
+    ],
+    "word_overlap": 0.545,
+    "fact_overlap": [
+      0.556,
+      0.727
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0229",
+    "kind": "hard",
+    "area": "slack",
+    "question": "After a customer rotated credentials during a migration, their staging probes started alternating between auth failures complaining about a signature mismatch and throttling errors; what short lived workaround did support create so both legacy and new signing methods would be accepted during the rollout?",
+    "answer": "Support issued a temporary dual-signer service key (sk_poc_helio_dual) configured with accepted_signers=[\"v1-hmac\",\"v2-ecdsa\"] and a 24-hour TTL, so both the legacy HMAC and new ECDSA signing methods would work during the rollout.",
+    "must_include": [
+      "Support issued a temporary dual-signer service key named sk_poc_helio_dual.",
+      "The temporary key was configured with accepted_signers including v1-hmac and v2-ecdsa.",
+      "The temporary key had a 24-hour TTL.",
+      "The workaround allowed both the legacy HMAC and new ECDSA signing methods to be accepted during the rollout."
+    ],
+    "gold_doc_ids": [
+      "dsid_38963978d7944613855e7413fa3a3838"
+    ],
+    "word_overlap": 0.556,
+    "fact_overlap": [
+      0.909,
+      0.9,
+      0.6,
+      0.6
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0255",
+    "kind": "hard",
+    "area": "gmail",
+    "question": "When is the 45 minute video call finally locked in for the vendor walkthrough that got moved because the client team was traveling to a Denver conference in early October 2026?",
+    "answer": "The 45-minute vendor walkthrough video call is locked in for Tuesday, Oct 12, 2026, from 11:00-11:45 AM ET (8:00-8:45 AM PT) via Google Meet.",
+    "must_include": [
+      "The 45-minute vendor walkthrough video call is locked in for Tuesday, Oct 12, 2026.",
+      "The call is scheduled for 11:00-11:45 AM ET (8:00-8:45 AM PT).",
+      "The call will be held via Google Meet."
+    ],
+    "gold_doc_ids": [
+      "dsid_97750eeb49894690aa3d425669af4de0"
+    ],
+    "word_overlap": 0.556,
+    "fact_overlap": [
+      0.636,
+      0.875,
+      0.4
+    ],
+    "facts_grounded": false
+  },
+  {
+    "id": "qst_0299",
+    "kind": "hard",
+    "area": "gmail",
+    "question": "For the short evaluation engagement with the retail client where we offered a temporary sandbox to run about a couple thousand acceptance examples and promised a signed deletion attestation afterward, what date did we say we needed to receive their materials in order to hit the staging deadline?",
+    "answer": "We said we'd need to receive RetailX's dataset/materials by 2026-09-03 in order to stage everything by the 2026-09-09 deadline.",
+    "must_include": [
+      "We needed to receive RetailX's dataset/materials by 2026-09-03 to hit the staging deadline.",
+      "The staging deadline was 2026-09-09."
+    ],
+    "gold_doc_ids": [
+      "dsid_243dfdca4bbe4872946fb3a5f686edca"
+    ],
+    "word_overlap": 0.556,
+    "fact_overlap": [
+      0.909,
+      0.75
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0244",
+    "kind": "hard",
+    "area": "jira",
+    "question": "After our single sign on provider URL changed, access approvals look successful in the internal approval UI but engineers still get a forbidden error when trying to open privileged operational tools; what caused the approval to not actually translate into permissions?",
+    "answer": "The Okta issuer domain swap left some approval/assertion tokens and existing RBAC grants still stamped with the old issuer (okta-old.redwood). Because both the identity-proxy validation and the RBAC grant lookup are issuer-dependent, tokens with the old `iss` were rejected or didn't match any stored grants, so the UI showed \"Granted\" but the runbook/console still returned 403 (missing RBAC grant).",
+    "must_include": [
+      "The Okta issuer domain change left some approval or assertion tokens and existing RBAC grants stamped with the old issuer domain (okta-old.redwood).",
+      "Identity proxy token validation is dependent on the issuer value (iss).",
+      "RBAC grant lookup is dependent on the issuer value (iss).",
+      "Tokens with the old iss were rejected or did not match any stored RBAC grants.",
+      "As a result, the internal approval UI could show Granted while the privileged tools returned 403 due to a missing RBAC grant."
+    ],
+    "gold_doc_ids": [
+      "dsid_37c24c697d9d462fad0e3afeeea9d8c0"
+    ],
+    "word_overlap": 0.56,
+    "fact_overlap": [
+      0.857,
+      0.875,
+      0.857,
+      1.0,
+      0.714
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0268",
+    "kind": "hard",
+    "area": "jira",
+    "question": "In the March 2026 production incident where long streamed chat replies started arriving chopped up and in the wrong order and the customers usage charges jumped because their client kept reissuing the same request, what was identified as the underlying platform cause?",
+    "answer": "The incident was traced to a serving-runtime issue where a recent kernel-selection optimization (PR 4821) interacted badly with aggressive KV-cache compaction, causing KV prefix eviction/transient session state loss during active streaming-leading to token reordering and truncated outputs (with retries then amplifying usage).",
+    "must_include": [
+      "The incident was traced to a serving-runtime issue.",
+      "A recent kernel-selection optimization (PR 4821) interacted badly with aggressive KV-cache compaction.",
+      "This interaction caused KV prefix eviction and transient session state loss during active streaming.",
+      "The state loss during streaming led to token reordering and truncated outputs."
+    ],
+    "gold_doc_ids": [
+      "dsid_a990e708840f481795741cfd3fb55691"
+    ],
+    "word_overlap": 0.56,
+    "fact_overlap": [
+      0.8,
+      0.917,
+      1.0,
+      0.875
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0289",
+    "kind": "hard",
+    "area": "jira",
+    "question": "What caused the March 2026 morning spike where a dedicated east coast deployment started cutting off live generated replies mid stream and briefly overcounted usage charges due to retry and double counting behavior?",
+    "answer": "The spike was caused by a KV prefix cache miss storm in the us-east dedicated pool that drove CPU pressure and triggered a router backpressure safety path, which began resetting long-lived streaming connections (truncating replies). Clients then retried, and an idempotency gap in the billing ingestion/ack pipeline for early-terminated streams led to duplicate acknowledgement events and a brief overcounting of usage charges.",
+    "must_include": [
+      "The March 2026 morning spike was caused by a KV prefix cache miss storm in the us-east dedicated pool.",
+      "The cache miss storm drove CPU pressure and triggered a router backpressure safety path.",
+      "The router backpressure safety path reset long-lived streaming connections, cutting off live generated replies mid stream.",
+      "Client retries plus an idempotency gap in the billing ingestion/ack pipeline for early-terminated streams caused duplicate acknowledgement events.",
+      "The duplicate acknowledgement events briefly overcounted usage charges."
+    ],
+    "gold_doc_ids": [
+      "dsid_5d8045f7d37d41b99605880834c17329"
+    ],
+    "word_overlap": 0.56,
+    "fact_overlap": [
+      0.929,
+      0.818,
+      0.769,
+      1.0,
+      0.429
+    ],
+    "facts_grounded": false
+  },
+  {
+    "id": "qst_0024",
+    "kind": "control",
+    "area": "jira",
+    "question": "What is the default time limit for automatically expiring guest or contractor accounts in the plan to set up a temporary contractor seat pool for DossierHQ with Okta provisioning and SSO?",
+    "answer": "The plan sets an automated guest/contractor account expiry policy with a 30-day default time limit, with manager approval required for extensions.",
+    "must_include": [
+      "The default time limit for automatically expiring guest or contractor accounts is 30 days."
+    ],
+    "gold_doc_ids": [
+      "dsid_1d5a3cde61104276b218c05dc101a546"
+    ],
+    "word_overlap": 0.647,
+    "fact_overlap": [
+      0.6
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0046",
+    "kind": "control",
+    "area": "gmail",
+    "question": "In the Medicore procurement email thread about data use and telemetry, what turnaround timeline did Redwood propose for delivering the operational runbook?",
+    "answer": "Redwood proposed a 5-business-day turnaround to deliver the operational runbook.",
+    "must_include": [
+      "Redwood proposed a 5-business-day turnaround to deliver the operational runbook."
+    ],
+    "gold_doc_ids": [
+      "dsid_3be2b45196414cad9b187551da3ed448"
+    ],
+    "word_overlap": 0.786,
+    "fact_overlap": [
+      0.889
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0078",
+    "kind": "control",
+    "area": "linear",
+    "question": "In the proposal for an anchor-based trace drilldown panel that pins a span or request correlation, what is the MVP limitation on how many anchors can be pinned in a workspace?",
+    "answer": "The MVP is limited to a single anchored span or correlation ID per workspace.",
+    "must_include": [
+      "In the MVP, only one anchor can be pinned per workspace",
+      "The single pinned anchor in the MVP can be either an anchored span or a correlation ID"
+    ],
+    "gold_doc_ids": [
+      "dsid_1a40ab782f8b4d80929a9668462912e2"
+    ],
+    "word_overlap": 0.714,
+    "fact_overlap": [
+      0.833,
+      0.875
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0091",
+    "kind": "control",
+    "area": "google_drive",
+    "question": "In the key rotation runbook, what is the recommended default rotation interval for per-tenant key encryption keys used to wrap data keys?",
+    "answer": "The runbook recommends rotating per-tenant Key-Encryption Keys (KEKs) every 6-12 months (with automated DEK rewraps during low-traffic windows).",
+    "must_include": [
+      "The runbook recommends rotating per-tenant key encryption keys used to wrap data keys every 6 to 12 months."
+    ],
+    "gold_doc_ids": [
+      "dsid_9eda2ec9cbda4188936246d888df1d0b"
+    ],
+    "word_overlap": 0.917,
+    "fact_overlap": [
+      1.0
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0042",
+    "kind": "control",
+    "area": "hubspot",
+    "question": "What was the founder building when they came in as a self-serve lead from a Hacker News thread, and what kind of stable integration did they say they wanted for it?",
+    "answer": "The founder (Ethan Lee) was building a paid plugin marketplace for hobbyist game developers. They said they wanted something stable they could plug into a SvelteKit plugin, with low-latency chat and embeddings for search across about 200 documents.",
+    "must_include": [
+      "The founder (Ethan Lee) was building a paid plugin marketplace for hobbyist game developers.",
+      "They said they wanted a stable integration they could plug into a SvelteKit plugin, with low-latency chat and embeddings for search across about 200 documents."
+    ],
+    "gold_doc_ids": [
+      "dsid_eea41d353de049aa89be98b6f9cf5de1"
+    ],
+    "word_overlap": 0.857,
+    "fact_overlap": [
+      0.9,
+      0.875
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0083",
+    "kind": "control",
+    "area": "jira",
+    "question": "What was the root cause of the customer invoice overcharge where an organization-wide promotional credit was mistakenly redistributed as charges across multiple child accounts during a billing reconciliation run in a hybrid dedicated plus hosted setup?",
+    "answer": "The reconciliation run (run-45) merged dedicated and hosted-overflow metering events, but for a subset of hosted-overflow records the gateway tag/owner_id was not propagated, leaving owner_id empty. The allocation-service then hit a faulty fallback path that treated the org-level promo credit as distributable (using the wrong owner/allocation group) and reallocated it into positive charges across child subaccounts instead of applying it to the paying parent account.",
+    "must_include": [
+      "During reconciliation run run-45, dedicated and hosted-overflow metering events were merged",
+      "For a subset of hosted-overflow records, the gateway tag or owner_id was not propagated, leaving owner_id empty",
+      "The allocation-service had a faulty fallback path triggered by the missing owner_id",
+      "That fallback treated the organization-level promotional credit as distributable using the wrong owner or allocation group",
+      "The promo credit was reallocated into positive charges across child subaccounts instead of being applied to the paying parent account"
+    ],
+    "gold_doc_ids": [
+      "dsid_3b9483f629fd423d81ac49a7efff89c9"
+    ],
+    "word_overlap": 0.75,
+    "fact_overlap": [
+      1.0,
+      0.909,
+      0.667,
+      0.833,
+      1.0
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0001",
+    "kind": "control",
+    "area": "github",
+    "question": "What are the default size limits for file uploads and total request size for the new multipart upload support on the OpenAI-compatible API endpoints?",
+    "answer": "The default limits are 10 MiB per file (max_file_size) and 50 MiB total per request (max_total_request_size) for multipart uploads on the OpenAI-compatible endpoints.",
+    "must_include": [
+      "The default per file upload size limit (max_file_size) for multipart uploads on OpenAI-compatible endpoints is 10 MiB.",
+      "The default total request size limit (max_total_request_size) for multipart uploads on OpenAI-compatible endpoints is 50 MiB."
+    ],
+    "gold_doc_ids": [
+      "dsid_ae068ee4aa9640159427cd941bef0238"
+    ],
+    "word_overlap": 0.929,
+    "fact_overlap": [
+      0.923,
+      0.923
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0067",
+    "kind": "control",
+    "area": "linear",
+    "question": "What did the internal usability test with six reviewers conclude about the table column compression feature, especially regarding its discoverability?",
+    "answer": "The six-person internal usability run found that column compression improved glanceability on very wide (40+ column) datasets, but its discoverability was lacking-reviewers wanted a subtle, persistent header affordance (with improved tooltip wording) to make the feature easier to notice.",
+    "must_include": [
+      "An internal usability test with six reviewers found that table column compression improved glanceability on very wide datasets of 40 or more columns.",
+      "The same test concluded that the column compression feature was not easily discoverable.",
+      "Reviewers wanted a subtle, persistent header affordance and improved tooltip wording to make column compression easier to notice."
+    ],
+    "gold_doc_ids": [
+      "dsid_14a447cb5b1140709c7cb3cc9a88c430"
+    ],
+    "word_overlap": 0.615,
+    "fact_overlap": [
+      0.786,
+      0.571,
+      0.714
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0081",
+    "kind": "control",
+    "area": "linear",
+    "question": "In the design for tenant credit based routing that can spill over to hosted capacity, what are the hysteresis window durations used for the different credit tiers?",
+    "answer": "The hysteresis windows vary by credit tier: GREEN uses 30 seconds, AMBER uses 2 minutes, and RED uses 10 minutes.",
+    "must_include": [
+      "Hysteresis window durations vary by credit tier in the tenant credit based routing design.",
+      "The GREEN credit tier uses a hysteresis window of 30 seconds.",
+      "The AMBER credit tier uses a hysteresis window of 2 minutes.",
+      "The RED credit tier uses a hysteresis window of 10 minutes."
+    ],
+    "gold_doc_ids": [
+      "dsid_7a7c04eebb914edab49f734c8e814beb"
+    ],
+    "word_overlap": 0.714,
+    "fact_overlap": [
+      0.9,
+      0.75,
+      0.75,
+      0.75
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0055",
+    "kind": "control",
+    "area": "gmail",
+    "question": "What audit log retention period did Redwood commit to for pilot customers during the 2027 API model migration, in response to the Acme Health security questions?",
+    "answer": "Redwood committed to enabling immutable audit logs with a 12-month retention window for pilot accounts.",
+    "must_include": [
+      "Redwood committed to enabling immutable audit logs for pilot accounts during the 2027 API model migration",
+      "Redwood committed to a 12-month audit log retention period for pilot accounts"
+    ],
+    "gold_doc_ids": [
+      "dsid_27da22aa63b3446387fffc29b45a0883"
+    ],
+    "word_overlap": 0.882,
+    "fact_overlap": [
+      0.917,
+      0.8
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0034",
+    "kind": "control",
+    "area": "linear",
+    "question": "In the Console nav redesign prototype with compact workspace chips and a contextual micro-rail, how is the micro-rail state preserved in shareable URLs?",
+    "answer": "The prototype preserves micro-rail state by encoding it in a URL query parameter (e.g., `?micro=tool:rollout`), so shared links reopen the same route with the same micro-rail state.",
+    "must_include": [
+      "The micro-rail state is preserved by encoding it in a URL query parameter.",
+      "A shareable URL can include a parameter like ?micro=tool:rollout to represent the micro-rail state.",
+      "Shared links reopen the same route with the same micro-rail state."
+    ],
+    "gold_doc_ids": [
+      "dsid_1867cdf06a00437194b3250c75321a92"
+    ],
+    "word_overlap": 0.929,
+    "fact_overlap": [
+      0.875,
+      0.727,
+      0.857
+    ],
+    "facts_grounded": true
+  },
+  {
+    "id": "qst_0108",
+    "kind": "control",
+    "area": "slack",
+    "question": "In an internal onboarding thread for a new language model, what was the estimated GPU memory used by the attention key value cache for a single 8192 token sequence (batch 1)?",
+    "answer": "The thread estimated the KV cache would use about ~4GB of GPU memory for a single 8192-token sequence at batch size 1.",
+    "must_include": [
+      "The onboarding thread estimated the attention key value cache would use about 4GB of GPU memory for a single 8192-token sequence at batch size 1."
+    ],
+    "gold_doc_ids": [
+      "dsid_a0e951c043154b07b1b5bd332ac47763"
+    ],
+    "word_overlap": 0.6,
+    "fact_overlap": [
+      0.684
+    ],
+    "facts_grounded": true
+  }
+]

@@ -18,6 +18,7 @@ namespace Connapse.Web.Tests.Components;
 /// and token (or names a provider that does); the source only loads and picks a scope, and holds no token.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class NewSourceCustomTests : IDisposable
 {
     private readonly BunitContext ctx = new();
@@ -35,6 +36,7 @@ public class NewSourceCustomTests : IDisposable
         auth.SetAuthorized("admin");
         auth.SetRoles("Admin");
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
 
         var http = Substitute.For<IHttpClientFactory>();
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(remote, disposeHandler: false));
@@ -63,8 +65,13 @@ public class NewSourceCustomTests : IDisposable
         customSettings.CurrentValue.Returns(new CustomSourceSettings());
         ctx.Services.AddSingleton(new CustomSourceSetup(http, customSettings, customProviders, connections));
         ctx.Services.AddSingleton(new AtlassianSiteService(
-            http, new Connapse.Storage.ConnectionTesters.AtlassianConnectionTester(http), connections,
-            Substitute.For<IAuditLogger>(), new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System)));
+            http, new Connapse.Storage.ConnectionTesters.AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(),
+            new Connapse.Storage.Connectors.Atlassian.AtlassianTokenSource(http, TimeProvider.System),
+            new Connapse.Application.Connections.CreateConnection(connections, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
+                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>()),
+            new Connapse.Application.Connections.ReplaceConnectionSecret(connections, Substitute.For<Connapse.Core.Interfaces.ISourceStore>(),
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), Substitute.For<IAuditLogger>(),
+                Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));

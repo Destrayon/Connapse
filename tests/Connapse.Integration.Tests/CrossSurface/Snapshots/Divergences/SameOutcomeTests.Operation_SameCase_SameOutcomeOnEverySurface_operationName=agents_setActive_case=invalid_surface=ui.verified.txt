@@ -1,0 +1,17 @@
+﻿{
+  Reason: absent: the Agents page turns on or off only the agents it lists, so it can't name one that doesn't exist,
+  Reference: {
+    Result: error:not_found,
+    State: [
+      agent agent-{name} description=the case's own active=True live,
+        key case-key scopes=knowledge:read approval=True active
+    ]
+  },
+  Surface: {
+    Result: absent,
+    State: [
+      agent agent-{name} description=the case's own active=True live,
+        key case-key scopes=knowledge:read approval=True active
+    ]
+  }
+}

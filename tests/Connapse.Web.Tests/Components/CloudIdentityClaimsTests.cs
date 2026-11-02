@@ -71,7 +71,7 @@ public class CloudIdentityClaimsTests
     [Fact]
     public void ArchitectureDoc_DoesNotDescribeEnforcementThatDoesNotRun()
     {
-        string doc = Read("docs", "architecture.md");
+        string doc = Read("docs", "contributing", "architecture.md");
 
         doc.Should().NotContain(
             "CloudScopeService` checks cloud identity permissions before allowing access");

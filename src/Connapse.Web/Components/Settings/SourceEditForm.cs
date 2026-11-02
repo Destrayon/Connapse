@@ -66,10 +66,15 @@ public sealed class SourceEditForm
         if ((provider ?? source.Provider) == ConnectionProvider.Atlassian)
         {
             var (include, maxMb) = AttachmentsOf(scope);
-            if (AtlassianSourceScope.IsJira(source.ScopeJson))
-                jira = new JiraProjectSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
-            else
-                confluence = new ConfluenceSpaceSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
+            switch (SourceScopeCodec.AtlassianKindOf(source.ScopeJson))
+            {
+                case AtlassianScopeKind.JiraProject:
+                    jira = new JiraProjectSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
+                    break;
+                case AtlassianScopeKind.ConfluenceSpace:
+                    confluence = new ConfluenceSpaceSelection { IncludeAttachments = include, MaxAttachmentMb = maxMb };
+                    break;
+            }
         }
 
         return new SourceEditForm

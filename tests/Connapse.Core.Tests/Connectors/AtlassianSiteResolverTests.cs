@@ -16,6 +16,7 @@ namespace Connapse.Core.Tests.Connectors;
 /// as may be dialled.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class AtlassianSiteResolverTests
 {
     private const string CloudId = "11111111-2222-3333-4444-555555555555";

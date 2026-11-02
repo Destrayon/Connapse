@@ -1,0 +1,13 @@
+﻿{
+  Reason: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: error:forbidden,
+    State: [
+      source {name} enabled=True description= status=Succeeded synced=True,
+      documents owned=1 out of attempts=1
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

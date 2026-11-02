@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: ok,
+    State: [
+      source {name} enabled=False description= status=Never synced=False
+    ],
+    Audit: [
+      source.updated source {id1} actor={admin} details={"Name": "{name}", "Enabled": false}
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

@@ -7,6 +7,7 @@ using Xunit;
 namespace Connapse.Storage.Tests.CloudScope.RolesAnywhere;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class RolesAnywhereSetupValidatorTests
 {
     private const string TrustAnchorArn = "arn:aws:rolesanywhere:us-east-1:111111111111:trust-anchor/ta";

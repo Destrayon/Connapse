@@ -8,7 +8,7 @@ namespace Connapse.Web.Services;
 /// </summary>
 public static class GitHubMessages
 {
-    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/github-setup.md";
+    public const string GuideUrl = "https://github.com/Destrayon/Connapse/blob/main/docs/sources/github-setup.md";
     public const string TroubleshootingUrl = GuideUrl + "#troubleshooting";
 
     /// <param name="ex">What the call threw.</param>

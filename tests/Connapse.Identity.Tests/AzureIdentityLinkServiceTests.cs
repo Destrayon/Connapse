@@ -15,6 +15,7 @@ namespace Connapse.Identity.Tests;
 /// <see cref="IAzureIdentityLinkReader"/> it also implements.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class AzureIdentityLinkServiceTests
 {
     private static AzureIdentityLinkStore CreateStore(string dbName) =>

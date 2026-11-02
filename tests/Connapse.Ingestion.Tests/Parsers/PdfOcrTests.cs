@@ -9,6 +9,7 @@ namespace Connapse.Ingestion.Tests.Parsers;
 
 /// <summary>OCR of PDF pages with no text layer (#598), on image-only PDFs built like scans.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Large")]
 public class PdfOcrTests
 {
     private static PdfParser Parser(UploadSettings settings)

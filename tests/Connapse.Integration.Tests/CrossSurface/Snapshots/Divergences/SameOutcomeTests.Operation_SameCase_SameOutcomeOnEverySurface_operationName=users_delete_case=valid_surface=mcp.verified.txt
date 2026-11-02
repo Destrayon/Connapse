@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: ok,
+    State: [
+      no user
+    ],
+    Audit: [
+      user.deleted user {id1} actor={admin} details=none
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

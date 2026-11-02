@@ -1,0 +1,19 @@
+﻿{
+  Reason: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: ok,
+    State: [
+      source {name} enabled=True description= status=Succeeded synced=True,
+      documents owned=1 out of attempts=0
+    ],
+    Audit: [
+      source.retry_failed source {id1} actor={admin} details={"Name": "{name}", "enqueued": 1}
+    ],
+    Jobs: [
+      IIngestionJobs.IngestAsync("{id2}", {"DocumentId":"{id2}","FileName":"doc.txt","Path":"{root}/doc.txt","Metadata":{"Source":"SourceSync","SyncedAt":"{time}","RemoteSize":"45","OriginalFileName":"doc.txt","IndexedWith:Parser":"TextParser","RemoteLastModified":"{time}","IndexedWith:ParserVersion":"2","IndexedWith:EmbeddingModel":"nomic-embed-text-recipe-de2cc160","IndexedWith:ChunkingMaxSize":"200","IndexedWith:ChunkingOverlap":"20","IndexedWith:ChunkingStrategy":"Semantic","IndexedWith:EmbeddingProvider":"Ollama","IndexedWith:EmbeddingDimensions":"768"},"Generation":3,"Owner":{"Id":"{id1}","IsSource":true,"SourceId":"{id1}"}}, null)
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no source tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

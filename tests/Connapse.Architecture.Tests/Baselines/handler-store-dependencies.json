@@ -1,0 +1,10 @@
+[
+  "AuthEndpoints POST /api/v1/auth/token/refresh -> ConnapseIdentityDbContext",
+  "CloudIdentityEndpoints GET /api/v1/auth/cloud/atlassian/confirm -> AtlassianIdentityLinkStore",
+  "CloudIdentityEndpoints GET /api/v1/auth/cloud/atlassian/confirm -> IProviderCredentialStore",
+  "CloudIdentityEndpoints GET /api/v1/auth/cloud/atlassian/connect -> AtlassianIdentityLinkStore",
+  "CloudIdentityEndpoints GET /api/v1/auth/cloud/aws/confirm -> AwsIdentityLinkStore",
+  "CloudIdentityEndpoints GET /api/v1/auth/cloud/github/confirm -> GitHubIdentityLinkStore",
+  "OAuthEndpoints POST /oauth/token -> ConnapseIdentityDbContext",
+  "SearchEndpoints GET /api/containers/{containerId:guid}/search/models -> IContainerStore"
+]

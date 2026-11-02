@@ -147,13 +147,15 @@ public class AzureBlobDiscoveryTests
         AzureBlobDiscovery.IsConfigured(Configured() with { ClientCertificatePath = null }).Should().BeFalse();
         AzureBlobDiscovery.IsConfigured(new AzureProviderSettings
         {
-            TenantId = "t", UserAssignedManagedIdentityClientId = "mi",
+            TenantId = "t",
+            UserAssignedManagedIdentityClientId = "mi",
         }).Should().BeTrue();
         AzureBlobDiscovery.IsConfigured(Configured() with { TenantId = null }).Should().BeFalse();
         // The host's own managed identity, as the guided setup on an Azure host records it.
         AzureBlobDiscovery.IsConfigured(new AzureProviderSettings
         {
-            TenantId = "t", UseHostManagedIdentity = true,
+            TenantId = "t",
+            UseHostManagedIdentity = true,
         }).Should().BeTrue();
         AzureBlobDiscovery.IsConfigured(new AzureProviderSettings { UseHostManagedIdentity = true }).Should().BeFalse();
     }

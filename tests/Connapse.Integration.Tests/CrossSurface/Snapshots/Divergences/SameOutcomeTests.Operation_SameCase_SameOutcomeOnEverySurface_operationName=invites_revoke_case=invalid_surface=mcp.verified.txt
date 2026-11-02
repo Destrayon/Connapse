@@ -1,0 +1,12 @@
+﻿{
+  Reason: absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: error:not_found,
+    State: [
+      invite invite-{name}@cross-surface.connapse.io role=Viewer pending
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no invite tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

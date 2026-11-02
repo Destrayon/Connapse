@@ -49,7 +49,8 @@ public class SystemConfigTests
         {
             ["knowledge:search:reranker"] = "CrossEncoder",
             ["Knowledge:Search:RerankCandidates"] = "50",
-        }) { CaptureCandidates = 100 };
+        })
+        { CaptureCandidates = 100 };
 
         a.IndexKey.Should().Be(b.IndexKey);
     }
@@ -82,7 +83,8 @@ public class SystemConfigTests
         {
             ["Knowledge:Embedding:Model"] = "m",
             ["Knowledge:Search:FusionAlpha"] = "0.5",
-        }) { ChunkingStrategy = "Recursive", CaptureCandidates = 100 };
+        })
+        { ChunkingStrategy = "Recursive", CaptureCandidates = 100 };
 
         SystemConfig indexOnly = config.IndexOnly();
 

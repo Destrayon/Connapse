@@ -334,6 +334,9 @@ public sealed record CustomChangePage(IReadOnlyList<CustomDocument>? Items, stri
 /// <summary>The middle man failed or answered outside the protocol.</summary>
 public class CustomSourceException(string message, Exception? inner = null) : IOException(message, inner);
 
+/// <summary>No custom provider has the id, so there is no middle man to ask.</summary>
+public sealed class CustomProviderNotFoundException(string message) : CustomSourceException(message);
+
 /// <summary>A 401 or 403: the middle man refused the token.</summary>
 public sealed class CustomSourceUnauthorizedException(string message) : CustomSourceException(message);
 

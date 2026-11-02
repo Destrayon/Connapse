@@ -10,6 +10,7 @@ namespace Connapse.Core.Tests.Utilities;
 /// they are only caught because resolution happens where the symlinks actually live.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SftpPathConfinementTests
 {
     /// <summary>

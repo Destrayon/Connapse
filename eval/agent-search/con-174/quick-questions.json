@@ -1,0 +1,62 @@
+[
+ {
+  "id": "qst_0238",
+  "kind": "quick",
+  "area": "google_drive",
+  "question": "How should I structure a small prompt experiment to reduce overconfident mistakes by mixing a couple of correct examples with one intentionally wrong example plus an immediate fix, while keeping the total examples very short and tracking things like made-up details and format compliance over a few hundred test prompts?"
+ },
+ {
+  "id": "qst_0272",
+  "kind": "quick",
+  "area": "confluence",
+  "question": "What is the default time window the company targets for routine internal approvals across operational requests?"
+ },
+ {
+  "id": "qst_0294",
+  "kind": "quick",
+  "area": "confluence",
+  "question": "In the internal workshop where we deliberately sabotage a client library via a local proxy to test resiliency, what exact fields are required in the saved run trace file format (the per-span identifiers, timestamps, and the single flattened attributes string) so our baseline and failure runs are comparable?"
+ },
+ {
+  "id": "qst_0183",
+  "kind": "quick",
+  "area": "confluence",
+  "question": "What are the specific gate thresholds used to automatically decide whether a compressed model variant is allowed, canaried, or blocked, including the limits for chat similarity drop, code pass rate change, retrieval embedding quality, and acceptable latency and cost changes?"
+ },
+ {
+  "id": "qst_0283",
+  "kind": "quick",
+  "area": "google_drive",
+  "question": "In our long conversation serving experiments, what mitigation is suggested for the tendency to start making up references right after a retrieval step when older context has been aggressively shrunk to save memory?"
+ },
+ {
+  "id": "qst_0176",
+  "kind": "quick",
+  "area": "slack",
+  "question": "When does booking open for the new top end 80GB accelerator on dedicated clusters in the EU Central and India South locations?"
+ },
+ {
+  "id": "qst_0202",
+  "kind": "quick",
+  "area": "hubspot",
+  "question": "In the EU-only finance search and fraud alert ranking opportunity where the main technical advocate left during an internal reorg and procurement later said spending is on hold until the Q3 cycle, what date did the procurement team first communicate the company-wide spending freeze?"
+ },
+ {
+  "id": "qst_0263",
+  "kind": "quick",
+  "area": "linear",
+  "question": "In the GPU inference runtime that mixes tiny chat requests with very long prompt processing, what is the target reduction for worst case per token latency on the latency sensitive traffic while keeping overall throughput loss under about ten percent?"
+ },
+ {
+  "id": "qst_0266",
+  "kind": "quick",
+  "area": "github",
+  "question": "In the recent SDK update that made streaming behave the same across Python, TypeScript, and Go, what is the new wrapper layer called that handles automatic reauthentication on expired credentials and lets a client resume a dropped stream using a small persisted checkpoint token?"
+ },
+ {
+  "id": "qst_0185",
+  "kind": "quick",
+  "area": "slack",
+  "question": "What was the recommended way to split a year long commitment for about eight high end inference accelerators across North America, Europe, and Southeast Asia while keeping a small extra pool for short spikes?"
+ }
+]

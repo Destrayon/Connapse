@@ -54,6 +54,12 @@ namespace Connapse.Identity.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("name");
 
+                    b.Property<bool>("RequiresApproval")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("requires_approval");
+
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
@@ -344,6 +350,80 @@ namespace Connapse.Identity.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Identity.Data.Entities.McpApprovalEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ArgumentsHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("arguments_hash");
+
+                    b.Property<string>("ArgumentsProtected")
+                        .HasColumnType("text")
+                        .HasColumnName("arguments_protected");
+
+                    b.Property<string>("ArgumentsSummary")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasColumnName("arguments_summary");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_user_id");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TokenKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_key");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tool_name");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "Status");
+
+                    b.HasIndex("TokenKey", "ToolName", "ArgumentsHash");
+
+                    b.ToTable("mcp_approvals", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Identity.Data.Entities.OAuthAuthCodeEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -500,6 +580,12 @@ namespace Connapse.Identity.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("name");
 
+                    b.Property<bool>("RequiresApproval")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("requires_approval");
+
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
@@ -573,6 +659,11 @@ namespace Connapse.Identity.Migrations
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("revoked_at");
+
+                    b.Property<string>("Scope")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)")
+                        .HasColumnName("scope");
 
                     b.Property<string>("TokenHash")
                         .IsRequired()

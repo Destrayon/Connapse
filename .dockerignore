@@ -11,6 +11,8 @@
 .git/
 .claude/
 docs/
+# The generic connapse_api_* MCP tools are built from the committed spec (CON-20).
+!docs/api/openapi.json
 tests/
 knowledge-data/
 uploads/
@@ -32,3 +34,4 @@ docker-compose.yml
 eval/
 .superpowers/
 .playwright-mcp/
+

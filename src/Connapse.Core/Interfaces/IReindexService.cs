@@ -205,7 +205,9 @@ public enum ReindexReason
     /// <summary>Pages failed to extract last time; the chunks are partial or an older parse.</summary>
     ExtractionIncomplete,
     /// <summary>Already queued or being ingested; enqueueing it again would supersede that job.</summary>
-    AlreadyQueued
+    AlreadyQueued,
+    /// <summary>The container's storage could not be reached, so whether the file changed is unknown.</summary>
+    StorageUnavailable
 }
 
 /// <summary>
@@ -220,4 +222,5 @@ public record ReindexCheck(
     string? CurrentChunkingStrategy = null,
     string? StoredChunkingStrategy = null,
     string? CurrentEmbeddingModel = null,
-    string? StoredEmbeddingModel = null);
+    string? StoredEmbeddingModel = null,
+    string? ErrorMessage = null);

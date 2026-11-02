@@ -72,9 +72,6 @@ public static class ServiceCollectionExtensions
         // Per-container settings resolver
         services.AddScoped<IContainerSettingsResolver, ContainerSettingsResolver>();
 
-        // Summary LLM resolver — picks the right ILlmProvider per-container based on SummarySettings.LlmProvider
-        services.AddScoped<SummaryLlmResolver>();
-
         // Settings reload service - requires IConfigurationRoot to trigger reload
         services.AddSingleton<ISettingsReloader, SettingsReloader>();
 
@@ -160,6 +157,7 @@ public static class ServiceCollectionExtensions
 
         // Folder store
         services.AddScoped<IFolderStore, PostgresFolderStore>();
+        services.AddScoped<IStoredFileRemovalStore, Documents.PostgresStoredFileRemovalStore>();
 
         // Document store
         services.AddScoped<IDocumentStore, PostgresDocumentStore>();
@@ -227,6 +225,7 @@ public static class ServiceCollectionExtensions
         // The GitHub App Connapse acts as. Singleton so installation tokens are reused across a sync
         // rather than minted per request; it reaches the scoped credential store through a scope.
         services.AddSingleton<Connectors.GitHub.ConnapseGitHubApp>();
+        services.AddSingleton<Connectors.GitHub.IGitHubAppInstallations>(sp => sp.GetRequiredService<Connectors.GitHub.ConnapseGitHubApp>());
 
         // Every installation's remaining budget, shared by all GitHub sources on this server.
         services.AddSingleton<Connectors.GitHub.GitHubCredentialPool>();

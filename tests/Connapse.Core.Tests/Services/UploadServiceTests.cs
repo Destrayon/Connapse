@@ -33,14 +33,27 @@ public class UploadServiceTests
         _fileTypeValidator.IsSupported(Arg.Any<string>()).Returns(true);
         _fileTypeValidator.SupportedExtensions.Returns(new HashSet<string> { ".txt", ".pdf", ".md" });
         _folderStore.ExistsAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
-        _documentStore.StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>())
-            .Returns(ci => new StoreResult(Guid.NewGuid().ToString(), 1));
+        _folderStore.EnsureAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new Folder(Guid.NewGuid().ToString(), ci.ArgAt<Guid>(0).ToString(), ci.ArgAt<string>(1), DateTime.UtcNow));
+        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async ci =>
+            {
+                await ci.ArgAt<Func<CancellationToken, Task>>(2)(CancellationToken.None);
+                return (StoreResult?)new StoreResult(Guid.NewGuid().ToString(), 1);
+            });
         _ingestionQueue.EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>())
             .Returns(ci => Guid.NewGuid().ToString());
+        _documentStore.RemoveUnrecordedFileAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async ci =>
+            {
+                await ci.ArgAt<Func<CancellationToken, Task>>(2)(ci.ArgAt<CancellationToken>(3));
+                return true;
+            });
 
         _sut = new UploadService(
             _containerStore, _managedStorage, _folderStore,
-            _ingestionQueue, _documentStore, _fileTypeValidator, _auditLogger);
+            _ingestionQueue, _documentStore, _fileTypeValidator, _auditLogger,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<UploadService>.Instance);
     }
 
     private UploadRequest MakeRequest(
@@ -154,16 +167,158 @@ public class UploadServiceTests
     [Fact]
     public async Task UploadAsync_CreatesFolders_WhenPathProvided()
     {
-        _folderStore.ExistsAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
-        _folderStore.CreateAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ci => new Folder(Guid.NewGuid().ToString(), ci.ArgAt<Guid>(0).ToString(),
-                ci.ArgAt<string>(1), DateTime.UtcNow));
+        var folder = new Folder(Guid.NewGuid().ToString(), ContainerId.ToString(), "/docs/reports/", DateTime.UtcNow);
+        _folderStore.EnsureAsync(ContainerId, "/docs/reports/", Arg.Any<CancellationToken>()).Returns(folder);
 
         var result = await _sut.UploadAsync(MakeRequest(path: "/docs/reports/"));
 
         result.Success.Should().BeTrue();
-        await _folderStore.Received(1).CreateAsync(ContainerId, "/docs/", Arg.Any<CancellationToken>());
-        await _folderStore.Received(1).CreateAsync(ContainerId, "/docs/reports/", Arg.Any<CancellationToken>());
+        Received.InOrder(() =>
+        {
+            // The file is written inside the store, while it holds the folder against a delete.
+            _folderStore.EnsureAsync(ContainerId, "/docs/reports/", Arg.Any<CancellationToken>());
+            _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Guid.Parse(folder.Id), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+            _connector.WriteFileAsync("docs/reports/test.txt", Arg.Any<Stream>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task UploadAsync_FolderDeletedBeforeTheStore_FailsHavingWrittenNothing()
+    {
+        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns((StoreResult?)null);
+
+        var result = await _sut.UploadAsync(MakeRequest(path: "/docs/"));
+
+        result.Success.Should().BeFalse();
+        await _connector.DidNotReceive().WriteFileAsync(Arg.Any<string>(), Arg.Any<Stream>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive().DeleteFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _ingestionQueue.DidNotReceive().EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>());
+    }
+
+    // --- A failure after the file is written (CON-88) ---
+
+    private void FailAfterTheWrite(Exception failure, string? fileName = null) =>
+        _documentStore.StoreInFolderAsync(
+                fileName is null ? Arg.Any<Document>() : Arg.Is<Document>(d => d.FileName == fileName),
+                Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<StoreResult?>>(async ci =>
+            {
+                await ci.ArgAt<Func<CancellationToken, Task>>(2)(CancellationToken.None);
+                throw failure;
+            });
+
+    [Theory]
+    [InlineData(null, "/test.txt", "test.txt")]
+    [InlineData("/docs/", "/docs/test.txt", "docs/test.txt")]
+    public async Task UploadAsync_RecordFailsAfterTheWrite_RemovesTheStoredFile(string? path, string recordPath, string storedPath)
+    {
+        FailAfterTheWrite(new InvalidOperationException("commit failed"));
+
+        var act = () => _sut.UploadAsync(MakeRequest(path: path));
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        // The store deletes only when no record holds the path, so a replaced document or a newer upload keeps it.
+        await _documentStore.Received(1).RemoveUnrecordedFileAsync(ContainerId, recordPath, Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+        await _connector.Received(1).DeleteFileAsync(storedPath, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UploadAsync_CancelledAfterTheWrite_StillRemovesTheStoredFile()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        FailAfterTheWrite(new OperationCanceledException(cts.Token));
+
+        var act = () => _sut.UploadAsync(MakeRequest(), cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        await _documentStore.Received(1).RemoveUnrecordedFileAsync(ContainerId, "/test.txt", Arg.Any<Func<CancellationToken, Task>>(),
+            Arg.Is<CancellationToken>(t => !t.IsCancellationRequested));
+        await _connector.Received(1).DeleteFileAsync("test.txt", Arg.Is<CancellationToken>(t => !t.IsCancellationRequested));
+    }
+
+    [Fact]
+    public async Task UploadAsync_CleanupFails_ReportsTheUploadsOwnFailure()
+    {
+        FailAfterTheWrite(new InvalidOperationException("commit failed"));
+        _documentStore.RemoveUnrecordedFileAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<bool>>(_ => throw new TimeoutException("database still down"));
+
+        var act = () => _sut.UploadAsync(MakeRequest());
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("commit failed");
+    }
+
+    [Fact]
+    public async Task BulkUploadAsync_OneFileFailsAfterItsWrite_RemovesOnlyThatFile()
+    {
+        FailAfterTheWrite(new InvalidOperationException("commit failed"), fileName: "b.txt");
+        var request = new BulkUploadRequest(ContainerId, new[]
+        {
+            new UploadRequest(ContainerId, "a.txt", new MemoryStream("a"u8.ToArray()), UserId, IngestedVia: "MCP"),
+            new UploadRequest(ContainerId, "b.txt", new MemoryStream("b"u8.ToArray()), UserId, IngestedVia: "MCP"),
+        });
+
+        var result = await _sut.BulkUploadAsync(request);
+
+        result.SuccessCount.Should().Be(1);
+        await _connector.Received(1).DeleteFileAsync("b.txt", Arg.Any<CancellationToken>());
+        await _connector.DidNotReceive().DeleteFileAsync("a.txt", Arg.Any<CancellationToken>());
+    }
+
+    // --- The record is stored but its indexing job fails to start (CON-96) ---
+
+    [Fact]
+    public async Task UploadAsync_JobFailsToStart_ReportsTheStoredDocumentWithNoJob()
+    {
+        var stored = Guid.NewGuid().ToString();
+        _documentStore.StoreInFolderAsync(Arg.Any<Document>(), Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns((StoreResult?)new StoreResult(stored, 1));
+        _ingestionQueue.EnqueueAsync(Arg.Any<IngestionJob>(), Arg.Any<CancellationToken>())
+            .Returns<Task<string?>>(_ => throw new InvalidOperationException("job storage unavailable"));
+
+        var result = await _sut.UploadAsync(MakeRequest());
+
+        // The file and its record are kept; the stuck-job sweep starts the job the upload could not.
+        result.Success.Should().BeTrue();
+        result.DocumentId.Should().Be(stored);
+        result.JobId.Should().BeNull();
+        await _connector.DidNotReceive().DeleteFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _auditLogger.Received(1).LogAsync("doc.uploaded",
+            Arg.Any<string?>(), stored, Arg.Any<object?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("Recursive", "Recursive")]
+    [InlineData(null, null)]
+    public async Task UploadAsync_StoresOnlyACallersChosenStrategyOnTheRecord(string? strategy, string? recorded)
+    {
+        await _sut.UploadAsync(MakeRequest(strategy: strategy));
+
+        // A job started later by the stuck-job sweep reads the strategy from the record.
+        await _documentStore.Received(1).StoreInFolderAsync(
+            Arg.Is<Document>(d =>
+                d.Metadata.GetValueOrDefault("IndexedWith:ChunkingStrategy") == recorded &&
+                d.Metadata.ContainsKey("IndexedWith:StrategyExplicit") == (recorded != null)),
+            Arg.Any<Guid?>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task BulkUploadAsync_OneJobFailsToStart_CountsThatFileAsUploaded()
+    {
+        _ingestionQueue.EnqueueAsync(Arg.Is<IngestionJob>(j => j.Options.FileName == "b.txt"), Arg.Any<CancellationToken>())
+            .Returns<Task<string?>>(_ => throw new InvalidOperationException("job storage unavailable"));
+        var request = new BulkUploadRequest(ContainerId, new[]
+        {
+            new UploadRequest(ContainerId, "a.txt", new MemoryStream("a"u8.ToArray()), UserId, IngestedVia: "MCP"),
+            new UploadRequest(ContainerId, "b.txt", new MemoryStream("b"u8.ToArray()), UserId, IngestedVia: "MCP"),
+        });
+
+        var result = await _sut.BulkUploadAsync(request);
+
+        result.SuccessCount.Should().Be(2);
+        result.Results[1].JobId.Should().BeNull();
     }
 
     [Theory]

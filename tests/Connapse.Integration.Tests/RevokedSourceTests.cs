@@ -49,14 +49,22 @@ public sealed class RevokedSourceTests(SharedWebAppFixture fixture)
         var chunkId = Guid.NewGuid();
         db.Chunks.Add(new ChunkEntity
         {
-            Id = chunkId, DocumentId = document.Id, OwnerId = source.Id,
-            Content = $"the {Term} lives here", ChunkIndex = 0, Metadata = [],
+            Id = chunkId,
+            DocumentId = document.Id,
+            OwnerId = source.Id,
+            Content = $"the {Term} lives here",
+            ChunkIndex = 0,
+            Metadata = [],
         });
         db.ChunkVectors.Add(new ChunkVectorEntity
         {
-            ChunkId = chunkId, DocumentId = document.Id, OwnerId = source.Id,
-            Embedding = new Vector(new float[] { 1f, 0f, 0f }), ModelId = Model,
-            ContentHash = $"hash-{chunkId:N}", Dimensions = 3,
+            ChunkId = chunkId,
+            DocumentId = document.Id,
+            OwnerId = source.Id,
+            Embedding = new Vector(new float[] { 1f, 0f, 0f }),
+            ModelId = Model,
+            ContentHash = $"hash-{chunkId:N}",
+            Dimensions = 3,
         });
         await db.SaveChangesAsync();
 

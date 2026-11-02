@@ -134,7 +134,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
 
         var keyResponse = await fixture.AdminClient.PostAsJsonAsync(
             $"/api/v1/agents/{agent.Id}/keys",
-            new CreateAgentKeyRequest("my-key", ["knowledge:read", "agent:ingest"]));
+            new CreateAgentKeyRequest("my-key", ["knowledge:read", "knowledge:write"]));
 
         keyResponse.StatusCode.Should().Be(HttpStatusCode.Created);
 
@@ -142,7 +142,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
         key.Should().NotBeNull();
         key!.Token.Should().StartWith("cnp_");
         key.Scopes.Should().Contain("knowledge:read");
-        key.Scopes.Should().Contain("agent:ingest");
+        key.Scopes.Should().Contain("knowledge:write");
 
         // Token is not returned again in subsequent GET
         var agent2 = await fixture.AdminClient.GetAsync($"/api/v1/agents/{agent.Id}");
@@ -168,7 +168,7 @@ public class AgentIntegrationTests(SharedWebAppFixture fixture)
     public async Task AuthenticateWithAgentKey_ValidKey_AccessesMcpEndpoint_Returns200()
     {
         var agent = await CreateAgentAsync("mcp-auth-agent");
-        var key = await CreateAgentKeyAsync(agent.Id, "mcp-key", ["knowledge:read", "agent:ingest"]);
+        var key = await CreateAgentKeyAsync(agent.Id, "mcp-key", ["knowledge:read", "knowledge:write"]);
 
         using var agentClient = fixture.Factory.CreateClient();
         agentClient.DefaultRequestHeaders.Add("X-Api-Key", key.Token);

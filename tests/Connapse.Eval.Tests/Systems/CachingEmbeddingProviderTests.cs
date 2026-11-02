@@ -70,7 +70,10 @@ public class CachingEmbeddingProviderTests : IDisposable
         CountingProvider inner = new();
         CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), new EmbeddingSettings
         {
-            Model = "counting", UseModelPrefixes = false, QueryPrefix = "q: ", DocumentPrefix = "d: ",
+            Model = "counting",
+            UseModelPrefixes = false,
+            QueryPrefix = "q: ",
+            DocumentPrefix = "d: ",
         });
 
         await provider.EmbedAsync("text", EmbeddingInputType.Document);

@@ -1,0 +1,16 @@
+[
+  "tests/Connapse.Core.Tests/CloudScope/AtlassianSearchResultVerifierTests.cs: SendAsync: 1",
+  "tests/Connapse.Core.Tests/Llm/OllamaLlmProviderTests.cs: SendAsync: 1",
+  "tests/Connapse.Identity.Tests/AwsIdentityLinkServiceTests.cs: DisconnectAsync_LinkReplacedDuringDisconnect_LeavesTheNewRowInPlace_AndReportsLinkChanged: 1",
+  "tests/Connapse.Identity.Tests/AzureLinkRevocationTests.cs: Confirmation_ParkedAfterDisconnect_StillWorks: 1",
+  "tests/Connapse.Identity.Tests/AzureLinkRevocationTests.cs: SignIn_StartedAfterDisconnect_StillWorks: 1",
+  "tests/Connapse.Ingestion.Tests/Isolation/ParserProcessPoolTests.cs: Host_WhoseParentDiesMidParse_ExitsInsteadOfSpinningOn: 1",
+  "tests/Connapse.Ingestion.Tests/Isolation/ParserProcessPoolTests.cs: ParseAsync_WaitForAFreeHost_CountsAgainstTheDeadline: 1",
+  "tests/Connapse.Integration.Tests/ContainerIntegrationTests.cs: WaitForIngestionToComplete: 1",
+  "tests/Connapse.Integration.Tests/IngestionIntegrationTests.cs: WaitForIngestionToComplete: 1",
+  "tests/Connapse.Integration.Tests/ReindexIntegrationTests.cs: Reindex_UnchangedDocument_SkipsReprocessing: 1",
+  "tests/Connapse.Integration.Tests/ReindexIntegrationTests.cs: WaitForIngestionToCompleteInContainer: 1",
+  "tests/Connapse.Integration.Tests/SftpServerFixture.cs: RegenerateHostKeysAsync: 1",
+  "tests/Connapse.ParserHost.TestHost/TestHostProgram.cs: Main: 2",
+  "tests/Connapse.Web.Tests/Components/NewSourceConfluenceTests.cs: Dialog_SwitchingSitesWhileTheFirstListIsLoading_NeverOffersTheFirstSitesSpaces: 1"
+]

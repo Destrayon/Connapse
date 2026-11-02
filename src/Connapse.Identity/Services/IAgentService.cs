@@ -4,7 +4,8 @@ namespace Connapse.Identity.Services;
 
 public interface IAgentService
 {
-    Task<AgentDto> CreateAsync(
+    /// <summary>Creates an agent; null when a live agent already has that name.</summary>
+    Task<AgentDto?> CreateAsync(
         CreateAgentRequest request,
         Guid createdByUserId,
         CancellationToken cancellationToken = default);
@@ -16,7 +17,8 @@ public interface IAgentService
         Guid agentId,
         CancellationToken cancellationToken = default);
 
-    Task<CreateAgentKeyResponse> CreateKeyAsync(
+    /// <summary>Creates a key for a live agent; null when there's no such agent.</summary>
+    Task<CreateAgentKeyResponse?> CreateKeyAsync(
         Guid agentId,
         CreateAgentKeyRequest request,
         CancellationToken cancellationToken = default);

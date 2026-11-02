@@ -23,8 +23,12 @@ public sealed class PdfQaAdapter : IDatasetAdapter
     /// </summary>
     public static readonly IReadOnlyDictionary<string, int> Kinds = new Dictionary<string, int>(StringComparer.Ordinal)
     {
-        ["table-ruled"] = 15, ["table-borderless"] = 15,
-        ["columns"] = 60, ["header-break"] = 60, ["scan-typed"] = 60, ["scan-degraded"] = 60,
+        ["table-ruled"] = 15,
+        ["table-borderless"] = 15,
+        ["columns"] = 60,
+        ["header-break"] = 60,
+        ["scan-typed"] = 60,
+        ["scan-degraded"] = 60,
     };
 
     private sealed record QuestionLine(

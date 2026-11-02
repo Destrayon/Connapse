@@ -1097,7 +1097,7 @@ public sealed class ConfluenceSyncIntegrationTests(SharedWebAppFixture fixture) 
         var result = await service.SyncSourceAsync(source, connection, CancellationToken.None);
 
         result.Notice.Should().StartWith("2 attachments were skipped: larger than 25 MB, or a file type Connapse can't read.");
-        queue.Jobs.Should().NotContain(j => j.Options.Path!.StartsWith("/attachments/", StringComparison.Ordinal));
+        queue.Jobs.Should().NotContain(j => j.Options.Path != null && j.Options.Path.StartsWith("/attachments/", StringComparison.Ordinal));
     }
 
     [Fact]

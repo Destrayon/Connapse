@@ -1,0 +1,5 @@
+[
+  "Pages.Search -> IContainerStore",
+  "Pages.SourceEdit -> IConnectionStore",
+  "Pages.Sources -> IConnectionStore"
+]

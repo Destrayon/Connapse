@@ -91,7 +91,7 @@ public sealed partial class ParserProcessPool
                     DiscardInference(host);
                     if (ct.IsCancellationRequested)
                         throw new OperationCanceledException(ct);
-                    if (host.KilledForMemory)
+                    if (host.KilledForMemory && ex is not HostNotReadyException)
                         return new InferenceProtocol.InferResponse(OutOfMemory: true);
 
                     // As for parser hosts (#657): one that died before it was ready never saw the image.

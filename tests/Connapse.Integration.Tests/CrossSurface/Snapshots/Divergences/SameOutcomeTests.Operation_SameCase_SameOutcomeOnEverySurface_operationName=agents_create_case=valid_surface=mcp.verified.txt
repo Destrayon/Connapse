@@ -1,0 +1,17 @@
+﻿{
+  Reason: absent: MCP has no agent tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: ok,
+    State: [
+      agent agent-{name} description=the case's own active=True live,
+        key case-key scopes=knowledge:read approval=True active,
+      agent agent-{name}-va description=made here active=True live
+    ],
+    Audit: [
+      agent.created agent {id3} actor={admin} details={"Name": "agent-{name}-va"}
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no agent tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

@@ -2,8 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Amazon.S3;
+using Amazon.S3.Model;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Storage.FileSystem;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Connapse.Integration.Tests;
 
@@ -167,6 +173,68 @@ public class ReindexIntegrationTests : IAsyncLifetime
         await _fixture.AdminClient.DeleteAsync($"/api/containers/{otherContainer.Id}");
     }
 
+    [Fact]
+    public async Task Reindex_UploadedFileChangedInContainerStorage_IndexesTheNewContent()
+    {
+        // CON-93: a container keeps its files under its own storage prefix (#957 found deletes
+        // missing it). The object keys are written straight to the bucket, not through the
+        // connector under test, so a connector that lost the prefix could not pass: the new text
+        // exists only under the prefix, and a decoy waits at the unprefixed key.
+        var documentId = await UploadDocument("stored-doc.txt", "Original wording about glaciers.");
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
+        var doc = await GetDocument(documentId);
+
+        var s3 = _fixture.Factory.Services.GetRequiredService<IAmazonS3>();
+        string bucket = _fixture.Factory.Services.GetRequiredService<IOptions<MinioOptions>>().Value.BucketName;
+        string unprefixedKey = doc.Path.TrimStart('/');
+        string containerKey = $"{_containerId}/{unprefixedKey}";
+
+        await s3.GetObjectMetadataAsync(bucket, containerKey); // the upload landed under the prefix
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = bucket,
+            Key = containerKey,
+            ContentBody = "Replacement wording about marmalade.",
+        });
+        await s3.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = bucket,
+            Key = unprefixedKey,
+            ContentBody = "Decoy wording about tangerines.",
+        });
+
+        var reindexResponse = await _fixture.AdminClient.PostAsJsonAsync(
+            $"/api/containers/{_containerId}/reindex",
+            new { });
+        reindexResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var reindexResult = await reindexResponse.Content.ReadFromJsonAsync<ReindexResultDto>(JsonOptions);
+
+        reindexResult!.EnqueuedCount.Should().Be(1);
+        reindexResult.ReasonCounts.Should().ContainKey(nameof(ReindexReason.ContentChanged),
+            "the reindex hashed the file in the container's storage and saw it change");
+
+        await WaitForIngestionToComplete(documentId, timeoutSeconds: 60);
+
+        var search = await _fixture.AdminClient.GetAsync(
+            $"/api/containers/{_containerId}/search?q=marmalade&mode=Keyword&topK=5");
+        search.StatusCode.Should().Be(HttpStatusCode.OK);
+        var hits = (await search.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions))!.Hits;
+        hits.Should().Contain(h => h.DocumentId == documentId && h.Content.Contains("marmalade"));
+
+        var stale = await _fixture.AdminClient.GetAsync(
+            $"/api/containers/{_containerId}/search?q=glaciers&mode=Keyword&topK=5");
+        (await stale.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions))!.Hits
+            .Should().NotContain(h => h.DocumentId == documentId, "the old content was replaced");
+
+        var decoy = await _fixture.AdminClient.GetAsync(
+            $"/api/containers/{_containerId}/search?q=tangerines&mode=Keyword&topK=5");
+        (await decoy.Content.ReadFromJsonAsync<SearchResultDto>(JsonOptions))!.Hits
+            .Should().NotContain(h => h.DocumentId == documentId, "the file outside the container's prefix was not read");
+
+        await s3.DeleteObjectAsync(bucket, unprefixedKey);
+        await _fixture.AdminClient.DeleteAsync($"/api/containers/{_containerId}/files/{documentId}");
+    }
+
     private async Task<string> UploadDocument(string fileName, string content)
     {
         return await UploadDocumentToContainer(_containerId, fileName, content);
@@ -277,6 +345,10 @@ public class ReindexIntegrationTests : IAsyncLifetime
         int FailedCount,
         Dictionary<string, int> ReasonCounts,
         string Message);
+
+    private record SearchResultDto(List<SearchHitDto> Hits, int TotalMatches);
+
+    private record SearchHitDto(string ChunkId, string DocumentId, string Content, float Score);
 
     private record ReindexCheckDto(
         string DocumentId,

@@ -1,8 +1,14 @@
+using System.Security.Claims;
 using System.Text.Json;
+using Connapse.Application.Code;
+using Connapse.Application.Ports;
+using Connapse.Application.Search;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Mcp;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Mcp;
@@ -19,7 +25,11 @@ public class McpToolsCodeTests
         "/src/Invoices.cs", "doc-2", 2.91234, "calls it", [new CodeLine(9, "_ledger.Post(invoice);")]);
 
     private readonly ICodeTools _code = Substitute.For<ICodeTools>();
-    private readonly IServiceProvider _services;
+    private readonly IHttpContextAccessor _http = Substitute.For<IHttpContextAccessor>();
+    private readonly FindCodeSymbol _find;
+    private readonly FindCodeReferences _references;
+    private readonly FindCodeImpact _impact;
+    private readonly MapCodeRepository _map;
 
     public McpToolsCodeTests()
     {
@@ -27,11 +37,17 @@ public class McpToolsCodeTests
         containers.GetAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(new Container(ContainerId.ToString(), "repo", null, DateTime.UtcNow, DateTime.UtcNow));
 
-        var services = Substitute.For<IServiceProvider>();
-        services.GetService(typeof(IContainerStore)).Returns(containers);
-        services.GetService(typeof(ISourceStore)).Returns(Substitute.For<ISourceStore>());
-        services.GetService(typeof(ICodeTools)).Returns(_code);
-        _services = services;
+        // Who may ask is the operation's question; here every caller may.
+        var authorizer = Substitute.For<IOperationAuthorizer>();
+        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+        var settings = Substitute.For<IOptionsMonitor<SearchSettings>>();
+        settings.CurrentValue.Returns(new SearchSettings());
+        var search = new SearchKnowledge(containers, Substitute.For<ISourceStore>(), Substitute.For<ISourceVisibility>(),
+            Substitute.For<IKnowledgeSearch>(), settings, authorizer);
+        _find = new FindCodeSymbol(search, authorizer, _code);
+        _references = new FindCodeReferences(search, authorizer, _code);
+        _impact = new FindCodeImpact(search, authorizer, _code);
+        _map = new MapCodeRepository(search, authorizer, _code);
     }
 
     [Fact]
@@ -40,7 +56,7 @@ public class McpToolsCodeTests
         _code.FindSymbolAsync(Arg.Any<CodeScope>(), "Ledger.Post", CodeMatch.Words, true, 5, Arg.Any<CancellationToken>())
             .Returns(new CodeSymbolResult([Post], [new CodeUse("Acme.AuditLog.Write", "method", "/src/AuditLog.cs", 4, "calls", 0.9)], [Caller]));
 
-        string result = await McpTools.CodeFindSymbol(_services, ContainerId.ToString(), "Ledger.Post", "Words", follow: true, limit: 5);
+        string result = await McpTools.CodeFindSymbol(_find, _http, ContainerId.ToString(), "Ledger.Post", "Words", follow: true, limit: 5);
 
         using JsonDocument json = JsonDocument.Parse(result);
         json.RootElement.GetProperty("notice").GetString().Should().Be(McpTools.CodeNotice);
@@ -63,7 +79,7 @@ public class McpToolsCodeTests
         _code.FindSymbolAsync(Arg.Any<CodeScope>(), Arg.Any<string>(), CodeMatch.Exact, false, 10, Arg.Any<CancellationToken>())
             .Returns(new CodeSymbolResult([Post], [], []));
 
-        string result = await McpTools.CodeFindSymbol(_services, ContainerId.ToString(), "Post");
+        string result = await McpTools.CodeFindSymbol(_find, _http, ContainerId.ToString(), "Post");
 
         using JsonDocument json = JsonDocument.Parse(result);
         json.RootElement.TryGetProperty("uses", out _).Should().BeFalse();
@@ -74,7 +90,7 @@ public class McpToolsCodeTests
     [InlineData("fuzzy")]
     public async Task CodeFindSymbol_UnknownMatch_IsAnErrorAndAsksNothing(string match)
     {
-        string result = await McpTools.CodeFindSymbol(_services, ContainerId.ToString(), "Post", match);
+        string result = await McpTools.CodeFindSymbol(_find, _http, ContainerId.ToString(), "Post", match);
 
         result.Should().StartWith("Error: match must be");
         _code.ReceivedCalls().Should().BeEmpty();
@@ -86,7 +102,7 @@ public class McpToolsCodeTests
         _code.ReferencesAsync(Arg.Any<CodeScope>(), "Ledger.Post", CodeReferenceKind.Calls, 20, Arg.Any<CancellationToken>())
             .Returns(new CodeReferencesResult([Post], [Caller]));
 
-        string result = await McpTools.CodeReferences(_services, ContainerId.ToString(), "Ledger.Post", "calls");
+        string result = await McpTools.CodeReferences(_references, _http, ContainerId.ToString(), "Ledger.Post", "calls");
 
         using JsonDocument json = JsonDocument.Parse(result);
         json.RootElement.GetProperty("files")[0].GetProperty("path").GetString().Should().Be("src/Invoices.cs");
@@ -103,7 +119,7 @@ public class McpToolsCodeTests
                 [Caller],
                 ["tests/LedgerTests.cs"]));
 
-        string result = await McpTools.CodeImpact(_services, ContainerId.ToString(), "Ledger.Post");
+        string result = await McpTools.CodeImpact(_impact, _http, ContainerId.ToString(), "Ledger.Post");
 
         using JsonDocument json = JsonDocument.Parse(result);
         json.RootElement.GetProperty("affected")[0].GetProperty("isTest").GetBoolean().Should().BeTrue();
@@ -118,7 +134,7 @@ public class McpToolsCodeTests
                 [new CodeMapFile("/src/billing/Ledger.cs", "doc-1", 1.1, [new CodeMapSymbol("Acme.Billing.Ledger", "class", 3, null, 2)])],
                 TotalFiles: 4));
 
-        string result = await McpTools.CodeRepoMap(_services, ContainerId.ToString(), "src/billing");
+        string result = await McpTools.CodeRepoMap(_map, _http, ContainerId.ToString(), "src/billing");
 
         using JsonDocument json = JsonDocument.Parse(result);
         json.RootElement.GetProperty("totalFiles").GetInt32().Should().Be(4);
@@ -136,10 +152,10 @@ public class McpToolsCodeTests
 
         string[] results =
         [
-            await McpTools.CodeFindSymbol(_services, id, "Post"),
-            await McpTools.CodeReferences(_services, id, "Post"),
-            await McpTools.CodeImpact(_services, id, "Post"),
-            await McpTools.CodeRepoMap(_services, id),
+            await McpTools.CodeFindSymbol(_find, _http, id, "Post"),
+            await McpTools.CodeReferences(_references, _http, id, "Post"),
+            await McpTools.CodeImpact(_impact, _http, id, "Post"),
+            await McpTools.CodeRepoMap(_map, _http, id),
         ];
 
         results.Should().AllBe(McpTools.CodeDeniedError);
@@ -152,10 +168,10 @@ public class McpToolsCodeTests
 
         string[] results =
         [
-            await McpTools.CodeFindSymbol(_services, id, "Post"),
-            await McpTools.CodeReferences(_services, id, "Post"),
-            await McpTools.CodeImpact(_services, id, "Post"),
-            await McpTools.CodeRepoMap(_services, id),
+            await McpTools.CodeFindSymbol(_find, _http, id, "Post"),
+            await McpTools.CodeReferences(_references, _http, id, "Post"),
+            await McpTools.CodeImpact(_impact, _http, id, "Post"),
+            await McpTools.CodeRepoMap(_map, _http, id),
         ];
 
         results.Should().AllSatisfy(r => r.Should().Be($"Error: Container '{id}' not found."));

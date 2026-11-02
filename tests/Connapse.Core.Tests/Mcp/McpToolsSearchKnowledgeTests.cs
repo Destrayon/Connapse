@@ -1,8 +1,11 @@
-﻿using Connapse.Core;
+﻿using System.Security.Claims;
+using Connapse.Application.Ports;
+using Connapse.Application.Search;
+using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Mcp;
 using FluentAssertions;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -16,7 +19,8 @@ public class McpToolsSearchKnowledgeTests
     private readonly IContainerStore _containerStore;
     private readonly IKnowledgeSearch _searchService;
     private readonly IOptionsMonitor<SearchSettings> _searchSettings;
-    private readonly IServiceProvider _services;
+    private readonly SearchKnowledge _search;
+    private readonly IHttpContextAccessor _http = Substitute.For<IHttpContextAccessor>();
 
     public McpToolsSearchKnowledgeTests()
     {
@@ -34,12 +38,10 @@ public class McpToolsSearchKnowledgeTests
         // container path; the source path is covered in McpSourceKindTests.
         var sourceStore = Substitute.For<ISourceStore>();
 
-        var services = Substitute.For<IServiceProvider>();
-        services.GetService(typeof(IContainerStore)).Returns(_containerStore);
-        services.GetService(typeof(ISourceStore)).Returns(sourceStore);
-        services.GetService(typeof(IKnowledgeSearch)).Returns(_searchService);
-        services.GetService(typeof(IOptionsMonitor<SearchSettings>)).Returns(_searchSettings);
-        _services = services;
+        // Who may search is the operation's question, tested in SearchOperationTests; here every caller may.
+        var authorizer = Substitute.For<IOperationAuthorizer>();
+        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+        _search = new SearchKnowledge(_containerStore, sourceStore, Substitute.For<ISourceVisibility>(), _searchService, _searchSettings, authorizer);
     }
 
     [Fact]
@@ -59,7 +61,7 @@ public class McpToolsSearchKnowledgeTests
             .Returns(searchResult);
 
         var result = await McpTools.SearchKnowledge(
-            _services, "test query", ContainerId.ToString());
+            _search, _http, "test query", ContainerId.ToString());
 
         result.Should().Contain("Score: 0.847");
         result.Should().Contain("File: report.pdf");
@@ -77,7 +79,7 @@ public class McpToolsSearchKnowledgeTests
             .Returns(searchResult);
 
         var result = await McpTools.SearchKnowledge(
-            _services, "no match", ContainerId.ToString());
+            _search, _http, "no match", ContainerId.ToString());
 
         result.Should().Be("No results found.");
     }
@@ -100,7 +102,7 @@ public class McpToolsSearchKnowledgeTests
             .Returns(new SearchResult(hits, 2, TimeSpan.FromMilliseconds(5)));
 
         var result = await McpTools.SearchKnowledge(
-            _services, "query", ContainerId.ToString());
+            _search, _http, "query", ContainerId.ToString());
 
         result.Should().Contain("--- Result 1 ---");
         result.Should().Contain("--- Result 2 ---");
@@ -115,7 +117,7 @@ public class McpToolsSearchKnowledgeTests
             .Returns(new SearchResult([], 0, TimeSpan.FromMilliseconds(1)));
 
         await McpTools.SearchKnowledge(
-            _services, "query", ContainerId.ToString(), path: "/docs/");
+            _search, _http, "query", ContainerId.ToString(), path: "/docs/");
 
         await _searchService.Received(1).SearchAsync(
             "query",
@@ -132,7 +134,7 @@ public class McpToolsSearchKnowledgeTests
         var unknownId = Guid.NewGuid();
 
         var result = await McpTools.SearchKnowledge(
-            _services, "query", unknownId.ToString());
+            _search, _http, "query", unknownId.ToString());
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found");
@@ -149,7 +151,7 @@ public class McpToolsSearchKnowledgeTests
             .Returns(new SearchResult(hits, 1, TimeSpan.FromMilliseconds(1)));
 
         var result = await McpTools.SearchKnowledge(
-            _services, "query", ContainerId.ToString());
+            _search, _http, "query", ContainerId.ToString());
 
         result.Should().Contain("File: unknown");
         result.Should().Contain("Path: /");
@@ -170,7 +172,7 @@ public class McpToolsSearchKnowledgeTests
             .Returns(new SearchResult(hits, 15, TimeSpan.FromMilliseconds(5)));
 
         var result = await McpTools.SearchKnowledge(
-            _services, "query", ContainerId.ToString());
+            _search, _http, "query", ContainerId.ToString());
 
         result.Should().Contain("Showing 1 of 15 matching chunk(s)");
     }
@@ -189,7 +191,7 @@ public class McpToolsSearchKnowledgeTests
             .Returns(new SearchResult(hits, 1, TimeSpan.FromMilliseconds(5)));
 
         var result = await McpTools.SearchKnowledge(
-            _services, "query", ContainerId.ToString());
+            _search, _http, "query", ContainerId.ToString());
 
         result.Should().Contain("Found 1 result(s)");
     }

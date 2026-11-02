@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Connapse.Core;
 
 namespace Connapse.Web.Services;
 
@@ -43,17 +44,17 @@ public static class SourceScopeSummary
 
         if (node is null) return null;
 
+        // Both Atlassian kinds first: the kind decides, whatever other keys a row carries.
         if (ConfluenceSpace(node, siteHost) is { } space)
             return space;
+        if (JiraProject(node, siteHost) is { } project)
+            return project;
 
         // A content-only custom source: the scope and the middle man it is read from. The token is
         // never in the scope, and the URL's path adds nothing a reader needs here.
         if (Str(node, "scopeId") is { } scopeId && Str(node, "baseUrl") is { } baseUrl
             && Uri.TryCreate(baseUrl, UriKind.Absolute, out Uri? middleMan))
             return $"{scopeId} · {middleMan.Authority}";
-
-        if (JiraProject(node, siteHost) is { } project)
-            return project;
 
         if (GitHubRepository(node) is { } repository)
         {
@@ -89,7 +90,7 @@ public static class SourceScopeSummary
     /// </summary>
     private static string? ConfluenceSpace(JsonObject node, string? siteHost)
     {
-        if (!string.Equals(Str(node, "kind"), "confluence-space", StringComparison.OrdinalIgnoreCase))
+        if (SourceScopeCodec.AtlassianKindOf(node) != AtlassianScopeKind.ConfluenceSpace)
             return null;
 
         string? key = Str(node, "spaceKey");
@@ -110,7 +111,7 @@ public static class SourceScopeSummary
     /// </summary>
     private static string? JiraProject(JsonObject node, string? siteHost)
     {
-        if (!AtlassianSourceScope.IsJiraKind(Str(node, "kind")))
+        if (SourceScopeCodec.AtlassianKindOf(node) != AtlassianScopeKind.JiraProject)
             return null;
 
         string project = "Jira project " + (Str(node, "projectKey") ?? node["projectId"]?.ToString() ?? "?");

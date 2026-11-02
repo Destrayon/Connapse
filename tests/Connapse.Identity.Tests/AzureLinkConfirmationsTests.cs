@@ -5,6 +5,7 @@ using Microsoft.Extensions.Caching.Memory;
 namespace Connapse.Identity.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Large")]
 public class AzureLinkConfirmationsTests
 {
     private static AzureLinkConfirmations NewStore() =>

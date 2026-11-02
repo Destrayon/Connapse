@@ -1,11 +1,10 @@
 using System.ComponentModel;
 using System.Globalization;
-using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Connapse.Application;
+using Connapse.Application.Memory;
 using Connapse.Core;
-using Connapse.Core.Interfaces;
-using Connapse.Web.Services;
 using Microsoft.AspNetCore.Authorization;
 using ModelContextProtocol.Server;
 
@@ -29,10 +28,12 @@ public partial class McpTools
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    [McpServerTool(Name = "memory_remember"),
+    [McpServerTool(Name = "memory_remember", Destructive = false),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Store one fact in a container's memory: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them, and a fact citing none only to you. When a value you stored before has changed, call `memory_correct` instead.")]
     public static async Task<string> MemoryRemember(
-        IServiceProvider services,
+        RememberFact remember,
+        IHttpContextAccessor http,
         [Description("Container ID or name the memory lives in")] string containerId,
         [Description("What the fact is about, e.g. a project, person or service")] string subject,
         [Description("Which property of the subject, e.g. \"database\" or \"tech lead\"")] string attribute,
@@ -43,23 +44,24 @@ public partial class McpTools
         [Description("Why or how it was learned, e.g. the ticket that made the change")] string? reason = null,
         CancellationToken ct = default)
     {
-        (Guid container, string? error) = await MemoryWriteTargetAsync(services, containerId, ct);
-        if (error is not null)
-            return error;
         if (ParseDates(validFrom, validTo) is not { } dates)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
         if (ParseSources(sources) is not { } parsed)
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
-        MemoryWriteResult result = await services.GetRequiredService<IMemoryService>().RememberAsync(
-            container, new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), Caller(services), ct);
-        return result.Error ?? JsonSerializer.Serialize(new { remembered = Shown(result.Fact!, null) }, MemoryJson);
+        var written = await remember.RunAsync(Mcp(http), containerId,
+            new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), ct);
+        return written.Succeeded
+            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null) }, MemoryJson)
+            : Refused(written);
     }
 
-    [McpServerTool(Name = "memory_correct"),
+    [McpServerTool(Name = "memory_correct", Destructive = false),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Replace a fact and keep the old one in history. kind=\"changed\": the world changed, so the old fact ends on `validFrom` and the new value starts there (validFrom required). kind=\"wrong\": the old fact was never right, so it is marked superseded and the new value takes its dates; a date you pass replaces the old one, except one where another version of the fact starts or ends. Subject and attribute default to the old fact's.")]
     public static async Task<string> MemoryCorrect(
-        IServiceProvider services,
+        CorrectFact correct,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("ID of the fact to replace (from memory_recall)")] string factId,
         [Description("The new value")] string value,
@@ -72,12 +74,6 @@ public partial class McpTools
         [Description("New attribute, if it changed")] string? attribute = null,
         CancellationToken ct = default)
     {
-        (Guid container, string? error) = await MemoryWriteTargetAsync(services, containerId, ct);
-        if (error is not null)
-            return error;
-        if (!Guid.TryParse(factId, out Guid id))
-            return $"Error: Fact '{factId}' not found.";
-
         MemoryCorrection correction;
         switch (kind?.Trim().ToLowerInvariant())
         {
@@ -90,37 +86,33 @@ public partial class McpTools
         if (ParseSources(sources) is not { } parsed)
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
-        MemoryWriteResult result = await services.GetRequiredService<IMemoryService>().CorrectAsync(
-            container, id, correction,
-            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, parsed, reason),
-            Caller(services), ct);
-        return result.Error is { } failed
-            ? (failed.StartsWith("Error:", StringComparison.Ordinal) ? failed : "Error: " + failed)
-            : JsonSerializer.Serialize(new { remembered = Shown(result.Fact!, null), replaced = Shown(result.Replaced!, null) }, MemoryJson);
+        var written = await correct.RunAsync(Mcp(http), containerId, factId, correction,
+            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, parsed, reason), ct);
+        return written.Succeeded
+            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), replaced = Shown(written.Result.Replaced!, null) }, MemoryJson)
+            : Refused(written);
     }
 
     [McpServerTool(Name = "memory_forget", Destructive = true),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
      Description("Delete a fact for good, with every earlier and later version of it from corrections. Nothing of it is kept. To record that a value changed, use memory_correct instead.")]
     public static async Task<string> MemoryForget(
-        IServiceProvider services,
+        ForgetFact forget,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("ID of the fact to delete")] string factId,
         CancellationToken ct = default)
     {
-        (Guid container, string? error) = await MemoryWriteTargetAsync(services, containerId, ct);
-        if (error is not null)
-            return error;
-        if (!Guid.TryParse(factId, out Guid id))
-            return $"Error: Fact '{factId}' not found.";
-
-        (int deleted, string? failed) = await services.GetRequiredService<IMemoryService>().ForgetAsync(container, id, Caller(services), ct);
-        return failed is not null ? "Error: " + failed : $"Forgot fact '{factId}' ({deleted} version(s) deleted).";
+        var forgotten = await forget.RunAsync(Mcp(http), containerId, factId, ct);
+        return forgotten.Succeeded ? $"Forgot fact '{factId}' ({forgotten.Result} version(s) deleted)." : Refused(forgotten);
     }
 
     [McpServerTool(Name = "memory_recall", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Read facts from a container's memory: what is true now, or on a past date with `asOf`. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\").")]
     public static async Task<string> MemoryRecall(
-        IServiceProvider services,
+        RecallMemory recall,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("Words to match against subject, attribute, value and reason")] string? query = null,
         [Description("Only this subject (exact, any case)")] string? subject = null,
@@ -130,19 +122,19 @@ public partial class McpTools
         [Description("At most this many facts (1-100). Default 10")] int limit = 10,
         CancellationToken ct = default)
     {
-        if (await ResolveContainerIdAsync(containerId, services.GetRequiredService<IContainerStore>(), ct) is not { } container)
-            return $"Error: Container '{containerId}' not found.";
         if (ParseDates(asOf, null) is not { } at)
             return "Error: asOf must be YYYY-MM-DD or ISO 8601.";
 
-        return await RecallJsonAsync(services,
-            new MemoryQuery(container, query, subject, attribute, at.From, includeHistory, Limit: limit), ct);
+        return RecallJson(await recall.RunAsync(Mcp(http), containerId,
+            new MemoryQuery(Guid.Empty, query, subject, attribute, at.From, includeHistory, Limit: limit), ct));
     }
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\").")]
     public static async Task<string> MemoryTimeline(
-        IServiceProvider services,
+        RecallMemory recall,
+        IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("Only this subject (exact, any case)")] string? subject = null,
         [Description("Words to match, when the subject is not known exactly")] string? query = null,
@@ -152,24 +144,21 @@ public partial class McpTools
         [Description("At most this many facts (1-100). Default 50")] int limit = 50,
         CancellationToken ct = default)
     {
-        if (await ResolveContainerIdAsync(containerId, services.GetRequiredService<IContainerStore>(), ct) is not { } container)
-            return $"Error: Container '{containerId}' not found.";
         if (ParseDates(from, to) is not { } window)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
 
         bool windowed = window.From is not null || window.To is not null;
-        return await RecallJsonAsync(services, new MemoryQuery(container, query, subject, attribute,
-            History: !windowed, ChangedFrom: window.From, ChangedTo: window.To, Limit: limit), ct, inDateOrder: true);
+        return RecallJson(await recall.RunAsync(Mcp(http), containerId, new MemoryQuery(Guid.Empty, query, subject, attribute,
+            History: !windowed, ChangedFrom: window.From, ChangedTo: window.To, Limit: limit), ct), inDateOrder: true);
     }
 
-    private static async Task<string> RecallJsonAsync(IServiceProvider services, MemoryQuery query, CancellationToken ct, bool inDateOrder = false)
+    private static string RecallJson(Attempt<IReadOnlyList<RecalledFact>, MemoryStatus> recalled, bool inDateOrder = false)
     {
-        MemoryRecall recall = await services.GetRequiredService<IMemoryService>().RecallAsync(query, Caller(services), ct);
-        if (recall.Denied)
-            return "Error: access to memory sources could not be checked; nothing is shown.";
+        if (!recalled.Succeeded)
+            return Refused(recalled);
         IEnumerable<RecalledFact> facts = inDateOrder
-            ? recall.Facts.OrderBy(f => f.Fact.ValidFrom ?? DateTimeOffset.MinValue).ThenBy(f => f.Fact.RecordedAt)
-            : recall.Facts;
+            ? recalled.Result!.OrderBy(f => f.Fact.ValidFrom ?? DateTimeOffset.MinValue).ThenBy(f => f.Fact.RecordedAt)
+            : recalled.Result!;
         return JsonSerializer.Serialize(new
         {
             notice = MemoryNotice,
@@ -194,31 +183,6 @@ public partial class McpTools
         sources = sources?.Select(s => new { kind = s.Kind, id = s.Ref, title = s.Title })
             ?? fact.Sources.Select(s => new { kind = s.Kind, id = s.Ref, title = (string?)null }),
     };
-
-    /// <summary>The container a write goes to, or an error when it is not a container or the caller may not write.</summary>
-    private static async Task<(Guid Id, string? Error)> MemoryWriteTargetAsync(IServiceProvider services, string containerId, CancellationToken ct)
-    {
-        ClaimsPrincipal? user = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
-        IAuthorizationService? authorization = services.GetService<IAuthorizationService>();
-        bool canWrite = user is not null && authorization is not null
-            && ((await authorization.AuthorizeAsync(user, "Scope:KnowledgeWrite")).Succeeded
-                || (await authorization.AuthorizeAsync(user, "Scope:AgentIngest")).Succeeded);
-        if (!canWrite)
-            return (Guid.Empty, "Error: writing memory needs write access (knowledge:write or agent:ingest).");
-
-        // Only managed containers resolve here, so memory never lands in a synced source (GitHub, Jira, ...).
-        return await ResolveContainerIdAsync(containerId, services.GetRequiredService<IContainerStore>(), ct) is { } id
-            ? (id, null)
-            : (Guid.Empty, $"Error: Container '{containerId}' not found. Memory lives in containers, not in synced sources.");
-    }
-
-    private static MemoryCaller Caller(IServiceProvider services)
-    {
-        ClaimsPrincipal? user = services.GetService<IHttpContextAccessor>()?.HttpContext?.User;
-        Guid? agent = user?.FindFirstValue(SearchPrincipal.ActorTypeClaim) == "agent"
-            && Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out Guid a) ? a : null;
-        return new MemoryCaller(SearchPrincipal.Resolve(user), agent, user?.FindFirstValue(ClaimTypes.Name));
-    }
 
     /// <summary>Both dates parsed (a missing one as null), or null when either is not a date. A bare date is midnight UTC.</summary>
     internal static (DateTimeOffset? From, DateTimeOffset? To)? ParseDates(string? from, string? to)

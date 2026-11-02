@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Connapse.Core;
 
 namespace Connapse.Web.Components.Settings;
@@ -46,38 +45,28 @@ public sealed record SourceForm
     /// </summary>
     public string ToScopeJson(ConnectionProvider provider)
     {
-        var node = new JsonObject();
+        string? prefix = Blank(Prefix) ? null : Prefix!.Trim();
 
-        switch (provider)
+        // Always present, and empty means the root itself. ConnectorFactory treats a
+        // blank subPath as "the allowed root", so this is a meaningful value rather
+        // than a missing one.
+        string subPath = SubPath?.Trim() ?? "";
+
+        SourceScope scope = provider switch
         {
-            case ConnectionProvider.S3:
-                node["bucketName"] = Container?.Trim() ?? "";
-                if (!Blank(Prefix)) node["prefix"] = Prefix!.Trim();
-                break;
-
-            case ConnectionProvider.AzureBlob:
-                node["containerName"] = Container?.Trim() ?? "";
-                if (!Blank(Prefix)) node["prefix"] = Prefix!.Trim();
-                break;
+            ConnectionProvider.S3 => new S3BucketScope(Container?.Trim() ?? "", prefix),
+            ConnectionProvider.AzureBlob => new AzureBlobContainerScope(Container?.Trim() ?? "", prefix),
 
             // One case for both. The SFTP scope was deliberately given the same shape as the
             // filesystem one so that this form, the preflight and the scope summary each gained
             // a provider here rather than a parallel implementation to keep in step.
-            case ConnectionProvider.Filesystem:
-            case ConnectionProvider.Sftp:
-                // Always present, and empty means the root itself. ConnectorFactory treats a
-                // blank subPath as "the allowed root", so this is a meaningful value rather
-                // than a missing one.
-                node["subPath"] = SubPath?.Trim() ?? "";
-                AddPatterns(node, "includePatterns", IncludePatterns);
-                AddPatterns(node, "excludePatterns", ExcludePatterns);
-                break;
+            ConnectionProvider.Filesystem => new FilesystemFolderScope(subPath, Patterns(IncludePatterns), Patterns(ExcludePatterns)),
+            ConnectionProvider.Sftp => new SftpFolderScope(subPath, Patterns(IncludePatterns), Patterns(ExcludePatterns)),
 
-            default:
-                throw new NotSupportedException($"Unknown connection provider: {provider}");
-        }
+            _ => throw new NotSupportedException($"Unknown connection provider: {provider}"),
+        };
 
-        return node.ToJsonString();
+        return SourceScopeCodec.Write(scope);
     }
 
     /// <summary>
@@ -118,15 +107,8 @@ public sealed record SourceForm
             : raw.Split(['\n', '\r', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                  .ToList();
 
-    private static void AddPatterns(JsonObject node, string name, string? raw)
-    {
-        var values = ParsePatterns(raw);
-        if (values.Count == 0) return;
-
-        var array = new JsonArray();
-        foreach (string value in values) array.Add(value);
-        node[name] = array;
-    }
+    /// <summary>The patterns typed into a field, or null when there are none, so the key is left out.</summary>
+    private static List<string>? Patterns(string? raw) => ParsePatterns(raw) is { Count: > 0 } values ? values : null;
 
     private static bool Blank(string? value) => string.IsNullOrWhiteSpace(value);
 }

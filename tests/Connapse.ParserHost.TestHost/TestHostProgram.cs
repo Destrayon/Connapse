@@ -16,8 +16,16 @@ internal static class TestHostProgram
     {
         // Ends before the loop says it is ready, as a host that cannot confine itself or load the
         // runtime would.
-        if (Environment.GetEnvironmentVariable(FailToStartVariable) == "1")
+        string? failToStart = Environment.GetEnvironmentVariable(FailToStartVariable);
+        if (failToStart == "1")
             Environment.Exit(3);
+
+        // As a host the OS refused memory while the runtime started would (CON-196).
+        if (failToStart == "oom")
+        {
+            Console.Error.WriteLine("Unhandled exception. System.OutOfMemoryException: Insufficient memory to continue the execution of the program.");
+            Environment.Exit(134);
+        }
 
         Stream input = Console.OpenStandardInput();
         Stream output = Console.OpenStandardOutput();

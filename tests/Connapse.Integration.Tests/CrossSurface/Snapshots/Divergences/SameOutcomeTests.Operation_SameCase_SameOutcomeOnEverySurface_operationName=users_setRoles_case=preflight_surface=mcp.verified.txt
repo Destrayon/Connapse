@@ -1,0 +1,12 @@
+﻿{
+  Reason: absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783,
+  Reference: {
+    Result: error:validation,
+    State: [
+      user roles=Viewer
+    ]
+  },
+  Surface: {
+    Result: absent: MCP has no user tools; the generic connapse_api_* tools arrive in Phase 5 of #783
+  }
+}

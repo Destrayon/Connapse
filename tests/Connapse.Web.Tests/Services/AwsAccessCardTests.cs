@@ -14,6 +14,7 @@ namespace Connapse.Web.Tests.Services;
 /// Anywhere setup. Mode therefore turns only on whether a Roles Anywhere row is stored, never on the
 /// probe.
 /// </remarks>
+[Trait("Category", "Unit")]
 public class AwsAccessCardTests
 {
     [Fact]

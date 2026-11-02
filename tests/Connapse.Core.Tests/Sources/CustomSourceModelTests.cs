@@ -65,6 +65,27 @@ public class CustomSourceModelTests
         error.Should().NotBeNullOrEmpty();
     }
 
+    [Theory]
+    [InlineData("https://bridge.acme.test/api", "https://bridge.acme.test/api/")]
+    [InlineData("https://Bridge.Acme.Test/api", "https://bridge.acme.test/api")]
+    [InlineData("HTTPS://bridge.acme.test:443/api", " https://bridge.acme.test/api ")]
+    public void SameAddress_SchemeHostCaseAndTrailingSlash_AreTheSame(string a, string b)
+    {
+        CustomSourceEndpoint.SameAddress(a, b).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("https://bridge.acme.test/TenantA", "https://bridge.acme.test/tenanta")]
+    [InlineData("https://bridge.acme.test/api", "https://bridge.acme.test/api?x=1")]
+    [InlineData("https://bridge.acme.test/api", "https://user@bridge.acme.test/api")]
+    [InlineData("https://bridge.acme.test/api", "https://bridge.acme.test:8443/api")]
+    [InlineData("https://bridge.acme.test/api", "http://bridge.acme.test/api")]
+    [InlineData("https://bridge.acme.test/api", null)]
+    public void SameAddress_PathCaseOrAnyOtherPart_Differs(string a, string? b)
+    {
+        CustomSourceEndpoint.SameAddress(a, b).Should().BeFalse();
+    }
+
     [Fact]
     public void Endpoint_Http_IsAcceptedOnlyForAnAllowedHost()
     {

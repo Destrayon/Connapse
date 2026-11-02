@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Operations: every Connapse capability as one method the UI, REST and MCP all call (epic #783).
+    Nothing here may use ASP.NET Core, so an operation can't reach HTTP or Razor types. Identity
+    carries the ASP.NET Core framework reference, so its transitive flow is switched off here;
+    Application_HasNoAspNetCoreDependency checks the project and the compiled assembly.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Connapse.Core\Connapse.Core.csproj" />
+    <ProjectReference Include="..\Connapse.Storage\Connapse.Storage.csproj" />
+    <ProjectReference Include="..\Connapse.Identity\Connapse.Identity.csproj" />
+    <ProjectReference Include="..\Connapse.Ingestion\Connapse.Ingestion.csproj" />
+    <ProjectReference Include="..\Connapse.Search\Connapse.Search.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <DisableTransitiveFrameworkReferences>true</DisableTransitiveFrameworkReferences>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.7" />
+  </ItemGroup>
+
+  <!--
+    The ASP.NET Core packages Identity and Storage bring in, made invisible to this project's
+    compiler: an operation that names one of their types doesn't build. They still ship, because
+    the referenced projects use them. Application_HasNoAspNetCoreDependency fails if a package
+    joins the restore graph without an entry here.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Cryptography.Internal" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Cryptography.KeyDerivation" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.7" ExcludeAssets="compile" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

@@ -3,14 +3,10 @@
 @attribute [Authorize(Policy = "RequireAdmin")]
 @rendermode InteractiveServer
 @using Connapse.Core
-@using Connapse.Core.Interfaces
 @using Connapse.Web.Components.Providers
 @using Connapse.Web.Components.Shared
-@using Connapse.Web.Services
-@inject CustomProviderSetup Setup
-@inject ICustomProviderStore Store
-@inject IConnectionStore Connections
-@inject IAuditLogger AuditLogger
+@inject Connapse.Application.Providers.CustomProviderOperations Providers
+@inject AuthenticationStateProvider AuthState
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject ILogger<CustomProviderPage> Logger
@@ -314,7 +310,6 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
 
     /// <summary>The dependant connections whose last sync had this provider's token refused.</summary>
     private IReadOnlyList<string> refusedBy = [];
-    private IReadOnlyList<Connection> dependantConnections = [];
 
     /// <summary>The middle man's linking page, from the latest check or the saved provider.</summary>
     private string? LinkUrl => check?.EndpointOk == true ? check.LinkUrl : existing?.LinkUrl;
@@ -355,7 +350,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
     {
         if (Id is not { } id) return;
 
-        existing = await Store.GetAsync(id);
+        await LoadAsync(id);
         if (existing is null)
         {
             loadError = "No such custom provider.";
@@ -364,19 +359,18 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
 
         name = existing.Name;
         baseUrl = existing.BaseUrl;
-        await LoadDependantsAsync();
         // Opened on the token when a sync had it refused, which is what the page is then visited for.
         editEndpoint = refusedBy.Count > 0;
     }
 
-    private async Task LoadDependantsAsync()
+    /// <summary>The provider and the connections that use it, through providers.custom.list.</summary>
+    private async Task LoadAsync(Guid id)
     {
-        if (existing is null) return;
-        dependantConnections = (await Connections.ListAsync(take: int.MaxValue))
-            .Where(c => c.Provider == ConnectionProvider.Custom && CustomConnectionConfig.ProviderIdOf(c.ConfigJson) == existing.Id)
-            .ToList();
-        dependants = dependantConnections.Select(c => c.Name).ToList();
-        refusedBy = dependantConnections.Where(c => c.Health is { CredentialRejected: true }).Select(c => c.Name).ToList();
+        var listed = await Providers.List.RunAsync(await AuthState.OperationContextAsync());
+        var listing = listed.Result?.FirstOrDefault(l => l.Provider.Id == id);
+        existing = listing?.Provider;
+        dependants = listing?.Connections.Select(c => c.Name).ToList() ?? [];
+        refusedBy = listing?.Connections.Where(c => c.TokenRefused).Select(c => c.Name).ToList() ?? [];
     }
 
     private async Task CheckAsync()
@@ -388,26 +382,14 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         editEndpoint = true;
         try
         {
-            // A blank token on an existing provider means "the stored one", which must still pass the check. It is
-            // only ever sent to the stored address: a new address needs its token typed, or anyone who can edit
-            // the provider could have the stored token sent to a server of their choosing.
-            if (token.Length == 0 && existing is not null && !Connapse.Core.Utilities.CustomSourceEndpoint.SameAddress(baseUrl, existing.BaseUrl))
-            {
-                check = new CustomProviderCheck(null, false, false,
-                    Error: $"Enter the token for this address. The saved token is only sent to {existing.BaseUrl}.", Field: "secret");
-                focus = Focus.Token;
-                return;
-            }
-            string? tokenToCheck = token.Length > 0 || existing is null ? token : await Store.GetTokenAsync(existing.Id);
-            check = await Setup.CheckAsync(baseUrl, tokenToCheck, CancellationToken.None);
+            // A blank token on a saved provider is its saved one, which providers.custom.check only sends to the saved address.
+            var checkedServer = await Providers.Check.RunAsync(await AuthState.OperationContextAsync(), existing?.Id,
+                new Connapse.Application.Providers.CustomProviderCheckRequest(baseUrl, token.Length > 0 ? token : null));
+            check = checkedServer.Result ?? new CustomProviderCheck(null, false, false, Error: checkedServer.Detail, Field: "baseUrl");
             if (check.BaseUrl is { } normalized) baseUrl = normalized;
             focus = check.Field switch { "baseUrl" => Focus.Url, "secret" => Focus.Token, _ => Focus.None };
             if (name.Trim().Length == 0 && check.EndpointOk)
                 name = check.Name is { Length: > 0 } reported ? reported : new Uri(check.BaseUrl!).Host;
-
-            await AuditLogger.LogAsync(check is { EndpointOk: true, PermissionsOk: true } ? "custom_provider.check_passed" : "custom_provider.check_failed",
-                "custom_provider", existing?.Id.ToString(),
-                new { BaseUrl = check.BaseUrl, Step = check.EndpointOk ? "permissions" : check.Field ?? "endpoint" });
         }
         catch (Exception ex)
         {
@@ -424,7 +406,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
 
     private async Task SaveAsync()
     {
-        if (check is not { EndpointOk: true, PermissionsOk: true, BaseUrl: { } checkedUrl } passed) return;
+        if (check is not { EndpointOk: true, PermissionsOk: true, BaseUrl: { } checkedUrl }) return;
         nameError = null;
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -438,28 +420,23 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         try
         {
             bool isNew = existing is null;
-            bool tokenReplaced = token.Length > 0;
-            SaveCustomProviderRequest request = new(
-                name.Trim(), checkedUrl, tokenReplaced ? token.Trim() : null,
-                passed.MaxCheckBatch, passed.SupportsAccessKeys, passed.LinkUrl);
-
-            CustomProvider? result = existing is null
-                ? await Store.CreateAsync(request)
-                : await Store.UpdateAsync(existing.Id, request);
-            if (result is null)
+            var caller = await AuthState.OperationContextAsync();
+            var saved = existing is null
+                ? await Providers.Create.RunAsync(caller, new Connapse.Application.Providers.CreateCustomProviderRequest(checkedUrl, token, name.Trim()))
+                : await Providers.Update.RunAsync(caller, existing.Id,
+                    new Connapse.Application.Providers.UpdateCustomProviderRequest(name.Trim(), checkedUrl, token.Length > 0 ? token : null));
+            if (saved.Result is not { } result)
             {
-                error = "This custom provider no longer exists.";
+                // A taken name or an address in use goes beside its field; anything else above the form.
+                (nameError, urlError, error, focus) = saved.Field switch
+                {
+                    "name" => (saved.Detail, (string?)null, (string?)null, Focus.Name),
+                    "baseUrl" => (null, saved.Detail, null, Focus.Url),
+                    _ => (null, null, saved.Detail, Focus.None),
+                };
                 return;
             }
 
-            await AuditLogger.LogAsync(isNew ? "custom_provider.created" : "custom_provider.updated",
-                "custom_provider", result.Id.ToString(), new { result.Name, result.BaseUrl, TokenReplaced = tokenReplaced });
-
-            // The check that just passed used the token now saved, so connections it was refused for read again.
-            foreach (Connection refused in dependantConnections.Where(c => c.Health is { CredentialRejected: true }))
-                await Connections.RecordHealthAsync(refused.Id, new ConnectionHealth(
-                    DateTime.UtcNow, Succeeded: true, Step: null, "The provider's token was accepted.", Origin: "test"));
-            existing = result;
             token = "";
             check = null;
             editEndpoint = false;
@@ -468,15 +445,7 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
             message = isNew
                 ? $"'{result.Name}' saved. Next, add a Custom connection that uses it."
                 : $"'{result.Name}' saved.";
-            await LoadDependantsAsync();
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-        {
-            // The store refuses a taken name, or an address change while connections use the provider.
-            if (ex.Message.Contains("name", StringComparison.OrdinalIgnoreCase))
-                (nameError, focus) = (ex.Message, Focus.Name);
-            else
-                (urlError, focus) = (ex.Message, Focus.Url);
+            await LoadAsync(result.Id);
         }
         catch (Exception ex)
         {
@@ -499,15 +468,15 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         copied = false;
         try
         {
-            newLinkSecret = await Store.GenerateLinkSecretAsync(existing.Id);
+            var replaced = await Providers.LinkSecret.RunAsync(await AuthState.OperationContextAsync(), existing.Id);
+            newLinkSecret = replaced.Result?.LinkSecret;
             if (newLinkSecret is null)
             {
-                error = "This custom provider no longer exists.";
+                error = replaced.Detail;
                 return;
             }
 
-            await AuditLogger.LogAsync("custom_provider.link_secret_generated", "custom_provider", existing.Id.ToString(), new { existing.Name });
-            existing = await Store.GetAsync(existing.Id) ?? existing;
+            await LoadAsync(existing.Id);
             editLinking = true; // keep the new secret on screen once the step shows as done
             showLinkSecret = false;
             focus = Focus.LinkSecret;
@@ -545,14 +514,14 @@ docker run -d --name cs-example --network &lt;connapse-project&gt;_backend conna
         error = null;
         try
         {
-            await Store.DeleteAsync(existing.Id);
-            await AuditLogger.LogAsync("custom_provider.deleted", "custom_provider", existing.Id.ToString(), new { existing.Name });
-            Navigation.NavigateTo("/admin/providers");
-        }
-        catch (InvalidOperationException ex)
-        {
-            error = ex.Message;
-            await LoadDependantsAsync();
+            var deleted = await Providers.Delete.RunAsync(await AuthState.OperationContextAsync(), existing.Id);
+            if (deleted.Succeeded)
+            {
+                Navigation.NavigateTo("/admin/providers");
+                return;
+            }
+            error = deleted.Detail;
+            await LoadAsync(existing.Id);
         }
         catch (Exception ex)
         {

@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Connapse.Core;
 using Connapse.Storage.Connectors;
 
@@ -101,47 +100,30 @@ public sealed record GitHubRepositoryForm
 
         if (IncludeDocs)
         {
-            var scope = Scope(owner, repo, GitHubContentKind.Docs, repoId, isPrivate);
             var patterns = SourceForm.ParsePatterns(DocPatterns);
-            if (patterns.Count > 0)
-                scope["includePatterns"] = new JsonArray([.. patterns.Select(p => (JsonNode)p)]);
+            var scope = new GitHubRepositoryScope(owner, repo, GitHubContentKind.Docs, repoId, isPrivate,
+                IncludePatterns: patterns.Count > 0 ? patterns : null);
 
             requests.Add(new CreateSourceRequest(
                 Name(owner, repo, "docs"),
                 ConnectionId: connectionId,
-                ScopeJson: scope.ToJsonString(),
+                ScopeJson: SourceScopeCodec.Write(scope),
                 Description: $"Markdown docs from github.com/{owner}/{repo}"));
         }
 
         if (IncludeIssues)
         {
-            var scope = Scope(owner, repo, GitHubContentKind.IssuesAndPullRequests, repoId, isPrivate);
-            scope["includeComments"] = IncludeComments;
+            var scope = new GitHubRepositoryScope(owner, repo, GitHubContentKind.IssuesAndPullRequests, repoId, isPrivate,
+                IncludeComments: IncludeComments);
 
             requests.Add(new CreateSourceRequest(
                 Name(owner, repo, "issues"),
                 ConnectionId: connectionId,
-                ScopeJson: scope.ToJsonString(),
+                ScopeJson: SourceScopeCodec.Write(scope),
                 Description: $"Issues and pull requests from github.com/{owner}/{repo}"));
         }
 
         return requests;
-    }
-
-    private static JsonObject Scope(string owner, string repo, GitHubContentKind kind, long? repoId, bool isPrivate)
-    {
-        var scope = new JsonObject
-        {
-            ["owner"] = owner,
-            ["repo"] = repo,
-            ["kind"] = kind.ToString(),
-        };
-
-        // The numeric id survives a rename or transfer; a private repository's document addresses
-        // and permission checks are keyed on it.
-        if (repoId is { } id) scope["repoId"] = id;
-        if (isPrivate) scope["private"] = true;
-        return scope;
     }
 
     /// <summary>

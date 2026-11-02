@@ -6,7 +6,7 @@ namespace Connapse.Core;
 /// Where a custom source reads from: the middle man's base URL and one scope it exposes. Stored as the
 /// source's scope JSON. The middle man's bearer token is not part of it; it is kept encrypted beside the source.
 /// </summary>
-public sealed record CustomSourceScope(string BaseUrl, string ScopeId)
+public sealed record CustomSourceScope(string BaseUrl, string ScopeId) : SourceScope
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

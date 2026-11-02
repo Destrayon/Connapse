@@ -75,4 +75,40 @@ public class SettingsStoreUpdateIntegrationTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task Revision_ChangesOnEveryWrite_AndIsWhatTheNextReadSees()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = Store(scope);
+        await store.ResetAsync(Category);
+
+        try
+        {
+            (await store.GetWithRevisionAsync<PermissionEnforcementSettings>(Category)).Should().Be(((PermissionEnforcementSettings?)null, (string?)null));
+
+            string? handed = "unset";
+            var (_, first) = await store.UpdateWithRevisionAsync<PermissionEnforcementSettings>(Category, (stored, revision) =>
+            {
+                handed = revision;
+                return new PermissionEnforcementSettings { IsEnforcing = true };
+            });
+            handed.Should().BeNull("nothing was stored, though the update inserts a row to lock");
+            (await store.GetWithRevisionAsync<PermissionEnforcementSettings>(Category)).Revision.Should().Be(first);
+
+            // The same values written again still get a new revision, as a secret-only change would.
+            var (_, second) = await store.UpdateWithRevisionAsync<PermissionEnforcementSettings>(Category, (stored, revision) =>
+            {
+                handed = revision;
+                return stored!;
+            });
+            handed.Should().Be(first);
+            second.Should().NotBe(first);
+            await store.SaveAsync(Category, new PermissionEnforcementSettings { IsEnforcing = true });
+            (await store.GetWithRevisionAsync<PermissionEnforcementSettings>(Category)).Revision.Should().NotBe(second);
+        }
+        finally
+        {
+            await store.ResetAsync(Category);
+        }
+    }
 }

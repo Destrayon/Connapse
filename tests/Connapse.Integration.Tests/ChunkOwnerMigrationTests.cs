@@ -37,6 +37,7 @@ public class ChunkOwnerMigrationTests : IAsyncLifetime
         .WithDatabase("connapse_migration_test")
         .WithUsername("migration_test")
         .WithPassword("migration_test")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     public async Task InitializeAsync() => await _postgres.StartAsync();

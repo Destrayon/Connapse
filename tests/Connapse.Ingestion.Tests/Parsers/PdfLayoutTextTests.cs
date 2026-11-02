@@ -7,6 +7,7 @@ using NSubstitute;
 namespace Connapse.Ingestion.Tests.Parsers;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Large")]
 public class PdfLayoutTextTests
 {
     private static PdfLayoutText.PlacedWord Word(string text, double x, double y) =>

@@ -1,0 +1,63 @@
+# Connapse
+
+> Connapse is a self-hosted knowledge platform. It indexes uploaded files and external sources (Amazon S3, Azure Blob Storage, GitHub, Confluence, Jira, filesystems, SFTP and custom source servers) into containers, and serves hybrid vector and keyword search over a Blazor web UI, a REST API at /api/v1 and an MCP server at /mcp. Built on .NET 10, PostgreSQL with pgvector, and MinIO.
+
+Every page below is Markdown. API keys go in the `X-Api-Key` header; errors are RFC 9457 problem details whose `type` links into problems.md.
+
+## Get started
+
+- [Quickstart](get-started/quickstart.md): run Connapse with Docker Compose, upload a document and search it
+- [Tutorial: connect Claude to Connapse](get-started/connect-an-agent.md): create an agent key, connect over MCP and build a container
+
+## Self-host
+
+- [Install Connapse](self-host/install.md): requirements and Compose profiles (Ollama, reranker, GPU)
+- [Run Connapse in production](self-host/production.md): TLS, secrets, reverse proxy and hardening
+- [Back up and restore Connapse](self-host/backup-and-restore.md): PostgreSQL, MinIO and the data directory
+- [Upgrade Connapse](self-host/upgrade.md): upgrade, migrations and rollback
+- [Troubleshoot a self-hosted server](self-host/troubleshooting.md): symptoms and fixes
+
+## Sources
+
+- [Containers, connections and sources](sources/index.md): how they fit together and what each provider indexes
+- [Use uploads and MinIO](sources/uploads-and-minio.md): the default managed storage
+- [Index a filesystem or SFTP server](sources/filesystem-and-sftp.md): local folders and remote machines
+- [AWS setup](sources/aws-setup.md): Amazon S3 with per-user S3 Access Grants
+- [Cover buckets outside the Identity Center region](sources/aws-multi-region.md): multi-region AWS
+- [Azure setup](sources/azure-setup.md): Azure Blob Storage with per-user Entra permissions
+- [GitHub setup](sources/github-setup.md): repository docs, issues and pull requests
+- [Atlassian setup](sources/atlassian-setup.md): Confluence spaces and Jira projects
+- [Custom source setup](sources/custom-source-setup.md): connect your own system through a custom source server
+
+## Guides
+
+- [Manage users and invites](guides/users-and-invites.md): roles, invites and removing users
+- [Create tokens and agent keys](guides/tokens-and-agents.md): personal access tokens, scopes and agent keys
+- [Connect an MCP client](guides/mcp-clients.md): Claude Code, Claude Desktop, VS Code, Cursor and approvals
+- [Automate Connapse with the API](guides/automate-with-the-api.md): providers, connections and sources over REST, with ETag saves
+- [Tune search](guides/tune-search.md): providers, reranker, fusion and chunking
+- [Change the embedding model](guides/change-embedding-model.md): switch models and re-index
+
+## Concepts
+
+- [How Connapse works](concepts/how-connapse-works.md): the parts and how a document becomes a search result
+- [About search](concepts/search.md): hybrid search, fusion, reranking and AutoCut
+- [About ingestion](concepts/ingestion.md): parsing, chunking and reindexing
+- [About permissions](concepts/permissions.md): per-object trimming, cloud identity and failing closed
+
+## Reference
+
+- [REST API](reference/rest-api.md): every endpoint with its scope, plus auth, errors, paging and rate limits
+- [OpenAPI document](api/openapi.json): the machine-readable API
+- [MCP tools](reference/mcp-tools.md): the 12 named tools and 3 generic API tools
+- [Configuration](reference/configuration.md): every setting, environment variable and default
+- [Roles and scopes](reference/roles-and-scopes.md): which role and token scope each operation needs
+- [File types](reference/file-types.md): supported formats, limits and failure codes
+- [Error types](problems.md): every problem `type` the API returns
+- [Custom source protocol](protocols/custom-source-v1.md): the contract a custom source server implements
+- [Command-line tool](reference/cli.md): the connapse CLI
+
+## Optional
+
+- [Set up a development environment](contributing/development.md): build, test and run migrations
+- [Architecture internals](contributing/architecture.md): projects, patterns and data flow

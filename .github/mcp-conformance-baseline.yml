@@ -1,0 +1,38 @@
+# Expected failures for the official MCP conformance suite 0.1.16 (server mode, the 2025 spec
+# revisions down-level clients use), run by the mcp-conformance CI job. The 2026-07-28 revision has its
+# own list, mcp-conformance-baseline-2026-07-28.yml. A listed scenario that starts passing fails the job: delete its line.
+# An unlisted scenario that fails is a regression. Part of #793.
+#
+# The runner can't send credentials, so the job allows anonymous discovery and every tools/call
+# comes back as an authentication error. tools-call-simple-text and tools-call-error pass on that
+# error text alone: they prove the protocol shape, not that a Connapse tool ran. Real tool calls,
+# and the default authenticated /mcp, are covered by the integration tests (McpAuthorizationTests).
+server:
+  # Connapse doesn't implement completions, resources or prompts.
+  - completion-complete
+  - resources-list
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - resources-subscribe
+  - resources-unsubscribe
+  - prompts-list
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
+  # These call the suite's own sample tools (image, audio, progress, sampling and so on),
+  # which a product server doesn't have.
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-with-logging
+  - tools-call-with-progress
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+  # Stateless (#846): a 2026-07-28 server issues no session ID, so this 2025 scenario, which checks
+  # several SSE streams on one session, can only warn.
+  - server-sse-multiple-streams

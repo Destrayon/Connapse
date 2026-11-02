@@ -2,6 +2,7 @@
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Vectors;
+using Connapse.Application.Containers;
 using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -53,7 +54,7 @@ public class McpToolsContainerStatsTests
     [Fact]
     public async Task ContainerStats_ReturnsFormattedStats()
     {
-        var result = await McpTools.ContainerStats(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerStats(new GetContainerStats(_containerStore, _documentStore, _modelDiscovery, McpCaller.Allowed), McpCaller.Http, ContainerId.ToString());
 
         result.Should().Contain("Container: test-container");
         result.Should().Contain("Documents: 10 (8 ready, 1 processing, 1 failed)");
@@ -74,7 +75,7 @@ public class McpToolsContainerStatsTests
             .GetModelsAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(new List<EmbeddingModelInfo>());
 
-        var result = await McpTools.ContainerStats(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerStats(new GetContainerStats(_containerStore, _documentStore, _modelDiscovery, McpCaller.Allowed), McpCaller.Http, ContainerId.ToString());
 
         result.Should().Contain("Documents: 5");
         result.Should().NotContain("ready");
@@ -85,7 +86,7 @@ public class McpToolsContainerStatsTests
     [Fact]
     public async Task ContainerStats_ContainerNotFound_ReturnsError()
     {
-        var result = await McpTools.ContainerStats(_services, "nonexistent");
+        var result = await McpTools.ContainerStats(new GetContainerStats(_containerStore, _documentStore, _modelDiscovery, McpCaller.Allowed), McpCaller.Http, "nonexistent");
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found");
@@ -98,7 +99,7 @@ public class McpToolsContainerStatsTests
             .GetByNameAsync("test-container", Arg.Any<CancellationToken>())
             .Returns(MakeContainer());
 
-        var result = await McpTools.ContainerStats(_services, "test-container");
+        var result = await McpTools.ContainerStats(new GetContainerStats(_containerStore, _documentStore, _modelDiscovery, McpCaller.Allowed), McpCaller.Http, "test-container");
 
         result.Should().Contain("Container: test-container");
     }
@@ -114,7 +115,7 @@ public class McpToolsContainerStatsTests
             .GetModelsAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(new List<EmbeddingModelInfo>());
 
-        var result = await McpTools.ContainerStats(_services, ContainerId.ToString());
+        var result = await McpTools.ContainerStats(new GetContainerStats(_containerStore, _documentStore, _modelDiscovery, McpCaller.Allowed), McpCaller.Http, ContainerId.ToString());
 
         result.Should().Contain("Documents: 0");
         result.Should().Contain("Chunks: 0");

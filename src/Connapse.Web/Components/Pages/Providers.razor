@@ -13,29 +13,25 @@
 @using Connapse.Storage.CloudScope.RolesAnywhere
 @using Connapse.Storage.Connectors.GitHub
 @using Microsoft.Extensions.Options
-@inject ISettingsStore SettingsStore
-@inject ISettingsReloader ReloadService
+@inject Connapse.Application.Settings.GetSettings ReadSettings
 @inject IOptionsMonitor<SamlSignInSettings> SamlOptions
-@inject IOptionsMonitor<PermissionEnforcementSettings> EnforcementOptions
 @inject IOptionsMonitor<IdentityCenterSettings> IdentityCenterOptions
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IOptionsMonitor<AzureAdSignInSettings> AzureAdOptions
-@inject IAzureBlobDiscovery AzureDiscovery
 @inject IAzureHostIdentity HostIdentity
 @inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment WebHostEnvironment
-@inject IProviderSetupReader SetupReader
-@inject IProviderCredentialStore CredentialStore
+@inject Connapse.Application.Providers.GetProviderStatus ProviderStatus
 @inject GitHubAppUsage GitHubUsage
-@inject IRolesAnywhereSetupValidator RaValidator
-@inject Connapse.Storage.CloudScope.ConnapseAwsCredentials AwsCredentials
+@inject Connapse.Application.Providers.AwsProviderOperations Aws
+@inject Connapse.Application.Providers.AzureProviderOperations Azure
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ILogger<Providers> Logger
 @inject IAuditLogger AuditLogger
 @inject Connapse.Storage.Connectors.GitHub.ConnapseGitHubApp GitHubApp
-@inject GitHubManifestRequests GitHubManifests
+@inject Connapse.Application.Providers.GitHubAppOperations GitHubOps
 @inject AuthenticationStateProvider AuthState
-@inject ICustomProviderStore CustomProviderStore
+@inject Connapse.Application.Providers.ListCustomProviders ListCustom
 @using System.Security.Claims
 @using System.Security.Cryptography.X509Certificates
 @using Microsoft.AspNetCore.Components.Authorization
@@ -1511,7 +1507,7 @@
                                 access identity <code>User.Read.All</code> and <code>GroupMember.Read.All</code> (a
                                 Global Administrator consents an app registration; for a managed identity, the
                                 commands are under
-                                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                <a href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md#graph-permissions-for-a-managed-identity"
                                    target="_blank" rel="noopener">Graph permissions for a managed identity</a>),
                                 then confirm here.
                             </div>
@@ -1541,7 +1537,7 @@
                                 <text>
                                     The access identity is a user-assigned managed identity entered by hand, so its
                                     Microsoft Graph permissions are granted by hand too: run the two commands under
-                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md#graph-permissions-for-a-managed-identity"
                                        target="_blank" rel="noopener">Graph permissions for a managed identity</a>
                                     as a Global Administrator, then set the sign-in application up under Manual values here.
                                 </text>
@@ -1552,7 +1548,7 @@
                                     Access is set to this host's managed identity, but the page could not tell which
                                     identity that is — the host reported none, or a user-assigned one. Grant the Graph
                                     permissions by hand with the two commands under
-                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md#graph-permissions-for-a-managed-identity"
+                                    <a href="https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md#graph-permissions-for-a-managed-identity"
                                        target="_blank" rel="noopener">Graph permissions for a managed identity</a>,
                                     then set the sign-in application up under Manual values here.
                                 </text>
@@ -1711,14 +1707,14 @@
                             <dt>Owner</dt><dd>@app.OwnerLogin</dd>
                             <dt>Account linking</dt>
                             <dd>
-                                @if (gitHubCanSignIn)
+                                @if (gitHubSignIn.CanSignIn)
                                 {
                                     <span class="bi-check-circle text-success me-1" aria-hidden="true"></span><text>Available under Profile → Integrations</text>
                                 }
                                 else
                                 {
                                     <span class="bi-exclamation-triangle text-warning me-1" aria-hidden="true"></span>
-                                    <text>@(gitHubSecretStored
+                                    <text>@(gitHubSignIn.SecretStored
                                         ? "Not available: GitHub rejected the stored client secret. Paste a new one under Manual values below"
                                         : "Not available: add the App's client secret under Manual values below")</text>
                                 }
@@ -1737,6 +1733,7 @@
                     }
                 </Summary>
                 <ManualContent>
+                    <GitHubKeyUnreadableAlert App="gitHubAppInfo" Unreadable="gitHubSignIn.KeyUnreadable" />
                     @if (gitHubAppInfo is { } current)
                     {
                         <div class="alert alert-warning py-2 small" role="note">
@@ -1799,87 +1796,7 @@
                     </details>
                 </ManualContent>
                 <EasyContent>
-                    <p class="small mb-2">
-                        GitHub shows you what the App will be allowed to do, then sends you back here and
-                        Connapse stores it. Nothing to copy or paste.
-                    </p>
-                    <p class="small mb-2">
-                        GitHub will send people back to <code>@GitHubBaseUrl</code>. Open Connapse at the address
-                        your users use before creating the App.
-                    </p>
-                    @if (GitHubBaseIsInsecure)
-                    {
-                        <div class="alert alert-warning py-2 small" role="note">
-                            <span class="bi-exclamation-triangle me-1" aria-hidden="true"></span>
-                            This address is not HTTPS, so people linking their GitHub accounts would be sent back
-                            over an unencrypted connection. Open Connapse over HTTPS before creating the App.
-                        </div>
-                    }
-                    @if (gitHubConfirmedOwner is { } owner && gitHubManifestState is not null
-                         && GitHubAppManifest.FormAction(owner, gitHubManifestState) is { } action)
-                    {
-                        @* A native form, not a Blazor one: GitHub's flow starts with the browser
-                           posting the manifest to github.com. Always public: "public" decides who
-                           may install the App, not which repositories it reads, and one App
-                           installed on every organisation is how Connapse covers several. *@
-                        <form method="post" action="@action">
-                            <input type="hidden" name="manifest" value="@GitHubAppManifest.Build(Navigation.BaseUri, isPublic: true)" />
-                            <button type="submit" class="btn btn-primary" disabled="@(gitHubAppInfo is not null && !gitHubReplaceConfirmed)">
-                                <span class="bi-github me-1" aria-hidden="true"></span> @(gitHubAppInfo is null ? "Create the App on GitHub" : "Create a new App on GitHub")
-                            </button>
-                        </form>
-                        <div class="form-text">
-                            @if (gitHubAppInfo is not null && !gitHubReplaceConfirmed)
-                            {
-                                <text>Tick "Replace @gitHubAppInfo.Slug with a different App" above first. </text>
-                            }
-                            @if (owner.Length == 0)
-                            {
-                                <text>Created on your own GitHub account. You choose which organisations to install it on next, on GitHub.</text>
-                            }
-                            else
-                            {
-                                <text>Owned by <strong>@owner</strong>. You must be an owner or App manager there; otherwise GitHub refuses, and offers to create it on your own account instead.</text>
-                            }
-                        </div>
-                    }
-
-                    <button type="button" class="btn btn-link btn-sm px-0 mt-2" @onclick="ToggleGitHubOrgOwner"
-                            aria-expanded="@(showGitHubOrgOwner ? "true" : "false")" aria-controls="github-app-org-group">
-                        @(showGitHubOrgOwner ? "Use my own account instead" : "Have an organisation own the App instead")
-                    </button>
-                    @if (showGitHubOrgOwner)
-                    {
-                        <div id="github-app-org-group" class="mt-1" style="max-width:24rem">
-                            <label class="form-label small" for="github-app-org">Organisation</label>
-                            <div class="input-group input-group-sm">
-                                <input id="github-app-org" class="form-control @(gitHubOwnerError is not null ? "is-invalid" : "")" placeholder="my-org"
-                                       aria-invalid="@(gitHubOwnerError is not null ? "true" : "false")"
-                                       aria-describedby="@(gitHubOwnerError is not null ? "github-app-org-error github-app-org-help" : "github-app-org-help")"
-                                       @bind="gitHubAppOrganisation" @bind:event="oninput" @bind:after="ResetGitHubOwner" />
-                                <button type="button" class="btn btn-outline-secondary" disabled="@gitHubBusy" @onclick="CheckGitHubOwner">
-                                    @if (gitHubBusy)
-                                    {
-                                        <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span><span>Checking…</span>
-                                    }
-                                    else
-                                    {
-                                        <span>Use this organisation</span>
-                                    }
-                                </button>
-                            </div>
-                            @if (gitHubOwnerError is not null)
-                            {
-                                <div id="github-app-org-error" class="invalid-feedback d-block" role="alert">
-                                    <span class="bi-x-circle me-1" aria-hidden="true"></span>@gitHubOwnerError
-                                </div>
-                            }
-                            <div id="github-app-org-help" class="form-text">
-                                The organisation's login on GitHub, as in github.com/my-org. An organisation-owned App
-                                outlives any one person's account, and other organisations can still install it.
-                            </div>
-                        </div>
-                    }
+                    <GitHubAppEasySetup App="gitHubAppInfo" ReplaceConfirmed="gitHubReplaceConfirmed" />
                 </EasyContent>
                 <Actions>
                     @if (gitHubAppInfo is { } installed)
@@ -1921,8 +1838,8 @@
     /// <summary>The provider's setup guide, linked in the page's title row; null for a provider without one.</summary>
     public static (string Href, string Name)? SetupGuide(string? key) => key switch
     {
-        "aws" => ("https://github.com/Destrayon/Connapse/blob/main/docs/aws-setup.md", "AWS setup guide"),
-        "azure" => ("https://github.com/Destrayon/Connapse/blob/main/docs/azure-setup.md", "Azure setup guide"),
+        "aws" => ("https://github.com/Destrayon/Connapse/blob/main/docs/sources/aws-setup.md", "AWS setup guide"),
+        "azure" => ("https://github.com/Destrayon/Connapse/blob/main/docs/sources/azure-setup.md", "Azure setup guide"),
         "github" => (GitHubMessages.GuideUrl, "GitHub setup guide"),
         "atlassian" => (AtlassianLinkAppFieldSpecs.GuideSection, "Atlassian setup guide"),
         _ => null,
@@ -2022,14 +1939,12 @@
 
     private async Task SaveIdentityCenterSettings(IdentityCenterSettings settings)
     {
-        await SaveSettings("identitycenter", settings);
-
-        // What was posted, not a re-read: the options reload behind SaveSettings is not guaranteed
+        // What was saved, not a re-read: the options reload behind the save is not guaranteed
         // to have landed, and a stale read would hand the form back the previous values.
-        if (saveSuccess)
+        if (await SaveAwsSettings("identitycenter", context => Aws.IdentityCenter.RunAsync(context,
+                new(settings.Region, settings.InstanceArn, settings.IdentityStoreId))) is { } saved)
         {
-            await AuditIdentityCenterSaved(settings);
-            identityCenterSettings = settings;
+            identityCenterSettings = saved;
             showIdentityCenterSetup = false;
         }
 
@@ -2038,19 +1953,39 @@
 
     private async Task ResetIdentityCenter()
     {
-        await SaveIdentityCenterSettings(new IdentityCenterSettings());
-
-        if (saveSuccess)
+        if (await SaveAwsSettings("identitycenter", context => Aws.ResetIdentityCenter.RunAsync(context)) is { } cleared)
         {
+            identityCenterSettings = cleared;
             pastedIdentityCenter = null;
             showIdentityCenterSetup = true;
         }
+
+        await RefreshSetups();
     }
 
-    /// <summary>Records who changed the Identity Center values, and to what. Blank values mean a reset.</summary>
-    private Task AuditIdentityCenterSaved(IdentityCenterSettings settings) =>
-        AuditLogger.LogAsync("provider.identity_center.saved", "provider", "aws",
-            new { settings.Region, settings.InstanceArn, settings.IdentityStoreId });
+    /// <summary>
+    /// Runs an AWS settings operation and says how it went. Returns what was saved, or null when nothing was.
+    /// </summary>
+    private async Task<T?> SaveAwsSettings<T>(string category,
+        Func<Connapse.Application.OperationContext, Task<Connapse.Application.Attempt<Connapse.Application.Providers.AwsSettingsSaved<T>, Connapse.Application.Providers.AwsSetupStatus>>> save)
+        where T : class
+    {
+        try
+        {
+            var saved = await save(await AuthState.OperationContextAsync());
+            saveSuccess = saved.Succeeded;
+            saveMessage = !saved.Succeeded ? saved.Detail
+                : saved.Result!.Applied ? $"{SettingsName(category)} settings saved successfully!"
+                : $"{SettingsName(category)} settings were saved, but applying them without a restart failed. Restart Connapse to apply them.";
+            return saved.Succeeded ? saved.Result!.Settings : null;
+        }
+        catch (Exception ex)
+        {
+            saveSuccess = false;
+            saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
+            return null;
+        }
+    }
 
     /// <summary>What is recorded about the customer's Identity Center instance, if anything.</summary>
     private IdentityCenterSettings? IdentityCentre => IdentityCenterOptions.CurrentValue;
@@ -2069,26 +2004,14 @@
     /// <summary>Records the instance the scan found.</summary>
     private async Task SaveIdentityCenter(IdentityCenterInstance found)
     {
-        await SaveSettings("identitycenter", new IdentityCenterSettings
-        {
-            Region = found.Region,
-            InstanceArn = found.InstanceArn,
-            IdentityStoreId = found.IdentityStoreId,
-        });
-
         // Cleared on success only. Leaving the block in place after a failure means the
         // administrator can retry without going back to a terminal whose scrollback may be gone.
-        if (saveSuccess)
+        if (await SaveAwsSettings("identitycenter", context => Aws.IdentityCenter.RunAsync(context,
+                new(found.Region, found.InstanceArn, found.IdentityStoreId))) is { } saved)
         {
             pastedIdentityCenter = null;
             showIdentityCenterSetup = false;
-            identityCenterSettings = new IdentityCenterSettings
-            {
-                Region = found.Region,
-                InstanceArn = found.InstanceArn,
-                IdentityStoreId = found.IdentityStoreId,
-            };
-            await AuditIdentityCenterSaved(identityCenterSettings);
+            identityCenterSettings = saved;
         }
 
         await RefreshSetups();
@@ -2129,8 +2052,6 @@
     // ── GitHub App ─────────────────────────────────────────────────────────
 
     private GitHubAppRegistration? gitHubAppInfo;
-    private string? gitHubManifestState;
-    private string? gitHubAppOrganisation;
     /// <summary>What has been typed into the manual App fields, by field id.</summary>
     private readonly Dictionary<string, string?> gitHubManual = [];
 
@@ -2154,12 +2075,11 @@
 
     /// <summary>A secret already stored and still good, so its field may be left blank.</summary>
     private bool GitHubValueStored(ProviderFieldSpec spec) =>
-        spec == GitHubFieldSpecs.PrivateKey ? gitHubAppInfo is not null
-        : spec == GitHubFieldSpecs.ClientSecret && gitHubCanSignIn;
+        spec == GitHubFieldSpecs.PrivateKey ? gitHubSignIn.KeyStored
+        : spec == GitHubFieldSpecs.ClientSecret && gitHubSignIn.CanSignIn;
     private bool showGitHubSetup;
     private bool gitHubBusy;
-    private bool gitHubCanSignIn;
-    private bool gitHubSecretStored;
+    private GitHubSignInState gitHubSignIn = new(false, false, false, false);
     private bool gitHubReplaceConfirmed;
     private ProviderCredentialStatus? gitHubCredentialStatus;
     private int gitHubConnectionCount;
@@ -2173,9 +2093,6 @@
     /// <summary>The address GitHub will send people back to: the one this administrator is using.</summary>
     private string GitHubBaseUrl => Navigation.BaseUri.TrimEnd('/') + "/";
 
-    private bool GitHubBaseIsInsecure =>
-        new Uri(GitHubBaseUrl) is { Scheme: "http" } uri && !uri.IsLoopback;
-
     private string RemoveGitHubHelp =>
         $"Deletes the App's key from Connapse. All {gitHubConnectionCount} GitHub "
         + (gitHubConnectionCount == 1 ? "connection" : "connections")
@@ -2187,152 +2104,46 @@
 
     private RequirementStatus GitHubStatus => GitHubRequirement?.Status ?? RequirementStatus.Unknown;
 
-    /// <summary>The App's owner: empty for the administrator's own account, or an organisation GitHub confirmed.</summary>
-    private string? gitHubConfirmedOwner = "";
-    private string? gitHubOwnerError;
-    private bool showGitHubOrgOwner;
-
-    /// <summary>A changed organisation name goes back to unconfirmed until it is checked again.</summary>
-    private void ResetGitHubOwner()
-    {
-        gitHubOwnerError = null;
-        gitHubConfirmedOwner = string.IsNullOrWhiteSpace(gitHubAppOrganisation) ? "" : null;
-    }
-
-    /// <summary>Closing the organisation option goes back to the administrator's own account.</summary>
-    private void ToggleGitHubOrgOwner()
-    {
-        showGitHubOrgOwner = !showGitHubOrgOwner;
-        if (!showGitHubOrgOwner)
-        {
-            gitHubAppOrganisation = null;
-            ResetGitHubOwner();
-        }
-    }
-
-    /// <summary>
-    /// Confirms with GitHub that the named organisation exists before the manifest is posted to it —
-    /// a wrong name would otherwise create an App the organisation cannot install.
-    /// </summary>
-    private async Task CheckGitHubOwner()
-    {
-        ResetGitHubOwner();
-        string org = gitHubAppOrganisation?.Trim() ?? "";
-        if (org.Length == 0)
-        {
-            gitHubConfirmedOwner = "";
-            return;
-        }
-
-        if (GitHubAppManifest.FormAction(org, "check") is null)
-        {
-            gitHubOwnerError = "That is not a valid GitHub organisation name.";
-            return;
-        }
-
-        gitHubBusy = true;
-        try
-        {
-            gitHubOwnerError = await GitHubApp.GetAccountKindAsync(org) switch
-            {
-                GitHubAccountKind.Organization => null,
-                GitHubAccountKind.User => $"{org} is a personal account, not an organisation. Leave the field blank to use your own account.",
-                _ => $"GitHub has no organisation called {org}.",
-            };
-            if (gitHubOwnerError is null)
-                gitHubConfirmedOwner = org;
-        }
-        catch (Exception ex)
-        {
-            gitHubOwnerError = $"Could not check the organisation. {GitHubMessages.Describe(ex)}";
-        }
-        finally
-        {
-            gitHubBusy = false;
-        }
-    }
-
-    /// <summary>Loads the stored App and starts a manifest request this administrator can complete.</summary>
+    /// <summary>Loads the stored App; Easy setup starts its own manifest requests from it.</summary>
     private async Task LoadGitHubAsync()
     {
-        gitHubAppInfo = await CredentialStore.GetGitHubAppAsync();
-        // Stored and still accepted by GitHub: a revoked secret must not read as "Available".
-        gitHubSecretStored = gitHubAppInfo is not null && await GitHubApp.CanSignInUsersAsync();
-        gitHubCanSignIn = gitHubSecretStored && await GitHubApp.StoredClientSecretMatchesAsync() != false;
-        gitHubCredentialStatus = gitHubAppInfo is null ? null : await CredentialStore.GetStatusAsync("github");
+        (gitHubAppInfo, gitHubCredentialStatus) = await GitHubOps.Read.ReadAsync(AuthState);
+        gitHubSignIn = await GitHubApp.ReadSignInStateAsync();
+        // A key that can't be read has to be entered again, so open the setup where it goes.
+        showGitHubSetup |= gitHubSignIn.KeyUnreadable;
         manualGitHubAppId ??= gitHubAppInfo?.AppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         gitHubReplaceConfirmed = false;
 
         (gitHubConnectionCount, gitHubSourceCount) = await GitHubUsage.CountAsync();
-
-        var user = (await AuthState.GetAuthenticationStateAsync()).User;
-        if (Guid.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
-            gitHubManifestState ??= GitHubManifests.Start(userId);
     }
 
     private async Task SaveManualGitHubApp()
     {
         saveMessage = null;
         gitHubManualError = gitHubManualDetail = gitHubAppIdError = null;
-        if (!long.TryParse(manualGitHubAppId?.Trim(), out long appId) || appId <= 0)
-        {
-            gitHubAppIdError = "Enter the App ID: the number at the top of the App's page on GitHub.";
-            return;
-        }
-
         gitHubBusy = true;
         try
         {
-            // Blank key or secret on the stored App keeps what is stored: rotating one value never
-            // asks for the other again.
-            var stored = await CredentialStore.GetGitHubAppMaterialAsync();
-            bool sameApp = stored?.App.AppId == appId;
-            string? key = string.IsNullOrWhiteSpace(manualGitHubAppKey) ? (sameApp ? stored!.PrivateKeyPem : null) : manualGitHubAppKey.Trim();
-            string? secret = string.IsNullOrWhiteSpace(manualGitHubClientSecret) ? (sameApp ? stored!.ClientSecret : null) : manualGitHubClientSecret.Trim();
-
-            if (key is null)
+            long? appId = long.TryParse(manualGitHubAppId?.Trim(), out long id) ? id : null;
+            var saved = await GitHubOps.App.RunAsync(await AuthState.OperationContextAsync(), new Connapse.Application.Providers.GitHubAppRequest(
+                appId, manualGitHubAppKey, manualGitHubClientSecret, gitHubReplaceConfirmed));
+            if (saved.Result is not { } result)
             {
-                gitHubManualError = "Paste the App's private key.";
+                if (saved.Field == "appId")
+                    gitHubAppIdError = saved.Detail;
+                else
+                    gitHubManualError = saved.Field == "replaceExisting" && gitHubAppInfo is { } current
+                        ? $"App ID {appId} is a different App from {current.Slug}. Tick \"Replace {current.Slug} with a different App\" above to confirm, or enter App ID {current.AppId}."
+                        : saved.Detail;
                 return;
             }
-
-            if (gitHubAppInfo is not null && !sameApp && !gitHubReplaceConfirmed)
-            {
-                gitHubManualError = $"App ID {appId} is a different App from {gitHubAppInfo.Slug}. Tick \"Replace {gitHubAppInfo.Slug} with a different App\" above to confirm, or enter App ID {gitHubAppInfo.AppId}.";
-                return;
-            }
-
-            GitHubAppRegistration app;
-            try
-            {
-                // GitHub answers "who is this App" only for a matching id and key, so this is the check.
-                app = await GitHubApp.VerifyAsync(appId, key);
-            }
-            catch (GitHubAppException ex) when (ex.StatusCode is 401 or 404)
-            {
-                gitHubManualError = "GitHub did not accept that App ID and private key together. Check the App ID, and that the key was generated for that App.";
-                gitHubManualDetail = ex.Message;
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(manualGitHubClientSecret)
-                && (app.ClientId is not { Length: > 0 } clientId || !await GitHubApp.ClientSecretMatchesAsync(clientId, secret!)))
-            {
-                gitHubManualError = $"GitHub did not accept that client secret for {app.Slug}. Generate a new one on the App's page and paste it.";
-                return;
-            }
-
-            await CredentialStore.SaveGitHubAppAsync(app, key, secret, createdByUserId: null);
-            GitHubApp.ClearCache();
-            await AuditLogger.LogAsync("provider.credential.saved", "provider", "github",
-                new { app.AppId, app.Slug, app.OwnerLogin, Via = "manual", Replaced = gitHubAppInfo is not null && !sameApp });
 
             manualGitHubAppId = manualGitHubAppKey = manualGitHubClientSecret = null;
             showGitHubSetup = false;
             saveSuccess = true;
-            saveMessage = $"GitHub App {app.Slug} saved."
-                + (secret is null ? " People can't link their GitHub accounts until you add its client secret." : "")
-                + (sameApp ? "" : " Next, add a GitHub connection: that is where it gets installed.");
+            saveMessage = $"GitHub App {result.App.Slug} saved."
+                + (result.CanSignIn ? "" : " People can't link their GitHub accounts until you add its client secret.")
+                + (result.NewApp ? " Next, add a GitHub connection: that is where it gets installed." : "");
             await LoadGitHubAsync();
             await RefreshSetups();
         }
@@ -2352,12 +2163,12 @@
     {
         try
         {
-            await CredentialStore.DeleteAsync("github");
-            GitHubApp.ClearCache();
-            await AuditLogger.LogAsync("provider.credential.deleted", "provider", "github");
+            var removed = await GitHubOps.Remove.RunAsync(await AuthState.OperationContextAsync());
+            saveSuccess = removed.Succeeded;
+            saveMessage = removed.Succeeded
+                ? "The GitHub App was removed from Connapse. GitHub sources stop syncing until an App is set up again."
+                : removed.Detail;
             gitHubAppInfo = null;
-            saveSuccess = true;
-            saveMessage = "The GitHub App was removed from Connapse. GitHub sources stop syncing until an App is set up again.";
             await LoadGitHubAsync();
             await RefreshSetups();
         }
@@ -2439,8 +2250,8 @@
     {
         if (!firstRender) return;
 
-        setups = await SetupReader.ReadAsync();
-        customProviders = await CustomProviderStore.ListAsync();
+        setups = await ProviderStatus.ReadAsync(AuthState);
+        customProviders = await ListCustom.ReadAsync(AuthState);
         await LoadAwsCredentialModeAsync();
         if (Key == "github")
             await LoadGitHubAsync();
@@ -2671,13 +2482,14 @@
         // incomplete, which the scope resolver reads as EnforcingButUnusable and denies — searches
         // return nothing for everyone until the application is set up again, rather than silently
         // widening the whole corpus to every user.
-        await SaveSamlSettings(new SamlSignInSettings());
-
-        if (saveSuccess)
+        if (await SaveAwsSettings("samlsignin", context => Aws.ResetPermissions.RunAsync(context)) is { } cleared)
         {
+            samlSettings = cleared;
             pastedMetadata = null;
             showSamlManual = true;
         }
+
+        await RefreshSetups();
     }
 
     /// <summary>Generates a fresh CA + leaf pair and reveals the CloudShell command.</summary>
@@ -2732,10 +2544,9 @@
         awsBusy = true;
         try
         {
-            var config = new RolesAnywhereConfig(
-                raKeypair.LeafCertificatePem, arns.TrustAnchorArn, arns.ProfileArn, arns.RoleArn, arns.Region);
-
-            await SaveValidatedRolesAnywhereCore(config, raKeypair.LeafPrivateKeyPem, null);
+            await SaveValidatedRolesAnywhereCore(new(
+                raKeypair.LeafCertificatePem, arns.TrustAnchorArn, arns.ProfileArn, arns.RoleArn, arns.Region,
+                raKeypair.LeafPrivateKeyPem));
         }
         finally
         {
@@ -2753,52 +2564,16 @@
         try
         {
             // Snapshot the form before any await, so a concurrent reset can never null these mid-flight.
-            var config = new RolesAnywhereConfig(
-                manualCertPem!.Trim(), manualTrustAnchorArn!.Trim(), manualProfileArn!.Trim(),
-                manualRoleArn!.Trim(), manualRegion!.Trim());
             string? privateKeyPem = manualPrivateKeyPem?.Trim();
 
-            // A blank key when editing means "keep the current one" — the stored key is fetched and
-            // re-validated against the (possibly edited) config, so an operator can change an ARN
-            // without having a key they were never shown.
-            if (string.IsNullOrWhiteSpace(privateKeyPem))
-            {
-                RolesAnywhereCredentialMaterial? material;
-                try
-                {
-                    material = await CredentialStore.GetRolesAnywhereMaterialAsync("aws");
-                }
-                catch (Exception ex)
-                {
-                    saveSuccess = false;
-                    saveMessage = $"Could not read the stored private key, so it must be re-entered: {ex.Message}";
-                    return;
-                }
-
-                if (material is null)
-                {
-                    saveSuccess = false;
-                    saveMessage = "Enter the private key — there is no stored credential to keep it from.";
-                    return;
-                }
-
-                // Optimistic concurrency: if the stored credential changed since this form loaded,
-                // reusing the current key with the form's older ARNs could silently reinstate a config
-                // another administrator just replaced (e.g. undo a narrowed role). Reject and reload
-                // instead, so the operator reviews the newer values before overwriting.
-                if (_lastLoadedConfig is not null && material.Config != _lastLoadedConfig)
-                {
-                    saveSuccess = false;
-                    saveMessage = "This credential was changed elsewhere since you opened the form. It has "
-                        + "been reloaded — review the values and save again.";
-                    await RefreshSetups();
-                    return;
-                }
-
-                privateKeyPem = material.PrivateKeyPem;
-            }
-
-            await SaveValidatedRolesAnywhereCore(config, privateKeyPem, null);
+            // A blank key when editing means "keep the current one" — the stored key is re-validated
+            // against the (possibly edited) config, so an operator can change an ARN without having a
+            // key they were never shown. The config this form loaded goes with it: if the stored
+            // credential changed since, reusing its key with the form's older ARNs could silently
+            // reinstate a config another administrator just replaced, so the save is refused.
+            await SaveValidatedRolesAnywhereCore(new(
+                manualCertPem!, manualTrustAnchorArn!, manualProfileArn!, manualRoleArn!, manualRegion!,
+                privateKeyPem, string.IsNullOrWhiteSpace(privateKeyPem) ? _lastLoadedConfig : null));
         }
         finally
         {
@@ -2816,26 +2591,19 @@
     /// and the form is left intact so the operator can fix and retry without regenerating.
     /// <para>The caller holds the <c>awsBusy</c> guard; this core never touches it.</para>
     /// </remarks>
-    private async Task SaveValidatedRolesAnywhereCore(RolesAnywhereConfig config, string privateKeyPem, string? principal)
+    private async Task SaveValidatedRolesAnywhereCore(Connapse.Application.Providers.AwsAccessRequest request)
     {
         try
         {
-            RolesAnywhereValidationResult result = await RaValidator.ValidateAsync(config, privateKeyPem);
-            if (!result.Ok)
+            var saved = await Aws.Access.RunAsync(await AuthState.OperationContextAsync(), request);
+            if (!saved.Succeeded)
             {
                 saveSuccess = false;
-                saveMessage = $"AWS did not accept this credential, so nothing was changed: {result.Error}";
+                saveMessage = saved.Detail;
+                if (saved.Status == Connapse.Application.Providers.AwsSetupStatus.Changed)
+                    await RefreshSetups();
                 return;
             }
-
-            await CredentialStore.SaveRolesAnywhereAsync("aws", config, privateKeyPem, principal, null);
-
-            // Drop the session the runtime is holding, so the next AWS call resolves the credential
-            // just stored rather than finishing out the previous one's refresh window.
-            AwsCredentials.ClearCredentials();
-
-            await AuditLogger.LogAsync("provider.credential.saved", "provider", "aws",
-                new { Method = "RolesAnywhere", config.RoleArn, config.Region });
 
             // The secret material is not kept around once stored; the whole handshake resets. Clearing
             // the loaded-config token forces the next load to re-fill the form from the newly stored
@@ -2885,18 +2653,15 @@
         awsBusy = true;
         try
         {
-            // Read the ARNs before wiping so the cleanup snippet can name them.
-            RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
+            var reset = await Aws.ResetAccess.RunAsync(await AuthState.OperationContextAsync());
+            if (!reset.Succeeded)
+            {
+                saveSuccess = false;
+                saveMessage = reset.Detail;
+                return;
+            }
 
-            await CredentialStore.DeleteAsync("aws");
-            AwsCredentials.ClearCredentials();
-            await AuditLogger.LogAsync("provider.credential.removed", "provider", "aws",
-                new { Method = "RolesAnywhere", config?.RoleArn, config?.Region });
-
-            raResetCleanup = config is null
-                ? null
-                : AwsRolesAnywhereSetup.GenerateResetScript(
-                    config.TrustAnchorArn, config.ProfileArn, config.RoleArn, config.Region);
+            raResetCleanup = reset.Result!.CleanupScript;
 
             raKeypair = null;
             raPasted = null;
@@ -2932,9 +2697,8 @@
 
         try
         {
-            RolesAnywhereConfig? config = await CredentialStore.GetRolesAnywhereAsync("aws");
+            (RolesAnywhereConfig? config, raStatus) = await Aws.ReadAccess.ReadAsync(AuthState);
             hasStoredRaCredential = config is not null;
-            raStatus = config is null ? null : await CredentialStore.GetStatusAsync("aws");
             raCertificateExpires = CertificateExpiry(config?.CertificatePem);
 
             // Fill the manual (bring-your-own) fields from the stored, non-secret configuration so
@@ -3005,8 +2769,8 @@
             Task detection = Key == "azure" && hostIdentityRequested
                 ? DetectHostIdentityAsync(refresh: true)
                 : Task.CompletedTask;
-            setups = await SetupReader.ReadAsync();
-        customProviders = await CustomProviderStore.ListAsync();
+            setups = await ProviderStatus.ReadAsync(AuthState);
+        customProviders = await ListCustom.ReadAsync(AuthState);
             await detection;
             await LoadAwsCredentialModeAsync();
             LoadAzureCertificateExpiry();
@@ -3074,80 +2838,36 @@
     /// </remarks>
     private async Task SaveSamlSettings(SamlSignInSettings settings)
     {
-        // Written to its own category, so recording enforcement never rewrites a SAML value. That
-        // matters for a deployment configured through environment variables: the database outranks
-        // the environment, so copying those values into a row here would shadow them permanently.
-        bool enforcing = settings.IsConfigured || EnforcementOptions.CurrentValue.IsEnforcing;
-
-        // The latch first, and the Azure latch carried along unchanged: the record holds one flag
-        // per provider, and writing it with only this one would switch Azure filtering off. Written
-        // before the sign-in settings for the same reason as the Azure save — a latch that cannot be
-        // written must not leave sign-in configured with filtering off.
-        if (enforcing && !EnforcementOptions.CurrentValue.IsEnforcing)
-        {
-            bool latched = await LatchEnforcementAsync(saml: true);
-            if (!latched || !EnforcementOptions.CurrentValue.IsEnforcing)
-            {
-                saveMessage = "Per-user enforcement for AWS could not be switched on in this process, so "
-                    + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
-                saveSuccess = false;
-                return;
-            }
-        }
-
-        bool? committed = await SaveSettings("samlsignin", settings);
-
-        if (committed == true)
-        {
-            await AuditLogger.LogAsync("provider.saml.saved", "provider", "aws",
-                new { settings.EntityId, settings.IdpEntityId, Configured = settings.IsConfigured });
-        }
-
-        // What was posted, not a re-read of CurrentValue. The options reload behind SaveSettings is
+        // The operation switches enforcement on first once the application is complete, and refuses
+        // the save when it cannot, so sign-in is never configured with filtering off.
+        // What was saved, not a re-read of CurrentValue. The options reload behind the save is
         // not guaranteed to have landed by the time this line runs, so a stale read would hand the
         // form back the previous values and make a save look as though it had not taken. Guarded on
         // success so a failed save leaves the form showing what is actually stored.
-        if (saveSuccess) samlSettings = settings;
+        if (await SaveAwsSettings("samlsignin", context => Aws.Permissions.RunAsync(context, new(
+                settings.EntityId, settings.AcsUrl, settings.IdpEntityId, settings.IdpSingleSignOnUrl, settings.IdpSigningCertificate))) is { } saved)
+            samlSettings = saved;
 
         await RefreshSetups();
     }
 
     /// <summary>
-    /// Stores the Azure access app credential (Providers:Azure) and re-checks status. Unless the
-    /// caller has already verified <paramref name="settings"/>, Entra is asked first, and a credential
-    /// it refuses is not stored — the one that works stays in place.
+    /// Stores the Azure access identity (Providers:Azure) and re-checks status. Entra is asked first,
+    /// and a credential it refuses is not stored — the one that works stays in place. A blank tenant
+    /// clears the identity.
     /// </summary>
-    private async Task<bool?> SaveAzureProviderFromForm(AzureProviderSettings settings, bool verified = false)
+    private async Task<bool?> SaveAzureProviderFromForm(AzureProviderSettings settings)
     {
-        // A reset (blank tenant) has nothing to verify.
-        if (!verified && !string.IsNullOrWhiteSpace(settings.TenantId))
-        {
-            // The host's own identity is in one tenant, and a managed-identity token check cannot
-            // tell whether the tenant typed matches it; the host already said which it is.
-            if (AzureCredentialChainFactory.IsHostManagedIdentity(settings)
-                && hostIdentity is { } host
-                && !string.Equals(host.TenantId, settings.TenantId.Trim(), StringComparison.OrdinalIgnoreCase))
-            {
-                saveMessage = $"This host's managed identity is in tenant {host.TenantId}, not {settings.TenantId}. "
-                    + "Nothing was changed; enter that tenant.";
-                saveSuccess = false;
-                return false;
-            }
-
-            var check = await AzureDiscovery.CheckAccessAsync(settings);
-            if (!check.Succeeded)
-            {
-                saveMessage = AzureCheckRefused("access", check);
-                saveSuccess = false;
-                return false;
-            }
-        }
-
-        bool? committed = await SaveSettings("azure", settings);
+        bool? committed = string.IsNullOrWhiteSpace(settings.TenantId)
+            ? await SaveAzureSettings("azure", settings, context => Azure.ResetAccess.RunAsync(context))
+            : await SaveAzureSettings("azure", settings, context => Azure.Access.RunAsync(context, new(
+                settings.TenantId, settings.SubscriptionId, settings.ClientId, settings.ClientCertificatePath,
+                settings.ClientCertificatePassword, settings.UserAssignedManagedIdentityClientId,
+                settings.UseHostManagedIdentity, settings.ManagedIdentityPrincipalId)));
 
         if (committed == true)
         {
-            // What was posted, not a re-read: the options reload behind SaveSettings may not have
+            // What was posted, not a re-read: the options reload behind the save may not have
             // landed yet, so a stale read would hand the form back the previous values.
             azureProviderSettings = settings;
             LoadAzureCertificateExpiry();
@@ -3155,17 +2875,44 @@
             // managed identity than for an app; one already generated for the old identity must
             // not stay on screen under an intro describing the new one.
             RefreshAzurePermissionsScript();
-            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azure.saved", "provider", "azure",
-                new
-                {
-                    HasTenant = !string.IsNullOrWhiteSpace(settings.TenantId),
-                    HasSubscription = !string.IsNullOrWhiteSpace(settings.SubscriptionId),
-                }));
             // Only after a commit: nothing changed otherwise, so there is nothing to re-read.
             await AfterAzureCommitAsync(RefreshSetups);
         }
 
         return committed;
+    }
+
+    /// <summary>
+    /// Runs an Azure settings operation and says how it went. Returns whether the settings were
+    /// committed; null when the operation threw and the store can't confirm either way, so callers
+    /// neither roll back nor report success.
+    /// </summary>
+    private async Task<bool?> SaveAzureSettings<T>(string category, T settings,
+        Func<Connapse.Application.OperationContext, Task<Connapse.Application.Attempt<Connapse.Application.Providers.AzureSettingsSaved<T>, Connapse.Application.Providers.AzureSetupStatus>>> save)
+        where T : class
+    {
+        try
+        {
+            var saved = await save(await AuthState.OperationContextAsync());
+            saveSuccess = saved.Succeeded;
+            saveMessage = !saved.Succeeded ? saved.Detail
+                : saved.Result!.Applied ? $"{SettingsName(category)} settings saved successfully!"
+                : $"{SettingsName(category)} settings were saved, but applying them without a restart failed. Restart Connapse to apply them.";
+            return saved.Succeeded;
+        }
+        catch (Exception ex)
+        {
+            if (await IsStoredAsync(category, settings) == true)
+            {
+                saveSuccess = true;
+                saveMessage = $"{SettingsName(category)} settings were saved, but a step after the save failed: {ex.Message}";
+                return true;
+            }
+            saveSuccess = false;
+            saveMessage = $"Could not confirm whether {SettingsName(category)} settings were saved: {ex.Message} "
+                + "Check this card again before retrying.";
+            return null;
+        }
     }
 
     /// <summary>
@@ -3188,91 +2935,21 @@
         }
     }
 
-    /// <summary>
-    /// Switches a per-provider enforcement latch on. Written as a merge under the store's lock, never
-    /// as a replace: two administrators saving the two providers at once would otherwise each write
-    /// the whole record from their own stale copy, and one of them would switch the other's filtering
-    /// off. A latch only ever goes on, so the merge is an OR of what is stored, what this process
-    /// sees, and what is being asked for. Returns whether the record was written.
-    /// </summary>
-    private async Task<bool> LatchEnforcementAsync(bool saml = false, bool azure = false)
-    {
-        try
-        {
-            await SettingsStore.UpdateAsync<PermissionEnforcementSettings>(
-                PermissionEnforcementSettings.Category,
-                stored => new PermissionEnforcementSettings
-                {
-                    IsEnforcing = (stored?.IsEnforcing ?? false) || EnforcementOptions.CurrentValue.IsEnforcing || saml,
-                    AzureEnforcing = (stored?.AzureEnforcing ?? false) || EnforcementOptions.CurrentValue.AzureEnforcing || azure,
-                });
-        }
-        catch (Exception ex)
-        {
-            saveMessage = $"Failed to record per-user enforcement: {ex.Message}";
-            saveSuccess = false;
-            return false;
-        }
-
-        try
-        {
-            ReloadService.Reload();
-        }
-        catch (Exception)
-        {
-            // The live check that follows every latch is what decides; a failed reload shows there.
-        }
-        return true;
-    }
-
     /// <summary>Stores the Entra sign-in application (Identity:AzureAd) and re-checks status. As with
-    /// the access app, a credential Entra refuses is not stored unless the caller already verified it.
-    /// Returns whether the sign-in settings themselves were committed; the enforcement latch saved
-    /// after them is reported separately and never turns a committed save into a failed one.</summary>
-    private async Task<bool?> SaveAzureAdFromForm(AzureAdSignInSettings settings, bool verified = false)
+    /// the access app, a credential Entra refuses is not stored, and a complete application switches
+    /// per-user Azure enforcement on before it is saved.</summary>
+    private async Task<bool?> SaveAzureAdFromForm(AzureAdSignInSettings settings)
     {
-        if (!verified && settings.IsConfigured)
-        {
-            var check = await AzureDiscovery.CheckAccessAsync(ProviderSetupReader.SignInIdentity(settings));
-            if (!check.Succeeded)
-            {
-                saveMessage = AzureCheckRefused("sign-in", check);
-                saveSuccess = false;
-                return false;
-            }
-        }
-
-        // Latched here, at save time, exactly as SaveSamlSettings does for AWS. The startup latch
-        // alone left a gap: a deployment that configured Azure sign-in and never restarted stayed
-        // NotEnforcing, and every azblob result passed unfiltered until the next process start.
-        //
-        // Latched BEFORE the sign-in settings, never after. With enforcement on and sign-in not yet
-        // stored, Azure searches deny — closed. The other order, sign-in stored and then the latch
-        // failing, would leave sign-in configured with filtering off: every Azure result to everyone.
-        // So a latch that cannot be written stops the save, and the sign-in settings stay as they were.
-        if (settings.IsConfigured && !EnforcementOptions.CurrentValue.AzureEnforcing)
-        {
-            bool latched = await LatchEnforcementAsync(azure: true);
-            // Stored is not enough: the resolver reads the live options, so a latch that was written
-            // but not applied (the reload failed) would let sign-in be saved into an unfiltered
-            // process. Only a latch this process can see counts.
-            if (!latched || !EnforcementOptions.CurrentValue.AzureEnforcing)
-            {
-                saveMessage = "Per-user enforcement for Azure could not be switched on in this process, so "
-                    + $"the sign-in application was not saved: {saveMessage} Restart Connapse and save again.";
-                saveSuccess = false;
-                return false;
-            }
-        }
-
-        bool? committed = await SaveSettings("azuread", settings);
+        bool? committed = settings == new AzureAdSignInSettings()
+            ? await SaveAzureSettings("azuread", settings, context => Azure.ResetPermissions.RunAsync(context))
+            : await SaveAzureSettings("azuread", settings, context => Azure.Permissions.RunAsync(context, new(
+                settings.TenantId, settings.ClientId, settings.RedirectUri, settings.ClientCertificatePath,
+                settings.ClientCertificatePassword, settings.AdminConsentPending)));
 
         if (committed == true)
         {
             azureAdSettings = settings;
             LoadAzureCertificateExpiry();
-            await AfterAzureCommitAsync(() => AuditLogger.LogAsync("provider.azuread.saved", "provider", "azure",
-                new { Configured = settings.IsConfigured }));
             await AfterAzureCommitAsync(RefreshSetups);
         }
 
@@ -3406,15 +3083,7 @@
                 UserAssignedManagedIdentityClientId = userAssigned ? clientId : null,
                 ManagedIdentityPrincipalId = result.PrincipalId,
             };
-            var check = await AzureDiscovery.CheckAccessAsync(candidate);
-            if (!check.Succeeded)
-            {
-                saveMessage = AzureCheckRefused("access", check);
-                saveSuccess = false;
-                return;
-            }
-
-            if (await SaveAzureProviderFromForm(candidate, verified: true) != true) return;
+            if (await SaveAzureProviderFromForm(candidate) != true) return;
 
             azureManagedIdentityScript = null;
             azureManagedIdentityPasted = null;
@@ -3777,21 +3446,12 @@
                 SubscriptionId = result.SubscriptionId,
                 ClientCertificatePath = newPath,
             };
-            var check = await AzureDiscovery.CheckAccessAsync(candidate);
-            if (!check.Succeeded)
-            {
-                await DeleteAzureCandidateAsync(newPath);
-                saveMessage = AzureCheckRefused("access", check);
-                saveSuccess = false;
-                return;
-            }
-
-            bool? committed = await SaveAzureProviderFromForm(candidate, verified: true);
+            bool? committed = await SaveAzureProviderFromForm(candidate);
             if (committed != true)
             {
-                // False: not stored, the candidate is surplus. Null: unknown — the file may be the
-                // one the store names by now, so it stays, and so does the paste for a retry.
-                if (committed == false) await DeleteAzureCandidateAsync(newPath);
+                // Not stored or unknown: the delete reads the store again and keeps the file if the
+                // store names it or can't be read. The paste stays for a retry either way.
+                await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 
@@ -3845,8 +3505,11 @@
         Add(AzureAdOptions.CurrentValue.ClientCertificatePath);
         try
         {
-            Add((await SettingsStore.GetAsync<AzureProviderSettings>("azure"))?.ClientCertificatePath);
-            Add((await SettingsStore.GetAsync<AzureAdSignInSettings>("azuread"))?.ClientCertificatePath);
+            if (await ReadSettings.InEffectAsync(AuthState, "azure") is not AzureProviderSettings access
+                || await ReadSettings.InEffectAsync(AuthState, "azuread") is not AzureAdSignInSettings signIn)
+                return null;
+            Add(access.ClientCertificatePath);
+            Add(signIn.ClientCertificatePath);
         }
         catch (Exception)
         {
@@ -3921,19 +3584,6 @@
         + "tab or session may have made a new one since. Nothing was changed. Copy the command shown "
         + "now, run it again, and paste that result.";
 
-    /// <summary>What to say when Entra would not accept a credential about to be stored.</summary>
-    private static string AzureCheckRefused(string which, AzureProbe<string> check) => check.Outcome switch
-    {
-        AzureProbeOutcome.Denied =>
-            $"Entra refused the {which} credential, so nothing was changed. {check.Detail} If you just "
-            + "ran the script, Entra may still be registering the certificate — wait a minute and save again.",
-        AzureProbeOutcome.Unusable =>
-            $"The {which} credential cannot be used from this host, so nothing was changed: {check.Detail} "
-            + "For a certificate, check the path and that Connapse can read the file; for a managed identity, "
-            + "that this host has one.",
-        _ => $"Could not confirm the {which} credential with Azure, so nothing was changed. {check.Detail}",
-    };
-
     /// <summary>
     /// Stores the Per-user permissions step: the sign-in app's own certificate and client id (tenant
     /// comes from the Access step). Surfaces the admin-consent URL when the operator could not consent.
@@ -3961,20 +3611,6 @@
 
             string newPath = AzureVersionedCertificatePath(AzureSignInCertFile, material);
             WriteOwnerOnly(newPath, material.CombinedPem);
-            var check = await AzureDiscovery.CheckAccessAsync(new AzureProviderSettings
-            {
-                TenantId = azureProviderSettings.TenantId,
-                ClientId = result.SignInAppClientId,
-                ClientCertificatePath = newPath,
-            });
-            if (!check.Succeeded)
-            {
-                await DeleteAzureCandidateAsync(newPath);
-                saveMessage = AzureCheckRefused("sign-in", check);
-                saveSuccess = false;
-                return;
-            }
-
             bool? committed = await SaveAzureAdFromForm(new AzureAdSignInSettings
             {
                 TenantId = azureProviderSettings.TenantId,
@@ -3983,10 +3619,10 @@
                 ClientCertificatePath = newPath,
                 // Persisted, so a reload cannot turn "consent still pending" into a green card.
                 AdminConsentPending = !result.ConsentGranted,
-            }, verified: true);
+            });
             if (committed != true)
             {
-                if (committed == false) await DeleteAzureCandidateAsync(newPath);
+                await DeleteAzureCandidateAsync(newPath);
                 return;
             }
 
@@ -4062,64 +3698,13 @@
         _ => "bi-question-circle text-secondary"
     };
 
-    /// <summary>
-    /// Stores a settings category. Returns whether it was committed. The store reloads the options
-    /// after its own commit, so an exception out of it does not say which half failed; the store is
-    /// read back and compared, and a commit whose reload failed is reported as stored-but-not-applied
-    /// rather than as a failure — callers rolling back on false must never undo a commit.
-    /// </summary>
-    /// <returns>True when committed, false when not, null when the store threw and could not be read
-    /// back either — the outcome is unknown, and callers must neither roll back nor report success.</returns>
-    private async Task<bool?> SaveSettings<T>(string category, T settings) where T : class
-    {
-        string? reloadProblem = null;
-        try
-        {
-            await SettingsStore.SaveAsync(category, settings);
-        }
-        catch (Exception ex)
-        {
-            switch (await IsStoredAsync(category, settings))
-            {
-                case false:
-                    saveMessage = $"Failed to save {SettingsName(category)} settings: {ex.Message}";
-                    saveSuccess = false;
-                    return false;
-                case null:
-                    saveMessage = $"Could not confirm whether {SettingsName(category)} settings were saved: "
-                        + $"{ex.Message} Check this card again after a restart before retrying.";
-                    saveSuccess = false;
-                    return null;
-            }
-            reloadProblem = ex.Message;
-        }
-
-        try
-        {
-            if (!ReloadService.Reload()) reloadProblem ??= "the settings reload reported failure";
-        }
-        catch (Exception ex)
-        {
-            reloadProblem ??= ex.Message;
-        }
-
-        saveMessage = reloadProblem is null
-            ? $"{SettingsName(category)} settings saved successfully!"
-            : $"{SettingsName(category)} settings were saved, but applying them without a restart "
-              + $"failed: {reloadProblem}. Restart Connapse to apply them.";
-        saveSuccess = true;
-        return true;
-    }
-
-    /// <summary>Whether the store now holds exactly <paramref name="settings"/> under
-    /// <paramref name="category"/>; null when the store cannot be read, which is not a no.</summary>
+    /// <summary>Whether the settings in effect under <paramref name="category"/> are now exactly
+    /// <paramref name="settings"/>, secrets aside; null when they cannot be read, which is not a no.</summary>
     private async Task<bool?> IsStoredAsync<T>(string category, T settings) where T : class
     {
         try
         {
-            T? stored = await SettingsStore.GetAsync<T>(category);
-            return stored is not null
-                && System.Text.Json.JsonSerializer.Serialize(stored) == System.Text.Json.JsonSerializer.Serialize(settings);
+            return await ReadSettings.InEffectMatchesAsync(AuthState, category, settings);
         }
         catch (Exception)
         {

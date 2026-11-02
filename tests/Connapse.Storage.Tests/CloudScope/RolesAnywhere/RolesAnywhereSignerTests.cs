@@ -8,6 +8,7 @@ using Xunit;
 namespace Connapse.Storage.Tests.CloudScope.RolesAnywhere;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class RolesAnywhereSignerTests
 {
     [Fact]

@@ -83,7 +83,10 @@ public class VectorSearchModelTests
     {
         EmbeddingSettings custom = new()
         {
-            Model = "nomic-embed-text", UseModelPrefixes = false, QueryPrefix = "q: ", DocumentPrefix = "d: ",
+            Model = "nomic-embed-text",
+            UseModelPrefixes = false,
+            QueryPrefix = "q: ",
+            DocumentPrefix = "d: ",
         };
         StoredVectors(Nomic);
 

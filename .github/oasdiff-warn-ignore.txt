@@ -1,0 +1,2 @@
+POST /api/containers/{containerId}/files added the new required request property `files`
+PUT /api/containers/{containerId}/settings removed the request property `summary`

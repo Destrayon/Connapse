@@ -6,7 +6,7 @@ pulls content from it and, when it is registered as a custom provider, asks it l
 Connapse user may read. Connapse parses, chunks and embeds the content itself.
 
 This document is for whoever builds the source server. To add one in Connapse, see
-[Setting up a custom source](../custom-source-setup.md).
+[Setting up a custom source](../sources/custom-source-setup.md).
 
 There are two ways Connapse uses a source server:
 

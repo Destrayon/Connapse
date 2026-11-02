@@ -440,6 +440,8 @@ public partial class PdfParser(IOptionsMonitor<UploadSettings>? limits = null) :
             _watch.Start();
             try
             {
+                if (!Pdfium.IsSupported)
+                    throw new PlatformNotSupportedException(Pdfium.Unsupported);
                 var size = PDFtoImage.Conversion.GetPageSize(pdf, pageNumber - 1);
                 var regions = PdfLayout.Detect(pdf, pageNumber - 1, settings.PdfOcrThreads, ct);
                 string? text = PdfLayoutText.ComposeOcr(ocr, size.Width, size.Height, regions,

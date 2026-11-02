@@ -1,0 +1,13 @@
+name: Disk report
+description: Log the runner's free disk space, and warn when less than 5 GB is left.
+runs:
+  using: composite
+  steps:
+  - name: Disk report
+    shell: bash
+    run: |
+      df -h /
+      free_gb=$(( $(df --output=avail -k / | tail -1) / 1024 / 1024 ))
+      if [ "$free_gb" -lt 5 ]; then
+        echo "::warning::only ${free_gb} GB of disk left on the runner (CON-177)"
+      fi

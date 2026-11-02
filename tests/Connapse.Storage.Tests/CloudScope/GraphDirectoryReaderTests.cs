@@ -9,6 +9,7 @@ using Microsoft.Extensions.Caching.Memory;
 namespace Connapse.Storage.Tests.CloudScope;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class GraphDirectoryReaderTests
 {
     private const string Oid = "11111111-1111-1111-1111-111111111111";

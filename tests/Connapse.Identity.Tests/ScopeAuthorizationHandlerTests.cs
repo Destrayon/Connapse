@@ -66,11 +66,11 @@ public class ScopeAuthorizationHandlerTests
     }
 
     [Fact]
-    public async Task HandleRequirement_AgentRole_GrantsAgentIngest()
+    public async Task HandleRequirement_AgentRole_DeniesKnowledgeWrite()
     {
-        var granted = await IsGrantedAsync("agent:ingest",
+        var granted = await IsGrantedAsync("knowledge:write",
             [new Claim(ClaimTypes.Role, "Agent")]);
-        granted.Should().BeTrue();
+        granted.Should().BeFalse();
     }
 
     [Fact]
@@ -92,6 +92,32 @@ public class ScopeAuthorizationHandlerTests
             new Claim("scope", "knowledge:write"),  // but explicit claim does
         ]);
         granted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task HandleRequirement_ScopedTokenOfOwner_DeniesScopeTheTokenLacks()
+    {
+        // A PAT's principal carries its owner's roles; the token's own scopes still bound it (#782).
+        var granted = await IsGrantedAsync("knowledge:write",
+        [
+            new Claim(ClaimTypes.Role, "Owner"),
+            new Claim("scope", "knowledge:read"),
+        ]);
+        granted.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("api_key", "Owner")]
+    [InlineData("agent_api_key", "Agent")]
+    public async Task HandleRequirement_TokenIssuedWithNoScopes_DeniesEveryScope(string authMethod, string role)
+    {
+        // A token issued with no scopes carries no scope claim; its owner's roles still don't imply any (#932).
+        var granted = await IsGrantedAsync("knowledge:read",
+        [
+            new Claim(ClaimTypes.Role, role),
+            new Claim("auth_method", authMethod),
+        ]);
+        granted.Should().BeFalse();
     }
 
     // ── No claims ────────────────────────────────────────────────────────

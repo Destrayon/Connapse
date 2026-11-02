@@ -1,6 +1,6 @@
 using System.Text.Json;
+using Connapse.Storage.Connectors.GitHub;
 using Connapse.Web.Components.Settings;
-using Connapse.Web.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
 using Xunit;
@@ -28,7 +28,10 @@ public class GitHubAppManifestTests
             .ToDictionary(p => p.Name, p => p.Value.GetString());
         permissions.Should().BeEquivalentTo(new Dictionary<string, string?>
         {
-            ["metadata"] = "read", ["contents"] = "read", ["issues"] = "read", ["pull_requests"] = "read",
+            ["metadata"] = "read",
+            ["contents"] = "read",
+            ["issues"] = "read",
+            ["pull_requests"] = "read",
         });
     }
 

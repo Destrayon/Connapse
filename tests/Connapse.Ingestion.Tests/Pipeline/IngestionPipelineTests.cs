@@ -26,6 +26,7 @@ namespace Connapse.Ingestion.Tests.Pipeline;
 /// that don't depend on post-SaveChangesAsync pipeline stages.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class IngestionPipelineTests
 {
     /// <summary>

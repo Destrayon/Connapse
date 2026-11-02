@@ -8,7 +8,7 @@ namespace Connapse.Eval.Tests.Systems;
 [Trait("Category", "Unit")]
 public class IndexCacheKeyTests : IDisposable
 {
-    protected readonly string _repo = Path.Combine(Path.GetTempPath(), "eval-key-" + Guid.NewGuid().ToString("N"));
+    private protected readonly string _repo = Path.Combine(Path.GetTempPath(), "eval-key-" + Guid.NewGuid().ToString("N"));
 
     private static readonly SystemConfig Plain = new("a", SearchMode.Hybrid, new Dictionary<string, string>());
     private static readonly IReadOnlyDictionary<string, string> NoEnv = new Dictionary<string, string>();

@@ -57,7 +57,7 @@ public class McpToolsBulkUploadTests
             {"filename":"b.txt","content":"world"}
         ]
         """;
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 2 of 2");
         await _uploadService.Received(1).BulkUploadAsync(
@@ -70,7 +70,7 @@ public class McpToolsBulkUploadTests
     {
         var b64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("test content"));
         var json = $$"""[{"filename":"test.bin","content":"{{b64}}","encoding":"base64"}]""";
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 1 of 1");
     }
@@ -94,7 +94,7 @@ public class McpToolsBulkUploadTests
             {"filename":"bad.bin","content":"!!!not-base64!!!","encoding":"base64"}
         ]
         """;
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 1 of 2");
         result.Should().Contain("bad.bin");
@@ -104,7 +104,7 @@ public class McpToolsBulkUploadTests
     public async Task BulkUpload_SharedBatchId()
     {
         var json = """[{"filename":"a.txt","content":"x"},{"filename":"b.txt","content":"y"}]""";
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         // BulkUploadAsync is called once with both files
         await _uploadService.Received(1).BulkUploadAsync(
@@ -117,7 +117,7 @@ public class McpToolsBulkUploadTests
     public async Task BulkUpload_WithFolderPath_CreatesCorrectPath()
     {
         var json = """[{"filename":"doc.md","content":"# Hello","folderPath":"/notes/"}]""";
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 1 of 1");
         await _uploadService.Received(1).BulkUploadAsync(
@@ -131,7 +131,7 @@ public class McpToolsBulkUploadTests
     public async Task BulkUpload_ContainerNotFound_ReturnsError()
     {
         var json = """[{"filename":"a.txt","content":"x"}]""";
-        var result = await McpTools.BulkUpload(_services, "nonexistent", json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, "nonexistent", json);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found");
@@ -143,7 +143,7 @@ public class McpToolsBulkUploadTests
         var items = Enumerable.Range(0, 101)
             .Select(i => $"{{\"filename\":\"f{i}.txt\",\"content\":\"x\"}}");
         var json = $"[{string.Join(",", items)}]";
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("100");
@@ -152,7 +152,7 @@ public class McpToolsBulkUploadTests
     [Fact]
     public async Task BulkUpload_EmptyArray_ReturnsError()
     {
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), "[]");
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), "[]");
 
         result.Should().StartWith("Error:");
     }
@@ -161,7 +161,7 @@ public class McpToolsBulkUploadTests
     public async Task BulkUpload_MissingFilename_ReportsPerItemError()
     {
         var json = """[{"content":"hello"}]""";
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 0 of 1");
         result.Should().Contain("filename");
@@ -171,7 +171,7 @@ public class McpToolsBulkUploadTests
     public async Task BulkUpload_MissingContent_ReportsPerItemError()
     {
         var json = """[{"filename":"no-content.txt"}]""";
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), json);
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Uploaded 0 of 1");
         result.Should().Contain("content");
@@ -180,7 +180,7 @@ public class McpToolsBulkUploadTests
     [Fact]
     public async Task BulkUpload_InvalidJson_ReturnsError()
     {
-        var result = await McpTools.BulkUpload(_services, ContainerId.ToString(), "not json");
+        var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), "not json");
 
         result.Should().StartWith("Error:");
     }

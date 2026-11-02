@@ -63,6 +63,14 @@ public class ConnectorFactory(
         RequireJsonObject(credential, $"Connection '{connection.Name}' has configuration that");
         RequireJsonObject(scope, $"Source '{source.Name}' has a scope that");
 
+        // The storage providers' scopes, read as SourceScopeCodec reads them (#859). Each is asked for
+        // where its fields used to be read, so a missing connection setting is still reported first.
+        SourceScope? typed = SourceScopeCodec.Read(connection.Provider, source.ScopeJson);
+        S3BucketScope S3Scope() => typed as S3BucketScope
+            ?? throw new InvalidOperationException($"Source '{source.Name}' has no bucketName in its scope.");
+        AzureBlobContainerScope AzureScope() => typed as AzureBlobContainerScope
+            ?? throw new InvalidOperationException($"Source '{source.Name}' has no containerName in its scope.");
+
         return connection.Provider switch
         {
             ConnectionProvider.S3 => new S3Connector(new S3ConnectorConfig
@@ -71,12 +79,10 @@ public class ConnectorFactory(
                 RoleArn = Str(credential, "roleArn"),
                 BucketName = RequirePermittedLocation(
                     StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
-                    Str(scope, "bucketName")
-                        ?? throw new InvalidOperationException(
-                            $"Source '{source.Name}' has no bucketName in its scope."),
-                    Str(scope, "prefix"),
+                    S3Scope().BucketName,
+                    S3Scope().Prefix,
                     connection.Name, source.Name),
-                Prefix = Str(scope, "prefix"),
+                Prefix = S3Scope().Prefix,
             },
             // The identity an administrator configured, so a sync runs as whatever the
             // Providers page reports rather than as whatever the container is carrying.
@@ -90,12 +96,10 @@ public class ConnectorFactory(
                 BlobEndpoint = Str(credential, "blobEndpoint"),
                 ContainerName = RequirePermittedLocation(
                     StorageLocationPolicy.ReadAllowedLocations(credential.RootElement),
-                    Str(scope, "containerName")
-                        ?? throw new InvalidOperationException(
-                            $"Source '{source.Name}' has no containerName in its scope."),
-                    Str(scope, "prefix"),
+                    AzureScope().ContainerName,
+                    AzureScope().Prefix,
                     connection.Name, source.Name),
-                Prefix = Str(scope, "prefix"),
+                Prefix = AzureScope().Prefix,
             }, azureCredentials),
 
             ConnectionProvider.Filesystem => new FilesystemConnector(new FilesystemConnectorConfig
@@ -106,10 +110,10 @@ public class ConnectorFactory(
                             ?? throw new InvalidOperationException(
                                 $"Connection '{connection.Name}' has no allowedRoot."),
                         connection.Name),
-                    Str(scope, "subPath"),
+                    ((FilesystemFolderScope)typed!).SubPath,
                     source.Name),
-                IncludePatterns = Arr(scope, "includePatterns"),
-                ExcludePatterns = Arr(scope, "excludePatterns"),
+                IncludePatterns = ((FilesystemFolderScope)typed).IncludePatterns ?? [],
+                ExcludePatterns = ((FilesystemFolderScope)typed).ExcludePatterns ?? [],
             }),
 
             ConnectionProvider.Sftp => new SftpConnector(new SftpConnectorConfig
@@ -137,9 +141,9 @@ public class ConnectorFactory(
                         $"Connection '{connection.Name}' has no usable SSH private key stored."),
                 ConnectionId = connection.Id,
 
-                SubPath = Str(scope, "subPath"),
-                IncludePatterns = Arr(scope, "includePatterns"),
-                ExcludePatterns = Arr(scope, "excludePatterns"),
+                SubPath = ((SftpFolderScope)typed!).SubPath,
+                IncludePatterns = ((SftpFolderScope)typed).IncludePatterns ?? [],
+                ExcludePatterns = ((SftpFolderScope)typed).ExcludePatterns ?? [],
             }, hostKeyStore),
 
             ConnectionProvider.GitHub => CreateGitHub(source, scope, connection, credential),
