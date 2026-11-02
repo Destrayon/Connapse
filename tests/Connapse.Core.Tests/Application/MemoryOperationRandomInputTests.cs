@@ -103,27 +103,27 @@ public class MemoryOperationRandomInputTests
 
     [Fact]
     [RandomInputTestOf(typeof(CorrectFact))]
-    public Task Correct_AnyCall_ReachesMemoryOnlyWithAWriterARealFactIdAndAKnownKind() =>
+    public Task Correct_AnyCall_ReachesMemoryOnlyWithAReadingWriterARealFactIdAndAKnownKind() =>
         Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, Gen.Enum<MemoryWriteFailure>(), FactId, Gen.Int[0, 3])
-            .SelectMany(t => KeyFor(t.Item3).Select(key => (t, key)))
+            .SelectMany(t => KeyFor(t.Item3).SelectMany(key => Gen.Bool.Select(reader => (t, key, reader))))
             .SampleAsync(async s =>
             {
-                var ((caller, writer, container, exists, failure, factId, kindValue), key) = s;
+                var ((caller, writer, container, exists, failure, factId, kindValue), key, reader) = s;
                 var kind = (MemoryCorrection)kindValue;
-                var world = new World(reader: true, writer, container, exists);
+                var world = new World(reader, writer, container, exists);
                 Guid id = Guid.Parse(container.Id);
                 world.Memory.CorrectAsync(id, Arg.Any<Guid>(), kind, AFact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
                     .Returns(world.Answers(failure, id));
 
                 var written = await new CorrectFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text, kind, AFact);
 
-                MemoryStatus expected = !writer ? MemoryStatus.Forbidden
+                MemoryStatus expected = !writer || !reader ? MemoryStatus.Forbidden
                     : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
                     : !factId.IsId ? MemoryStatus.FactNotFound
                     : kindValue > 1 ? MemoryStatus.Invalid
                     : StatusOf(failure);
                 written.Status.Should().Be(expected);
-                bool reached = writer && exists && key.Names && factId.IsId && kindValue <= 1;
+                bool reached = writer && reader && exists && key.Names && factId.IsId && kindValue <= 1;
                 world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);
             }, iter: 1000);
 

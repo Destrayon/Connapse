@@ -109,7 +109,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     /// <summary>Acts as an agent created by <paramref name="user"/>, as an agent key authenticates.</summary>
-    private void As(Guid user, string role = "Agent")
+    private void As(Guid user, string role = "Agent", bool canRead = true)
     {
         Guid agent = Guid.NewGuid();
         Sp.GetRequiredService<IHttpContextAccessor>().HttpContext = new DefaultHttpContext
@@ -121,7 +121,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
                 new Claim("actor_type", role == "Agent" ? "agent" : "user"),
                 new Claim("on_behalf_of", user.ToString()),
                 new Claim(ClaimTypes.Role, role),
-                new Claim("scope", "knowledge:read"),
+                .. canRead ? [new Claim("scope", "knowledge:read")] : Array.Empty<Claim>(),
                 new Claim("scope", "knowledge:write"),
             ], "test")),
         };
@@ -440,6 +440,20 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         (await Remember("x")).Should().Contain("needs write access");
         (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, Guid.NewGuid().ToString())).Should().Contain("needs write access");
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().BeEmpty("reading still works");
+    }
+
+    [Fact]
+    public async Task Correct_WithAWriteOnlyKey_IsRefusedAndShowsNoOldFact()
+    {
+        As(_writer);
+        string first = Id(await Remember("SecretDB 9", "2026-01-05"));
+
+        As(_writer, canRead: false);
+        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+
+        corrected.Should().Contain("knowledge:read").And.NotContain("SecretDB", "a correction answers with the old fact, which is a read");
+        As(_writer);
+        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().Equal("SecretDB 9");
     }
 
     [Fact]

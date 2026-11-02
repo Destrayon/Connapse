@@ -111,6 +111,9 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return MemoryRules.WriteForbidden<MemoryWritten>();
+        // The answer holds the replaced fact, so a correction is a read as well.
+        if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
+            return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Forbidden, "correcting memory also needs knowledge:read: the answer shows the old fact.");
         if (await MemoryRules.ContainerAsync(containers, containerId, ct) is not { } container)
             return MemoryRules.WriteContainerNotFound<MemoryWritten>(containerId);
         if (!Guid.TryParse(factId, out Guid id))

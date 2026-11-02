@@ -15,7 +15,7 @@ namespace Connapse.Integration.Tests.Memory;
 /// <summary>
 /// Random memories over random permissions, against the real store: every answer must hold exactly the facts the
 /// rule allows, worked out here from who may read which document. A fact is visible when every source is readable
-/// (a node: when a document standing for it is); a sourceless fact only to its author.
+/// (a node: when it has documents and every one of them is); a sourceless fact only to its author.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
@@ -86,6 +86,38 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
         MemoryRecall recall = await service.RecallAsync(new MemoryQuery(container, Text: "alpha database region"), new MemoryCaller(user, null, null));
 
         recall.Facts.Select(f => f.Fact.Value).Should().Equal("visible");
+    }
+
+    [Fact]
+    public async Task NodeSource_NeedsEveryDocumentStandingForIt()
+    {
+        // A C# partial type is one node across files: a fact learned from the restricted file must not open to
+        // someone who can read only the other one.
+        Guid writer = Guid.NewGuid(), reader = Guid.NewGuid();
+        string restricted = Guid.NewGuid().ToString(), open = Guid.NewGuid().ToString();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid container = Guid.NewGuid();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.Containers.Add(new ContainerEntity { Id = container, Name = $"node-{Guid.NewGuid():N}" });
+            await db.SaveChangesAsync();
+        }
+        var store = new PostgresMemoryStore(factory, TimeProvider.System);
+        var service = new MemoryService(store, new FakeAccess(new() { [writer] = [restricted, open], [reader] = [open] }),
+            new FakeIndex(new(StringComparer.Ordinal) { ["type:Billing"] = [restricted, open], ["fn:Orphan"] = [] }),
+            Substitute.For<IAuditLogger>(), NullLogger<MemoryService>.Instance);
+        MemorySource node = new(MemorySourceKind.Node, "type:Billing");
+
+        (await service.RememberAsync(container, new NewMemoryFact("Billing", "key", "secret", null, null, [node]), new MemoryCaller(writer, null, null)))
+            .Error.Should().BeNull();
+        (await service.RememberAsync(container, new NewMemoryFact("Billing", "owner", "x", null, null, [node]), new MemoryCaller(reader, null, null)))
+            .Error.Should().Contain("type:Billing", "a writer must be able to read every document behind a node it cites");
+        (await service.RememberAsync(container, new NewMemoryFact("Billing", "owner", "x", null, null, [new(MemorySourceKind.Node, "fn:Orphan")]), new MemoryCaller(writer, null, null)))
+            .Error.Should().Contain("fn:Orphan", "a node standing for no document is not a source anyone can read");
+
+        (await service.RecallAsync(new MemoryQuery(container, Subject: "Billing"), new MemoryCaller(writer, null, null))).Facts.Should().ContainSingle();
+        (await service.RecallAsync(new MemoryQuery(container, Subject: "Billing"), new MemoryCaller(reader, null, null))).Facts.Should().BeEmpty();
     }
 
     [Theory]
@@ -165,7 +197,7 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             ? f.Author.UserId == user
             : f.Sources.All(s => s.Kind == MemorySourceKind.Document
                 ? readable[user].Contains(s.Ref)
-                : nodes[s.Ref].Any(readable[user].Contains));
+                : nodes[s.Ref].Length > 0 && nodes[s.Ref].All(readable[user].Contains));
 
         MemoryQuery[] queries =
         [
