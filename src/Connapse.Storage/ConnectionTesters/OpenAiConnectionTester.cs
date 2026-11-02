@@ -1,7 +1,9 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Diagnostics;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Vectors;
 using Microsoft.Extensions.Logging;
 using OpenAI;
 using OpenAI.Embeddings;
@@ -14,10 +16,18 @@ namespace Connapse.Storage.ConnectionTesters;
 public class OpenAiConnectionTester : IConnectionTester
 {
     private readonly ILogger<OpenAiConnectionTester> _logger;
+    private readonly PipelineTransport? _transport;
 
     public OpenAiConnectionTester(ILogger<OpenAiConnectionTester> logger)
+        : this(logger, transport: null)
+    {
+    }
+
+    /// <summary>Sends requests through <paramref name="transport"/>, so tests can answer them.</summary>
+    internal OpenAiConnectionTester(ILogger<OpenAiConnectionTester> logger, PipelineTransport? transport)
     {
         _logger = logger;
+        _transport = transport;
     }
 
     public async Task<ConnectionTestResult> TestConnectionAsync(
@@ -42,24 +52,23 @@ public class OpenAiConnectionTester : IConnectionTester
                 model = "text-embedding-3-small";
 
             var credential = new ApiKeyCredential(apiKey);
-            EmbeddingClient client;
             var baseUrl = embeddingSettings.OpenAiBaseUrl ?? embeddingSettings.BaseUrl;
 
+            var options = new OpenAIClientOptions();
+            if (_transport is not null)
+                options.Transport = _transport;
             if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
-            {
-                var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
-                var openAiClient = new OpenAIClient(credential, options);
-                client = openAiClient.GetEmbeddingClient(model);
-            }
-            else
-            {
-                client = new EmbeddingClient(model, credential);
-            }
+                options.Endpoint = new Uri(baseUrl);
+            var client = new EmbeddingClient(model, credential, options);
 
             _logger.LogDebug("Testing OpenAI embedding connection with model {Model}", model);
 
-            var result = await client.GenerateEmbeddingAsync("connection test", cancellationToken: ct);
-            var dimensions = result.Value.ToFloats().Length;
+            // Asks for the size the providers ask for, and refuses the same wrong sizes they refuse (#666).
+            var tested = embeddingSettings with { Model = model };
+            var result = await client.GenerateEmbeddingAsync("connection test", EmbeddingDimensions.Options(tested), ct);
+            var vector = result.Value.ToFloats().ToArray();
+            var dimensions = vector.Length;
+            EmbeddingDimensions.Check(tested, model, vector);
 
             stopwatch.Stop();
 
@@ -69,6 +78,19 @@ public class OpenAiConnectionTester : IConnectionTester
                 {
                     ["model"] = model,
                     ["dimensions"] = dimensions
+                },
+                stopwatch.Elapsed);
+        }
+        catch (EmbeddingDimensionMismatchException ex)
+        {
+            stopwatch.Stop();
+            return ConnectionTestResult.CreateFailure(
+                ex.Message,
+                new Dictionary<string, object>
+                {
+                    ["model"] = ex.ModelId,
+                    ["dimensions"] = ex.Actual,
+                    ["expectedDimensions"] = ex.Expected
                 },
                 stopwatch.Elapsed);
         }

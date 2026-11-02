@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,15 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
     public OpenAiEmbeddingProvider(
         IOptionsSnapshot<EmbeddingSettings> settings,
         ILogger<OpenAiEmbeddingProvider> logger)
+        : this(settings, logger, transport: null)
+    {
+    }
+
+    /// <summary>Sends requests through <paramref name="transport"/>, so tests can answer them.</summary>
+    internal OpenAiEmbeddingProvider(
+        IOptionsSnapshot<EmbeddingSettings> settings,
+        ILogger<OpenAiEmbeddingProvider> logger,
+        PipelineTransport? transport)
     {
         _logger = logger;
         _settings = settings.Value;
@@ -33,16 +43,12 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
         var credential = new ApiKeyCredential(apiKey);
         var baseUrl = _settings.OpenAiBaseUrl ?? _settings.BaseUrl;
 
+        var options = new OpenAIClientOptions();
+        if (transport is not null)
+            options.Transport = transport;
         if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
-        {
-            var options = new OpenAIClientOptions { Endpoint = new Uri(baseUrl) };
-            var client = new OpenAIClient(credential, options);
-            _client = client.GetEmbeddingClient(_settings.Model);
-        }
-        else
-        {
-            _client = new EmbeddingClient(_settings.Model, credential);
-        }
+            options.Endpoint = new Uri(baseUrl);
+        _client = new EmbeddingClient(_settings.Model, credential, options);
     }
 
     public int Dimensions => _settings.Dimensions;
@@ -95,7 +101,7 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
     {
         try
         {
-            var options = BuildOptions();
+            var options = EmbeddingDimensions.Options(_settings);
 
             ClientResult<OpenAIEmbeddingCollection> result =
                 await _client.GenerateEmbeddingsAsync(texts, options, ct);
@@ -108,6 +114,9 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
                 output[embedding.Index] = embedding.ToFloats().ToArray();
             }
 
+            foreach (var vector in output)
+                EmbeddingDimensions.Check(_settings, ModelId, vector);
+
             return output;
         }
         catch (ClientResultException ex)
@@ -117,17 +126,5 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
                 $"OpenAI embedding request failed (HTTP {ex.Status}): {ex.Message}. " +
                 $"Verify your API key and model '{_settings.Model}' are correct.", ex);
         }
-    }
-
-    private EmbeddingGenerationOptions? BuildOptions()
-    {
-        // Only send dimensions for text-embedding-3-* models (supports Matryoshka truncation)
-        if (_settings.Model.StartsWith("text-embedding-3", StringComparison.OrdinalIgnoreCase)
-            && _settings.Dimensions > 0)
-        {
-            return new EmbeddingGenerationOptions { Dimensions = _settings.Dimensions };
-        }
-
-        return null;
     }
 }

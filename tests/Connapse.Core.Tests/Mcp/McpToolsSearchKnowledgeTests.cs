@@ -196,6 +196,31 @@ public class McpToolsSearchKnowledgeTests
         result.Should().Contain("Found 1 result(s)");
     }
 
+    [Fact]
+    public async Task SearchKnowledge_QueryVectorIsTheWrongSize_SaysWhichSettingToChange()
+    {
+        var mismatch = new Connapse.Storage.Vectors.EmbeddingDimensionMismatchException("Qwen/Qwen3-Embedding-8B", 1536, 4096, sentDimensions: false);
+        _searchService.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new EmbeddingUnavailableException(mismatch));
+
+        var result = await McpTools.SearchKnowledge(
+            _search, _http, "query", ContainerId.ToString());
+
+        result.Should().StartWith("Error:").And.Contain("Set Dimensions to 4096").And.NotContain("Try again shortly");
+    }
+
+    [Fact]
+    public async Task SearchKnowledge_EmbeddingsAreDown_SaysToRetryOrUseKeyword()
+    {
+        _searchService.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new EmbeddingUnavailableException(new HttpRequestException("ollama:11434")));
+
+        var result = await McpTools.SearchKnowledge(
+            _search, _http, "query", ContainerId.ToString());
+
+        result.Should().StartWith("Error:").And.Contain("Try again shortly").And.Contain("Keyword");
+    }
+
     private static Container MakeContainer() => new(
         Id: ContainerId.ToString(),
         Name: "test",
