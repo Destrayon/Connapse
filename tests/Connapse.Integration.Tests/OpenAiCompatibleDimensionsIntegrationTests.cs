@@ -100,11 +100,11 @@ public class OpenAiCompatibleDimensionsIntegrationTests(SharedWebAppFixture fixt
             d.Metadata.GetValueOrDefault("Status") == "Ready" || d.Metadata.ContainsKey("ErrorMessage"));
 
         RequestsFor(marker).Should().NotBeEmpty().And.OnlyContain(r => !r.ContainsKey("dimensions"));
-        doc.Metadata.GetValueOrDefault("Status").Should().NotBe("Ready", "4096-number vectors contradict Dimensions = 1536");
+        (await StoredLengthsAsync(documentId)).Should().BeEmpty("4096-number vectors contradict Dimensions = 1536");
+        doc.Metadata.GetValueOrDefault("Status").Should().NotBe("Ready");
         doc.Metadata.GetValueOrDefault("ErrorMessage").Should()
             .Contain($"returned {NativeLength}-dimension vectors").And.Contain($"Dimensions is {Configured}")
             .And.Contain("Ask the model for this size");
-        (await StoredLengthsAsync(documentId)).Should().BeEmpty();
     }
 
     private async Task UseQwenAsync(bool sendDimensions)
@@ -113,7 +113,11 @@ public class OpenAiCompatibleDimensionsIntegrationTests(SharedWebAppFixture fixt
         settings["provider"] = "OpenAI";
         settings["model"] = Model;
         settings["dimensions"] = Configured;
-        settings["sendDimensions"] = sendDimensions;
+        // Left out when off, which means the same, so the off case also runs against a build without the setting.
+        if (sendDimensions)
+            settings["sendDimensions"] = true;
+        else
+            settings.Remove("sendDimensions");
         settings["openAiBaseUrl"] = $"{_endpoint.Urls.First()}/v1";
         settings["openAiApiKey"] = "sk-con212-test";
         using var content = new StringContent(settings.ToJsonString(), Encoding.UTF8, "application/json");
