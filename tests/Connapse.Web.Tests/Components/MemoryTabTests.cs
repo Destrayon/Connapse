@@ -249,8 +249,14 @@ public class MemoryTabTests : IDisposable
             facts.Add(kind == MemoryCorrection.Changed ? old with { ValidTo = from } : old with { SupersededAt = DateTimeOffset.UtcNow });
             var fact = old with
             {
-                Id = Guid.NewGuid(), Value = value, ValidFrom = kind == MemoryCorrection.Changed ? from : old.ValidFrom,
-                ValidTo = null, SupersededAt = null, ReplacesId = old.Id, Reason = reason, RecordedAt = old.RecordedAt.AddMinutes(1),
+                Id = Guid.NewGuid(),
+                Value = value,
+                ValidFrom = kind == MemoryCorrection.Changed ? from : old.ValidFrom,
+                ValidTo = null,
+                SupersededAt = null,
+                ReplacesId = old.Id,
+                Reason = reason,
+                RecordedAt = old.RecordedAt.AddMinutes(1),
             };
             facts.Add(fact);
             return fact;
