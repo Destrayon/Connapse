@@ -65,6 +65,9 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
         {
             await SeedAsync(container, 300, i => "/doc.txt");
             await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+            // Statistics gathered while other tests' vectors filled the table say this container has
+            // about one row, and for one row the planner sorts rather than use the index.
+            await ExecAsync(scope, "ANALYZE chunk_vectors");
             await Manager(scope, threshold: 100).EnsureIndexesAsync();
             (await IndexesAsync(scope)).Should().Contain(VectorColumnManager.GetIndexName(container, Model, 3));
 
