@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net.Http.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -9,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using NSubstitute;
 using Pgvector;
 
@@ -86,6 +88,30 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
                 scansAfter = await IndexScansAsync(scope, index);
             }
             scansAfter.Should().BeGreaterThan(scansBefore, "the planner must be able to use the per-container index");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+        }
+    }
+
+    [Fact]
+    public async Task EnsureIndexes_FreshContainer_PlannerUsesTheNewIndex()
+    {
+        Guid container = await CreateContainerAsync("vidx-fresh");
+        try
+        {
+            // Statistics gathered before the container existed estimate about one row for it, and
+            // with that estimate the planner sorts by distance instead of using its index (CON-217).
+            await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+            await ExecAsync(scope, "ANALYZE chunk_vectors");
+            await SeedAsync(container, 300, i => "/doc.txt");
+
+            await Manager(scope, threshold: 100).EnsureIndexesAsync();
+
+            string plan = await NeighboursPlanAsync(scope, container, Vector(7));
+            plan.Should().Contain(VectorColumnManager.GetIndexName(container, Model, 3),
+                "building the index refreshes the statistics, so the first search can use it");
         }
         finally
         {
@@ -232,6 +258,28 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
         await using KnowledgeDbContext ctx = await scope.ServiceProvider
             .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
         await ctx.Database.ExecuteSqlRawAsync(sql);
+    }
+
+    /// <summary>The plan of the neighbours query vector search runs for an indexed container.</summary>
+    private static async Task<string> NeighboursPlanAsync(AsyncServiceScope scope, Guid container, float[] query)
+    {
+        await using KnowledgeDbContext ctx = await scope.ServiceProvider
+            .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        DbConnection connection = ctx.Database.GetDbConnection();
+        await connection.OpenAsync();
+        await using DbCommand cmd = connection.CreateCommand();
+        cmd.CommandText =
+            "EXPLAIN SELECT cv.chunk_id FROM chunk_vectors cv "
+            + "WHERE cv.owner_id = @owner AND cv.model_id = @model AND vector_dims(cv.embedding) = 3 "
+            + "ORDER BY cv.embedding::halfvec(3) <=> @query::halfvec(3) LIMIT 100";
+        cmd.Parameters.Add(new NpgsqlParameter("owner", container));
+        cmd.Parameters.Add(new NpgsqlParameter("model", Model));
+        cmd.Parameters.Add(new NpgsqlParameter("query", new Vector(query)));
+        List<string> lines = [];
+        await using DbDataReader reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            lines.Add(reader.GetString(0));
+        return string.Join('\n', lines);
     }
 
     private static async Task<long> IndexScansAsync(AsyncServiceScope scope, string index)
