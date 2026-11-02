@@ -1,8 +1,10 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Diagnostics;
 using Azure.AI.OpenAI;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Vectors;
 using Microsoft.Extensions.Logging;
 using OpenAI.Embeddings;
 
@@ -14,10 +16,18 @@ namespace Connapse.Storage.ConnectionTesters;
 public class AzureOpenAiConnectionTester : IConnectionTester
 {
     private readonly ILogger<AzureOpenAiConnectionTester> _logger;
+    private readonly PipelineTransport? _transport;
 
     public AzureOpenAiConnectionTester(ILogger<AzureOpenAiConnectionTester> logger)
+        : this(logger, transport: null)
+    {
+    }
+
+    /// <summary>Sends requests through <paramref name="transport"/>, so tests can answer them.</summary>
+    internal AzureOpenAiConnectionTester(ILogger<AzureOpenAiConnectionTester> logger, PipelineTransport? transport)
     {
         _logger = logger;
+        _transport = transport;
     }
 
     public async Task<ConnectionTestResult> TestConnectionAsync(
@@ -49,9 +59,13 @@ public class AzureOpenAiConnectionTester : IConnectionTester
             if (string.IsNullOrWhiteSpace(deploymentName))
                 return ConnectionTestResult.CreateFailure("Deployment name is required for Azure OpenAI");
 
+            var options = new AzureOpenAIClientOptions();
+            if (_transport is not null)
+                options.Transport = _transport;
             var azureClient = new AzureOpenAIClient(
                 new Uri(endpoint),
-                new ApiKeyCredential(apiKey));
+                new ApiKeyCredential(apiKey),
+                options);
 
             var client = azureClient.GetEmbeddingClient(deploymentName);
 
@@ -59,8 +73,12 @@ public class AzureOpenAiConnectionTester : IConnectionTester
                 "Testing Azure OpenAI embedding connection at {Endpoint} with deployment {Deployment}",
                 endpoint, deploymentName);
 
-            var result = await client.GenerateEmbeddingAsync("connection test", cancellationToken: ct);
-            var dimensions = result.Value.ToFloats().Length;
+            // Asks for the size the providers ask for, and refuses the same wrong sizes they refuse (#666).
+            var result = await client.GenerateEmbeddingAsync(
+                "connection test", EmbeddingDimensions.Options(embeddingSettings), ct);
+            var vector = result.Value.ToFloats().ToArray();
+            var dimensions = vector.Length;
+            EmbeddingDimensions.Check(embeddingSettings, deploymentName, vector);
 
             stopwatch.Stop();
 
@@ -71,6 +89,19 @@ public class AzureOpenAiConnectionTester : IConnectionTester
                     ["endpoint"] = endpoint,
                     ["deployment"] = deploymentName,
                     ["dimensions"] = dimensions
+                },
+                stopwatch.Elapsed);
+        }
+        catch (EmbeddingDimensionMismatchException ex)
+        {
+            stopwatch.Stop();
+            return ConnectionTestResult.CreateFailure(
+                ex.Message,
+                new Dictionary<string, object>
+                {
+                    ["deployment"] = ex.ModelId,
+                    ["dimensions"] = ex.Actual,
+                    ["expectedDimensions"] = ex.Expected
                 },
                 stopwatch.Elapsed);
         }

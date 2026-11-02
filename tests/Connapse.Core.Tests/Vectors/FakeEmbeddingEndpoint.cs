@@ -14,6 +14,9 @@ internal sealed class FakeEmbeddingEndpoint : HttpMessageHandler
 {
     public int ReturnedLength { get; set; } = 1536;
 
+    /// <summary>True answers a request carrying "dimensions" with that many numbers, as Qwen3-Embedding does.</summary>
+    public bool HonorsDimensions { get; set; }
+
     public List<JsonObject> Requests { get; } = [];
 
     public PipelineTransport Transport => new HttpClientPipelineTransport(new HttpClient(this));
@@ -26,7 +29,8 @@ internal sealed class FakeEmbeddingEndpoint : HttpMessageHandler
 
         int count = json["input"] is JsonArray inputs ? inputs.Count : 1;
         bool base64 = json["encoding_format"]?.GetValue<string>() == "base64";
-        float[] vector = Enumerable.Repeat(0.5f, ReturnedLength).ToArray();
+        int length = HonorsDimensions && json["dimensions"] is { } asked ? asked.GetValue<int>() : ReturnedLength;
+        float[] vector = Enumerable.Repeat(0.5f, length).ToArray();
         object embedding = base64
             ? Convert.ToBase64String(vector.SelectMany(BitConverter.GetBytes).ToArray())
             : vector;
