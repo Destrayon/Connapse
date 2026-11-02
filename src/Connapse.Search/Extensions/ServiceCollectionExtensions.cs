@@ -52,6 +52,9 @@ public static class ServiceCollectionExtensions
         // Code tools check every file they show with search's rule, scoped to the one container or source asked about.
         services.AddScoped<ICodeTools, CodeTools>();
 
+        // A file's links in the file browser, checked with the same rule, scoped to the file's container.
+        services.AddScoped<IDocumentLinkReader, DocumentLinkReader>();
+
         return services;
     }
 }

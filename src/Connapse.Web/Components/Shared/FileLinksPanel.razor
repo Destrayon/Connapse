@@ -1,0 +1,107 @@
+@*
+    The Links section of the file browser's File Details panel: the files this file links to and the
+    files that link to it, both limited to ones the viewer can read. Clicking an entry raises OnOpen.
+    The parent keys this component on the selected file, so each selection loads afresh.
+*@
+@using Connapse.Core.Interfaces
+@inject Connapse.Application.Files.FileOperations FileOps
+@inject AuthenticationStateProvider AuthStateProvider
+
+@if (links is null && error is null)
+{
+    <span class="links-status text-muted">Loading links…</span>
+}
+else if (error is not null)
+{
+    <span class="links-status text-muted">@error</span>
+}
+else if (links!.LinksTo.Count == 0 && links.LinkedFrom.Count == 0)
+{
+    <span class="links-status text-muted">No links found for this file.</span>
+}
+else
+{
+    @LinkGroup("Links to", links.LinksTo, outgoing: true)
+    @LinkGroup("Linked from", links.LinkedFrom, outgoing: false)
+}
+
+@code {
+    // Each list shows its first few until expanded.
+    private const int Shown = 5;
+
+    [Parameter, EditorRequired] public Guid ContainerId { get; set; }
+    [Parameter, EditorRequired] public string FileId { get; set; } = "";
+    [Parameter] public EventCallback<LinkedDocument> OnOpen { get; set; }
+
+    private DocumentLinkSet? links;
+    private string? error;
+    private bool showAllLinksTo;
+    private bool showAllLinkedFrom;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var read = await FileOps.Links.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId, FileId);
+            (links, error) = (read.Result, read.Succeeded ? null : "Links couldn't be loaded right now.");
+        }
+        catch
+        {
+            error = "Links couldn't be loaded right now.";
+        }
+    }
+
+    private RenderFragment LinkGroup(string title, IReadOnlyList<LinkedDocument> linked, bool outgoing) => __builder =>
+    {
+        if (linked.Count == 0)
+            return;
+        bool showAll = outgoing ? showAllLinksTo : showAllLinkedFrom;
+        <div class="link-group">
+            <div class="link-group-title">@title <span class="text-muted">(@linked.Count)</span></div>
+            <ul class="link-list">
+                @foreach (var doc in showAll ? linked : linked.Take(Shown))
+                {
+                    <li>
+                        <button type="button" class="link-entry" title="@doc.Path" @onclick="() => OnOpen.InvokeAsync(doc)">
+                            <span class="link-name">@doc.FileName</span>
+                            <span class="link-meta">@LinkWords(doc.Types, outgoing) · @FolderOf(doc.Path)</span>
+                        </button>
+                    </li>
+                }
+            </ul>
+            @if (linked.Count > Shown)
+            {
+                <button type="button" class="btn btn-link btn-sm link-more" @onclick="() => ToggleShowAll(outgoing)">
+                    @(showAll ? "Show less" : $"Show {linked.Count - Shown} more")
+                </button>
+            }
+        </div>
+    };
+
+    private void ToggleShowAll(bool outgoing)
+    {
+        if (outgoing)
+            showAllLinksTo = !showAllLinksTo;
+        else
+            showAllLinkedFrom = !showAllLinkedFrom;
+    }
+
+    // How a link reads from this file's side: "calls" one way, "called by" the other.
+    private static string LinkWords(IReadOnlyList<string> types, bool outgoing) => string.Join(", ", types.Select(type => (type, outgoing) switch
+    {
+        ("calls", true) => "calls",
+        ("calls", false) => "called by",
+        ("imports", true) => "imports",
+        ("imports", false) => "imported by",
+        ("inherits", true) => "inherits from",
+        ("inherits", false) => "inherited by",
+        _ => type,
+    }));
+
+    /// <summary>The folder part of a file path, with its trailing slash: "/billing/" for "/billing/Ledger.cs".</summary>
+    public static string FolderOf(string path)
+    {
+        int slash = path.LastIndexOf('/');
+        return slash <= 0 ? "/" : path[..(slash + 1)];
+    }
+}
