@@ -148,7 +148,8 @@ public class McpTools
             {
                 SearchStatus.Forbidden => "Error: You don't have permission to search.",
                 SearchStatus.Invalid => $"Error: Invalid search: {searched.Detail}.",
-                SearchStatus.EmbeddingsUnavailable => "Error: The search could not be run: the embedding service isn't reachable. Try again shortly, or search in Keyword mode.",
+                // The operation says whether this is an outage or a size mismatch, and what to do about each.
+                SearchStatus.EmbeddingsUnavailable => $"Error: The search could not be run. {searched.Detail}",
                 _ => $"Error: Container '{containerId}' not found.",
             };
         var result = searched.Result!;
