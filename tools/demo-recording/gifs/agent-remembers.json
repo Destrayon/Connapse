@@ -1,0 +1,8 @@
+{ "out": "docs/demos/agent-remembers.gif", "width": 1120, "clips": [
+  { "file": "agent-remembers.webm", "from": 0.3, "to": 4.3, "speed": 2.5 },
+  { "file": "agent-remembers.webm", "from": 4.3, "to": 7.8, "speed": 1.5 },
+  { "file": "agent-remembers.webm", "from": 7.8, "to": 10.0 },
+  { "file": "agent-remembers.webm", "from": 10.0, "to": 14.0, "speed": 2.5 },
+  { "file": "agent-remembers.webm", "from": 14.0, "to": 15.9, "speed": 1.5 },
+  { "file": "agent-remembers.webm", "from": 15.9, "to": 19.0 }
+] }

@@ -1,0 +1,5 @@
+{ "out": "docs/demos/code-tools.gif", "width": 1120, "clips": [
+  { "file": "code-tools.webm", "from": 0.3, "to": 4.4, "speed": 2.5 },
+  { "file": "code-tools.webm", "from": 4.4, "to": 9.2, "speed": 1.2 },
+  { "file": "code-tools.webm", "from": 9.2, "to": 12.4 }
+] }

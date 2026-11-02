@@ -1,0 +1,31 @@
+# Overrides for recording the demo GIFs; see README.md. Use with the repo's docker-compose.yml:
+#   COMPOSE_PROJECT_NAME=connapse-demo COMPOSE_FILE="docker-compose.yml;tools/demo-recording/compose.demo.yml"
+services:
+  web:
+    ports: !override
+      - "${DEMO_PORT:-5201}:8080"
+    environment:
+      CustomSources__AllowedHttpHosts__0: example-source
+      Hangfire__IngestionWorkerCount: "1"
+      Knowledge__Embedding__MaxConcurrentIngestionRequests: "1"
+
+  ollama:
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+
+  # Relative paths resolve from the repo root, the first compose file's folder.
+  # The example custom source server, serving example-data/ with its per-user grants.
+  # Its own profile keeps it out of the quickstart scene; start it with --profile demo-source.
+  example-source:
+    build: samples/Connapse.CustomSource.Example
+    profiles:
+      - demo-source
+    volumes:
+      - ${DEMO_EXAMPLE_DATA:-./tools/demo-recording/example-data}:/app/sample-data
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"

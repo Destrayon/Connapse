@@ -1,0 +1,6 @@
+{ "out": "docs/demos/linked-results.gif", "fps": 8, "clips": [
+  { "file": "linked-results-off.webm", "from": 0.5, "to": 3.8, "speed": 3 },
+  { "file": "linked-results-off.webm", "from": 3.8, "to": 6.6 },
+  { "file": "linked-results-on.webm", "from": 0.5, "to": 3.8, "speed": 3 },
+  { "file": "linked-results-on.webm", "from": 3.8, "to": 7.5 }
+] }
