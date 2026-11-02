@@ -268,6 +268,10 @@
                                 </li>
                             }
                         </ol>
+                        @if (HistoryCapped)
+                        {
+                            <span id="memory-history-capped" class="form-hint">Showing the newest @PageSize versions; older ones aren't listed.</span>
+                        }
                     }
                 </div>
             }
@@ -290,7 +294,7 @@
                 }
                 else
                 {
-                    <button id="memory-delete" class="btn btn-sm btn-outline-danger me-auto" @onclick="AskDelete">
+                    <button id="memory-delete" class="btn btn-sm btn-outline-danger me-auto" @onclick="AskDelete" disabled="@(history is null)">
                         <span class="bi-trash me-1"></span> Delete
                     </button>
                     @if (Status(fact) == FactStatus.Corrected)
@@ -321,7 +325,7 @@
             <div id="memory-delete-body" class="memory-modal-body">
                 <p class="delete-fact-name"><span class="fact-key">@toDelete.Subject · @toDelete.Attribute</span><br />@toDelete.Value</p>
                 <p class="mb-0">
-                    This permanently deletes the fact@(deleteVersions > 1 ? $" and its {deleteVersions - 1} earlier {(deleteVersions == 2 ? "version" : "versions")}" : "").
+                    This permanently deletes the fact@(deleteVersions >= PageSize ? " and every earlier version" : deleteVersions > 1 ? $" and its {deleteVersions - 1} earlier {(deleteVersions == 2 ? "version" : "versions")}" : "").
                     Agents won't recall it again, and it can't be undone. The activity log keeps a record that it was
                     deleted, but not what it said.
                 </p>
@@ -365,6 +369,7 @@
 
     private RecalledFact? selected;
     private List<RecalledFact>? history;
+    private int historyRequest;
 
     private bool editing;
     private string editValue = "";
@@ -390,6 +395,11 @@
         facts = [.. read.ResultOr(failed => errorMessage = failed, [])];
         searchedFor = text;
         isLoading = false;
+        // The open fact was read before this refresh; show it only if it can still be read now.
+        if (!read.Succeeded)
+            ClearDetail();
+        else if (selected is not null)
+            await LoadHistoryAsync(selected.Fact.Id);
     }
 
     private Task Search() => LoadAsync();
@@ -416,12 +426,12 @@
     private async Task Select(RecalledFact fact)
     {
         (selected, history, editing, notice) = (fact, null, false, null);
-        await LoadHistoryAsync(fact.Fact);
+        await LoadHistoryAsync(fact.Fact.Id);
     }
 
     private void ShowVersion(RecalledFact version) => (selected, editing) = (version, false);
 
-    /// <summary>Every version of the fact the caller may see, oldest first (shown newest first), through the same recall as agents.</summary>
+    /// <summary>Every version of the fact the caller may see, up to the newest <see cref="PageSize"/>, oldest first (shown newest first), through the same recall as agents.</summary>
     private async Task<List<RecalledFact>> ChainAsync(MemoryFact fact)
     {
         var read = await MemoryOps.Recall.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
@@ -430,12 +440,35 @@
         return [.. read.ResultOr(failed => errorMessage = failed, []).OrderBy(f => f.Fact.RecordedAt).ThenBy(f => f.Fact.Id)];
     }
 
-    private async Task LoadHistoryAsync(MemoryFact fact) => history = await ChainAsync(fact);
+    /// <summary>
+    /// Reloads the open fact's chain and shows the version <paramref name="showId"/> from it, or closes the panel when
+    /// that version can no longer be read. A reply for an earlier selection is dropped, so it can't replace this one's.
+    /// </summary>
+    private async Task LoadHistoryAsync(Guid showId)
+    {
+        if (selected is null) return;
+        int request = ++historyRequest;
+        var chain = await ChainAsync(selected.Fact);
+        if (request != historyRequest) return;
+        if (chain.FirstOrDefault(f => f.Fact.Id == showId) is { } shown)
+            (selected, history) = (shown, chain);
+        else
+            ClearDetail();
+    }
+
+    private bool HistoryCapped => history?.Count >= PageSize;
 
     private MemoryFact? ReplacedIn(MemoryFact version) =>
         version.ReplacesId is { } id ? history?.FirstOrDefault(h => h.Fact.Id == id)?.Fact : null;
 
-    private void CloseDetail() => (selected, history, editing) = (null, null, false);
+    private void CloseDetail() => ClearDetail();
+
+    /// <summary>Forgets everything read about the open fact and drops any history reply still on its way.</summary>
+    private void ClearDetail()
+    {
+        historyRequest++;
+        (selected, history, editing, toDelete, deleteError) = (null, null, false, null, null);
+    }
 
     private void StartEdit()
     {
@@ -483,18 +516,17 @@
 
         editing = false;
         await LoadAsync();
-        var chain = await ChainAsync(corrected.Result!.Fact);
-        history = chain;
-        selected = chain.FirstOrDefault(f => f.Fact.Id == corrected.Result.Fact.Id) ?? selected;
+        // The correction is in the same chain, and the newest version is always in its first page.
+        await LoadHistoryAsync(corrected.Result!.Fact.Id);
         notice = "Fact corrected. The old value is kept in its history.";
     }
 
-    private async Task AskDelete()
+    private void AskDelete()
     {
-        if (selected is null) return;
+        // Until the history has loaded, the confirmation couldn't say how many versions go with it.
+        if (selected is null || history is null) return;
         toDelete = selected.Fact;
         deleteError = null;
-        history ??= await ChainAsync(toDelete);
         deleteVersions = Math.Max(1, history.Count);
     }
 

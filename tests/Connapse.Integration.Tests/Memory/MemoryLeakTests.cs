@@ -149,6 +149,8 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
 
         history.Facts.Select(f => f.Fact.Id).Should().BeEquivalentTo([first.Id, wrong.Id, changed.Id],
             "a chain holds the superseded, the ended and the current version, and no other fact");
+        (await service.RecallAsync(new MemoryQuery(container, ChainId: first.ChainId, Limit: 2), me))
+            .Facts.Select(f => f.Fact.Id).Should().Equal([changed.Id, wrong.Id], "a capped chain read keeps its newest versions");
         (await service.RecallAsync(new MemoryQuery(container, ChainId: first.ChainId, Limit: 100), new MemoryCaller(Guid.NewGuid(), null, null)))
             .Facts.Should().BeEmpty("a sourceless fact's history is its author's alone");
     }

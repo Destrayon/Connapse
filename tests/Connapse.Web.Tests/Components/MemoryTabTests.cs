@@ -208,6 +208,80 @@ public class MemoryTabTests : IDisposable
         cut.FindAll(".memory-row").Should().BeEmpty();
     }
 
+    [Fact]
+    public void Search_AfterTheOpenFactBecomesUnreadable_ClosesItsPanel()
+    {
+        var fact = memory.Add("Halcyon", "database", "PostgreSQL 15", sources: [Runbook]);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(1));
+        cut.Find(".memory-row").Click();
+        cut.WaitForAssertion(() => cut.Find("#memory-history-none"));
+
+        memory.Hidden.Add(fact.Id);
+        cut.Find("form.memory-search").Submit();
+
+        cut.WaitForAssertion(() => cut.FindAll(".memory-panel").Should().BeEmpty());
+        cut.Markup.Should().NotContain("PostgreSQL 15");
+    }
+
+    [Fact]
+    public void Render_AccessCannotBeCheckedOnRefresh_ClosesTheOpenFact()
+    {
+        memory.Add("Halcyon", "database", "PostgreSQL 15");
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(1));
+        cut.Find(".memory-row").Click();
+        cut.WaitForAssertion(() => cut.Find("#memory-history-none"));
+
+        memory.DenyReads = true;
+        cut.Find("#memory-filter-all").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".alert-danger").TextContent.Should().Contain("could not be checked"));
+        cut.FindAll(".memory-panel").Should().BeEmpty();
+        cut.Markup.Should().NotContain("PostgreSQL 15");
+    }
+
+    [Fact]
+    public void Select_EarlierFactsHistoryArrivesLast_IsNotShownForTheLaterOne()
+    {
+        var slow = memory.Add("Halcyon", "database", "MySQL");
+        memory.Correct(slow, MemoryCorrection.Wrong, "MariaDB");
+        memory.Add("Halcyon", "on-call", "Dana");
+        memory.HeldChain = slow.ChainId;
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(2));
+
+        cut.FindAll(".memory-row").Single(r => r.TextContent.Contains("MariaDB")).Click();
+        cut.FindAll(".memory-row").Single(r => r.TextContent.Contains("Dana")).Click();
+        cut.WaitForAssertion(() => cut.Find("#memory-history-none"));
+        memory.ReleaseHeldChain();
+
+        cut.WaitForAssertion(() => cut.Find(".fact-hero-value").TextContent.Should().Be("Dana"));
+        cut.FindAll("#memory-history").Should().BeEmpty();
+        cut.Find("#memory-history-none").Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Correct_ChainLongerThanOnePage_ShowsTheNewCorrectionAndSaysHistoryIsCut()
+    {
+        var latest = memory.Add("Halcyon", "build", "v0");
+        for (int i = 1; i < 120; i++)
+            latest = memory.Correct(latest, MemoryCorrection.Wrong, $"v{i}");
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(1));
+        cut.Find(".memory-row").Click();
+        cut.WaitForAssertion(() => cut.Find("#memory-history-capped"));
+
+        cut.Find("#memory-correct").Click();
+        cut.Find("#memory-edit-value").Input("v120");
+        cut.Find("#memory-kind-wrong").Change(MemoryCorrection.Wrong);
+        cut.Find("#memory-edit-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".fact-hero-value").TextContent.Should().Be("v120"));
+        cut.Find("#memory-delete").Click();
+        cut.Find("#memory-delete-body").TextContent.Should().Contain("every earlier version");
+    }
+
     [Theory]
     [InlineData(30, "just now")]
     [InlineData(60 * 5, "5 minutes ago")]
@@ -284,18 +358,32 @@ public class MemoryTabTests : IDisposable
             return Task.FromResult<(int, string?)>((deleted, null));
         }
 
-        public Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default)
+        /// <summary>Facts the reader can no longer see, as when access to their sources is taken away.</summary>
+        public HashSet<Guid> Hidden { get; } = [];
+
+        /// <summary>History reads for this chain wait until <see cref="ReleaseHeldChain"/>.</summary>
+        public Guid? HeldChain { get; set; }
+
+        private readonly TaskCompletionSource held = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ReleaseHeldChain() => held.SetResult();
+
+        public async Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default)
         {
             Queries.Add(query);
+            if (query.ChainId is { } heldChain && heldChain == HeldChain)
+                await held.Task;
             if (DenyReads)
-                return Task.FromResult(MemoryRecall.DeniedResult);
+                return MemoryRecall.DeniedResult;
+            IEnumerable<MemoryFact> visible = facts.Where(f => !Hidden.Contains(f.Id));
+            // A chain is read newest first, as the store reads it.
             IEnumerable<MemoryFact> found = query.ChainId is { } chain
-                ? facts.Where(f => f.ChainId == chain).OrderBy(f => f.RecordedAt)
-                : facts.Where(f => query.History || (f.SupersededAt is null && f.ValidTo is null)).OrderByDescending(f => f.RecordedAt);
+                ? visible.Where(f => f.ChainId == chain).OrderByDescending(f => f.RecordedAt)
+                : visible.Where(f => query.History || (f.SupersededAt is null && f.ValidTo is null)).OrderByDescending(f => f.RecordedAt);
             if (query.Text is { } text)
                 found = found.Where(f => f.Value.Contains(text, StringComparison.OrdinalIgnoreCase));
-            return Task.FromResult(new MemoryRecall([.. found.Take(query.Limit).Select(f => new RecalledFact(f,
-                [.. f.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, s == Runbook ? "Ops runbook" : null))]))]));
+            return new MemoryRecall([.. found.Take(query.Limit).Select(f => new RecalledFact(f,
+                [.. f.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, s == Runbook ? "Ops runbook" : null))]))]);
         }
     }
 }

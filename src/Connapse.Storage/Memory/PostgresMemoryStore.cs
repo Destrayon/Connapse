@@ -193,7 +193,9 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         IQueryable<MemoryFactEntity> ordered;
         if (terms is null)
         {
-            ordered = query.ChangedFrom is not null || query.ChangedTo is not null || history
+            // One chain is read newest first, so a capped read drops its oldest versions, never its latest correction.
+            ordered = query.ChainId is not null ? rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id)
+                : query.ChangedFrom is not null || query.ChangedTo is not null || history
                 ? rows.OrderBy(f => f.ValidFrom).ThenBy(f => f.RecordedAt).ThenBy(f => f.Id)
                 : rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id);
         }
