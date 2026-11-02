@@ -33,7 +33,7 @@ public class MathSymbolIngestionTests(SharedWebAppFixture fixture)
         var (containerId, documentId) = await SeedQueuedDocumentAsync(sp);
 
         var result = await sp.GetRequiredService<IKnowledgeIngester>().IngestAsync(
-            new MemoryStream(MathPdf()), Options(containerId, documentId));
+            new MemoryStream(MathPdf("")), Options(containerId, documentId));
 
         result.ChunkCount.Should().BeGreaterThan(1);
         var doc = await ReadAsync(sp, documentId);
@@ -73,10 +73,12 @@ public class MathSymbolIngestionTests(SharedWebAppFixture fixture)
 
         string message = $"Embedding failed on \"{MathX}\uD835\" at\0 offset 3253";
         Exception failure = permanent ? new PermanentIngestionException(message) : new InvalidOperationException(message);
-        var pipeline = ActivatorUtilities.CreateInstance<IngestionPipeline>(
-            sp, (IEmbeddingProvider)new ThrowingEmbeddingProvider(failure));
+        var embedder = new ThrowingEmbeddingProvider(failure);
+        var pipeline = ActivatorUtilities.CreateInstance<IngestionPipeline>(sp, (IEmbeddingProvider)embedder);
+        // Text no other run has stored, so the embedding cache cannot answer for every chunk and skip the embedder.
+        byte[] pdf = MathPdf(Guid.NewGuid().ToString("N"));
         var jobs = ActivatorUtilities.CreateInstance<IngestionJobs>(
-            sp, (IKnowledgeIngester)new StoredFileIngester(pipeline, MathPdf()));
+            sp, (IKnowledgeIngester)new StoredFileIngester(pipeline, pdf));
 
         Func<Task> run = () => jobs.IngestAsync(
             documentId.ToString(), Options(containerId, documentId) with { Generation = generation }, CancellationToken.None);
@@ -86,6 +88,7 @@ public class MathSymbolIngestionTests(SharedWebAppFixture fixture)
         else
             await run.Should().ThrowAsync<InvalidOperationException>("a final transient failure is rethrown for the dashboard");
 
+        embedder.Calls.Should().BeGreaterThan(0);
         var doc = await ReadAsync(sp, documentId);
         doc.IngestionStatus.Should().Be(permanent ? DocumentStatus.FailedPermanent : DocumentStatus.FailedRetryable);
         doc.ErrorMessage.Should().Be($"Embedding failed on \"{MathX}�\" at offset 3253");
@@ -137,9 +140,10 @@ public class MathSymbolIngestionTests(SharedWebAppFixture fixture)
     /// A one-page PDF whose oblique font maps, through its ToUnicode table, code 01 to U+1D465 and
     /// code 03 to NUL, as LaTeX math fonts and broken glyph mappings do. One line reads as prose;
     /// the other is an "a" followed by a thousand math x's with no space, so the chunker has to cut
-    /// inside the run, and the odd unit in front puts each cut between the halves of a pair.
+    /// inside the run, and the odd unit in front puts each cut between the halves of a pair. The
+    /// marker ends the prose line.
     /// </summary>
-    private static byte[] MathPdf()
+    private static byte[] MathPdf(string marker)
     {
         const string cmap = """
             /CIDInit /ProcSet findresource begin
@@ -163,7 +167,7 @@ public class MathSymbolIngestionTests(SharedWebAppFixture fixture)
         string content =
             "BT /F1 12 Tf 72 720 Td (Let ) Tj ET\n" +
             "BT /F2 12 Tf 100 720 Td <010301> Tj ET\n" +
-            "BT /F1 12 Tf 140 720 Td (be the unknown in the quadratic equation.) Tj ET\n" +
+            $"BT /F1 12 Tf 140 720 Td (be the unknown in the quadratic equation. {marker}) Tj ET\n" +
             $"BT /F2 1 Tf 72 600 Td <{run}> Tj ET";
         var objects = new[]
         {
@@ -205,11 +209,19 @@ public class MathSymbolIngestionTests(SharedWebAppFixture fixture)
         public int Dimensions => 768;
         public string ModelId => "throwing";
 
-        public Task<float[]> EmbedAsync(string text, EmbeddingInputType inputType, CancellationToken ct = default) =>
+        public int Calls { get; private set; }
+
+        public Task<float[]> EmbedAsync(string text, EmbeddingInputType inputType, CancellationToken ct = default)
+        {
+            Calls++;
             throw failure;
+        }
 
         public Task<IReadOnlyList<float[]>> EmbedBatchAsync(
-            IEnumerable<string> texts, EmbeddingInputType inputType, CancellationToken ct = default) =>
+            IEnumerable<string> texts, EmbeddingInputType inputType, CancellationToken ct = default)
+        {
+            Calls++;
             throw failure;
+        }
     }
 }
