@@ -13,11 +13,11 @@ v0.4.0 is the first release since v0.3.2 (March 2026) and the largest so far. It
 
 ### Highlights
 
-- **Search the tools your team already uses.** Connapse now indexes GitHub repositories, Jira, Confluence, Amazon S3, Azure Blob Storage, SFTP servers and local folders, and any other system through a small server you write to the [custom source protocol](docs/protocols/custom-source-v1.md). Each person sees only the results that system lets them read.
+- **Search the tools your team already uses.** Connapse now indexes GitHub repositories, Jira, Confluence, Amazon S3, Azure Blob Storage, SFTP servers and local folders, and any other system through a small server you write to the [custom source protocol](docs/protocols/custom-source-v1.md). GitHub, Jira and Confluence results are limited to what each person can read there, and S3 and Azure Blob results are too once per-user permissions are set up. Local folders and SFTP have no per-user permissions: everyone who can search the source sees every file in it.
 - **Agents can remember.** Five new MCP tools let an AI agent store dated facts with their sources, correct them later without losing the history, and recall them in another session.
 - **Agents can read code.** C#, TypeScript and Python files are split at each definition, and four new MCP tools find a symbol, its references, what a change would affect, and a map of the repository.
 - **Results bring their neighbours.** With link search on, a search also returns what its best results point to: the issue a pull request closes, the epic above a Jira issue, the Confluence page an issue links.
-- **Better answers out of the box.** Keyword search ranks with BM25 (the ranking most search engines use), hybrid search was retuned on measured question sets, every passage carries its document's title, and PDFs are read by layout, including tables and scanned pages. An optional local reranker re-scores the top results.
+- **Better answers out of the box.** Keyword search ranks with BM25 (the ranking most search engines use), hybrid search was retuned on measured question sets, every passage carries its document's title, and PDFs are read by layout, including tables and scanned pages, when the server has the memory for it (see step 4 below). An optional local reranker re-scores the top results.
 - **One set of rules everywhere.** The web app, the REST API and the MCP server now share one implementation per action, so they can't disagree about who may do what. Errors share one format, the API has a published OpenAPI spec, and an agent's deletes wait for a person to approve them.
 - **Sign in from MCP clients.** Connapse is an OAuth 2.1 authorization server, so clients such as Claude Code and Cursor sign in through the browser instead of a pasted key.
 
@@ -27,14 +27,15 @@ Migrations run when the app starts and only go forward, so the backup in step 2 
 
 1. Let uploads that are still indexing finish. Jobs queued by v0.3.2 live in memory and are lost when it stops.
 2. Back up, following [Back up and restore Connapse](docs/self-host/backup-and-restore.md).
-3. Take the new `docker-compose.yml` from the release package. The `minio/minio` image the old file names is no longer published, so the old file can't start MinIO. If you keep your own compose file, change the MinIO image to `cgr.dev/chainguard/minio` and add `user: "0"`.
-4. Set `CONNAPSE_VERSION=v0.4.0`, pull and start, as in the upgrade guide.
-5. Recreate each S3, Azure Blob or filesystem container as a source. See the first breaking change below.
-6. Re-issue every personal access token and agent key that has no scopes, and check that tokens used for admin work carry the admin scope they need.
-7. Move MCP clients that use the SSE transport to Streamable HTTP at `/mcp/`, and expect MCP clients that signed in with OAuth to sign in once more.
-8. Install the standalone [connapse-cli](https://github.com/Destrayon/connapse-cli) and run `connapse auth login`.
-9. Ask everyone who linked an AWS or Azure account to link it again under **Profile → Integrations**.
-10. Run a reindex with `POST /api/settings/reindex` and an empty body. It re-reads only the documents whose parser or settings changed, which after this upgrade is most PDFs, Word and PowerPoint files and text files. `POST /api/containers/{id}/reindex` with `{"dryRun": true}` shows how many first. See [Change the embedding model](docs/guides/change-embedding-model.md#do-it-with-the-api).
+3. Save each S3, Azure Blob or filesystem container's settings while v0.3.2 is still running: `GET /api/containers` returns every container's `connectorType` and `connectorConfig` (bucket, prefix, root path and so on). The upgrade deletes both, and you need them to set those containers up again as sources. Keep the output somewhere private, since a config can hold credentials.
+4. Take the new `docker-compose.yml` from the release package. The `minio/minio` image the old file names is no longer published, so the old file can't start MinIO. If you keep your own compose file, change the MinIO image to `cgr.dev/chainguard/minio` and add `user: "0"`. Reading PDFs by layout needs about 900 MB per parser on top of the app itself; with the release file's 1 GB limit on `web`, PDFs are read in plain content order and the log says so. Raise `web`'s memory limit to 3 GB, as the repository's own `docker-compose.yml` does, before you reindex.
+5. Set `CONNAPSE_VERSION=v0.4.0`, pull and start, as in the upgrade guide.
+6. Recreate each S3, Azure Blob or filesystem container as a source, using the settings you saved in step 3. See the first breaking change below.
+7. Re-issue every personal access token and agent key that has no scopes, and check that tokens used for admin work carry the admin scope they need.
+8. Move MCP clients that use the SSE transport to Streamable HTTP at `/mcp/`, and expect MCP clients that signed in with OAuth to sign in once more.
+9. Install the standalone [connapse-cli](https://github.com/Destrayon/connapse-cli) and run `connapse auth login`.
+10. Ask everyone who linked an AWS or Azure account to link it again under **Profile → Integrations**.
+11. Run a reindex with `POST /api/settings/reindex` and an empty body. It re-reads only the documents whose parser or settings changed, which after this upgrade is most PDFs, Word and PowerPoint files and text files. `POST /api/containers/{id}/reindex` with `{"dryRun": true}` shows how many first. See [Change the embedding model](docs/guides/change-embedding-model.md#do-it-with-the-api).
 
 ### Breaking changes
 
@@ -44,7 +45,7 @@ Migrations run when the app starts and only go forward, so the backup in step 2 
 - `connectorType` and `connectorConfig` are gone from container requests and responses, and `POST /api/containers/test-connection` is removed. A request that still sends `connectorType` gets an ordinary container. Connections are tested on the **Connections** page or through `/api/v1/connections`.
 - **The Azure Blob connector and Azure AD sign-in were rebuilt** (#480, #505). The `Identity__AzureAd__*` and `Identity__AwsSso__*` settings are no longer read. Set Azure up again under **Admin → Providers → Azure**, following [Azure setup](docs/sources/azure-setup.md).
 - **Linked AWS and Azure accounts are deleted** by the upgrade (#480). Each person links again under **Profile → Integrations**.
-- **The MinIO image changed** to `cgr.dev/chainguard/minio`, running as root so it can read the volume the old image wrote (#538). See step 3 above.
+- **The MinIO image changed** to `cgr.dev/chainguard/minio`, running as root so it can read the volume the old image wrote (#538). See step 4 above.
 - **The CLI moved to its own repository** (#304), and the old CLI sign-in routes `/cli/authorize` and `/api/v1/auth/cli/exchange` are removed (#286). Install [connapse-cli](https://github.com/Destrayon/connapse-cli); it reads the same `~/.connapse/credentials.json`, so `connapse auth login` once is enough.
 
 **Tokens, scopes and sign-in** (#1063)
@@ -80,7 +81,7 @@ These change what a search returns rather than making a call fail.
 - **`FusionAlpha` defaults to 0.65** (#566, #669). A saved value equal to an old default (0.3 or 0.75) is moved to 0.65; other saved values are kept.
 - **`LinkMaxHops` defaults to 1 instead of 2** (CON-33). Set it to 2 to keep the old two-step walk.
 - **Markdown files (`.md`, `.markdown`, `.mdx`) are always split by their headings**, whatever chunking strategy is set (#318).
-- **PDFs are read by layout by default** (#654). Indexing is slower and each parser host can use about 800 MB more memory. Set **Settings → Upload → PdfTextMode** (`Knowledge__Upload__PdfTextMode`) to `ContentOrder` for the faster reading.
+- **PDFs are read by layout by default** (#654). Indexing is slower and each parser host can use about 800 MB more memory. A parser with less than about 900 MB reads PDFs without the layout model and logs a warning, so give `web` the memory in step 4. Set **Settings → Upload → PdfTextMode** (`Knowledge__Upload__PdfTextMode`) to `ContentOrder` for the faster reading.
 - **Embeddings for models that expect prefixes, such as the default `nomic-embed-text`, now get them** (#560). Search keeps working on old vectors until a reindex moves them over. Turn `UseModelPrefixes` off to keep the old embeddings.
 
 **Only for servers built from `main` between May and October 2026**
