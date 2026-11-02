@@ -4,6 +4,7 @@ using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Pipeline;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Vectors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -767,13 +768,15 @@ public class ReindexService : IReindexService
         && int.TryParse(stored, NumberStyles.Integer, CultureInfo.InvariantCulture, out int storedMb)
         && parserMb > storedMb;
 
-    private (bool changed, string? stored, string? current) CheckEmbeddingSettingsChanged(DocumentEntity doc)
-    {
-        var currentSettings = _embeddingSettings.CurrentValue;
+    private (bool changed, string? stored, string? current) CheckEmbeddingSettingsChanged(DocumentEntity doc) =>
+        EmbeddingSettingsChanged(doc.Metadata, _embeddingSettings.CurrentValue);
 
+    internal static (bool changed, string? stored, string? current) EmbeddingSettingsChanged(
+        IReadOnlyDictionary<string, string> metadata, EmbeddingSettings currentSettings)
+    {
         // Get stored embedding info from metadata
-        doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingProvider, out var storedProvider);
-        doc.Metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingModel, out var storedModel);
+        metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingProvider, out var storedProvider);
+        metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingModel, out var storedModel);
 
         // If no stored metadata, can't compare (might be pre-metadata document)
         if (string.IsNullOrEmpty(storedModel))
@@ -784,10 +787,28 @@ public class ReindexService : IReindexService
         var currentKey = $"{currentSettings.Provider}:{EmbeddingIdentity.For(currentSettings)}";
         var storedKey = $"{storedProvider}:{storedModel}";
 
-        return (!string.Equals(currentKey, storedKey, StringComparison.OrdinalIgnoreCase),
-            storedKey,
-            currentKey);
+        if (!string.Equals(currentKey, storedKey, StringComparison.OrdinalIgnoreCase))
+            return (true, storedKey, currentKey);
+
+        // Same model, but asking it for a size (or a different size) changes its vectors (#666).
+        bool storedRequested = metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingDimensionsRequested, out var requested)
+            ? requested == "true"
+            : EmbeddingDimensions.RequestedBeforeSendDimensions(currentSettings);
+        int? storedDimensions = metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingDimensions, out var dimensions)
+            && int.TryParse(dimensions, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+                ? parsed
+                : null;
+        bool currentRequested = EmbeddingDimensions.Requested(currentSettings);
+        bool sizeChanged = storedRequested != currentRequested
+            || currentRequested && storedDimensions is not null && storedDimensions != currentSettings.Dimensions;
+
+        return sizeChanged
+            ? (true, $"{storedKey} ({SizeOf(storedRequested, storedDimensions)})", $"{currentKey} ({SizeOf(currentRequested, currentSettings.Dimensions)})")
+            : (false, storedKey, currentKey);
     }
+
+    private static string SizeOf(bool requested, int? dimensions) =>
+        requested ? $"asked for {dimensions} dimensions" : "native size";
 
     private static async Task<string> ComputeContentHashAsync(Stream content, CancellationToken ct)
     {

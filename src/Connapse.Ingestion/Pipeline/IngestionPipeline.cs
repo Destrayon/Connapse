@@ -8,6 +8,7 @@ using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Connapse.Storage.Documents;
+using Connapse.Storage.Vectors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -61,6 +62,8 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyEmbeddingProvider = "IndexedWith:EmbeddingProvider";
     public const string MetadataKeyEmbeddingModel = "IndexedWith:EmbeddingModel";
     public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
+    /// <summary>Whether the model was asked for the configured size; absent on documents indexed before #666.</summary>
+    public const string MetadataKeyEmbeddingDimensionsRequested = "IndexedWith:EmbeddingDimensionsRequested";
 
     /// <summary>Which parser produced the document's chunks, and which version of it (#596).</summary>
     public const string MetadataKeyParser = "IndexedWith:Parser";
@@ -569,6 +572,7 @@ public class IngestionPipeline : IKnowledgeIngester
         // The vector-space id (model plus its prompts), so changing prompts marks documents for reindex.
         metadata[MetadataKeyEmbeddingModel] = EmbeddingIdentity.For(embedSettings);
         metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
+        metadata[MetadataKeyEmbeddingDimensionsRequested] = EmbeddingDimensions.Requested(embedSettings) ? "true" : "false";
 
         // Carry forward the sync layer's record of what the remote looked like when this
         // document was last ingested. Only SourceSyncService sets these, so any other caller —
