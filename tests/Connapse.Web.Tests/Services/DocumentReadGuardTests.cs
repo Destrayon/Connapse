@@ -17,12 +17,16 @@ public class DocumentReadGuardTests
     private readonly ISearchResultVerifier _verifier = Substitute.For<ISearchResultVerifier>();
     private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
     private readonly Dictionary<string, string?> _uris = [];
+    // Unaddressed documents whose source always reports an address, which the store refuses.
+    private readonly HashSet<string> _refused = [];
     private readonly Document _document = new("doc-1", "c", "a.md", "text/markdown", "/a.md", 1, DateTime.UtcNow, []);
 
     public DocumentReadGuardTests()
     {
         _documents.GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .Returns(_ => (IReadOnlyDictionary<string, string?>)_uris);
+        _documents.GetUnaddressedAdmittedAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(c => (IReadOnlySet<string>)c.Arg<IReadOnlyCollection<string>>().Except(_refused).ToHashSet());
         // Denies everything, so a test that reaches the verifier can tell.
         _verifier.VerifyAsync(Arg.Any<IReadOnlyList<SearchHit>>(), Arg.Any<Guid?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<SearchHit>());
@@ -85,6 +89,25 @@ public class DocumentReadGuardTests
         (await Guard().CanReadAsync(Guid.NewGuid(), _document, default)).Should().BeTrue();
 
         await _verifier.DidNotReceiveWithAnyArgs().VerifyAsync(default!, default, default, default);
+    }
+
+    [Fact]
+    public async Task CanReadAsync_NullResourceUriFromAnAddressingSource_Denies()
+    {
+        _uris["doc-1"] = null;
+        _refused.Add("doc-1");
+
+        (await Guard().CanReadAsync(Guid.NewGuid(), _document, default)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ReadableAsync_NullResourceUriFromAnAddressingSource_IsLeftOut()
+    {
+        _uris["up"] = null;
+        _uris["s3"] = null;
+        _refused.Add("s3");
+
+        (await Guard().ReadableAsync(Guid.NewGuid(), [Doc("up"), Doc("s3")], default)).Should().BeEquivalentTo(["up"]);
     }
 
     [Fact]

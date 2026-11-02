@@ -355,6 +355,24 @@ public class PostgresDocumentStore : IDocumentStore
         return result;
     }
 
+    public async Task<IReadOnlySet<string>> GetUnaddressedAdmittedAsync(
+        IReadOnlyCollection<string> documentIds, CancellationToken ct = default)
+    {
+        Guid[] ids = documentIds.Select(Guid.Parse).ToArray();
+        if (ids.Length == 0) return new HashSet<string>(StringComparer.Ordinal);
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        // The same rule search applies, so a direct read never hands out what search would hide.
+        // Only fixed SQL is spliced in; the ids are a parameter.
+        string sql = "SELECT d.id AS \"Value\" FROM documents d WHERE d.id = ANY({0}) AND " + SearchScopes.UnaddressedAdmitted;
+        List<Guid> admitted = await context.Database
+            .SqlQueryRaw<Guid>(sql, ids)
+            .ToListAsync(ct);
+
+        return admitted.Select(id => id.ToString()).ToHashSet(StringComparer.Ordinal);
+    }
+
     private static Document MapToModel(DocumentEntity entity)
     {
         var metadata = new Dictionary<string, string>(entity.Metadata ?? new());
