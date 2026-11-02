@@ -58,6 +58,7 @@ public enum MemoryCorrection { Changed = 0, Wrong = 1 }
 /// Which facts to read. With <paramref name="AsOf"/> null and <paramref name="History"/> false, the facts true now;
 /// with <paramref name="AsOf"/>, the facts true then. <paramref name="History"/> also returns ended and superseded
 /// facts. <paramref name="ChangedFrom"/>/<paramref name="ChangedTo"/> keep facts that started or ended in that window.
+/// <paramref name="ChainId"/> keeps one fact's versions, every one of them (a fact's history).
 /// </summary>
 public sealed record MemoryQuery(
     Guid ContainerId,
@@ -68,7 +69,8 @@ public sealed record MemoryQuery(
     bool History = false,
     DateTimeOffset? ChangedFrom = null,
     DateTimeOffset? ChangedTo = null,
-    int Limit = 10);
+    int Limit = 10,
+    Guid? ChainId = null);
 
 /// <summary>
 /// A fact as one reader may see it. Only facts whose every source the reader can read are returned; a fact with no
