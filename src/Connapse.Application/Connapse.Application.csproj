@@ -26,6 +26,19 @@
   </ItemGroup>
 
   <!--
+    ITfoxtec.Identity.Saml2 (through Identity) asks for System.Security.Cryptography.Xml 10.0.7, and
+    4.21.0 only moves that to 10.0.12; both fall inside GHSA-c399-9853-6jmj, GHSA-7hqp-7c5m-4vq6 and
+    GHSA-r955-8q5j-3h83, fixed in 10.0.13. Web never resolves the package because the shared framework
+    supersedes it, but this project switches transitive framework references off, so here it resolves
+    for real and NU1903 fails the warnings-as-errors build. Same pin and version as Connapse.Storage and
+    the test projects (Directory.Build.props); PrivateAssets keeps it from flowing up into Web, so the
+    published app still ships no copy of its own. Remove once ITfoxtec asks for 10.0.13 or later.
+  -->
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.13" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!--
     The ASP.NET Core packages Identity and Storage bring in, made invisible to this project's
     compiler: an operation that names one of their types doesn't build. They still ship, because
     the referenced projects use them. Application_HasNoAspNetCoreDependency fails if a package
