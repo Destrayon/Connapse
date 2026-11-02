@@ -51,6 +51,8 @@ internal static class PdfOcr
 
         ct.ThrowIfCancellationRequested();
 
+        if (!Pdfium.IsSupported)
+            throw new PlatformNotSupportedException(Pdfium.Unsupported);
         PdfImage image;
         using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: renderDpi)))
         {
@@ -98,6 +100,8 @@ internal static class PdfOcr
     /// </summary>
     internal static int? RenderDpi(byte[] pdf, int pageIndex, int dpi)
     {
+        if (!Pdfium.IsSupported)
+            throw new PlatformNotSupportedException(Pdfium.Unsupported);
         var size = Conversion.GetPageSize(pdf, pageIndex);
         float longestInches = Math.Max(size.Width, size.Height) / 72f;
         if (!float.IsFinite(longestInches) || longestInches <= 0)

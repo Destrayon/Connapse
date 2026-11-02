@@ -58,6 +58,8 @@ internal static partial class PdfTableStructure
         // A poster-sized table at the render resolution would be a bitmap of gigabytes: past
         // PdfOcr.MaxRenderedSide it is rendered smaller, which the model's 488-pixel input never misses.
         int dpi = (int)Math.Max(1, Math.Min(RenderDpi, PdfOcr.MaxRenderedSide * 72.0 / Math.Max(bounds.Width, bounds.Height)));
+        if (!Pdfium.IsSupported)
+            throw new PlatformNotSupportedException(Pdfium.Unsupported);
         PdfImage image;
         using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex, options: new RenderOptions(Dpi: dpi, Bounds: bounds, DpiRelativeToBounds: true)))
         {

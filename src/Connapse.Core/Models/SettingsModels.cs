@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace Connapse.Core;
 
@@ -484,9 +485,15 @@ public record LlmSettings
 public record UploadSettings
 {
     /// <summary>
-    /// Number of parallel ingestion workers (default: 4).
+    /// Deprecated, and never read: the ingestion worker count is <c>Hangfire:IngestionWorkerCount</c>, read once at
+    /// startup (CON-170). Still accepted so clients that send it keep working; it is never stored or returned.
     /// </summary>
-    public int ParallelWorkers { get; set; } = 4;
+    [Obsolete(ParallelWorkersDeprecation)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int ParallelWorkers { get => 0; set { } }
+
+    public const string ParallelWorkersDeprecation =
+        "Deprecated and ignored: set the ingestion worker count with Hangfire:IngestionWorkerCount (environment variable Hangfire__IngestionWorkerCount), which takes effect on restart.";
 
     /// <summary>
     /// Longest a single file may spend in its parser before it fails with <c>parse_timeout</c>
@@ -628,73 +635,5 @@ public record UploadSettings
     /// and ingestion speed matters more. Off, OCR'd pages are arranged by position.
     /// </summary>
     public bool PdfLayoutOnOcrPages { get; set; } = true;
-}
-
-/// <summary>
-/// Container/document summary generation settings.
-/// Resolution hierarchy (highest wins):
-///   per-container SettingsOverridesJson.summary
-///   → global DB settings table, key="Summary"
-///   → property-initializer defaults below (Enabled=false, others=null)
-/// </summary>
-public record SummarySettings : IValidatableObject
-{
-    /// <summary>
-    /// Master toggle. When false, both per-doc summaries and container rollups
-    /// skip with reason "summaries_disabled" and no LLM call is made.
-    /// Default: false (opt-in).
-    /// </summary>
-    public bool Enabled { get; init; } = false;
-
-    /// <summary>
-    /// Container summary generation method. See <see cref="SummaryStrategy"/> for allowed values.
-    /// Default: <c>document-clustering</c> — clusters by pooled chunk embeddings and lazy-summarizes
-    /// K medoid documents at rollup time. Set to <c>summary-clustering</c> to use the legacy
-    /// eager per-doc summarization path.
-    /// </summary>
-    public string ContainerSummaryMethod { get; init; } = SummaryStrategy.DocumentClustering;
-
-    /// <summary>
-    /// LLM provider for summary generation (Ollama / OpenAI / AzureOpenAI / Anthropic).
-    /// Null = inherit from instance-level LlmSettings.Provider via SummaryLlmResolver.
-    /// </summary>
-    public string? LlmProvider { get; init; }
-
-    /// <summary>
-    /// Model identifier for summary generation (e.g. "qwen3:14b", "claude-haiku-4-5").
-    /// Null = inherit from instance-level LlmSettings.Model. Wired via
-    /// LlmCompletionOptions.Model per-call override (no provider re-construction).
-    /// </summary>
-    public string? LlmModel { get; init; }
-
-    /// <summary>
-    /// Override for the per-document system prompt. Null/empty = use
-    /// SummaryPrompts.PerDocSystemPrompt. When non-null, the stored string IS
-    /// the prompt sent to the LLM — no concatenation, no automatic prefixing.
-    /// </summary>
-    public string? PerDocSystemPrompt { get; init; }
-
-    /// <summary>
-    /// Override for the container-rollup system prompt. Same semantics as
-    /// PerDocSystemPrompt; falls back to SummaryPrompts.ContainerRollupSystemPrompt.
-    /// </summary>
-    public string? ContainerRollupSystemPrompt { get; init; }
-
-    /// <summary>
-    /// Max input tokens fed to the per-document LLM call. Null = use default (5_000).
-    /// Maps to characters via a 4-char/token heuristic at the truncation site
-    /// in PerDocSummarizer (replaces the hardcoded MaxInputCharacters = 20_000).
-    /// </summary>
-    public int? MaxInputTokens { get; init; }
-
-    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
-    {
-        if (!SummaryStrategy.All.Contains(ContainerSummaryMethod))
-        {
-            yield return new ValidationResult(
-                $"ContainerSummaryMethod must be one of: {string.Join(", ", SummaryStrategy.All)}. Got: '{ContainerSummaryMethod}'.",
-                new[] { nameof(ContainerSummaryMethod) });
-        }
-    }
 }
 

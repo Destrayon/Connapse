@@ -22,6 +22,7 @@ namespace Connapse.Web.Tests.Components;
 /// <c>ConnectorFactory</c> reads.
 /// </summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class NewSourceConfluenceTests : IDisposable
 {
     private const string CloudId = "11111111-2222-3333-4444-555555555555";
@@ -64,6 +65,7 @@ public class NewSourceConfluenceTests : IDisposable
         auth.SetAuthorized("admin");
         auth.SetRoles("Admin");
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
 
         var http = Substitute.For<IHttpClientFactory>();
         http.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient(stub, disposeHandler: false));
@@ -72,8 +74,10 @@ public class NewSourceConfluenceTests : IDisposable
             .Returns(Task.FromResult<IReadOnlyList<Connection>>([connection, otherConnection]));
         connections.GetAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(connection);
         connections.GetSecretAsync(connection.Id, Arg.Any<CancellationToken>()).Returns("the-secret");
+        connections.GetSecretAtAsync(connection.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-secret");
         connections.GetAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns(otherConnection);
         connections.GetSecretAsync(otherConnection.Id, Arg.Any<CancellationToken>()).Returns("the-other-secret");
+        connections.GetSecretAtAsync(otherConnection.Id, Arg.Any<DateTime>(), Arg.Any<CancellationToken>()).Returns("the-other-secret");
         sources.ListByConnectionAsync(otherConnection.Id, Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<IReadOnlyList<Source>>([]));
 
@@ -108,7 +112,12 @@ public class NewSourceConfluenceTests : IDisposable
             NSubstitute.Substitute.For<Connapse.Core.Interfaces.ICustomProviderStore>(),
             NSubstitute.Substitute.For<Connapse.Core.Interfaces.IConnectionStore>()));
         ctx.Services.AddSingleton(new AtlassianSiteService(
-            http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens));
+            http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(), tokens,
+            new Connapse.Application.Connections.CreateConnection(connections, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
+                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>()),
+            new Connapse.Application.Connections.ReplaceConnectionSecret(connections, Substitute.For<Connapse.Core.Interfaces.ISourceStore>(),
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), Substitute.For<IAuditLogger>(),
+                Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));
@@ -267,7 +276,7 @@ public class NewSourceConfluenceTests : IDisposable
 
         var guide = cut.Find("#atlassian-setup-guide");
         guide.GetAttribute("href").Should().Be(
-            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#4-confluence-sources");
+            "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#4-confluence-sources");
         guide.ParentElement!.ClassList.Should().Contain("modal-header", "the link sits in the dialog's title row");
         guide.PreviousElementSibling!.Id.Should().Be("new-source-title");
     }
@@ -462,7 +471,7 @@ public class NewSourceConfluenceTests : IDisposable
         var note = cut.Find("#confluence-attachments-scope");
         note.TextContent.Should().Contain("read:attachment:confluence");
         note.QuerySelector("a")!.GetAttribute("href").Should().Be(
-            "https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+            "https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope");
         cut.Find("#confluence-attachments").GetAttribute("aria-describedby")
             .Should().Be("confluence-attachments-help confluence-attachments-scope");
 
@@ -492,7 +501,7 @@ public class NewSourceConfluenceTests : IDisposable
             .Should().Be($"/connections?edit={otherConnection.Id}&replace=1");
         cut.Find("#confluence-attachments-scope-route-replace").TextContent.Should().Contain("Replace credentials on globex.atlassian.net");
         cut.Find("#confluence-attachments-scope-route-guide").GetAttribute("href")
-            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/atlassian-setup.md#missing-scope");
+            .Should().Be("https://github.com/Destrayon/Connapse/blob/main/docs/sources/atlassian-setup.md#missing-scope");
         cut.Find("#confluence-attachments").GetAttribute("aria-describedby")
             .Should().Be("confluence-attachments-help confluence-attachments-scope-route");
     }

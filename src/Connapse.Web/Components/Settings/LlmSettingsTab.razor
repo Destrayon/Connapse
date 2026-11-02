@@ -1,6 +1,18 @@
 @using Connapse.Core
-@using Connapse.Core.Interfaces
-@using Connapse.Storage.ConnectionTesters
+
+<div class="alert alert-info" role="note" data-testid="llm-unused-notice">
+    <div class="d-flex align-items-start">
+        <span class="bi-info-circle-fill me-2 mt-1 flex-shrink-0"></span>
+        <div>
+            <strong>No feature uses these settings yet.</strong>
+            <div class="small mt-1">
+                No Connapse feature calls this AI model today. The settings are kept for features planned later,
+                so you can save a provider now, but filling them in changes nothing yet. Test Connection is the
+                one exception: it sends the provider a short test request.
+            </div>
+        </div>
+    </div>
+</div>
 
 <EditForm Model="@localSettings" OnValidSubmit="HandleSubmit">
     <DataAnnotationsValidator />
@@ -41,7 +53,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.OpenAiApiKey" type="password" class="form-control" placeholder="sk-..." />
+                <InputText @bind-Value="localSettings.OpenAiApiKey" type="password" class="form-control" placeholder="@SettingsPageSaves.Placeholder(SavedKeys, localSettings.OpenAiApiKey, "sk-...", nameof(LlmSettings.OpenAiApiKey), nameof(LlmSettings.ApiKey))" />
             </div>
 
             <div class="col-md-6">
@@ -59,7 +71,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.AzureApiKey" type="password" class="form-control" />
+                <InputText @bind-Value="localSettings.AzureApiKey" type="password" class="form-control" placeholder="@SettingsPageSaves.Placeholder(SavedKeys, localSettings.AzureApiKey, null, nameof(LlmSettings.AzureApiKey), nameof(LlmSettings.ApiKey))" />
             </div>
 
             <div class="col-md-6">
@@ -77,7 +89,7 @@
         {
             <div class="col-md-6">
                 <label class="form-label">API Key</label>
-                <InputText @bind-Value="localSettings.AnthropicApiKey" type="password" class="form-control" placeholder="sk-ant-..." />
+                <InputText @bind-Value="localSettings.AnthropicApiKey" type="password" class="form-control" placeholder="@SettingsPageSaves.Placeholder(SavedKeys, localSettings.AnthropicApiKey, "sk-ant-...", nameof(LlmSettings.AnthropicApiKey), nameof(LlmSettings.ApiKey))" />
             </div>
 
             <div class="col-md-6">
@@ -95,14 +107,7 @@
         <div class="col-md-6">
             <label class="form-label">Temperature</label>
             <InputNumber @bind-Value="localSettings.Temperature" class="form-control" step="0.1" min="0" max="2" disabled="@IsAnthropic" />
-            @if (IsAnthropic)
-            {
-                <small class="form-text text-muted">Not used for Anthropic: its API no longer accepts a temperature, so Claude uses its default</small>
-            }
-            else
-            {
-                <small class="form-text text-muted">Randomness (0.0-2.0)</small>
-            }
+            <small class="form-text text-muted">Randomness (0.0-2.0). Not used for Anthropic: its API no longer accepts a temperature, so Claude uses its default.</small>
         </div>
 
         <div class="col-md-6">
@@ -149,10 +154,8 @@
     </div>
 </EditForm>
 
-@inject OllamaConnectionTester OllamaTester
-@inject OpenAiLlmConnectionTester OpenAiLlmTester
-@inject AzureOpenAiLlmConnectionTester AzureOpenAiLlmTester
-@inject AnthropicConnectionTester AnthropicTester
+@inject Connapse.Application.Settings.TestConnection Test
+@inject AuthenticationStateProvider Authentication
 
 @code {
     [Parameter]
@@ -160,6 +163,10 @@
 
     [Parameter]
     public EventCallback<LlmSettings> OnSave { get; set; }
+
+    /// <summary>The keys saved for these settings, by property name; the page never holds their values.</summary>
+    [Parameter]
+    public IReadOnlySet<string> SavedKeys { get; set; } = new HashSet<string>();
 
     private LlmSettings localSettings = new();
     private bool isTestingConnection;
@@ -230,19 +237,7 @@
 
         try
         {
-            IConnectionTester tester = localSettings.Provider switch
-            {
-                "OpenAI" => OpenAiLlmTester,
-                "AzureOpenAI" => AzureOpenAiLlmTester,
-                "Anthropic" => AnthropicTester,
-                _ => OllamaTester
-            };
-
-            var result = await tester.TestConnectionAsync(
-                localSettings, TimeSpan.FromSeconds(10));
-
-            testSuccess = result.Success;
-            testMessage = result.Message;
+            (testSuccess, testMessage) = await Test.TestAsync(Authentication, "llm", localSettings, 10);
         }
         catch (Exception ex)
         {

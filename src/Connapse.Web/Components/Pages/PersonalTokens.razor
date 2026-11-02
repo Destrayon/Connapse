@@ -1,10 +1,12 @@
 @page "/settings/tokens"
-@attribute [Authorize]
+@attribute [Authorize(Policy = "RequirePerson")]
+@using Connapse.Application
+@using Connapse.Application.Tokens
 @using Connapse.Core
-@using Connapse.Identity.Services
-@inject PatService PatService
+@inject PersonalTokenOperations Tokens
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
+@inject ILogger<PersonalTokens> Logger
 @rendermode InteractiveServer
 
 <PageTitle>API Tokens - Connapse</PageTitle>
@@ -86,6 +88,27 @@
                         <input type="date" class="form-control" @bind="newTokenExpiry" />
                     </div>
                     <div class="col-md-auto">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="new-pat-approval" @bind="newTokenRequiresApproval" />
+                            <label class="form-check-label" for="new-pat-approval">Ask me before it deletes anything over MCP</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label mb-1">Scopes</label>
+                        <div>
+                            @foreach (var scope in TokenScopeChoices.PersonalToken)
+                            {
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="new-pat-scope-@scope"
+                                           checked="@newTokenScopes.Contains(scope)"
+                                           @onchange="e => newTokenScopes.SymmetricExceptWith([scope])" />
+                                    <label class="form-check-label" for="new-pat-scope-@scope"><code>@scope</code></label>
+                                </div>
+                            }
+                        </div>
+                        <div class="form-text">The token can do only what its scopes allow, and never more than your role does.</div>
+                    </div>
+                    <div class="col-md-auto">
                         <button class="btn btn-primary" @onclick="CreateTokenAsync"
                                 disabled="@isProcessing">
                             @if (isProcessing)
@@ -101,7 +124,15 @@
     }
 
     <!-- Token list -->
-    @if (tokens.Count == 0)
+    @if (!loaded)
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <span class="spinner-border" role="status"></span>
+            </div>
+        </div>
+    }
+    else if (tokens.Count == 0)
     {
         <div class="card">
             <div class="card-body text-center py-5 text-muted">
@@ -202,6 +233,8 @@
 @code {
     private string newTokenName = "";
     private DateTime? newTokenExpiry;
+    private bool newTokenRequiresApproval = true;
+    private readonly HashSet<string> newTokenScopes = [TokenScopeChoices.Default];
     private bool isProcessing;
     private bool showCreateForm;
     private bool showRevoked;
@@ -209,9 +242,10 @@
     private string? statusMessage;
     private bool statusSuccess;
     private PatCreateResponse? newTokenResponse;
-    private Guid currentUserId;
+    private OperationContext context = null!;
 
-    private List<PatListItem> tokens = new();
+    private IReadOnlyList<PatListItem> tokens = [];
+    private bool loaded;
 
     private IEnumerable<PatListItem> DisplayedTokens =>
         showRevoked ? tokens : tokens.Where(t => !t.IsRevoked);
@@ -231,82 +265,102 @@
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (userIdStr is not null)
-            Guid.TryParse(userIdStr, out currentUserId);
+        context = new OperationContext(authState.User, OperationSurface.Ui);
 
         await LoadTokensAsync();
     }
 
     private async Task LoadTokensAsync()
     {
-        tokens = (await PatService.ListAsync(currentUserId)).ToList();
+        // Its own catch, so a token just created stays on screen when only the refresh fails.
+        try
+        {
+            var listed = await Tokens.List.RunAsync(context);
+            if (!listed.Succeeded)
+                Say(listed.Detail, false);
+            tokens = listed.Result ?? [];
+        }
+        catch (Exception ex)
+        {
+            Failed(ex, "Your tokens couldn't be loaded. Reload the page to try again.");
+        }
+        loaded = true;
     }
 
-    private async Task CreateTokenAsync()
+    /// <summary>
+    /// Runs one of the page's changes with the page busy. An unexpected error, such as the database being
+    /// unreachable, shows <paramref name="failure"/> rather than ending the page.
+    /// </summary>
+    private async Task RunAsync(string failure, Func<Task> change)
     {
-        if (string.IsNullOrWhiteSpace(newTokenName))
+        isProcessing = true;
+        statusMessage = null;
+        try
         {
-            statusMessage = "Token name is required.";
-            statusSuccess = false;
+            await change();
+        }
+        catch (Exception ex)
+        {
+            Failed(ex, failure);
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void Failed(Exception ex, string failure)
+    {
+        Logger.LogError(ex, "API Tokens page: {Failure}", failure);
+        Say(failure, false);
+    }
+
+    private void Say(string? message, bool success)
+    {
+        statusMessage = message;
+        statusSuccess = success;
+    }
+
+    private Task CreateTokenAsync() => RunAsync("The token couldn't be created. Try again.", async () =>
+    {
+        var created = await Tokens.Create.RunAsync(context, new PatCreateRequest(
+            newTokenName,
+            Scopes: [.. TokenScopeChoices.PersonalToken.Where(newTokenScopes.Contains)],
+            // The date picker's midnight has no time zone, which the operation reads as UTC.
+            ExpiresAt: newTokenExpiry,
+            RequiresApproval: newTokenRequiresApproval));
+        if (!created.Succeeded)
+        {
+            Say(created.Detail, false);
             return;
         }
 
-        isProcessing = true;
-        statusMessage = null;
-        try
-        {
-            var request = new PatCreateRequest(
-                newTokenName.Trim(),
-                Scopes: null,
-                ExpiresAt: newTokenExpiry.HasValue
-                    ? DateTime.SpecifyKind(newTokenExpiry.Value, DateTimeKind.Utc)
-                    : null);
+        newTokenResponse = created.Result;
+        newTokenName = "";
+        newTokenExpiry = null;
+        newTokenRequiresApproval = true;
+        newTokenScopes.Clear();
+        newTokenScopes.Add(TokenScopeChoices.Default);
+        showCreateForm = false;
+        await LoadTokensAsync();
+    });
 
-            newTokenResponse = await PatService.CreateAsync(currentUserId, request);
-            newTokenName = "";
-            newTokenExpiry = null;
-            showCreateForm = false;
-            await LoadTokensAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to create token: {ex.Message}";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
-
-    private async Task RevokeTokenAsync(Guid tokenId)
+    private Task RevokeTokenAsync(Guid tokenId)
     {
-        isProcessing = true;
-        statusMessage = null;
         confirmRevokeId = null;
-        try
+        return RunAsync("The token couldn't be revoked. Try again.", async () =>
         {
-            var revoked = await PatService.RevokeAsync(currentUserId, tokenId);
-            if (!revoked)
+            var revoked = await Tokens.Revoke.RunAsync(context, tokenId);
+            if (!revoked.Succeeded)
             {
-                statusMessage = "Token not found or already revoked.";
-                statusSuccess = false;
+                Say(revoked.Detail, false);
                 return;
             }
+            Say("Token revoked.", true);
             if (newTokenResponse?.Id == tokenId)
                 newTokenResponse = null;
             await LoadTokensAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to revoke token: {ex.Message}";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        });
     }
 
     private async Task CopyTokenAsync()

@@ -1,14 +1,17 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# The same SDK global.json pins for CI's analysis (#786), so the shipped build is the one CI checked.
+FROM mcr.microsoft.com/dotnet/sdk:10.0.401 AS build
 WORKDIR /src
 
-# Copy solution and src for restore caching (picks up new projects automatically)
-COPY Connapse.slnx .
+# Copy solution and src for restore caching (picks up new projects automatically). The SDK pin and
+# Directory.Build.props come first: the props add package references every project restores.
+COPY global.json Directory.Build.props Connapse.slnx ./
 COPY src/ src/
 RUN dotnet restore src/Connapse.Web/Connapse.Web.csproj
 
 # Copy remaining files and publish
 COPY . .
-RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore
+# The OpenAPI document is committed at docs/api/openapi.json (#857); the image doesn't need it.
+RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore -p:OpenApiGenerateDocuments=false
 
 # The publish is portable, so it carries native libraries for every platform its packages ship
 # (ONNX Runtime, SkiaSharp, PDFium, libgit2): Windows, macOS, Android and iOS among them, ~700 MB.

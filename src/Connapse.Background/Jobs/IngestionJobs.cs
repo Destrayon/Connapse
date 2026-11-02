@@ -10,9 +10,7 @@ using Microsoft.Extensions.Logging;
 namespace Connapse.Background.Jobs;
 
 /// <summary>
-/// Hangfire job handlers for the ingestion pipeline + per-doc summarization.
-/// Indexing and summarization are split into separate jobs so they can be queued onto
-/// different worker pools (bounded-duration ingestion vs variable-duration LLM calls).
+/// Hangfire job handlers for the ingestion pipeline.
 /// </summary>
 /// <remarks>
 /// Retries are decided here rather than by Hangfire's <c>AutomaticRetry</c>, because the budget
@@ -34,10 +32,18 @@ public sealed class IngestionJobs : IIngestionJobs
     ];
 
     /// <summary>
-    /// How long a document may sit Queued or Processing before the sweep checks on its job. Matches
+    /// How long a document may sit Processing before the sweep checks on its job. Matches
     /// Hangfire's invisibility timeout, after which Hangfire itself gives up on a silent worker.
     /// </summary>
     internal static readonly TimeSpan StuckAfter = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    /// How long a document may sit Queued before the sweep checks on its job. A Queued document is
+    /// without a live job only for the moment between its status and its job being written, unless
+    /// the enqueue failed (CON-96), so it need not wait as long as a Processing one. A job still
+    /// waiting its turn or its retry is live, and is left alone.
+    /// </summary>
+    internal static readonly TimeSpan QueuedStuckAfter = TimeSpan.FromMinutes(5);
 
     /// <summary>Hangfire states in which a job will still run, or is running.</summary>
     private static readonly HashSet<string> LiveJobStates = new(StringComparer.OrdinalIgnoreCase)
@@ -48,8 +54,6 @@ public sealed class IngestionJobs : IIngestionJobs
     private readonly IKnowledgeIngester _ingester;
     private readonly IDocumentStore _docStore;
     private readonly IDocumentLifecycle _lifecycle;
-    private readonly IPerDocSummarizer _summarizer;
-    private readonly IContainerSettingsResolver _settingsResolver;
     private readonly IBackgroundJobClient _bgClient;
     private readonly IDbContextFactory<KnowledgeDbContext> _dbFactory;
     private readonly JobStorage _jobStorage;
@@ -60,8 +64,6 @@ public sealed class IngestionJobs : IIngestionJobs
         IKnowledgeIngester ingester,
         IDocumentStore docStore,
         IDocumentLifecycle lifecycle,
-        IPerDocSummarizer summarizer,
-        IContainerSettingsResolver settingsResolver,
         IBackgroundJobClient bgClient,
         IDbContextFactory<KnowledgeDbContext> dbFactory,
         JobStorage jobStorage,
@@ -71,8 +73,6 @@ public sealed class IngestionJobs : IIngestionJobs
         _ingester = ingester;
         _docStore = docStore;
         _lifecycle = lifecycle;
-        _summarizer = summarizer;
-        _settingsResolver = settingsResolver;
         _bgClient = bgClient;
         _dbFactory = dbFactory;
         _jobStorage = jobStorage;
@@ -91,6 +91,19 @@ public sealed class IngestionJobs : IIngestionJobs
         }
 
         int generation = options.Generation;
+        if (generation == 0)
+        {
+            // A job enqueued before generations existed carries 0, which the pipeline reads as a direct caller and
+            // which would let it take over a newer upload (CON-102). It claims the generation it finds instead.
+            generation = await _lifecycle.CurrentGenerationAsync(id, ct) ?? 0;
+            if (generation == 0)
+            {
+                _logger.LogInformation("IngestSkipped {DocumentId} reason=not_found", LogSanitizer.Sanitize(documentId));
+                return;
+            }
+            options = options with { Generation = generation };
+        }
+
         if (!await _lifecycle.TryClaimAsync(id, generation, ct))
         {
             // Superseded by a newer version, or already taken by another worker. Either way the
@@ -136,8 +149,6 @@ public sealed class IngestionJobs : IIngestionJobs
             await HandleTransientFailureAsync(id, documentId, options, ex);
             throw;
         }
-
-        await ScheduleSummaryAsync(id, documentId, options);
     }
 
     private async Task HandleTransientFailureAsync(Guid id, string documentId, IngestionOptions options, Exception ex)
@@ -166,46 +177,20 @@ public sealed class IngestionJobs : IIngestionJobs
             LogSanitizer.Sanitize(documentId), attempts, delay);
     }
 
-    /// <summary>
-    /// Decides whether a per-doc summary follows. Two modes need none: summaries disabled, and
-    /// document-clustering, which summarizes medoids at rollup time instead.
-    /// </summary>
-    /// <remarks>
-    /// Wrap-up uses CancellationToken.None: the document is already Ready, and a restart during
-    /// these brief writes should not leave its summary state behind.
-    /// </remarks>
-    private async Task ScheduleSummaryAsync(Guid id, string documentId, IngestionOptions options)
-    {
-        SummarySettings? settings = null;
-        if (Guid.TryParse(options.ContainerId, out Guid containerId))
-            settings = await _settingsResolver.GetSummarySettingsAsync(containerId, CancellationToken.None);
-
-        bool needsPerDocSummary = settings is not null
-                                   && settings.Enabled
-                                   && settings.ContainerSummaryMethod == SummaryStrategy.SummaryClustering;
-
-        if (!needsPerDocSummary)
-        {
-            await _lifecycle.SetSummaryStatusAsync(id, SummaryStatus.NotNeeded, CancellationToken.None);
-            return;
-        }
-
-        await _lifecycle.SetSummaryStatusAsync(id, SummaryStatus.Pending, CancellationToken.None);
-        _bgClient.Enqueue<IIngestionJobs>(j => j.PerDocSummaryAsync(documentId, default));
-    }
-
     [Queue(JobQueues.Default)]
     [AutomaticRetry(Attempts = 0)] // The next tick is the retry.
     [DisableConcurrentExecution(timeoutInSeconds: 300)]
     public async Task RequeueStuckDocumentsAsync(CancellationToken ct)
     {
-        DateTime cutoff = DateTime.UtcNow - StuckAfter;
+        DateTime now = DateTime.UtcNow;
+        DateTime processingCutoff = now - StuckAfter;
+        DateTime queuedCutoff = now - QueuedStuckAfter;
 
         await using var context = await _dbFactory.CreateDbContextAsync(ct);
         var candidates = await context.Documents
             .AsNoTracking()
-            .Where(d => (d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing)
-                        && d.StatusChangedAt < cutoff)
+            .Where(d => (d.IngestionStatus == DocumentStatus.Queued && d.StatusChangedAt < queuedCutoff)
+                        || (d.IngestionStatus == DocumentStatus.Processing && d.StatusChangedAt < processingCutoff))
             .Select(d => new { d.Id, d.JobId })
             .ToListAsync(ct);
 
@@ -229,97 +214,5 @@ public sealed class IngestionJobs : IIngestionJobs
         _logger.LogWarning(
             "RequeueStuckDocuments: {Lost} document(s) had lost their ingestion job; re-enqueued {Requeued}",
             lost.Count, requeued);
-    }
-
-    [Queue(JobQueues.Summarization)]
-    [AutomaticRetry(Attempts = 3, DelaysInSeconds = new[] { 30, 120, 600 })]
-    public async Task PerDocSummaryAsync(string documentId, CancellationToken ct)
-    {
-        if (!Guid.TryParse(documentId, out Guid id)) return;
-
-        try
-        {
-            Document? doc = await _docStore.GetAsync(documentId, ct);
-            if (doc is null)
-            {
-                _logger.LogInformation(
-                    "PerDocSummarySkipped {DocumentId} reason=document_not_found",
-                    LogSanitizer.Sanitize(documentId));
-                return;
-            }
-
-            if (!Guid.TryParse(doc.ContainerId, out Guid containerId))
-            {
-                _logger.LogWarning(
-                    "PerDocSummarySkipped {DocumentId} reason=invalid_container_id",
-                    LogSanitizer.Sanitize(documentId));
-                return;
-            }
-
-            SummarySettings settings = await _settingsResolver.GetSummarySettingsAsync(containerId, ct);
-            if (!settings.Enabled || settings.ContainerSummaryMethod == SummaryStrategy.DocumentClustering)
-            {
-                // Settings changed since the summary was scheduled. document-clustering
-                // summarizes K medoids lazily at rollup time, so no per-doc summary is due.
-                _logger.LogInformation(
-                    "PerDocSummarySkipped {DocumentId} reason={Reason}",
-                    LogSanitizer.Sanitize(documentId),
-                    settings.Enabled ? "document_clustering_mode" : "summaries_disabled");
-                await _lifecycle.SetSummaryStatusAsync(id, SummaryStatus.NotNeeded, CancellationToken.None);
-                return;
-            }
-
-            // Rebuilt from the stored chunks rather than re-reading and re-parsing the file:
-            // the chunks are the text this document was indexed with, and reading them costs no
-            // connector round trip to S3, SFTP or GitHub.
-            string? parsedText = await _docStore.GetDocumentTextAsync(documentId, ct);
-            if (string.IsNullOrWhiteSpace(parsedText))
-            {
-                _logger.LogInformation(
-                    "PerDocSummarySkipped {DocumentId} reason=empty_parsed_content",
-                    LogSanitizer.Sanitize(documentId));
-                await _lifecycle.SetSummaryStatusAsync(id, SummaryStatus.NotNeeded, CancellationToken.None);
-                return;
-            }
-
-            string contentHash = doc.Metadata.GetValueOrDefault("ContentHash") ?? string.Empty;
-            PerDocSummarizationResult result = await _summarizer.GenerateAsync(
-                documentId, contentHash, parsedText, doc.ContentType, doc.FileName, settings, ct);
-
-            if (result.Skipped)
-            {
-                _logger.LogInformation(
-                    "PerDocSummarySkipped {DocumentId} reason={Reason}",
-                    LogSanitizer.Sanitize(documentId),
-                    LogSanitizer.Sanitize(result.SkipReason ?? ""));
-                await _lifecycle.SetSummaryStatusAsync(id, SummaryStatus.NotNeeded, CancellationToken.None);
-                return;
-            }
-
-            // Best-effort finalization: the summary is written, so record it even if the app is
-            // shutting down.
-            await _lifecycle.SetSummaryStatusAsync(id, SummaryStatus.Done, CancellationToken.None);
-
-            // Container rollup is triggered by the recurring SweepStaleContainersAsync job
-            // (every 5 minutes) rather than per-doc completion. The sweep coalesces N uploads
-            // into 1 rollup once the per-doc burst has settled (no in-flight summary jobs for
-            // the container), matching what Postgres materialized views and Algolia derived
-            // indexes do for expensive aggregates over frequently-changing base data.
-
-            _logger.LogInformation(
-                "PerDocSummaryCompleted {DocumentId} model={Model} inTok={InputTokens} outTok={OutputTokens}",
-                LogSanitizer.Sanitize(documentId),
-                LogSanitizer.Sanitize(result.Model ?? ""),
-                result.InputTokens,
-                result.OutputTokens);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Only the summary failed. The document stays Ready and searchable.
-            _logger.LogWarning(ex,
-                "PerDocSummaryAsync threw {DocumentId}", LogSanitizer.Sanitize(documentId));
-            await _lifecycle.SetSummaryStatusAsync(id, SummaryStatus.Failed, CancellationToken.None);
-            throw;
-        }
     }
 }

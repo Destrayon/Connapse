@@ -39,6 +39,7 @@ public class SourcesSyncStatusTests : IDisposable
         auth.SetAuthorized("admin");
         auth.SetRoles("Admin");
         ctx.Services.AddLogging();
+        ctx.Services.AddSourceOperations();
 
         var http = Substitute.For<IHttpClientFactory>();
         connections.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -55,7 +56,12 @@ public class SourcesSyncStatusTests : IDisposable
             NSubstitute.Substitute.For<Connapse.Core.Interfaces.IConnectionStore>()));
         ctx.Services.AddSingleton(new AtlassianSiteService(
             http, new AtlassianConnectionTester(http), connections, Substitute.For<IAuditLogger>(),
-            new AtlassianTokenSource(http, TimeProvider.System)));
+            new AtlassianTokenSource(http, TimeProvider.System),
+            new Connapse.Application.Connections.CreateConnection(connections, Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(),
+                Substitute.For<IAuditLogger>(), Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>()),
+            new Connapse.Application.Connections.ReplaceConnectionSecret(connections, Substitute.For<ISourceStore>(),
+                Substitute.For<Connapse.Application.Ports.IConnectionSettingsRules>(), Substitute.For<IAuditLogger>(),
+                Substitute.For<Connapse.Application.Ports.IOperationAuthorizer>())));
         var authorization = Substitute.For<IAuthorizationService>();
         authorization.AuthorizeAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<object?>(), Arg.Any<string>())
             .Returns(Task.FromResult(AuthorizationResult.Success()));
@@ -115,6 +121,8 @@ public class SourcesSyncStatusTests : IDisposable
     {
         var source = Confluence(SyncStatus.Succeeded, null) with { DocumentCount = 42 };
         sources.DeleteAsync(source.Id, Arg.Any<CancellationToken>()).Returns(true);
+        // The delete operation reads the source to check the typed name against it, as REST does.
+        sources.GetAsync(source.Id, Arg.Any<CancellationToken>()).Returns(source);
         var cut = Render(source);
 
         cut.FindAll("tbody button").Single(b => b.TextContent.Trim() == "Delete").Click();

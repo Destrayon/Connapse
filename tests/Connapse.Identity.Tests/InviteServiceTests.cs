@@ -10,6 +10,7 @@ using NSubstitute;
 namespace Connapse.Identity.Tests;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class InviteServiceTests
 {
     private static ConnapseIdentityDbContext CreateDbContext() =>

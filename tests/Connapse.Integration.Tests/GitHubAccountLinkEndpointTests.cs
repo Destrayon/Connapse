@@ -52,8 +52,11 @@ public sealed class GitHubAccountLinkEndpointTests(SharedWebAppFixture fixture)
             {
                 var created = await users.CreateAsync(new ConnapseUser
                 {
-                    UserName = VictimEmail, Email = VictimEmail, EmailConfirmed = true,
-                    DisplayName = "GitHub CSRF Victim", CreatedAt = DateTime.UtcNow,
+                    UserName = VictimEmail,
+                    Email = VictimEmail,
+                    EmailConfirmed = true,
+                    DisplayName = "GitHub CSRF Victim",
+                    CreatedAt = DateTime.UtcNow,
                 }, VictimPassword);
                 created.Succeeded.Should().BeTrue(string.Join(", ", created.Errors.Select(e => e.Description)));
             }

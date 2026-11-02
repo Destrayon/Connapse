@@ -40,7 +40,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             FOR UPDATE
             """).ToListAsync(ct);
         if (locked.Count == 0)
-            return MemoryWriteResult.Failed($"Fact '{factId}' not found.");
+            return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
         Guid chainId = locked[0];
         List<MemoryFactEntity> chain = await context.MemoryFacts
             .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chainId} AND container_id = {containerId} FOR UPDATE")
@@ -48,7 +48,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             .ToListAsync(ct);
         MemoryFactEntity? old = chain.SingleOrDefault(f => f.Id == factId);
         if (old is null)
-            return MemoryWriteResult.Failed($"Fact '{factId}' not found.");
+            return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
         if (old.SupersededAt is not null)
             return MemoryWriteResult.Failed($"Fact '{factId}' was already corrected; correct its replacement instead.");
 
@@ -161,13 +161,13 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
 
         if (!string.IsNullOrWhiteSpace(query.Subject))
         {
-            string subject = query.Subject.Trim().ToLowerInvariant();
-            rows = rows.Where(f => f.Subject.ToLower() == subject);
+            string subject = ExactILike(query.Subject.Trim());
+            rows = rows.Where(f => EF.Functions.ILike(f.Subject, subject, "\\"));
         }
         if (!string.IsNullOrWhiteSpace(query.Attribute))
         {
-            string attribute = query.Attribute.Trim().ToLowerInvariant();
-            rows = rows.Where(f => f.Attribute.ToLower() == attribute);
+            string attribute = ExactILike(query.Attribute.Trim());
+            rows = rows.Where(f => EF.Functions.ILike(f.Attribute, attribute, "\\"));
         }
 
         if (query.ChangedFrom is not null || query.ChangedTo is not null)
@@ -223,6 +223,12 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     /// its words and ranks those sharing more first. Only letters and digits reach the query, so nothing in the text
     /// is read as tsquery syntax. Null when there are no words.
     /// </summary>
+    // An ILIKE pattern matching exactly this text in any case: its wildcards and the escape character are escaped.
+    private static string ExactILike(string text) =>
+        text.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+
     internal static string? TsQuery(string? text) => TsQuery(QueryWords(text));
 
     private static string? TsQuery(IReadOnlyList<string> words) => words.Count == 0 ? null : string.Join(" | ", words);

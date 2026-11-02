@@ -5,6 +5,7 @@ using FluentAssertions;
 namespace Connapse.Core.Tests.Settings;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ContainerSettingsOverridesTests
 {
     [Fact]
@@ -26,7 +27,7 @@ public class ContainerSettingsOverridesTests
             Chunking = new ChunkingSettings { Strategy = "FixedSize", MaxChunkSize = 1024 },
             Embedding = new EmbeddingSettings { Provider = "OpenAI", Model = "text-embedding-3-small" },
             Search = new SearchSettings { Mode = "Keyword", TopK = 20 },
-            Upload = new UploadSettings { ParallelWorkers = 8 }
+            Upload = new UploadSettings { ParseTimeoutSeconds = 8 }
         };
 
         var json = JsonSerializer.Serialize(original);
@@ -39,7 +40,17 @@ public class ContainerSettingsOverridesTests
         deserialized.Embedding.Model.Should().Be("text-embedding-3-small");
         deserialized.Search!.Mode.Should().Be("Keyword");
         deserialized.Search.TopK.Should().Be(20);
-        deserialized.Upload!.ParallelWorkers.Should().Be(8);
+        deserialized.Upload!.ParseTimeoutSeconds.Should().Be(8);
+    }
+
+    [Fact]
+    public void Deserialize_UploadOverrideSavedWithAWorkerCount_ReadsTheRest()
+    {
+        const string saved = """{"upload":{"parallelWorkers":8,"parseTimeoutSeconds":123}}""";
+
+        var overrides = JsonSerializer.Deserialize<ContainerSettingsOverrides>(saved, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        overrides!.Upload!.ParseTimeoutSeconds.Should().Be(123);
     }
 
     [Fact]

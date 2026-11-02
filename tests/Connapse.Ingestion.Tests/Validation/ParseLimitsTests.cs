@@ -12,6 +12,7 @@ using NSubstitute;
 namespace Connapse.Ingestion.Tests.Validation;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class ParseLimitsTests
 {
     private static byte[] Zip(params (string Name, byte[] Body, CompressionLevel Level)[] entries)

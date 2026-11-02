@@ -53,8 +53,10 @@ services:
       - ollamadata:/root/.ollama
     profiles:
       - with-ollama
+    # backend is internal (no internet); frontend lets `ollama pull` download models. No ports are published.
     networks:
       - backend
+      - frontend
     deploy:
       resources:
         limits:

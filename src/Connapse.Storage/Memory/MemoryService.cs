@@ -31,7 +31,7 @@ public sealed class MemoryService(
             return MemoryWriteResult.Failed(invalid);
         fact = Clean(fact);
         if (await UnreadableSourcesAsync(fact.Sources, caller, ct) is { } refused)
-            return MemoryWriteResult.Failed(refused);
+            return refused;
 
         MemoryFact written = await store.AddAsync(containerId, fact, caller, ct);
         await audit.LogAsync("memory.remembered", "memory_fact", written.Id.ToString(),
@@ -44,7 +44,7 @@ public sealed class MemoryService(
     {
         // A fact the caller cannot see is reported as missing, so a correction cannot probe for one.
         if (await VisibleFactAsync(containerId, factId, caller, ct) is not { } old)
-            return MemoryWriteResult.Failed($"Fact '{factId}' not found.");
+            return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
         // A blank subject or attribute keeps the old fact's.
         replacement = replacement with
         {
@@ -55,7 +55,7 @@ public sealed class MemoryService(
             return MemoryWriteResult.Failed(invalid);
         replacement = Clean(replacement);
         if (await UnreadableSourcesAsync(replacement.Sources, caller, ct) is { } refused)
-            return MemoryWriteResult.Failed(refused);
+            return refused;
 
         MemoryWriteResult result = await store.CorrectAsync(containerId, factId, kind, replacement, caller, ct);
         if (result.Fact is { } written)
@@ -146,7 +146,7 @@ public sealed class MemoryService(
     }
 
     /// <summary>An error naming the sources the writer cannot read (only ones it named itself), or null when it can read them all.</summary>
-    private async Task<string?> UnreadableSourcesAsync(IReadOnlyList<MemorySource> sources, MemoryCaller caller, CancellationToken ct)
+    private async Task<MemoryWriteResult?> UnreadableSourcesAsync(IReadOnlyList<MemorySource> sources, MemoryCaller caller, CancellationToken ct)
     {
         IReadOnlySet<MemorySource> readable;
         try
@@ -156,12 +156,12 @@ public sealed class MemoryService(
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not check memory sources; refusing the write");
-            return "Error: could not check access to the sources; nothing was written.";
+            return MemoryWriteResult.Failed("Error: could not check access to the sources; nothing was written.", MemoryWriteFailure.Unchecked);
         }
         List<string> missing = [.. sources.Where(s => !readable.Contains(s)).Select(s => s.Ref).Distinct(StringComparer.Ordinal)];
         return missing.Count == 0
             ? null
-            : $"Error: these sources were not found or you cannot read them: {string.Join(", ", missing)}. Cite only documents or link nodes you can read.";
+            : MemoryWriteResult.Failed($"Error: these sources were not found or you cannot read them: {string.Join(", ", missing)}. Cite only documents or link nodes you can read.");
     }
 
     /// <summary>The sources among <paramref name="sources"/> that <paramref name="userId"/> can read now. Throws when it cannot tell.</summary>

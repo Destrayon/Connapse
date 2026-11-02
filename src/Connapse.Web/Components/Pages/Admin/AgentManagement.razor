@@ -1,10 +1,12 @@
 @page "/admin/agents"
 @attribute [Authorize(Policy = "RequireAdmin")]
+@using Connapse.Application
+@using Connapse.Application.Agents
 @using Connapse.Core
-@using Connapse.Identity.Services
-@inject IAgentService AgentService
+@inject AgentOperations Agents
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IJSRuntime JS
+@inject ILogger<AgentManagement> Logger
 @rendermode InteractiveServer
 
 <PageTitle>Agents - Connapse</PageTitle>
@@ -70,7 +72,7 @@
         {
             var isExpanded = selectedAgentId == agent.Id;
             var activeKeyCount = agent.Keys.Count(k => !k.IsRevoked);
-            var activeKeys = agent.Keys.Where(k => !k.IsRevoked).ToList();
+            var activeKeys = selectedAgentKeys.Where(k => !k.IsRevoked).ToList();
 
             <div class="card mb-3">
                 <div class="card-body">
@@ -104,7 +106,8 @@
                         <!-- Actions -->
                         <div class="d-flex gap-2 flex-wrap">
                             <button class="btn btn-sm @(isExpanded ? "btn-secondary" : "btn-outline-secondary")"
-                                    @onclick="() => ToggleExpand(agent.Id)">
+                                    @onclick="() => ToggleExpand(agent.Id)"
+                                    disabled="@isProcessing">
                                 <span class="bi-key me-1"></span>
                                 API Keys
                             </button>
@@ -213,6 +216,21 @@
                                        style="width: 220px;"
                                        @bind="newKeyName" placeholder="e.g. production" />
                             </div>
+                            <div class="form-check mb-1">
+                                <input class="form-check-input" type="checkbox" id="new-key-approval-@agent.Id" @bind="newKeyRequiresApproval" />
+                                <label class="form-check-label small" for="new-key-approval-@agent.Id">Ask before it deletes anything over MCP</label>
+                            </div>
+                            <div class="mb-1">
+                                @foreach (var scope in TokenScopeChoices.AgentKey)
+                                {
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="new-key-scope-@agent.Id-@scope"
+                                               checked="@newKeyScopes.Contains(scope)"
+                                               @onchange="e => newKeyScopes.SymmetricExceptWith([scope])" />
+                                        <label class="form-check-label small" for="new-key-scope-@agent.Id-@scope"><code>@scope</code></label>
+                                    </div>
+                                }
+                            </div>
                             <button class="btn btn-sm btn-primary"
                                     @onclick="() => CreateKeyAsync(agent.Id)"
                                     disabled="@isProcessing">
@@ -230,83 +248,78 @@
     private string newAgentName = "";
     private string newAgentDescription = "";
     private string newKeyName = "";
+    private bool newKeyRequiresApproval = true;
+    // A key can do only what its scopes allow over MCP; one issued with none can call no tool (#932).
+    private readonly HashSet<string> newKeyScopes = [TokenScopeChoices.Default];
     private bool isProcessing;
     private string processingAction = "";
     private Guid? selectedAgentId;
+    private IReadOnlyList<AgentKeyListItem> selectedAgentKeys = [];
     private Guid? confirmDeleteAgentId;
     private Guid? newKeyAgentId;
     private CreateAgentKeyResponse? newKeyResponse;
     private string? statusMessage;
     private bool statusSuccess;
-    private Guid currentUserId;
+    private OperationContext context = null!;
 
-    private List<AgentDto> agents = new();
+    private IReadOnlyList<AgentDto> agents = [];
 
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var userIdStr = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (userIdStr is not null)
-            Guid.TryParse(userIdStr, out currentUserId);
+        context = new OperationContext(authState.User, OperationSurface.Ui);
 
         await LoadAgentsAsync();
     }
 
     private async Task LoadAgentsAsync()
     {
-        agents = (await AgentService.ListAsync()).ToList();
+        agents = await ShownAsync(Agents.List.RunAsync(context), agents, "The agents couldn't be loaded. Reload the page to try again.");
     }
 
-    private void ToggleExpand(Guid agentId)
+    /// <summary>The open agent's keys, through agents.keys.list.</summary>
+    private async Task LoadKeysAsync(Guid agentId)
     {
-        if (selectedAgentId == agentId)
-        {
-            selectedAgentId = null;
-        }
-        else
-        {
-            selectedAgentId = agentId;
-            newKeyName = "";
-            newKeyResponse = null;
-            newKeyAgentId = null;
-        }
+        // Only this agent's keys are kept on a failure: another agent's would read as this one's.
+        selectedAgentKeys = await ShownAsync(Agents.ListKeys.RunAsync(context, agentId), selectedAgentId == agentId ? selectedAgentKeys : [],
+            "The agent's keys couldn't be loaded. Reload the page to try again.");
     }
 
-    private async Task CreateAgentAsync()
+    /// <summary>
+    /// A read's result, or none with its failure shown. A read that throws leaves what's on screen, so a
+    /// key just created stays there when only the refresh after it fails.
+    /// </summary>
+    private async Task<IReadOnlyList<T>> ShownAsync<T>(Task<Attempt<IReadOnlyList<T>, AgentStatus>> read, IReadOnlyList<T> current, string failure)
     {
-        if (string.IsNullOrWhiteSpace(newAgentName))
-        {
-            statusMessage = "Agent name is required.";
-            statusSuccess = false;
-            return;
-        }
-
-        isProcessing = true;
-        processingAction = "create";
-        statusMessage = null;
         try
         {
-            var request = new CreateAgentRequest(
-                newAgentName.Trim(),
-                string.IsNullOrWhiteSpace(newAgentDescription) ? null : newAgentDescription.Trim());
-
-            var agent = await AgentService.CreateAsync(request, currentUserId);
-            statusMessage = $"Agent '{agent.Name}' created.";
-            statusSuccess = true;
-            newAgentName = "";
-            newAgentDescription = "";
-            await LoadAgentsAsync();
-        }
-        catch (Exception ex) when (ex.InnerException?.Message.Contains("ix_agents_name",
-            StringComparison.OrdinalIgnoreCase) == true)
-        {
-            statusMessage = $"An agent named '{newAgentName}' already exists.";
-            statusSuccess = false;
+            var result = await read;
+            if (!result.Succeeded)
+                Say(result.Detail, false);
+            return result.Result ?? [];
         }
         catch (Exception ex)
         {
-            statusMessage = $"Failed to create agent: {ex.Message}";
-            statusSuccess = false;
+            Failed(ex, failure);
+            return current;
+        }
+    }
+
+    /// <summary>
+    /// Runs one of the page's changes with the page busy. An unexpected error, such as the database being
+    /// unreachable, shows <paramref name="failure"/> rather than ending the page.
+    /// </summary>
+    private async Task RunAsync(string failure, Func<Task> change)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            await change();
+        }
+        catch (Exception ex)
+        {
+            Failed(ex, failure);
         }
         finally
         {
@@ -315,117 +328,128 @@
         }
     }
 
-    private async Task ToggleActiveAsync(AgentDto agent)
+    private void Failed(Exception ex, string failure)
     {
-        isProcessing = true;
-        statusMessage = null;
-        try
+        Logger.LogError(ex, "Agents page: {Failure}", failure);
+        Say(failure, false);
+    }
+
+    private void Say(string? message, bool success)
+    {
+        statusMessage = message;
+        statusSuccess = success;
+    }
+
+    private async Task ToggleExpand(Guid agentId)
+    {
+        // One load at a time: the page's operations share one DbContext, which can't run two queries at once.
+        if (isProcessing)
+            return;
+        if (selectedAgentId == agentId)
         {
-            await AgentService.SetActiveAsync(agent.Id, !agent.IsActive);
-            await LoadAgentsAsync();
+            selectedAgentId = null;
+            selectedAgentKeys = [];
         }
-        catch (Exception ex)
+        else
         {
-            statusMessage = $"Failed to update agent: {ex.Message}";
-            statusSuccess = false;
-        }
-        finally
-        {
+            // The keys first, so the panel opens once, with them, rather than empty and then again.
+            isProcessing = true;
+            await LoadKeysAsync(agentId);
             isProcessing = false;
+            selectedAgentId = agentId;
+            newKeyName = "";
+            newKeyRequiresApproval = true;
+            newKeyScopes.Clear();
+            newKeyScopes.Add(TokenScopeChoices.Default);
+            newKeyResponse = null;
+            newKeyAgentId = null;
         }
     }
 
-    private async Task DeleteAgentAsync(Guid agentId)
+    private Task CreateAgentAsync()
     {
-        isProcessing = true;
-        statusMessage = null;
-        confirmDeleteAgentId = null;
-        try
+        processingAction = "create";
+        return RunAsync("The agent couldn't be created. Try again.", async () =>
         {
-            var deleted = await AgentService.DeleteAsync(agentId);
-            if (!deleted)
+            var created = await Agents.Create.RunAsync(context, new CreateAgentRequest(newAgentName, newAgentDescription));
+            if (!created.Succeeded)
             {
-                statusMessage = "Agent not found.";
-                statusSuccess = false;
+                Say(created.Detail, false);
                 return;
             }
-            statusMessage = "Agent deleted.";
-            statusSuccess = true;
-            if (selectedAgentId == agentId)
-                selectedAgentId = null;
+            Say($"Agent '{created.Result!.Name}' created.", true);
+            newAgentName = "";
+            newAgentDescription = "";
             await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to delete agent: {ex.Message}";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        });
     }
 
-    private async Task CreateKeyAsync(Guid agentId)
+    private Task ToggleActiveAsync(AgentDto agent) => RunAsync("The agent couldn't be updated. Try again.", async () =>
     {
-        if (string.IsNullOrWhiteSpace(newKeyName))
+        var set = await Agents.SetActive.RunAsync(context, new SetAgentActiveCommand(agent.Id, !agent.IsActive));
+        if (!set.Succeeded)
         {
-            statusMessage = "Key name is required.";
-            statusSuccess = false;
+            Say(set.Detail, false);
             return;
         }
+        Say($"Agent '{agent.Name}' updated.", true);
+        await LoadAgentsAsync();
+    });
 
-        isProcessing = true;
-        statusMessage = null;
-        try
-        {
-            var key = await AgentService.CreateKeyAsync(agentId, new CreateAgentKeyRequest(newKeyName.Trim()));
-            newKeyResponse = key;
-            newKeyAgentId = agentId;
-            newKeyName = "";
-            await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to create key: {ex.Message}";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
-    }
-
-    private async Task RevokeKeyAsync(Guid agentId, Guid keyId)
+    private Task DeleteAgentAsync(Guid agentId)
     {
-        isProcessing = true;
-        statusMessage = null;
-        try
+        confirmDeleteAgentId = null;
+        return RunAsync("The agent couldn't be deleted. Try again.", async () =>
         {
-            var revoked = await AgentService.RevokeKeyAsync(agentId, keyId);
-            if (!revoked)
+            var deleted = await Agents.Delete.RunAsync(context, agentId);
+            if (!deleted.Succeeded)
             {
-                statusMessage = "Key not found.";
-                statusSuccess = false;
+                Say(deleted.Detail, false);
                 return;
             }
-            if (newKeyAgentId == agentId)
+            Say("Agent deleted.", true);
+            if (selectedAgentId == agentId)
             {
-                newKeyResponse = null;
-                newKeyAgentId = null;
+                selectedAgentId = null;
+                selectedAgentKeys = [];
             }
             await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            statusMessage = $"Failed to revoke key: {ex.Message}";
-            statusSuccess = false;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        });
     }
+
+    private Task CreateKeyAsync(Guid agentId) => RunAsync("The key couldn't be created. Try again.", async () =>
+    {
+        var created = await Agents.CreateKey.RunAsync(context, new CreateAgentKeyCommand(agentId, new CreateAgentKeyRequest(newKeyName,
+            [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval)));
+        if (!created.Succeeded)
+        {
+            Say(created.Detail, false);
+            return;
+        }
+        newKeyResponse = created.Result;
+        newKeyAgentId = agentId;
+        newKeyName = "";
+        await LoadAgentsAsync();
+        await LoadKeysAsync(agentId);
+    });
+
+    private Task RevokeKeyAsync(Guid agentId, Guid keyId) => RunAsync("The key couldn't be revoked. Try again.", async () =>
+    {
+        var revoked = await Agents.RevokeKey.RunAsync(context, new AgentKeyTarget(agentId, keyId));
+        if (!revoked.Succeeded)
+        {
+            Say(revoked.Detail, false);
+            return;
+        }
+        Say("Key revoked.", true);
+        if (newKeyAgentId == agentId)
+        {
+            newKeyResponse = null;
+            newKeyAgentId = null;
+        }
+        await LoadAgentsAsync();
+        await LoadKeysAsync(agentId);
+    });
 
     private async Task CopyKeyToken()
     {

@@ -10,6 +10,7 @@ using NSubstitute;
 namespace Connapse.Storage.Tests.CloudScope;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class CompositeSearchResultVerifierTests
 {
     // Drops hits whose ResourceUri-style metadata starts with the given scheme, and records the
@@ -141,7 +142,7 @@ public class CompositeSearchResultVerifierTests
 
         result.Select(h => h.ChunkId).Should().Equal("2", "4");
         first.SeenTopK.Should().Be(6, "no inner verifier may cap");
-        second.SeenTopK.Should().Be(5,"the second sees the first's survivors, still uncapped");
+        second.SeenTopK.Should().Be(5, "the second sees the first's survivors, still uncapped");
     }
 
     [Fact]

@@ -33,6 +33,13 @@ public sealed record GitHubInstallationRepositories(int TotalCount, IReadOnlyLis
 /// <summary>A GitHub account a user signed in as: the numeric id is permanent, the login can change.</summary>
 public sealed record GitHubUserAccount(long Id, string Login);
 
+/// <summary>The stored App's key and client secret, as the Providers page shows them.</summary>
+/// <param name="KeyStored">An App is stored and its private key can be read.</param>
+/// <param name="KeyUnreadable">An App is stored but its key can't be decrypted, most often after the encryption keys changed.</param>
+/// <param name="SecretStored">A client id and secret are stored, so the App can sign users in.</param>
+/// <param name="CanSignIn">The stored secret is there and GitHub has not refused it.</param>
+public sealed record GitHubSignInState(bool KeyStored, bool KeyUnreadable, bool SecretStored, bool CanSignIn);
+
 /// <summary>What a GitHub login names.</summary>
 public enum GitHubAccountKind { None, User, Organization }
 
@@ -57,7 +64,7 @@ public sealed class ConnapseGitHubApp(
     IServiceScopeFactory scopes,
     IHttpClientFactory httpClients,
     ILogger<ConnapseGitHubApp> logger,
-    TimeProvider? clock = null)
+    TimeProvider? clock = null) : IGitHubAppInstallations
 {
     /// <summary>How long a read of the stored App is trusted before the store is asked again.</summary>
     private static readonly TimeSpan MaterialLifetime = TimeSpan.FromMinutes(5);
@@ -296,6 +303,26 @@ public sealed class ConnapseGitHubApp(
     /// <summary>Whether the stored App can sign users in: it exists and has a client id and secret.</summary>
     public async Task<bool> CanSignInUsersAsync(CancellationToken ct = default) =>
         await LoadAsync(ct) is { App.ClientId.Length: > 0, ClientSecret.Length: > 0 };
+
+    /// <summary>
+    /// Whether the stored key can be read, and whether the App can sign users in with a secret GitHub
+    /// still accepts. A key that can't be decrypted is reported, not thrown, so the page can ask for it again.
+    /// </summary>
+    public async Task<GitHubSignInState> ReadSignInStateAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var material = await LoadAsync(ct);
+            bool secretStored = material is { App.ClientId.Length: > 0, ClientSecret.Length: > 0 };
+            // Stored and still accepted by GitHub: a revoked secret must not read as "Available".
+            bool canSignIn = secretStored && await StoredClientSecretMatchesAsync(ct) != false;
+            return new GitHubSignInState(material is not null, KeyUnreadable: false, secretStored, canSignIn);
+        }
+        catch (ProviderCredentialUnavailableException)
+        {
+            return new GitHubSignInState(KeyStored: false, KeyUnreadable: true, SecretStored: false, CanSignIn: false);
+        }
+    }
 
     /// <summary>
     /// Where to send a user to sign in to GitHub through the App, or null when the stored App cannot

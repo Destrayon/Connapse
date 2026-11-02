@@ -1,0 +1,1306 @@
+{
+  "files": 185,
+  "verbatim_share_all": 0.867,
+  "verbatim_share_code": 0.629,
+  "verbatim_share_docs": 0.951,
+  "present_share_code": 0.709,
+  "present_share_docs": 0.951,
+  "files_fully_verbatim": 2,
+  "per_file": [
+    {
+      "file": "docs/GITHUB_SETUP.md",
+      "code": false,
+      "lines": 155,
+      "verbatim": 142,
+      "present_ignoring_whitespace": 142
+    },
+    {
+      "file": "docs/agent/container-summaries-qa.md",
+      "code": false,
+      "lines": 104,
+      "verbatim": 83,
+      "present_ignoring_whitespace": 83
+    },
+    {
+      "file": "docs/api.md",
+      "code": false,
+      "lines": 777,
+      "verbatim": 718,
+      "present_ignoring_whitespace": 718
+    },
+    {
+      "file": "docs/architecture.md",
+      "code": false,
+      "lines": 542,
+      "verbatim": 499,
+      "present_ignoring_whitespace": 499
+    },
+    {
+      "file": "docs/atlassian-setup.md",
+      "code": false,
+      "lines": 467,
+      "verbatim": 448,
+      "present_ignoring_whitespace": 448
+    },
+    {
+      "file": "docs/aws-per-user-permissions-multi-region.md",
+      "code": false,
+      "lines": 95,
+      "verbatim": 85,
+      "present_ignoring_whitespace": 85
+    },
+    {
+      "file": "docs/aws-setup.md",
+      "code": false,
+      "lines": 87,
+      "verbatim": 83,
+      "present_ignoring_whitespace": 83
+    },
+    {
+      "file": "docs/azure-setup.md",
+      "code": false,
+      "lines": 175,
+      "verbatim": 170,
+      "present_ignoring_whitespace": 170
+    },
+    {
+      "file": "docs/confluence-test-site.md",
+      "code": false,
+      "lines": 76,
+      "verbatim": 69,
+      "present_ignoring_whitespace": 69
+    },
+    {
+      "file": "docs/connectors.md",
+      "code": false,
+      "lines": 149,
+      "verbatim": 140,
+      "present_ignoring_whitespace": 140
+    },
+    {
+      "file": "docs/custom-source-setup.md",
+      "code": false,
+      "lines": 102,
+      "verbatim": 98,
+      "present_ignoring_whitespace": 98
+    },
+    {
+      "file": "docs/deployment.md",
+      "code": false,
+      "lines": 492,
+      "verbatim": 453,
+      "present_ignoring_whitespace": 453
+    },
+    {
+      "file": "docs/github-setup.md",
+      "code": false,
+      "lines": 72,
+      "verbatim": 70,
+      "present_ignoring_whitespace": 70
+    },
+    {
+      "file": "docs/mcp-tools.md",
+      "code": false,
+      "lines": 175,
+      "verbatim": 172,
+      "present_ignoring_whitespace": 172
+    },
+    {
+      "file": "docs/problems.md",
+      "code": false,
+      "lines": 238,
+      "verbatim": 193,
+      "present_ignoring_whitespace": 193
+    },
+    {
+      "file": "docs/protocols/custom-source-v1.md",
+      "code": false,
+      "lines": 176,
+      "verbatim": 172,
+      "present_ignoring_whitespace": 172
+    },
+    {
+      "file": "docs/research/adaptive-fusion-feedback-2026-09-28.md",
+      "code": false,
+      "lines": 47,
+      "verbatim": 34,
+      "present_ignoring_whitespace": 34
+    },
+    {
+      "file": "docs/research/api-mcp-cli-consistency-2026-10-17.md",
+      "code": false,
+      "lines": 123,
+      "verbatim": 111,
+      "present_ignoring_whitespace": 111
+    },
+    {
+      "file": "docs/research/atlassian-jira-live-validation-2026-10-13.md",
+      "code": false,
+      "lines": 29,
+      "verbatim": 27,
+      "present_ignoring_whitespace": 27
+    },
+    {
+      "file": "docs/research/atlassian-provider-lay-of-land-2026-09-30.md",
+      "code": false,
+      "lines": 230,
+      "verbatim": 219,
+      "present_ignoring_whitespace": 219
+    },
+    {
+      "file": "docs/research/atlassian-rate-limits-2026-10-13.md",
+      "code": false,
+      "lines": 152,
+      "verbatim": 140,
+      "present_ignoring_whitespace": 140
+    },
+    {
+      "file": "docs/research/atlassian-setup-guide-2026-10-10.md",
+      "code": false,
+      "lines": 77,
+      "verbatim": 68,
+      "present_ignoring_whitespace": 68
+    },
+    {
+      "file": "docs/research/aws-scoped-delegated-access-2026-08-29.md",
+      "code": false,
+      "lines": 116,
+      "verbatim": 104,
+      "present_ignoring_whitespace": 104
+    },
+    {
+      "file": "docs/research/azure-blob-connector-parity-2026-09-08.md",
+      "code": false,
+      "lines": 88,
+      "verbatim": 81,
+      "present_ignoring_whitespace": 81
+    },
+    {
+      "file": "docs/research/azure-easy-setup-2026-09-08.md",
+      "code": false,
+      "lines": 107,
+      "verbatim": 97,
+      "present_ignoring_whitespace": 97
+    },
+    {
+      "file": "docs/research/bm25-sql-latency-parity-2026-09-27.md",
+      "code": false,
+      "lines": 91,
+      "verbatim": 79,
+      "present_ignoring_whitespace": 79
+    },
+    {
+      "file": "docs/research/connapse-eval-project-design-2026-09-25.md",
+      "code": false,
+      "lines": 173,
+      "verbatim": 161,
+      "present_ignoring_whitespace": 161
+    },
+    {
+      "file": "docs/research/custom-source-protocol-2026-10-14.md",
+      "code": false,
+      "lines": 101,
+      "verbatim": 87,
+      "present_ignoring_whitespace": 87
+    },
+    {
+      "file": "docs/research/docker-local-filesystem-access-2026-08-23.md",
+      "code": false,
+      "lines": 97,
+      "verbatim": 81,
+      "present_ignoring_whitespace": 81
+    },
+    {
+      "file": "docs/research/document-shape-robustness-2026-09-27.md",
+      "code": false,
+      "lines": 208,
+      "verbatim": 197,
+      "present_ignoring_whitespace": 197
+    },
+    {
+      "file": "docs/research/embedding-instruction-prefixes-2026-09-28.md",
+      "code": false,
+      "lines": 71,
+      "verbatim": 59,
+      "present_ignoring_whitespace": 59
+    },
+    {
+      "file": "docs/research/endpoint-maintainability-2026-10-18.md",
+      "code": false,
+      "lines": 178,
+      "verbatim": 167,
+      "present_ignoring_whitespace": 167
+    },
+    {
+      "file": "docs/research/enterprise-retrieval-weaknesses-2026-10-05.md",
+      "code": false,
+      "lines": 139,
+      "verbatim": 128,
+      "present_ignoring_whitespace": 128
+    },
+    {
+      "file": "docs/research/file-type-support-parsers-2026-09-30.md",
+      "code": false,
+      "lines": 202,
+      "verbatim": 192,
+      "present_ignoring_whitespace": 192
+    },
+    {
+      "file": "docs/research/filesystem-ingestion-2026-08-23.md",
+      "code": false,
+      "lines": 107,
+      "verbatim": 95,
+      "present_ignoring_whitespace": 95
+    },
+    {
+      "file": "docs/research/github-connector-implementation-2026-09-09.md",
+      "code": false,
+      "lines": 93,
+      "verbatim": 82,
+      "present_ignoring_whitespace": 82
+    },
+    {
+      "file": "docs/research/github-connector-scaling-2026-09-23.md",
+      "code": false,
+      "lines": 141,
+      "verbatim": 130,
+      "present_ignoring_whitespace": 130
+    },
+    {
+      "file": "docs/research/github-docs-issues-chunking-2026-09-23.md",
+      "code": false,
+      "lines": 66,
+      "verbatim": 55,
+      "present_ignoring_whitespace": 55
+    },
+    {
+      "file": "docs/research/highest-value-connectors-2026-08-13.md",
+      "code": false,
+      "lines": 117,
+      "verbatim": 103,
+      "present_ignoring_whitespace": 103
+    },
+    {
+      "file": "docs/research/hybrid-fusion-improvements-2026-09-27.md",
+      "code": false,
+      "lines": 147,
+      "verbatim": 136,
+      "present_ignoring_whitespace": 136
+    },
+    {
+      "file": "docs/research/jira-restricted-comments-2026-10-12.md",
+      "code": false,
+      "lines": 150,
+      "verbatim": 138,
+      "present_ignoring_whitespace": 138
+    },
+    {
+      "file": "docs/research/jira-setup-verification-2026-10-13.md",
+      "code": false,
+      "lines": 168,
+      "verbatim": 157,
+      "present_ignoring_whitespace": 157
+    },
+    {
+      "file": "docs/research/keyword-query-matching-2026-09-26.md",
+      "code": false,
+      "lines": 56,
+      "verbatim": 46,
+      "present_ignoring_whitespace": 46
+    },
+    {
+      "file": "docs/research/layout-model-memory-levers-2026-10-08.md",
+      "code": false,
+      "lines": 41,
+      "verbatim": 38,
+      "present_ignoring_whitespace": 38
+    },
+    {
+      "file": "docs/research/learned-query-fusion-2026-10-05.md",
+      "code": false,
+      "lines": 123,
+      "verbatim": 114,
+      "present_ignoring_whitespace": 114
+    },
+    {
+      "file": "docs/research/next-connectors-rag-shape-graphrag-2026-09-09.md",
+      "code": false,
+      "lines": 104,
+      "verbatim": 92,
+      "present_ignoring_whitespace": 92
+    },
+    {
+      "file": "docs/research/parser-memory-adaptive-2026-10-07.md",
+      "code": false,
+      "lines": 103,
+      "verbatim": 96,
+      "present_ignoring_whitespace": 96
+    },
+    {
+      "file": "docs/research/per-user-search-permission-design-2026-08-27.md",
+      "code": false,
+      "lines": 138,
+      "verbatim": 121,
+      "present_ignoring_whitespace": 121
+    },
+    {
+      "file": "docs/research/portable-bm25-postgres-2026-09-26.md",
+      "code": false,
+      "lines": 123,
+      "verbatim": 112,
+      "present_ignoring_whitespace": 112
+    },
+    {
+      "file": "docs/research/programmatic-source-configuration-safety-2026-08-17.md",
+      "code": false,
+      "lines": 120,
+      "verbatim": 109,
+      "present_ignoring_whitespace": 109
+    },
+    {
+      "file": "docs/research/retrieval-eval-github-sources-2026-09-24.md",
+      "code": false,
+      "lines": 14,
+      "verbatim": 12,
+      "present_ignoring_whitespace": 12
+    },
+    {
+      "file": "docs/research/tdd-proof-tests-2026-10-18.md",
+      "code": false,
+      "lines": 165,
+      "verbatim": 151,
+      "present_ignoring_whitespace": 151
+    },
+    {
+      "file": "docs/research/vector-index-strategy-2026-09-29.md",
+      "code": false,
+      "lines": 39,
+      "verbatim": 28,
+      "present_ignoring_whitespace": 28
+    },
+    {
+      "file": "docs/research/vector-recall-tradeoff-2026-09-29.md",
+      "code": false,
+      "lines": 33,
+      "verbatim": 24,
+      "present_ignoring_whitespace": 24
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-27-hercules-swap.md",
+      "code": false,
+      "lines": 1063,
+      "verbatim": 1044,
+      "present_ignoring_whitespace": 1044
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-13-connector-source-split-phase-1.md",
+      "code": false,
+      "lines": 820,
+      "verbatim": 809,
+      "present_ignoring_whitespace": 809
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-14-connector-source-split-phase-2.md",
+      "code": false,
+      "lines": 599,
+      "verbatim": 589,
+      "present_ignoring_whitespace": 589
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-14-connector-source-split-phase-3a.md",
+      "code": false,
+      "lines": 275,
+      "verbatim": 265,
+      "present_ignoring_whitespace": 265
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-15-connector-source-split-phase-3b.md",
+      "code": false,
+      "lines": 358,
+      "verbatim": 347,
+      "present_ignoring_whitespace": 347
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-17-connector-source-split-phase-3c.md",
+      "code": false,
+      "lines": 70,
+      "verbatim": 63,
+      "present_ignoring_whitespace": 63
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-18-connector-source-split-phase-4.md",
+      "code": false,
+      "lines": 86,
+      "verbatim": 81,
+      "present_ignoring_whitespace": 81
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-21-connector-source-split-phase-5.md",
+      "code": false,
+      "lines": 63,
+      "verbatim": 55,
+      "present_ignoring_whitespace": 55
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-23-delete-guard.md",
+      "code": false,
+      "lines": 399,
+      "verbatim": 391,
+      "present_ignoring_whitespace": 391
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-per-user-permissions-5a-enforcement-correctness.md",
+      "code": false,
+      "lines": 609,
+      "verbatim": 600,
+      "present_ignoring_whitespace": 600
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-28-per-user-permissions-5b-connect-aws-identity.md",
+      "code": false,
+      "lines": 564,
+      "verbatim": 556,
+      "present_ignoring_whitespace": 556
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-28-per-user-permissions-5c-i-setup-script.md",
+      "code": false,
+      "lines": 43,
+      "verbatim": 38,
+      "present_ignoring_whitespace": 38
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-28-per-user-permissions-username-join-key.md",
+      "code": false,
+      "lines": 58,
+      "verbatim": 53,
+      "present_ignoring_whitespace": 53
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-29-identity-center-discovery-step.md",
+      "code": false,
+      "lines": 50,
+      "verbatim": 45,
+      "present_ignoring_whitespace": 45
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-29-identity-only-aws-permissions.md",
+      "code": false,
+      "lines": 120,
+      "verbatim": 114,
+      "present_ignoring_whitespace": 114
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-01-aws-roles-anywhere-setup-utility.md",
+      "code": false,
+      "lines": 319,
+      "verbatim": 314,
+      "present_ignoring_whitespace": 314
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-01-aws-roles-anywhere-signing-engine.md",
+      "code": false,
+      "lines": 499,
+      "verbatim": 492,
+      "present_ignoring_whitespace": 492
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-01-aws-roles-anywhere-storage-wiring.md",
+      "code": false,
+      "lines": 369,
+      "verbatim": 364,
+      "present_ignoring_whitespace": 364
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-01-aws-roles-anywhere-ui.md",
+      "code": false,
+      "lines": 68,
+      "verbatim": 59,
+      "present_ignoring_whitespace": 59
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-02-auto-create-access-grants.md",
+      "code": false,
+      "lines": 419,
+      "verbatim": 413,
+      "present_ignoring_whitespace": 413
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-02-aws-remove-iam-user-path.md",
+      "code": false,
+      "lines": 53,
+      "verbatim": 45,
+      "present_ignoring_whitespace": 45
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-03-orphaned-access-grant-cleanup.md",
+      "code": false,
+      "lines": 363,
+      "verbatim": 349,
+      "present_ignoring_whitespace": 349
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-05-azure-phase2-app-identity-connector.md",
+      "code": false,
+      "lines": 565,
+      "verbatim": 553,
+      "present_ignoring_whitespace": 553
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-05-azure-teardown.md",
+      "code": false,
+      "lines": 215,
+      "verbatim": 205,
+      "present_ignoring_whitespace": 205
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-06-azure-phase3-entra-user-link.md",
+      "code": false,
+      "lines": 192,
+      "verbatim": 181,
+      "present_ignoring_whitespace": 181
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-06-azure-phase4a-graph-identity.md",
+      "code": false,
+      "lines": 334,
+      "verbatim": 326,
+      "present_ignoring_whitespace": 326
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-06-azure-phase4b-rbac-resolver.md",
+      "code": false,
+      "lines": 577,
+      "verbatim": 568,
+      "present_ignoring_whitespace": 568
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-06-azure-phase4c-composite-resolver.md",
+      "code": false,
+      "lines": 433,
+      "verbatim": 424,
+      "present_ignoring_whitespace": 424
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-07-azure-phase4d-gen2-acl-engine.md",
+      "code": false,
+      "lines": 567,
+      "verbatim": 561,
+      "present_ignoring_whitespace": 561
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-07-azure-phase4e-verify-seam.md",
+      "code": false,
+      "lines": 636,
+      "verbatim": 626,
+      "present_ignoring_whitespace": 626
+    },
+    {
+      "file": "docs/superpowers/plans/2026-09-10-github-connector.md",
+      "code": false,
+      "lines": 333,
+      "verbatim": 292,
+      "present_ignoring_whitespace": 292
+    },
+    {
+      "file": "docs/superpowers/plans/2026-10-14-custom-source-protocol-738.md",
+      "code": false,
+      "lines": 1544,
+      "verbatim": 1535,
+      "present_ignoring_whitespace": 1535
+    },
+    {
+      "file": "docs/superpowers/runbooks/2026-09-02-roles-anywhere-live-aws-acceptance.md",
+      "code": false,
+      "lines": 69,
+      "verbatim": 65,
+      "present_ignoring_whitespace": 65
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-27-hercules-swap-design.md",
+      "code": false,
+      "lines": 139,
+      "verbatim": 116,
+      "present_ignoring_whitespace": 116
+    },
+    {
+      "file": "docs/superpowers/specs/2026-08-13-connector-source-split-design.md",
+      "code": false,
+      "lines": 186,
+      "verbatim": 177,
+      "present_ignoring_whitespace": 177
+    },
+    {
+      "file": "docs/superpowers/specs/2026-08-23-sftp-ingestion-and-delete-guard-design.md",
+      "code": false,
+      "lines": 90,
+      "verbatim": 79,
+      "present_ignoring_whitespace": 79
+    },
+    {
+      "file": "docs/superpowers/specs/2026-08-27-per-user-aws-search-permissions-design.md",
+      "code": false,
+      "lines": 260,
+      "verbatim": 249,
+      "present_ignoring_whitespace": 249
+    },
+    {
+      "file": "docs/superpowers/specs/2026-08-31-provider-step-components-design.md",
+      "code": false,
+      "lines": 127,
+      "verbatim": 121,
+      "present_ignoring_whitespace": 121
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-01-aws-role-based-credentials-design.md",
+      "code": false,
+      "lines": 238,
+      "verbatim": 231,
+      "present_ignoring_whitespace": 231
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-02-aws-auto-create-access-grants-design.md",
+      "code": false,
+      "lines": 162,
+      "verbatim": 157,
+      "present_ignoring_whitespace": 157
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-03-orphaned-access-grant-cleanup-design.md",
+      "code": false,
+      "lines": 149,
+      "verbatim": 138,
+      "present_ignoring_whitespace": 138
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-03-update-role-permissions-design.md",
+      "code": false,
+      "lines": 56,
+      "verbatim": 50,
+      "present_ignoring_whitespace": 50
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-05-azure-blob-provider-design.md",
+      "code": false,
+      "lines": 298,
+      "verbatim": 286,
+      "present_ignoring_whitespace": 286
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-05-azure-phase2-app-identity-connector-design.md",
+      "code": false,
+      "lines": 60,
+      "verbatim": 51,
+      "present_ignoring_whitespace": 51
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-06-azure-phase3-entra-user-link-design.md",
+      "code": false,
+      "lines": 48,
+      "verbatim": 39,
+      "present_ignoring_whitespace": 39
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-06-azure-phase4-permission-engine-design.md",
+      "code": false,
+      "lines": 264,
+      "verbatim": 249,
+      "present_ignoring_whitespace": 249
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-09-github-connector-design.md",
+      "code": false,
+      "lines": 87,
+      "verbatim": 76,
+      "present_ignoring_whitespace": 76
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-25-eval-core-harness-design.md",
+      "code": false,
+      "lines": 113,
+      "verbatim": 111,
+      "present_ignoring_whitespace": 111
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-27-raw-file-extraction-evals-design.md",
+      "code": false,
+      "lines": 160,
+      "verbatim": 154,
+      "present_ignoring_whitespace": 154
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-28-ingestion-reliability-design.md",
+      "code": false,
+      "lines": 184,
+      "verbatim": 173,
+      "present_ignoring_whitespace": 173
+    },
+    {
+      "file": "docs/superpowers/specs/2026-09-30-atlassian-confluence-provider-design.md",
+      "code": false,
+      "lines": 160,
+      "verbatim": 153,
+      "present_ignoring_whitespace": 153
+    },
+    {
+      "file": "docs/superpowers/specs/2026-10-12-atlassian-jira-provider-design.md",
+      "code": false,
+      "lines": 224,
+      "verbatim": 217,
+      "present_ignoring_whitespace": 217
+    },
+    {
+      "file": "docs/superpowers/specs/2026-10-14-custom-source-protocol-design.md",
+      "code": false,
+      "lines": 235,
+      "verbatim": 227,
+      "present_ignoring_whitespace": 227
+    },
+    {
+      "file": "src/Connapse.Application/Agents/AgentOperations.cs",
+      "code": true,
+      "lines": 149,
+      "verbatim": 64,
+      "present_ignoring_whitespace": 114
+    },
+    {
+      "file": "src/Connapse.Application/Approvals/McpApprovalOperations.cs",
+      "code": true,
+      "lines": 42,
+      "verbatim": 37,
+      "present_ignoring_whitespace": 37
+    },
+    {
+      "file": "src/Connapse.Application/Attempt.cs",
+      "code": true,
+      "lines": 28,
+      "verbatim": 6,
+      "present_ignoring_whitespace": 8
+    },
+    {
+      "file": "src/Connapse.Application/Audit/ListAuditLog.cs",
+      "code": true,
+      "lines": 29,
+      "verbatim": 19,
+      "present_ignoring_whitespace": 19
+    },
+    {
+      "file": "src/Connapse.Application/Connections/AtlassianSiteOperations.cs",
+      "code": true,
+      "lines": 35,
+      "verbatim": 15,
+      "present_ignoring_whitespace": 28
+    },
+    {
+      "file": "src/Connapse.Application/Connections/ConnectionDiscoveryOperations.cs",
+      "code": true,
+      "lines": 59,
+      "verbatim": 37,
+      "present_ignoring_whitespace": 37
+    },
+    {
+      "file": "src/Connapse.Application/Connections/ConnectionOperations.cs",
+      "code": true,
+      "lines": 410,
+      "verbatim": 213,
+      "present_ignoring_whitespace": 300
+    },
+    {
+      "file": "src/Connapse.Application/Connections/ConnectionTestOperations.cs",
+      "code": true,
+      "lines": 116,
+      "verbatim": 50,
+      "present_ignoring_whitespace": 76
+    },
+    {
+      "file": "src/Connapse.Application/Containers/ContainerMaintenance.cs",
+      "code": true,
+      "lines": 161,
+      "verbatim": 80,
+      "present_ignoring_whitespace": 108
+    },
+    {
+      "file": "src/Connapse.Application/Containers/ContainerOperations.cs",
+      "code": true,
+      "lines": 157,
+      "verbatim": 84,
+      "present_ignoring_whitespace": 113
+    },
+    {
+      "file": "src/Connapse.Application/Containers/ContainerSettings.cs",
+      "code": true,
+      "lines": 38,
+      "verbatim": 21,
+      "present_ignoring_whitespace": 31
+    },
+    {
+      "file": "src/Connapse.Application/Extensions/ServiceCollectionExtensions.cs",
+      "code": true,
+      "lines": 22,
+      "verbatim": 11,
+      "present_ignoring_whitespace": 11
+    },
+    {
+      "file": "src/Connapse.Application/FailureAttribute.cs",
+      "code": true,
+      "lines": 11,
+      "verbatim": 6,
+      "present_ignoring_whitespace": 6
+    },
+    {
+      "file": "src/Connapse.Application/Files/BatchOperations.cs",
+      "code": true,
+      "lines": 30,
+      "verbatim": 21,
+      "present_ignoring_whitespace": 21
+    },
+    {
+      "file": "src/Connapse.Application/Files/FileOperations.cs",
+      "code": true,
+      "lines": 250,
+      "verbatim": 151,
+      "present_ignoring_whitespace": 181
+    },
+    {
+      "file": "src/Connapse.Application/Files/FolderOperations.cs",
+      "code": true,
+      "lines": 87,
+      "verbatim": 56,
+      "present_ignoring_whitespace": 62
+    },
+    {
+      "file": "src/Connapse.Application/Files/UploadOperations.cs",
+      "code": true,
+      "lines": 94,
+      "verbatim": 51,
+      "present_ignoring_whitespace": 56
+    },
+    {
+      "file": "src/Connapse.Application/Invites/InviteOperations.cs",
+      "code": true,
+      "lines": 94,
+      "verbatim": 49,
+      "present_ignoring_whitespace": 70
+    },
+    {
+      "file": "src/Connapse.Application/Links/AccountLinkOperations.cs",
+      "code": true,
+      "lines": 5,
+      "verbatim": 3,
+      "present_ignoring_whitespace": 3
+    },
+    {
+      "file": "src/Connapse.Application/Links/ListAccountLinks.cs",
+      "code": true,
+      "lines": 77,
+      "verbatim": 73,
+      "present_ignoring_whitespace": 73
+    },
+    {
+      "file": "src/Connapse.Application/Links/UnlinkAccount.cs",
+      "code": true,
+      "lines": 91,
+      "verbatim": 67,
+      "present_ignoring_whitespace": 71
+    },
+    {
+      "file": "src/Connapse.Application/OAuthClients/OAuthClientOperations.cs",
+      "code": true,
+      "lines": 33,
+      "verbatim": 19,
+      "present_ignoring_whitespace": 20
+    },
+    {
+      "file": "src/Connapse.Application/OperationAttribute.cs",
+      "code": true,
+      "lines": 15,
+      "verbatim": 6,
+      "present_ignoring_whitespace": 6
+    },
+    {
+      "file": "src/Connapse.Application/OperationContext.cs",
+      "code": true,
+      "lines": 7,
+      "verbatim": 4,
+      "present_ignoring_whitespace": 4
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IAwsSession.cs",
+      "code": true,
+      "lines": 3,
+      "verbatim": 0,
+      "present_ignoring_whitespace": 0
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IConnectionDiscovery.cs",
+      "code": true,
+      "lines": 11,
+      "verbatim": 8,
+      "present_ignoring_whitespace": 8
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IConnectionSettingsRules.cs",
+      "code": true,
+      "lines": 29,
+      "verbatim": 15,
+      "present_ignoring_whitespace": 16
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IConnectionTestRunner.cs",
+      "code": true,
+      "lines": 22,
+      "verbatim": 11,
+      "present_ignoring_whitespace": 11
+    },
+    {
+      "file": "src/Connapse.Application/Ports/ICustomAccountLinks.cs",
+      "code": true,
+      "lines": 12,
+      "verbatim": 6,
+      "present_ignoring_whitespace": 6
+    },
+    {
+      "file": "src/Connapse.Application/Ports/ICustomProviderChecker.cs",
+      "code": true,
+      "lines": 6,
+      "verbatim": 2,
+      "present_ignoring_whitespace": 2
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IDocumentAccess.cs",
+      "code": true,
+      "lines": 9,
+      "verbatim": 7,
+      "present_ignoring_whitespace": 7
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IIngestionJobs.cs",
+      "code": true,
+      "lines": 6,
+      "verbatim": 3,
+      "present_ignoring_whitespace": 3
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IInviteStore.cs",
+      "code": true,
+      "lines": 23,
+      "verbatim": 7,
+      "present_ignoring_whitespace": 7
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IOperationAuthorizer.cs",
+      "code": true,
+      "lines": 36,
+      "verbatim": 23,
+      "present_ignoring_whitespace": 23
+    },
+    {
+      "file": "src/Connapse.Application/Ports/ISourceScopeRules.cs",
+      "code": true,
+      "lines": 27,
+      "verbatim": 13,
+      "present_ignoring_whitespace": 13
+    },
+    {
+      "file": "src/Connapse.Application/Ports/ISourceSync.cs",
+      "code": true,
+      "lines": 8,
+      "verbatim": 5,
+      "present_ignoring_whitespace": 5
+    },
+    {
+      "file": "src/Connapse.Application/Ports/ISourceVisibility.cs",
+      "code": true,
+      "lines": 12,
+      "verbatim": 7,
+      "present_ignoring_whitespace": 7
+    },
+    {
+      "file": "src/Connapse.Application/Ports/ISummaryRollup.cs",
+      "code": true,
+      "lines": 6,
+      "verbatim": 1,
+      "present_ignoring_whitespace": 1
+    },
+    {
+      "file": "src/Connapse.Application/Ports/IUserDirectory.cs",
+      "code": true,
+      "lines": 24,
+      "verbatim": 9,
+      "present_ignoring_whitespace": 10
+    },
+    {
+      "file": "src/Connapse.Application/Ports/SettingsPorts.cs",
+      "code": true,
+      "lines": 18,
+      "verbatim": 10,
+      "present_ignoring_whitespace": 10
+    },
+    {
+      "file": "src/Connapse.Application/Providers/AwsProviderOperations.cs",
+      "code": true,
+      "lines": 235,
+      "verbatim": 164,
+      "present_ignoring_whitespace": 184
+    },
+    {
+      "file": "src/Connapse.Application/Providers/CustomProviderOperations.cs",
+      "code": true,
+      "lines": 227,
+      "verbatim": 106,
+      "present_ignoring_whitespace": 155
+    },
+    {
+      "file": "src/Connapse.Application/Providers/GetProviderStatus.cs",
+      "code": true,
+      "lines": 16,
+      "verbatim": 16,
+      "present_ignoring_whitespace": 16
+    },
+    {
+      "file": "src/Connapse.Application/Providers/GitHubAppOperations.cs",
+      "code": true,
+      "lines": 222,
+      "verbatim": 108,
+      "present_ignoring_whitespace": 121
+    },
+    {
+      "file": "src/Connapse.Application/Search/SearchOperations.cs",
+      "code": true,
+      "lines": 109,
+      "verbatim": 65,
+      "present_ignoring_whitespace": 65
+    },
+    {
+      "file": "src/Connapse.Application/Settings/ReindexStateService.cs",
+      "code": true,
+      "lines": 36,
+      "verbatim": 13,
+      "present_ignoring_whitespace": 14
+    },
+    {
+      "file": "src/Connapse.Application/Settings/SettingsActions.cs",
+      "code": true,
+      "lines": 139,
+      "verbatim": 48,
+      "present_ignoring_whitespace": 84
+    },
+    {
+      "file": "src/Connapse.Application/Settings/SettingsOperations.cs",
+      "code": true,
+      "lines": 231,
+      "verbatim": 176,
+      "present_ignoring_whitespace": 177
+    },
+    {
+      "file": "src/Connapse.Application/Sources/CreateAndDeleteSource.cs",
+      "code": true,
+      "lines": 116,
+      "verbatim": 65,
+      "present_ignoring_whitespace": 88
+    },
+    {
+      "file": "src/Connapse.Application/Sources/SourceDeletion.cs",
+      "code": true,
+      "lines": 16,
+      "verbatim": 10,
+      "present_ignoring_whitespace": 10
+    },
+    {
+      "file": "src/Connapse.Application/Sources/SourceOperations.cs",
+      "code": true,
+      "lines": 12,
+      "verbatim": 9,
+      "present_ignoring_whitespace": 9
+    },
+    {
+      "file": "src/Connapse.Application/Sources/SourceReads.cs",
+      "code": true,
+      "lines": 69,
+      "verbatim": 32,
+      "present_ignoring_whitespace": 52
+    },
+    {
+      "file": "src/Connapse.Application/Sources/SourceScopeSchema.cs",
+      "code": true,
+      "lines": 46,
+      "verbatim": 28,
+      "present_ignoring_whitespace": 28
+    },
+    {
+      "file": "src/Connapse.Background/Jobs/IngestionJobs.cs",
+      "code": true,
+      "lines": 210,
+      "verbatim": 119,
+      "present_ignoring_whitespace": 139
+    },
+    {
+      "file": "src/Connapse.Core/Models/AtlassianVerifierSettings.cs",
+      "code": true,
+      "lines": 10,
+      "verbatim": 8,
+      "present_ignoring_whitespace": 8
+    },
+    {
+      "file": "src/Connapse.Core/Models/EmbeddingPrompts.cs",
+      "code": true,
+      "lines": 152,
+      "verbatim": 78,
+      "present_ignoring_whitespace": 92
+    },
+    {
+      "file": "src/Connapse.Core/Models/SettingsModels.cs",
+      "code": true,
+      "lines": 350,
+      "verbatim": 171,
+      "present_ignoring_whitespace": 171
+    },
+    {
+      "file": "src/Connapse.Core/Utilities/LogSanitizer.cs",
+      "code": true,
+      "lines": 15,
+      "verbatim": 3,
+      "present_ignoring_whitespace": 3
+    },
+    {
+      "file": "src/Connapse.Identity/Authentication/ApiKeyAuthenticationOptions.cs",
+      "code": true,
+      "lines": 6,
+      "verbatim": 4,
+      "present_ignoring_whitespace": 4
+    },
+    {
+      "file": "src/Connapse.Identity/Services/JwtTokenService.cs",
+      "code": true,
+      "lines": 153,
+      "verbatim": 80,
+      "present_ignoring_whitespace": 98
+    },
+    {
+      "file": "src/Connapse.Identity/Services/PatService.cs",
+      "code": true,
+      "lines": 60,
+      "verbatim": 29,
+      "present_ignoring_whitespace": 39
+    },
+    {
+      "file": "src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs",
+      "code": true,
+      "lines": 69,
+      "verbatim": 23,
+      "present_ignoring_whitespace": 31
+    },
+    {
+      "file": "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs",
+      "code": true,
+      "lines": 428,
+      "verbatim": 239,
+      "present_ignoring_whitespace": 239
+    },
+    {
+      "file": "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+      "code": true,
+      "lines": 742,
+      "verbatim": 741,
+      "present_ignoring_whitespace": 741
+    },
+    {
+      "file": "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs",
+      "code": true,
+      "lines": 52,
+      "verbatim": 25,
+      "present_ignoring_whitespace": 26
+    },
+    {
+      "file": "src/Connapse.Ingestion/Validation/ParseLimits.cs",
+      "code": true,
+      "lines": 62,
+      "verbatim": 27,
+      "present_ignoring_whitespace": 30
+    },
+    {
+      "file": "src/Connapse.Ingestion/Validation/TextQuality.cs",
+      "code": true,
+      "lines": 46,
+      "verbatim": 27,
+      "present_ignoring_whitespace": 30
+    },
+    {
+      "file": "src/Connapse.Search/Hybrid/HybridSearchService.cs",
+      "code": true,
+      "lines": 357,
+      "verbatim": 161,
+      "present_ignoring_whitespace": 195
+    },
+    {
+      "file": "src/Connapse.Storage/CloudScope/AtlassianSearchResultVerifier.cs",
+      "code": true,
+      "lines": 132,
+      "verbatim": 96,
+      "present_ignoring_whitespace": 96
+    },
+    {
+      "file": "src/Connapse.Storage/CloudScope/AzureSearchScopeResolver.cs",
+      "code": true,
+      "lines": 55,
+      "verbatim": 43,
+      "present_ignoring_whitespace": 47
+    },
+    {
+      "file": "src/Connapse.Storage/Connectors/Custom/PageGuard.cs",
+      "code": true,
+      "lines": 12,
+      "verbatim": 9,
+      "present_ignoring_whitespace": 9
+    },
+    {
+      "file": "src/Connapse.Storage/Connectors/GitHubConnector.cs",
+      "code": true,
+      "lines": 256,
+      "verbatim": 135,
+      "present_ignoring_whitespace": 164
+    },
+    {
+      "file": "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs",
+      "code": true,
+      "lines": 302,
+      "verbatim": 302,
+      "present_ignoring_whitespace": 302
+    },
+    {
+      "file": "src/Connapse.Storage/Vectors/OllamaEmbeddingProvider.cs",
+      "code": true,
+      "lines": 74,
+      "verbatim": 48,
+      "present_ignoring_whitespace": 55
+    },
+    {
+      "file": "src/Connapse.Storage/Vectors/PgVectorStore.cs",
+      "code": true,
+      "lines": 383,
+      "verbatim": 382,
+      "present_ignoring_whitespace": 382
+    },
+    {
+      "file": "src/Connapse.Storage/Vectors/VectorColumnManager.cs",
+      "code": true,
+      "lines": 135,
+      "verbatim": 87,
+      "present_ignoring_whitespace": 97
+    },
+    {
+      "file": "src/Connapse.Web/Endpoints/IfMatch.cs",
+      "code": true,
+      "lines": 19,
+      "verbatim": 8,
+      "present_ignoring_whitespace": 8
+    },
+    {
+      "file": "src/Connapse.Web/Services/SourceSyncService.cs",
+      "code": true,
+      "lines": 614,
+      "verbatim": 368,
+      "present_ignoring_whitespace": 404
+    }
+  ]
+}

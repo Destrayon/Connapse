@@ -25,6 +25,12 @@
     <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.13" />
   </ItemGroup>
 
+  <!-- A test host lives for seconds; instrumenting hot methods for profile-guided JIT costs more than it
+       wins back. Off, the quick tier's testhost CPU drops about 8% in Core.Tests and 11% in Eval.Tests (CON-135). -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('.Tests'))">
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+
   <!--
     The same situation for System.Security.Cryptography.Pkcs, handled the other way round.
 
@@ -54,4 +60,23 @@
     <MinVerTagPrefix>v</MinVerTagPrefix>
     <MinVerDefaultPreReleaseIdentifiers>alpha.0</MinVerDefaultPreReleaseIdentifiers>
   </PropertyGroup>
+
+  <!--
+    Analyzer rules are pinned (epic #783, #786): an SDK upgrade can't add or tighten rules without the
+    SquiggleCop baselines showing it. Rules that already fire are lowered in .editorconfig.
+  -->
+  <PropertyGroup>
+    <AnalysisLevel>10.0-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Each project's SquiggleCop.Baseline.yaml records every rule's effective severity, and
+         TreatWarningsAsErrors changes those, so the check runs only in that build: CI's code-quality
+         job. A mismatch is SQ2000; rebuild with SquiggleCop_AutoBaseline=true and review the diff. -->
+    <SquiggleCop_Enabled Condition="'$(TreatWarningsAsErrors)' != 'true'">false</SquiggleCop_Enabled>
+    <!-- SQ2000 comes from an MSBuild task, which TreatWarningsAsErrors doesn't cover. -->
+    <MSBuildWarningsAsErrors>$(MSBuildWarningsAsErrors);SQ2000</MSBuildWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SquiggleCop.Tasks" Version="1.0.26" PrivateAssets="all" />
+  </ItemGroup>
 </Project>

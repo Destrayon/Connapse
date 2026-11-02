@@ -7,6 +7,7 @@ using FluentAssertions;
 namespace Connapse.Ingestion.Tests.Chunking;
 
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class SentenceAwareFixedSizeChunkerTests
 {
     private readonly SentenceAwareFixedSizeChunker _chunker;
@@ -137,5 +138,40 @@ public class SentenceAwareFixedSizeChunkerTests
         var result = await _chunker.ChunkAsync(doc, settings);
         bool tinyPresent = result.Any(c => c.Content.Contains("Tiny"));
         tinyPresent.Should().BeTrue("MinChunkSize must merge sub-min chunks, not drop them");
+    }
+
+    private const string CodeSample = """
+        namespace Connapse.Search;
+
+        /// <summary>Reads the current search settings.</summary>
+        public sealed class SearchReader(IOptionsMonitor<SearchSettings> searchSettings)
+        {
+            private readonly List<Group> groups = new();
+
+            public int TopK => searchSettings.CurrentValue.TopK;
+        }
+        """;
+
+    private static IEnumerable<string> CodeLines() =>
+        CodeSample.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0);
+    [Theory]
+    [InlineData(20)]
+    [InlineData(8)]
+    public async Task ChunkAsync_Code_ChunksAreSourceSlicesWithEveryLineIntact(int maxChunkSize)
+    {
+        // CON-143: the segmenter strips <...> and splits inside a.b, so offsets found by IndexOf on its
+        // sentences were guessed, and oversize sentences were sub-split from the segmenter's text.
+        var doc = new ParsedDocument(CodeSample, new Dictionary<string, string>(), new List<string>());
+        var settings = new ChunkingSettings { MaxChunkSize = maxChunkSize, Overlap = 0, MinChunkSize = 1 };
+
+        IReadOnlyList<ChunkInfo> result = await _chunker.ChunkAsync(doc, settings);
+
+        result.Should().HaveCountGreaterThan(1);
+        result.Select(c => c.ChunkIndex).Should().Equal(Enumerable.Range(0, result.Count));
+        result.Should().OnlyContain(c => !c.Metadata.ContainsKey("OffsetEstimated"));
+        foreach (ChunkInfo c in result)
+            CodeSample[c.StartOffset..c.EndOffset].Should().Be(c.Content);
+        foreach (string line in CodeLines().Where(l => l.Length <= maxChunkSize * 2))
+            result.Should().Contain(c => c.Content.Contains(line), $"the line '{line}' must be stored as written");
     }
 }

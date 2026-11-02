@@ -26,6 +26,13 @@ internal static class SettingsOverridesJson
             && Find(root, nameof(ContainerSettingsOverrides.Search)) is { Value: JsonObject search })
         {
             HashSet<string> named = new(searchSettingsNamed, StringComparer.OrdinalIgnoreCase);
+            // A secret is never named back, since no reader sees it, but a kept one stays while the destinations it was
+            // saved for are named: pruning it would delete the key, and keeping it without them would send it elsewhere.
+            if (SettingsSecrets.DestinationsOf(typeof(SearchSettings)).All(d => named.Contains(d.Name)))
+            {
+                named.UnionWith(SettingsSecrets.Of(typeof(SearchSettings))
+                    .Where(s => s.GetValue(overrides.Search) is not null).Select(s => s.Name));
+            }
             foreach (string name in search.Select(p => p.Key).Where(n => !named.Contains(n)).ToList())
                 search.Remove(name);
         }

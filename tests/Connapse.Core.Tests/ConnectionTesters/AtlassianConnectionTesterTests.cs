@@ -980,10 +980,10 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
     }
 
     [Theory]
-    [InlineData(HttpStatusCode.TooManyRequests, "limiting requests")]
-    [InlineData(HttpStatusCode.InternalServerError, "didn't answer properly")]
+    [InlineData(HttpStatusCode.TooManyRequests, "limiting requests", true)]
+    [InlineData(HttpStatusCode.InternalServerError, "didn't answer properly", false)]
     public async Task Test_SignInStepRateLimitedOrUnanswered_PointsAtTheGeneralSection_NotRejectedCredentials(
-        HttpStatusCode status, string says)
+        HttpStatusCode status, string says, bool unanswered)
     {
         _api.FailTokenWith(status);
 
@@ -993,6 +993,8 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
         result.Details.Should().NotContainKey("rejected");
         result.Message.Should().Contain(says).And.Contain("test again");
+        // A rate limit is no answer at all; an error answer is still one.
+        result.Details.ContainsKey(AtlassianConnectionTester.UnansweredDetail).Should().Be(unanswered);
     }
 
     [Fact]
@@ -1006,6 +1008,7 @@ public sealed class AtlassianConnectionTesterTests : IDisposable
         result.Details!["step"].Should().Be(AtlassianConnectionTester.TokenStep);
         result.Details["troubleshoot"].Should().Be(AtlassianSiteTroubleshooting.General);
         result.Message.Should().Contain("didn't answer in time");
+        result.Details.Should().ContainKey(AtlassianConnectionTester.UnansweredDetail);
     }
 
     /// <summary>Atlassian's token endpoint never answers: the HTTP client's own timeout fires.</summary>

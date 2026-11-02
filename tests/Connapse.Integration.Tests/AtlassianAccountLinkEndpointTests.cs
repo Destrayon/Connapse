@@ -58,8 +58,11 @@ public sealed class AtlassianAccountLinkEndpointTests(SharedWebAppFixture fixtur
             {
                 var created = await users.CreateAsync(new ConnapseUser
                 {
-                    UserName = VictimEmail, Email = VictimEmail, EmailConfirmed = true,
-                    DisplayName = "Atlassian CSRF Victim", CreatedAt = DateTime.UtcNow,
+                    UserName = VictimEmail,
+                    Email = VictimEmail,
+                    EmailConfirmed = true,
+                    DisplayName = "Atlassian CSRF Victim",
+                    CreatedAt = DateTime.UtcNow,
                 }, VictimPassword);
                 created.Succeeded.Should().BeTrue(string.Join(", ", created.Errors.Select(e => e.Description)));
             }

@@ -84,7 +84,7 @@ Read these files and cross-reference against the actual codebase:
 - `.claude/state/conventions.md` — Are conventions being followed? Any new patterns that should be documented?
 - `.claude/state/issues.md` — Are "Open" issues still relevant? Any "Fixed" issues that regressed?
 - `docs/v0.3.0-plan.md` — What was planned but not yet built?
-- `docs/connectors.md` — Does documentation match implementation?
+- `docs/sources/index.md` — Does documentation match implementation?
 
 Look for:
 - Decisions that were made but never implemented

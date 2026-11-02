@@ -1,0 +1,15 @@
+﻿{
+  Reason: absent: the User management page changes only the users it lists, so it can't name one that doesn't exist,
+  Reference: {
+    Result: error:not_found,
+    State: [
+      user roles=Viewer
+    ]
+  },
+  Surface: {
+    Result: absent,
+    State: [
+      user roles=Viewer
+    ]
+  }
+}

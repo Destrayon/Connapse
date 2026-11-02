@@ -30,8 +30,11 @@ public class SourceSyncService(
     IServiceScopeFactory scopeFactory,
     IConnectorFactory connectorFactory,
     IIngestionQueue queue,
-    ILogger<SourceSyncService> logger) : BackgroundService
+    ILogger<SourceSyncService> logger) : BackgroundService, Connapse.Application.Ports.ISourceSync
 {
+    public Task<SourceSyncResult> SyncNowAsync(Source source, Connection? connection, bool applyWithheldDeletions, CancellationToken ct = default) =>
+        SyncSourceAsync(source, connection, ct, applyWithheldDeletions);
+
     private static readonly TimeSpan DefaultSyncInterval = TimeSpan.FromMinutes(5);
 
     /// <summary>
@@ -272,7 +275,7 @@ public class SourceSyncService(
                 && ex is Connapse.Storage.Connectors.Atlassian.AtlassianAuthException auth)
             {
                 await scope.ServiceProvider.GetRequiredService<IConnectionStore>().RecordHealthAsync(connection.Id,
-                    AtlassianSignInHealth(auth, source.Name, AtlassianSourceScope.IsJira(source.ScopeJson)), ct);
+                    AtlassianSignInHealth(auth, source.Name, SourceScopeCodec.AtlassianKindOf(source.ScopeJson) == AtlassianScopeKind.JiraProject), ct);
             }
 
             // A middle man refused the token a custom source reads with (its connection's, or its provider's):

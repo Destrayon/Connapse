@@ -76,25 +76,25 @@ public static class OlmOcrTestLoader
         {
             case "present":
             case "absent":
-            {
-                string text = OlmOcrText.Normalize(Required(row, "text"))!;
-                if (PyText.Strip(text).Length == 0)
-                    throw new OlmOcrValidationException("Text field cannot be empty");
-                return new TextPresenceTest(pdf, page, id, type, maxDiffs, text,
-                    OptionalBool(row, "case_sensitive") ?? true, OptionalInt(row, "first_n"), OptionalInt(row, "last_n"));
-            }
+                {
+                    string text = OlmOcrText.Normalize(Required(row, "text"))!;
+                    if (PyText.Strip(text).Length == 0)
+                        throw new OlmOcrValidationException("Text field cannot be empty");
+                    return new TextPresenceTest(pdf, page, id, type, maxDiffs, text,
+                        OptionalBool(row, "case_sensitive") ?? true, OptionalInt(row, "first_n"), OptionalInt(row, "last_n"));
+                }
             case "order":
-            {
-                string before = OlmOcrText.Normalize(Required(row, "before"))!;
-                string after = OlmOcrText.Normalize(Required(row, "after"))!;
-                if (PyText.Strip(before).Length == 0)
-                    throw new OlmOcrValidationException("Before field cannot be empty");
-                if (PyText.Strip(after).Length == 0)
-                    throw new OlmOcrValidationException("After field cannot be empty");
-                if (maxDiffs > PyText.Length(before) / 2 || maxDiffs > PyText.Length(after) / 2)
-                    throw new OlmOcrValidationException("Max diffs is too large for this test, greater than 50% of the search string");
-                return new TextOrderTest(pdf, page, id, type, maxDiffs, before, after);
-            }
+                {
+                    string before = OlmOcrText.Normalize(Required(row, "before"))!;
+                    string after = OlmOcrText.Normalize(Required(row, "after"))!;
+                    if (PyText.Strip(before).Length == 0)
+                        throw new OlmOcrValidationException("Before field cannot be empty");
+                    if (PyText.Strip(after).Length == 0)
+                        throw new OlmOcrValidationException("After field cannot be empty");
+                    if (maxDiffs > PyText.Length(before) / 2 || maxDiffs > PyText.Length(after) / 2)
+                        throw new OlmOcrValidationException("Max diffs is too large for this test, greater than 50% of the search string");
+                    return new TextOrderTest(pdf, page, id, type, maxDiffs, before, after);
+                }
             case "table":
                 return new TableTest(pdf, page, id, type, maxDiffs,
                     OlmOcrText.Normalize(Required(row, "cell"))!,
@@ -107,12 +107,12 @@ public static class OlmOcrTestLoader
                     OptionalInt(row, "max_length"), OptionalBool(row, "max_length_skips_image_alt_tags") ?? false,
                     OptionalInt(row, "max_repeats") ?? 30, OptionalBool(row, "check_disallowed_characters") ?? true);
             default:
-            {
-                string math = Required(row, "math");
-                if (PyText.Strip(math).Length == 0)
-                    throw new OlmOcrValidationException("Math test must have non-empty math expression");
-                return new MathTest(pdf, page, id, type, maxDiffs, math);
-            }
+                {
+                    string math = Required(row, "math");
+                    if (PyText.Strip(math).Length == 0)
+                        throw new OlmOcrValidationException("Math test must have non-empty math expression");
+                    return new MathTest(pdf, page, id, type, maxDiffs, math);
+                }
         }
     }
 

@@ -17,6 +17,8 @@ internal static class TestScanPdf
         var images = new List<(byte[] Jpeg, int Width, int Height)>();
         for (int i = 0; i < pages.Length; i++)
         {
+            if (!Connapse.Ingestion.Parsers.Pdfium.IsSupported)
+                throw new PlatformNotSupportedException(Connapse.Ingestion.Parsers.Pdfium.Unsupported);
             using SKBitmap bitmap = Conversion.ToImage(source, i, options: new RenderOptions(Dpi: dpi));
             using SKData jpeg = bitmap.Encode(SKEncodedImageFormat.Jpeg, 90);
             images.Add((jpeg.ToArray(), bitmap.Width, bitmap.Height));

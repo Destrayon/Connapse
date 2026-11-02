@@ -874,7 +874,7 @@ public sealed partial class ConfluenceSpaceConnector(
                 Id = id!,
                 Version = item.Version?.Number ?? 0,
                 VersionAt = item.Version?.CreatedAt ?? DateTimeOffset.MinValue,
-                FileName = item.Title ?? "",
+                FileName = item.Title!,
                 MediaType = item.MediaType,
                 Size = item.FileSize ?? 0,
             });

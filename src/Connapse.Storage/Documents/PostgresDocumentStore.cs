@@ -3,6 +3,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
@@ -19,16 +20,13 @@ namespace Connapse.Storage.Documents;
 public class PostgresDocumentStore : IDocumentStore
 {
     private readonly IDbContextFactory<KnowledgeDbContext> _factory;
-    private readonly IContainerStore _containerStore;
     private readonly ILogger<PostgresDocumentStore> _logger;
 
     public PostgresDocumentStore(
         IDbContextFactory<KnowledgeDbContext> factory,
-        IContainerStore containerStore,
         ILogger<PostgresDocumentStore> logger)
     {
         _factory = factory;
-        _containerStore = containerStore;
         _logger = logger;
     }
 
@@ -37,7 +35,67 @@ public class PostgresDocumentStore : IDocumentStore
         ArgumentNullException.ThrowIfNull(document);
 
         await using var context = await _factory.CreateDbContextAsync(ct);
+        return await UpsertAsync(context, document, ct);
+    }
 
+    public async Task<StoreResult?> StoreInFolderAsync(
+        Document document, Guid? folderId, Func<CancellationToken, Task> writeFile, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(writeFile);
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await LockPathAsync(context, Guid.Parse(document.ContainerId), document.Path, ct);
+
+        if (folderId is not null)
+        {
+            // FOR KEY SHARE is the lock Postgres's own foreign-key checks take on a referenced row: a folder delete's
+            // FOR UPDATE waits for it, and under Read Committed a lock that waited on a delete finds no row at all.
+            var folder = await context.Database
+                .SqlQuery<Guid>($"SELECT id AS \"Value\" FROM folders WHERE id = {folderId} FOR KEY SHARE")
+                .ToListAsync(ct);
+            if (folder.Count == 0)
+                return null;
+        }
+
+        // Written under the lock: a refused upload has written nothing, so it never has a file to clean up that a
+        // newer upload to the same path might have replaced.
+        await writeFile(ct);
+        var stored = await UpsertAsync(context, document, ct);
+        await transaction.CommitAsync(ct);
+        return stored;
+    }
+
+    public async Task<bool> RemoveUnrecordedFileAsync(
+        Guid containerId, string path, Func<CancellationToken, Task> deleteFile, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(deleteFile);
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        await LockPathAsync(context, containerId, path, ct);
+
+        if (await context.Documents.AnyAsync(d => d.OwnerId == containerId && d.Path == path, ct))
+            return false;
+
+        await deleteFile(ct);
+        await transaction.CommitAsync(ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Holds one container path until the transaction ends. Postgres advisory locks are keyed by a number, so the
+    /// key is a hash of the path, and two paths that share a hash only wait for each other.
+    /// </summary>
+    private static Task LockPathAsync(KnowledgeDbContext context, Guid containerId, string path, CancellationToken ct)
+    {
+        string key = $"{containerId}:{path}";
+        return context.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", ct);
+    }
+
+    private async Task<StoreResult> UpsertAsync(KnowledgeDbContext context, Document document, CancellationToken ct)
+    {
         var docId = string.IsNullOrEmpty(document.Id) ? Guid.NewGuid() : Guid.Parse(document.Id);
         var containerId = Guid.Parse(document.ContainerId);
         var metadata = document.Metadata ?? new Dictionary<string, string>();
@@ -49,8 +107,10 @@ public class PostgresDocumentStore : IDocumentStore
         // On conflict, increments generation so stale ingestion jobs can detect they're outdated.
         // Returns the winning row's id and generation.
         var conn = context.Database.GetDbConnection();
-        await conn.OpenAsync(ct);
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
+        cmd.Transaction = context.Database.CurrentTransaction?.GetDbTransaction();
         cmd.CommandText = """
             INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, ingestion_status, status_changed_at, created_at, metadata)
             VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Queued', now(), @created, @meta::jsonb)
@@ -168,21 +228,8 @@ public class PostgresDocumentStore : IDocumentStore
             return;
         }
 
-        bool docHadSummary = !string.IsNullOrEmpty(entity.Summary);
-        Guid? containerId = entity.ContainerId;
-
         context.Documents.Remove(entity);
         await context.SaveChangesAsync(ct);
-
-        // If the deleted doc contributed to the container summary, mark the container as
-        // stale so the next sweep tick triggers a re-rollup. Without this, the sweep query
-        // wouldn't detect pure-deletion changes (no doc has a "newer" summary timestamp).
-        // Source-owned documents have no container, so there is no container summary
-        // to invalidate — the source summary rollup arrives with the sync engine.
-        if (docHadSummary && containerId.HasValue)
-        {
-            await _containerStore.MarkSummaryStaleAsync(containerId.Value, ct);
-        }
 
         _logger.LogInformation(
             "Deleted document {DocumentId} ({FileName})",
@@ -207,80 +254,6 @@ public class PostgresDocumentStore : IDocumentStore
             .FirstOrDefaultAsync(d => d.OwnerId == containerId && d.Path == path, ct);
 
         return entity is null ? null : MapToModel(entity);
-    }
-
-    public async Task UpdateSummaryAsync(string documentId, string? summary, DateTime? generatedAt, string? contentHash, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(documentId, out var guid))
-        {
-            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
-            return;
-        }
-
-        await using var context = await _factory.CreateDbContextAsync(ct);
-
-        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
-        if (entity is null) return;
-
-        entity.Summary = summary;
-        entity.SummaryGeneratedAt = generatedAt;
-        entity.SummaryContentHash = contentHash;
-        await context.SaveChangesAsync(ct);
-    }
-
-    public async Task<int> ClearDocumentSummariesAsync(Guid containerId, CancellationToken ct = default)
-    {
-        await using var context = await _factory.CreateDbContextAsync(ct);
-
-        // Set-based clear of the per-doc summary cache. Filter to rows that actually have
-        // something cached so the affected-count reflects real work and we skip no-op writes.
-        return await context.Documents
-            .Where(d => d.OwnerId == containerId
-                && (d.Summary != null || d.SummaryGeneratedAt != null || d.SummaryContentHash != null))
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(d => d.Summary, (string?)null)
-                .SetProperty(d => d.SummaryGeneratedAt, (DateTime?)null)
-                .SetProperty(d => d.SummaryContentHash, (string?)null),
-                ct);
-    }
-
-    public async Task<IReadOnlyList<Guid>> FindContainersWithStaleSummariesAsync(CancellationToken ct = default)
-    {
-        await using var context = await _factory.CreateDbContextAsync(ct);
-
-        // Stale = container has at least one doc AND something changed more recently than the
-        // container's last rollup. "Change" is the latest of three doc-level timestamps:
-        //   • SummaryGeneratedAt — bumped when a per-doc summary is written (summary-clustering
-        //     mode at ingest; document-clustering mode when a medoid summary is cached)
-        //   • LastIndexedAt      — bumped on re-ingestion (content updates)
-        //   • CreatedAt          — initial upload
-        //
-        // Before HERCULES this query filtered to docs with non-null Summary, which silently
-        // excluded document-clustering containers (whose docs are mostly null-summary) — the
-        // sweep then reported "no stale containers" forever and rollups never fired.
-        return await context.Documents
-            // Source-owned documents have a null container_id and never roll up into a
-            // container summary, so they are excluded before grouping.
-            .Where(d => d.ContainerId != null)
-            .GroupBy(d => d.ContainerId!.Value)
-            .Select(g => new
-            {
-                ContainerId = g.Key,
-                MaxSummary = g.Max(d => d.SummaryGeneratedAt),
-                MaxIndexed = g.Max(d => d.LastIndexedAt),
-                MaxCreated = g.Max(d => d.CreatedAt),
-            })
-            .Join(context.Containers,
-                  x => x.ContainerId,
-                  c => c.Id,
-                  (x, c) => new { x.ContainerId, x.MaxSummary, x.MaxIndexed, x.MaxCreated, ContainerSummaryAt = c.SummaryGeneratedAt })
-            .Where(x =>
-                x.ContainerSummaryAt == null
-                || (x.MaxSummary != null && x.MaxSummary > x.ContainerSummaryAt)
-                || (x.MaxIndexed != null && x.MaxIndexed > x.ContainerSummaryAt)
-                || x.MaxCreated > x.ContainerSummaryAt)
-            .Select(x => x.ContainerId)
-            .ToListAsync(ct);
     }
 
     public async Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default)
@@ -336,46 +309,6 @@ public class PostgresDocumentStore : IDocumentStore
         return result;
     }
 
-    public async Task<string?> GetDocumentTextAsync(string documentId, CancellationToken ct = default)
-    {
-        if (!Guid.TryParse(documentId, out var guid)) return null;
-
-        await using var context = await _factory.CreateDbContextAsync(ct);
-
-        var chunks = await context.Chunks
-            .AsNoTracking()
-            .Where(c => c.DocumentId == guid)
-            .OrderBy(c => c.ChunkIndex)
-            .Select(c => new { c.Content, c.StartOffset, c.EndOffset })
-            .ToListAsync(ct);
-
-        if (chunks.Count == 0) return null;
-
-        // Chunkers overlap neighbouring chunks. Where a chunk's content is exactly the span its
-        // offsets describe, the part already covered by the previous chunk is dropped; where it is
-        // not — a chunker that prefixes headings, say — the chunk is kept whole, since repeating a
-        // little text costs a summary far less than cutting some.
-        var text = new System.Text.StringBuilder();
-        int covered = 0;
-        foreach (var chunk in chunks)
-        {
-            bool exactSpan = chunk.EndOffset - chunk.StartOffset == chunk.Content.Length;
-            if (exactSpan && chunk.StartOffset < covered && covered < chunk.EndOffset)
-            {
-                text.Append(chunk.Content, covered - chunk.StartOffset, chunk.EndOffset - covered);
-            }
-            else if (!exactSpan || chunk.StartOffset >= covered)
-            {
-                if (text.Length > 0) text.Append('\n');
-                text.Append(chunk.Content);
-            }
-
-            covered = Math.Max(covered, chunk.EndOffset);
-        }
-
-        return text.ToString();
-    }
-
     private static Document MapToModel(DocumentEntity entity)
     {
         var metadata = new Dictionary<string, string>(entity.Metadata ?? new());
@@ -402,11 +335,7 @@ public class PostgresDocumentStore : IDocumentStore
             entity.SizeBytes,
             entity.CreatedAt,
             metadata,
-            entity.Summary,
-            entity.SummaryGeneratedAt,
-            entity.SummaryContentHash,
-            entity.IngestionStatus,
-            entity.SummaryStatus)
+            entity.IngestionStatus)
         {
             // Which of the two columns is set, kept alongside the collapsed OwnerId above so a
             // caller can tell a source-owned row from a container-owned one.

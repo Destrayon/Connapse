@@ -83,7 +83,10 @@ public sealed record MemoryRecall(IReadOnlyList<RecalledFact> Facts, bool Denied
 }
 
 /// <summary>The outcome of a write: the fact written (and the one it replaced), or why nothing was written.</summary>
-public sealed record MemoryWriteResult(MemoryFact? Fact, MemoryFact? Replaced, string? Error)
+public sealed record MemoryWriteResult(MemoryFact? Fact, MemoryFact? Replaced, string? Error, MemoryWriteFailure Failure = MemoryWriteFailure.None)
 {
-    public static MemoryWriteResult Failed(string error) => new(null, null, error);
+    public static MemoryWriteResult Failed(string error, MemoryWriteFailure failure = MemoryWriteFailure.Invalid) => new(null, null, error, failure);
 }
+
+/// <summary>Why a write was refused: the fact named is missing (or hidden), the write is invalid, or access could not be checked.</summary>
+public enum MemoryWriteFailure { None = 0, Invalid = 1, NotFound = 2, Unchecked = 3 }

@@ -21,7 +21,9 @@ public class AzureHostIdentityTests
 
     private static string SystemAssignedToken() => AzureHostIdentity.EncodePayload(new
     {
-        tid = Tenant, oid = Principal, appid = Client,
+        tid = Tenant,
+        oid = Principal,
+        appid = Client,
         xms_mirid = $"/subscriptions/{Subscription}/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1",
     });
 
@@ -43,7 +45,9 @@ public class AzureHostIdentityTests
     {
         string token = AzureHostIdentity.EncodePayload(new
         {
-            tid = Tenant, oid = Principal, appid = Client,
+            tid = Tenant,
+            oid = Principal,
+            appid = Client,
             xms_mirid = $"/subscriptions/{Subscription}/resourcegroups/rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/connapse",
         });
 

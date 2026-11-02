@@ -31,6 +31,8 @@ internal static class PdfLayout
     /// <summary>The regions on a page in reading order, unordered regions (headers, figures, tables) placed by position.</summary>
     public static IReadOnlyList<Region> Detect(byte[] pdf, int pageIndex, int threads, CancellationToken ct)
     {
+        if (!Pdfium.IsSupported)
+            throw new PlatformNotSupportedException(Pdfium.Unsupported);
         PdfImage image;
         using (SKBitmap bitmap = Conversion.ToImage(pdf, pageIndex,
                    options: new RenderOptions(Width: InputSide, Height: InputSide, WithAspectRatio: false)))

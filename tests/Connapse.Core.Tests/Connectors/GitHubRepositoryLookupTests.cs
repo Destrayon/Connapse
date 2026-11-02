@@ -13,6 +13,7 @@ namespace Connapse.Core.Tests.Connectors;
 
 /// <summary>The New source dialog's check that a repository exists and is public, asked as an installation.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public sealed class GitHubRepositoryLookupTests
 {
     private readonly Stub _github = new();

@@ -10,6 +10,7 @@ namespace Connapse.Identity.Tests;
 
 /// <summary>Linking a Connapse user to a GitHub account: the store, and the one-time state of a sign-in.</summary>
 [Trait("Category", "Unit")]
+[Trait("Size", "Medium")]
 public class GitHubIdentityLinkTests
 {
     private static GitHubIdentityLinkStore Store(string db)

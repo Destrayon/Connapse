@@ -162,15 +162,27 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
                 Guid doc = Guid.NewGuid(), chunk = Guid.NewGuid();
                 context.Documents.Add(new DocumentEntity
                 {
-                    Id = doc, ContainerId = owner, FileName = $"bench-{doc:N}.txt", ContentType = "text/plain",
-                    Path = $"/bench/{doc:N}.txt", ContentHash = doc.ToString("N"), SizeBytes = 1, ChunkCount = 1,
-                    IngestionStatus = DocumentStatus.Ready, StatusChangedAt = now, CreatedAt = now,
+                    Id = doc,
+                    ContainerId = owner,
+                    FileName = $"bench-{doc:N}.txt",
+                    ContentType = "text/plain",
+                    Path = $"/bench/{doc:N}.txt",
+                    ContentHash = doc.ToString("N"),
+                    SizeBytes = 1,
+                    ChunkCount = 1,
+                    IngestionStatus = DocumentStatus.Ready,
+                    StatusChangedAt = now,
+                    CreatedAt = now,
                 });
                 context.Chunks.Add(new ChunkEntity { Id = chunk, DocumentId = doc, OwnerId = owner, Content = "", TokenCount = 1 });
                 context.ChunkVectors.Add(new ChunkVectorEntity
                 {
-                    ChunkId = chunk, DocumentId = doc, OwnerId = owner, Embedding = new Vector(vectors[i]),
-                    ModelId = modelId, Dimensions = Dims,
+                    ChunkId = chunk,
+                    DocumentId = doc,
+                    OwnerId = owner,
+                    Embedding = new Vector(vectors[i]),
+                    ModelId = modelId,
+                    Dimensions = Dims,
                 });
             }
             await context.SaveChangesAsync(ct);
@@ -201,15 +213,29 @@ public sealed class VectorIndexScaleProbe(RepoPaths paths, TextWriter log)
                 Guid owner = containers[passages[i].Container], doc = Guid.NewGuid(), chunk = Guid.NewGuid();
                 context.Documents.Add(new DocumentEntity
                 {
-                    Id = doc, ContainerId = owner, FileName = passages[i].Id + ".txt", ContentType = "text/plain",
-                    Path = "/" + passages[i].Id + ".txt", ContentHash = passages[i].Id, SizeBytes = 1, ChunkCount = 1,
-                    IngestionStatus = DocumentStatus.Ready, StatusChangedAt = now, CreatedAt = now, LastIndexedAt = now,
+                    Id = doc,
+                    ContainerId = owner,
+                    FileName = passages[i].Id + ".txt",
+                    ContentType = "text/plain",
+                    Path = "/" + passages[i].Id + ".txt",
+                    ContentHash = passages[i].Id,
+                    SizeBytes = 1,
+                    ChunkCount = 1,
+                    IngestionStatus = DocumentStatus.Ready,
+                    StatusChangedAt = now,
+                    CreatedAt = now,
+                    LastIndexedAt = now,
                 });
                 context.Chunks.Add(new ChunkEntity { Id = chunk, DocumentId = doc, OwnerId = owner, Content = "", TokenCount = 1 });
                 context.ChunkVectors.Add(new ChunkVectorEntity
                 {
-                    ChunkId = chunk, DocumentId = doc, OwnerId = owner, Embedding = new Vector(vectors.Current),
-                    ModelId = modelId, ContentHash = passages[i].Id, Dimensions = Dims,
+                    ChunkId = chunk,
+                    DocumentId = doc,
+                    OwnerId = owner,
+                    Embedding = new Vector(vectors.Current),
+                    ModelId = modelId,
+                    ContentHash = passages[i].Id,
+                    Dimensions = Dims,
                 });
             }
             await context.SaveChangesAsync(ct);

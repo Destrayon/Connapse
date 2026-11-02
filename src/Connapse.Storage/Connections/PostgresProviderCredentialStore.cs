@@ -104,7 +104,11 @@ public class PostgresProviderCredentialStore(
             .Where(c => c.Provider == provider)
             .Select(c => new
             {
-                c.CertificatePem, c.TrustAnchorArn, c.ProfileArn, c.RoleArn, c.Region,
+                c.CertificatePem,
+                c.TrustAnchorArn,
+                c.ProfileArn,
+                c.RoleArn,
+                c.Region,
                 c.PrivateKeyProtected,
             })
             .FirstOrDefaultAsync(ct);
@@ -177,6 +181,88 @@ public class PostgresProviderCredentialStore(
         await db.SaveChangesAsync(ct);
 
         return new ProviderCredentialInfo(provider, existing.PrincipalName, now);
+    }
+
+    public async Task<ProviderCredentialInfo?> ReplaceRolesAnywhereAsync(
+        string provider, RolesAnywhereConfig? expected, RolesAnywhereConfig config, string privateKeyPem,
+        string? principalName, Guid? createdByUserId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.CertificatePem);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.TrustAnchorArn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.ProfileArn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.RoleArn);
+        ArgumentException.ThrowIfNullOrWhiteSpace(config.Region);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        DateTime now = DateTime.UtcNow;
+        string keyProtected = Protector.Protect(privateKeyPem);
+        string? principal = string.IsNullOrWhiteSpace(principalName) ? null : principalName.Trim();
+
+        int updated = await StoredAs(db.ProviderCredentials, provider, expected)
+            .ExecuteUpdateAsync(c => c
+                .SetProperty(x => x.CertificatePem, config.CertificatePem)
+                .SetProperty(x => x.PrivateKeyProtected, keyProtected)
+                .SetProperty(x => x.TrustAnchorArn, config.TrustAnchorArn)
+                .SetProperty(x => x.ProfileArn, config.ProfileArn)
+                .SetProperty(x => x.RoleArn, config.RoleArn)
+                .SetProperty(x => x.Region, config.Region)
+                .SetProperty(x => x.PrincipalName, principal)
+                .SetProperty(x => x.CreatedAt, now)
+                .SetProperty(x => x.CreatedByUserId, createdByUserId)
+                .SetProperty(x => x.VerifiedAt, (DateTime?)null), ct);
+        if (updated > 0) return new ProviderCredentialInfo(provider, principal, now);
+        if (expected is not null) return null;
+
+        // Nothing stored at all: insert, and let the provider key refuse a row another save inserted first.
+        db.ProviderCredentials.Add(new ProviderCredentialEntity
+        {
+            Provider = provider,
+            CertificatePem = config.CertificatePem,
+            PrivateKeyProtected = keyProtected,
+            TrustAnchorArn = config.TrustAnchorArn,
+            ProfileArn = config.ProfileArn,
+            RoleArn = config.RoleArn,
+            Region = config.Region,
+            PrincipalName = principal,
+            CreatedAt = now,
+            CreatedByUserId = createdByUserId,
+        });
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            return null;
+        }
+        return new ProviderCredentialInfo(provider, principal, now);
+    }
+
+    public async Task<bool> DeleteRolesAnywhereAsync(string provider, RolesAnywhereConfig? expected, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        return await StoredAs(db.ProviderCredentials, provider, expected).ExecuteDeleteAsync(ct) > 0;
+    }
+
+    /// <summary>
+    /// The provider's row while its Roles Anywhere configuration is <paramref name="expected"/>; with null, while it
+    /// holds no Roles Anywhere configuration (TrustAnchorArn is the mode signal).
+    /// </summary>
+    private static IQueryable<ProviderCredentialEntity> StoredAs(
+        IQueryable<ProviderCredentialEntity> rows, string provider, RolesAnywhereConfig? expected)
+    {
+        rows = rows.Where(c => c.Provider == provider);
+        return expected is null
+            ? rows.Where(c => c.TrustAnchorArn == null || c.TrustAnchorArn == "")
+            : rows.Where(c => c.TrustAnchorArn == expected.TrustAnchorArn
+                && (c.CertificatePem ?? "") == expected.CertificatePem
+                && (c.ProfileArn ?? "") == expected.ProfileArn
+                && (c.RoleArn ?? "") == expected.RoleArn
+                && (c.Region ?? "") == expected.Region);
     }
 
     /// <summary>The provider key the GitHub App is stored under.</summary>
@@ -262,6 +348,92 @@ public class PostgresProviderCredentialStore(
         await db.SaveChangesAsync(ct);
 
         return new ProviderCredentialInfo(GitHubProvider, existing.PrincipalName, now);
+    }
+
+    public async Task<GitHubAppSnapshot?> GetGitHubAppSnapshotAsync(CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        var row = await db.ProviderCredentials
+            .AsNoTracking()
+            .Where(c => c.Provider == GitHubProvider)
+            .Select(c => new { c.ConfigJson, c.PrivateKeyProtected, c.SecretProtected })
+            .FirstOrDefaultAsync(ct);
+        if (row is null) return null;
+
+        var version = new GitHubAppVersion(row.ConfigJson, row.PrivateKeyProtected, row.SecretProtected);
+        GitHubAppRegistration? app = ReadApp(row.ConfigJson);
+        if (app is null || string.IsNullOrEmpty(row.PrivateKeyProtected))
+            return new GitHubAppSnapshot(app, null, version);
+
+        try
+        {
+            return new GitHubAppSnapshot(app, new GitHubAppCredentialMaterial(
+                app,
+                Protector.Unprotect(row.PrivateKeyProtected),
+                string.IsNullOrEmpty(row.SecretProtected) ? null : Protector.Unprotect(row.SecretProtected)), version);
+        }
+        catch (Exception)
+        {
+            return new GitHubAppSnapshot(app, null, version);
+        }
+    }
+
+    public async Task<ProviderCredentialInfo?> ReplaceGitHubAppAsync(
+        GitHubAppVersion? expected, GitHubAppRegistration app, string privateKeyPem, string? clientSecret,
+        Guid? createdByUserId, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentException.ThrowIfNullOrWhiteSpace(app.Slug);
+        ArgumentException.ThrowIfNullOrWhiteSpace(privateKeyPem);
+        if (app.AppId <= 0) throw new ArgumentException("The App id must be positive.", nameof(app));
+
+        await using var db = await factory.CreateDbContextAsync(ct);
+
+        DateTime now = DateTime.UtcNow;
+        string config = System.Text.Json.JsonSerializer.Serialize(app, AppJson);
+        string keyProtected = Protector.Protect(privateKeyPem);
+        string? secretProtected = string.IsNullOrWhiteSpace(clientSecret) ? null : Protector.Protect(clientSecret);
+
+        if (expected is not null)
+        {
+            // Every save encrypts afresh, so matching the ciphertexts read matches that one save and no later one.
+            int updated = await db.ProviderCredentials
+                .Where(c => c.Provider == GitHubProvider
+                    && c.ConfigJson == expected.ConfigJson
+                    && c.PrivateKeyProtected == expected.PrivateKeyProtected
+                    && c.SecretProtected == expected.SecretProtected)
+                .ExecuteUpdateAsync(c => c
+                    .SetProperty(x => x.ConfigJson, config)
+                    .SetProperty(x => x.PrivateKeyProtected, keyProtected)
+                    .SetProperty(x => x.SecretProtected, secretProtected)
+                    .SetProperty(x => x.PrincipalName, app.Slug)
+                    .SetProperty(x => x.CreatedAt, now)
+                    .SetProperty(x => x.CreatedByUserId, createdByUserId)
+                    .SetProperty(x => x.VerifiedAt, (DateTime?)null), ct);
+            return updated > 0 ? new ProviderCredentialInfo(GitHubProvider, app.Slug, now) : null;
+        }
+
+        // Nothing stored when read: insert, and let the provider key refuse a row another save inserted first.
+        db.ProviderCredentials.Add(new ProviderCredentialEntity
+        {
+            Provider = GitHubProvider,
+            ConfigJson = config,
+            PrivateKeyProtected = keyProtected,
+            SecretProtected = secretProtected,
+            PrincipalName = app.Slug,
+            CreatedAt = now,
+            CreatedByUserId = createdByUserId,
+        });
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            return null;
+        }
+        return new ProviderCredentialInfo(GitHubProvider, app.Slug, now);
     }
 
     /// <summary>The provider key the Atlassian link app is stored under.</summary>

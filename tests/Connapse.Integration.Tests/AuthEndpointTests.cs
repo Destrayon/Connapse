@@ -133,6 +133,24 @@ public class AuthEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetToken_NoEmail_Returns400()
+    {
+        var response = await _anonClient.PostAsJsonAsync(
+            "/api/v1/auth/token", new { password = "SomePassword1!" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task GetToken_NoPassword_Returns400()
+    {
+        var response = await _anonClient.PostAsJsonAsync(
+            "/api/v1/auth/token", new { email = SharedWebAppFixture.AdminEmail });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task GetToken_ValidCredentials_UpdatesLastLoginAt()
     {
         var before = DateTime.UtcNow.AddSeconds(-1);
@@ -174,6 +192,14 @@ public class AuthEndpointTests : IAsyncLifetime
             "/api/v1/auth/token/refresh", new RefreshTokenRequest("not-a-real-refresh-token"));
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task RefreshToken_NoRefreshToken_Returns400()
+    {
+        var response = await _anonClient.PostAsJsonAsync("/api/v1/auth/token/refresh", new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -275,7 +301,7 @@ public class AuthEndpointTests : IAsyncLifetime
         using var patClient = _fixture.Factory.CreateClient();
         patClient.DefaultRequestHeaders.Add("X-Api-Key", created!.Token);
 
-        var listResponse = await patClient.GetAsync("/api/v1/auth/pats");
+        var listResponse = await patClient.GetAsync("/api/v1/auth/me");
         listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
@@ -343,14 +369,14 @@ public class AuthEndpointTests : IAsyncLifetime
         // Confirm it works before revocation
         using var patClient = _fixture.Factory.CreateClient();
         patClient.DefaultRequestHeaders.Add("X-Api-Key", created!.Token);
-        var before = await patClient.GetAsync("/api/v1/auth/pats");
+        var before = await patClient.GetAsync("/api/v1/auth/me");
         before.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Revoke
         await jwtClient.DeleteAsync($"/api/v1/auth/pats/{created.Id}");
 
         // Should no longer authenticate
-        var after = await patClient.GetAsync("/api/v1/auth/pats");
+        var after = await patClient.GetAsync("/api/v1/auth/me");
         after.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
@@ -486,25 +512,54 @@ public class AuthEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task AssignRoles_OwnerRolePreservedWhenNotRequested()
+    public async Task AssignRoles_OwnersAccount_IsRefusedAndKeepsOwner()
     {
         var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
         using var client = CreateAuthenticatedClient(token.AccessToken);
 
         var adminId = await GetUserIdAsync(client, SharedWebAppFixture.AdminEmail);
 
-        // Assign only "Admin" — the Owner role should not be stripped
+        // The Owner's account (here also the caller's own) can't be changed, so the Owner role can't be stripped (CON-14)
         var response = await client.PutAsJsonAsync(
             $"/api/v1/auth/users/{adminId}/roles",
             new AssignRolesRequest(["Admin"]));
 
-        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
         // Verify Owner role is still present
         var usersResponse = await client.GetAsync("/api/v1/auth/users?skip=0&take=50");
         var usersPaged = await usersResponse.Content.ReadFromJsonAsync<PagedResponse<UserListItem>>(JsonOptions);
         var adminUser = usersPaged!.Items.First(u => u.Email == SharedWebAppFixture.AdminEmail);
         adminUser.Roles.Should().Contain("Owner");
+    }
+
+    // ── DELETE /api/v1/auth/users/{id} ───────────────────────────────────
+
+    [Fact]
+    public async Task DeleteUser_OwnersKnowledgeReadToken_Returns403AndKeepsTheUser()
+    {
+        Guid targetId;
+        using (var scope = _fixture.Factory.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>();
+            string email = $"delete-target-{Guid.NewGuid():N}@auth-test.connapse.io";
+            var target = new ConnapseUser { UserName = email, Email = email, EmailConfirmed = true, DisplayName = email, CreatedAt = DateTime.UtcNow };
+            (await users.CreateAsync(target, ViewerPassword)).Succeeded.Should().BeTrue();
+            targetId = target.Id;
+        }
+
+        var token = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
+        using var jwtClient = CreateAuthenticatedClient(token.AccessToken);
+        var created = await (await jwtClient.PostAsJsonAsync(
+            "/api/v1/auth/pats", new PatCreateRequest("Read only", ["knowledge:read"]))).Content.ReadFromJsonAsync<PatCreateResponse>(JsonOptions);
+        using var readClient = _fixture.Factory.CreateClient();
+        readClient.DefaultRequestHeaders.Add("X-Api-Key", created!.Token);
+
+        var response = await readClient.DeleteAsync($"/api/v1/auth/users/{targetId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var check = _fixture.Factory.Services.CreateScope();
+        (await check.ServiceProvider.GetRequiredService<UserManager<ConnapseUser>>().FindByIdAsync(targetId.ToString())).Should().NotBeNull();
     }
 
     // ── Private helpers ──────────────────────────────────────────────────

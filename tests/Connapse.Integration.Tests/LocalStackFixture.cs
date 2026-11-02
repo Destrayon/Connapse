@@ -19,6 +19,7 @@ public sealed class LocalStackFixture : IAsyncLifetime
     private readonly LocalStackContainer _container = new LocalStackBuilder()
         .WithImage("localstack/localstack:3")
         .WithEnvironment("SERVICES", "s3")
+        .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
 
     public IAmazonS3 S3Client { get; private set; } = null!;
@@ -26,7 +27,7 @@ public sealed class LocalStackFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await _container.StartAsync();
+        await ContainerStart.StartAsync(_container);
 
         ServiceUrl = _container.GetConnectionString();
 

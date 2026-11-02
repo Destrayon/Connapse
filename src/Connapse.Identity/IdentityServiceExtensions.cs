@@ -61,12 +61,17 @@ public static class IdentityServiceExtensions
 
         // Register services
         services.AddScoped<PatService>();
+        services.AddScoped<IPatService>(sp => sp.GetRequiredService<PatService>());
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddScoped<AdminSeedService>();
         services.AddScoped<InviteService>();
         services.TryAddScoped<IInviteAuthorizationPolicy, DefaultInviteAuthorizationPolicy>();
         services.AddScoped<IAgentService, AgentService>();
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<IMcpApprovalStore, McpApprovalStore>();
         services.AddScoped<IAuditLogger, AuditLogger>();
+        services.AddScoped<IAuditLogReader, AuditLogReader>();
+        services.AddScoped<IOAuthClientRegistry, OAuthClientRegistry>();
         services.AddScoped<OAuthAuthCodeService>();
         services.AddHttpClient<OAuthClientService>();
         services.AddScoped<AwsIdentityLinkStore>();
@@ -139,24 +144,11 @@ public static class IdentityServiceExtensions
             })
             .AddPolicyScheme("MultiScheme", "Route to correct auth handler", options =>
             {
-                options.ForwardDefaultSelector = context =>
-                {
-                    // Check for API key header — if the header is present (even empty),
-                    // route to ApiKey scheme so it rejects invalid keys with 401 instead
-                    // of falling through to cookie auth.
-                    if (context.Request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
-                        return ApiKeyAuthenticationOptions.SchemeName;
-
-                    // Check for JWT bearer token
-                    var authHeader = context.Request.Headers.Authorization.ToString();
-                    if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-                        return JwtBearerDefaults.AuthenticationScheme;
-
-                    // Default to the Identity.Application cookie scheme so that Blazor UI
-                    // sessions (issued by SignInManager) are validated correctly.
-                    return IdentityConstants.ApplicationScheme;
-                };
+                options.ForwardDefaultSelector = context => SelectScheme(context.Request);
             })
+            // Identity's /login (without cookies) and /refresh sign in with this scheme; AddIdentity<>,
+            // unlike AddIdentityApiEndpoints<>, doesn't register it, so both answered 500 (CON-166).
+            .AddBearerToken(IdentityConstants.BearerScheme)
             .AddCookie(options =>
             {
                 options.LoginPath = "/login";
@@ -325,10 +317,46 @@ public static class IdentityServiceExtensions
                 policy.RequireRole("Owner"))
             .AddPolicy("RequireAdmin", policy =>
                 policy.RequireRole("Owner", "Admin"))
+            // A signed-in person, never a PAT or agent key: approving a held MCP call must not be
+            // something the token waiting on it can do (#782).
+            .AddPolicy("RequirePerson", policy =>
+                policy.RequireAuthenticatedUser().RequireAssertion(context => !McpApprovalClaims.IsToken(context.User)))
+            // A person reading their own account, by sign-in or by their own token: their linked accounts
+            // are theirs to read. An agent key acts as no person, so it has none, and a token is limited to
+            // its scopes, so it needs knowledge:read. A sign-in needs no role (#865).
+            .AddPolicy("RequireAccount", policy =>
+                policy.RequireAuthenticatedUser().RequireAssertion(context =>
+                    !context.User.IsInRole("Agent") && TokenScopes.Allows(context.User, "knowledge:read")))
+            // What users did is an administrator's to read. REST checks no token scopes elsewhere, but a
+            // token of an administrator's reads the audit log only when issued with admin:audit (#880).
+            .AddPolicy("RequireAuditReader", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:audit")))
+            // Which OAuth clients hold grants, and revoking one, is an administrator's; a token of theirs
+            // only with admin:oauth-clients (#881).
+            .AddPolicy("RequireClientAdmin", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:oauth-clients")))
+            // The settings say how Connapse reaches its providers: an administrator's, and a token of theirs only
+            // when issued with admin:settings (#922).
+            .AddPolicy("RequireSettingsAdmin", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:settings")))
+            // Connections hold the credentials sources sync with: an administrator's, and a token of theirs only
+            // when issued with admin:sources (CON-11).
+            .AddPolicy("RequireSourcesAdmin", policy =>
+                policy.RequireRole("Owner", "Admin").RequireAssertion(context => TokenScopes.Allows(context.User, "admin:sources")))
             .AddPolicy("RequireEditor", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor"))
             .AddPolicy("RequireViewer", policy =>
                 policy.RequireRole("Owner", "Admin", "Editor", "Viewer"))
+            // Reading knowledge from any surface that admits agent keys: MCP lets an agent with
+            // knowledge:read list and describe containers, so an operation's read check must too.
+            .AddPolicy("RequireReader", policy =>
+                policy.RequireRole("Owner", "Admin", "Editor", "Viewer", "Agent"))
+            // Changing knowledge from any surface that admits agent keys: an agent key granted
+            // knowledge:write may create and delete containers over MCP, as an Editor may anywhere.
+            .AddPolicy("RequireWriter", policy =>
+                policy.RequireAssertion(context =>
+                    context.User.IsInRole("Owner") || context.User.IsInRole("Admin") || context.User.IsInRole("Editor")
+                    || (context.User.IsInRole("Agent") && context.User.HasClaim("scope", "knowledge:write"))))
             .AddPolicy("RequireAgent", policy =>
                 policy.RequireRole("Owner", "Admin", "Agent"))
             .AddPolicy("Scope:KnowledgeRead", policy =>
@@ -338,11 +366,34 @@ public static class IdentityServiceExtensions
             .AddPolicy("Scope:AdminUsers", policy =>
                 policy.Requirements.Add(new ScopeRequirement("admin:users")))
             .AddPolicy("Scope:AdminManageAdmins", policy =>
-                policy.Requirements.Add(new ScopeRequirement("admin:manage-admins")))
-            .AddPolicy("Scope:AgentIngest", policy =>
-                policy.Requirements.Add(new ScopeRequirement("agent:ingest")));
+                policy.Requirements.Add(new ScopeRequirement("admin:manage-admins")));
 
         return services;
+    }
+
+    /// <summary>The scheme the MultiScheme policy forwards a request to.</summary>
+    internal static string SelectScheme(HttpRequest request)
+    {
+        // Check for API key header — if the header is present (even empty),
+        // route to ApiKey scheme so it rejects invalid keys with 401 instead
+        // of falling through to cookie auth.
+        if (request.Headers.ContainsKey(ApiKeyAuthenticationOptions.HeaderName))
+            return ApiKeyAuthenticationOptions.SchemeName;
+
+        var authHeader = request.Headers.Authorization.ToString();
+        if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            // A JWT always has dots between its parts; the token Identity's /login issues is a
+            // base64url data-protected ticket, which never does. /mcp takes only JWTs, so its
+            // challenge always carries the resource metadata MCP clients discover OAuth from.
+            bool identityToken = !authHeader.AsSpan("Bearer ".Length).Contains('.')
+                && !request.Path.StartsWithSegments("/mcp");
+            return identityToken ? IdentityConstants.BearerScheme : JwtBearerDefaults.AuthenticationScheme;
+        }
+
+        // Default to the Identity.Application cookie scheme so that Blazor UI
+        // sessions (issued by SignInManager) are validated correctly.
+        return IdentityConstants.ApplicationScheme;
     }
 
     // Builds the WWW-Authenticate challenge that 401 responses return for /mcp.

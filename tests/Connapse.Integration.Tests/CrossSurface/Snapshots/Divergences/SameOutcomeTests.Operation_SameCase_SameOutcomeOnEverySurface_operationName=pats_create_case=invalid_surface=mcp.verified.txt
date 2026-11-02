@@ -1,0 +1,12 @@
+﻿{
+  Reason: absent: MCP never reaches personal access tokens: they are credentials for the caller's own account,
+  Reference: {
+    Result: error:validation,
+    State: [
+      token pat-{name} owner=admin@integration-tests.connapse.io scopes=knowledge:read approval=True expires=never active
+    ]
+  },
+  Surface: {
+    Result: absent: MCP never reaches personal access tokens: they are credentials for the caller's own account
+  }
+}
