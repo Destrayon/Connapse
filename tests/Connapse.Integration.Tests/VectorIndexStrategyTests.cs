@@ -98,12 +98,14 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
     [Fact]
     public async Task EnsureIndexes_FreshContainer_PlannerUsesTheNewIndex()
     {
+        Guid other = await CreateContainerAsync("vidx-other");
         Guid container = await CreateContainerAsync("vidx-fresh");
         try
         {
             // Statistics gathered before the container existed estimate about one row for it, and
             // with that estimate the planner sorts by distance instead of using its index (CON-217).
             await using AsyncServiceScope scope = fixture.Factory.Services.CreateAsyncScope();
+            await SeedAsync(other, 300, i => "/doc.txt");
             await ExecAsync(scope, "ANALYZE chunk_vectors");
             await SeedAsync(container, 300, i => "/doc.txt");
 
@@ -116,6 +118,7 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
         finally
         {
             await fixture.AdminClient.DeleteAsync($"/api/containers/{container}");
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{other}");
         }
     }
 
@@ -267,6 +270,13 @@ public class VectorIndexStrategyTests(SharedWebAppFixture fixture)
             .GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
         DbConnection connection = ctx.Database.GetDbConnection();
         await connection.OpenAsync();
+        // The search's own HNSW settings, which feed pgvector's index cost estimate.
+        await using DbTransaction transaction = await connection.BeginTransactionAsync();
+        await using (DbCommand set = connection.CreateCommand())
+        {
+            set.CommandText = "SET LOCAL hnsw.ef_search = 800; SET LOCAL hnsw.iterative_scan = relaxed_order";
+            await set.ExecuteNonQueryAsync();
+        }
         await using DbCommand cmd = connection.CreateCommand();
         cmd.CommandText =
             "EXPLAIN SELECT cv.chunk_id FROM chunk_vectors cv "
