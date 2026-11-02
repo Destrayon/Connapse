@@ -62,13 +62,18 @@ jobs:
     timeout-minutes: 30
     env:
       CONNAPSE_ADMIN_EMAIL: admin@schemathesis.connapse.io
+      # Ollama, the embedding service search calls, sits behind this profile (CON-207).
+      COMPOSE_PROFILES: with-ollama
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     # A fresh password and JWT secret for each run, so nothing reusable is written down. The rate limits
     # are raised past what one run sends: at the shipped limits most operations only ever got a 429, so
-    # the logic behind them went untested. Everything else is the compose file as it ships.
+    # the logic behind them went untested. Ollama, the embedding service search calls, sits behind the
+    # with-ollama profile, which the job turns on: without it the web container can't resolve ollama:11434
+    # and every search of a container that exists fails (CON-207). Everything else is the compose file
+    # as it ships.
     - name: Start the app
       run: |
         password="Nightly-$(openssl rand -hex 12)!"
@@ -85,7 +90,7 @@ jobs:
               RateLimiting__McpPermitLimit: "1000000"
         EOF
         CONNAPSE_ADMIN_PASSWORD="$password" Identity__Jwt__Secret="$secret" \
-          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/no-rate-limits.yml" up -d --build web
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/no-rate-limits.yml" up -d --build web ollama
         for i in $(seq 1 60); do
           curl -fsS http://localhost:5001/health > /dev/null && exit 0
           sleep 5
@@ -93,6 +98,22 @@ jobs:
         docker compose logs web | tail -50
         echo "::error::the app didn't answer /health within 5 minutes"
         exit 1
+
+    # The model the app embeds with by default. The registry sometimes answers 503 for a few seconds
+    # (CON-123), so the pull is retried with backoff: 5 tries over about 75 s.
+    - name: Pull the embedding model
+      run: |
+        timeout 60 bash -c 'until docker compose exec -T ollama ollama list > /dev/null 2>&1; do sleep 1; done'
+        for attempt in 1 2 3 4 5; do
+          docker compose exec -T ollama ollama pull nomic-embed-text && break
+          if [ "$attempt" -eq 5 ]; then
+            echo "::error::ollama pull failed 5 times"
+            exit 1
+          fi
+          wait=$(( 5 * 2 ** (attempt - 1) ))
+          echo "::warning::ollama pull failed (try $attempt of 5); retrying in ${wait} s"
+          sleep "$wait"
+        done
 
     - name: Sign in
       run: |
@@ -118,7 +139,9 @@ jobs:
 
     - name: App logs
       if: failure()
-      run: docker compose logs web | tail -200
+      run: |
+        docker compose logs web | tail -200
+        docker compose logs ollama | tail -50
 
     - name: Upload the Schemathesis report
       uses: actions/upload-artifact@v4

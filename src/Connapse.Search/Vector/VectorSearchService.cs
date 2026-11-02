@@ -104,18 +104,36 @@ public class VectorSearchService
             float[] vector;
             if (space == spaces[0] && space == EmbeddingIdentity.For(settings))
             {
-                vector = await _embeddingProvider.EmbedAsync(query, EmbeddingInputType.Query, ct);
+                vector = await EmbedAsync(query, EmbeddingInputType.Query, ct);
             }
             else
             {
                 // Prepared here rather than by the provider, which only knows the configured recipe.
                 EmbeddingSettings? recipe = recipes.FirstOrDefault(r => EmbeddingIdentity.For(r) == space);
                 string text = recipe is null ? query : EmbeddingText.Prepare(recipe, [query], EmbeddingInputType.Query)[0];
-                vector = await _embeddingProvider.EmbedAsync(text, EmbeddingInputType.Unspecified, ct);
+                vector = await EmbedAsync(text, EmbeddingInputType.Unspecified, ct);
             }
             embedded.Add(new QuerySpace(vector, space));
         }
         return new QueryEmbedding(embedded);
+    }
+
+    /// <summary>
+    /// Embeds one query text. Any failure but the caller's own cancellation becomes an
+    /// <see cref="EmbeddingUnavailableException"/>, so the search answers that its embedding service
+    /// is down (CON-207) rather than failing as a server error.
+    /// </summary>
+    private async Task<float[]> EmbedAsync(string text, EmbeddingInputType inputType, CancellationToken ct)
+    {
+        try
+        {
+            return await _embeddingProvider.EmbedAsync(text, inputType, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Couldn't embed the search query with {Model}", _embeddingSettings.CurrentValue.Model);
+            throw new EmbeddingUnavailableException(ex);
+        }
     }
 
     /// <summary>

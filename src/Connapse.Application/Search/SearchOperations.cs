@@ -19,6 +19,9 @@ public enum SearchStatus
 
     [Failure(400, "invalid-search", "Invalid search")]
     Invalid,
+
+    [Failure(503, "embeddings-unavailable", "Embedding service unavailable")]
+    EmbeddingsUnavailable,
 }
 
 /// <summary>Which kind of scope a search may name.</summary>
@@ -102,6 +105,11 @@ public sealed class SearchKnowledge(
         catch (Exception ex) when (!discoverable && ex is not OperationCanceledException)
         {
             return NotFound(scope);
+        }
+        catch (EmbeddingUnavailableException)
+        {
+            return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.EmbeddingsUnavailable,
+                "The embedding service isn't reachable, so this search can't run. Try again shortly, or search in Keyword mode, which doesn't use it.");
         }
 
         // A hidden source the caller can read nothing in answers as a missing id, so naming one can't confirm it exists.

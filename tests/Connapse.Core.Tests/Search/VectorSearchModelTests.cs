@@ -108,6 +108,46 @@ public class VectorSearchModelTests
     }
 
     [Fact]
+    public async Task EmbedQueryAsync_ProviderUnreachable_ThrowsEmbeddingUnavailable()
+    {
+        VectorSearchService service = CreateService("text-embedding-3-small");
+        var unreachable = new InvalidOperationException("Failed to connect to Ollama embedding service",
+            new HttpRequestException("Resource temporarily unavailable (ollama:11434)"));
+        _provider.EmbedAsync(Arg.Any<string>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
+            .Returns<float[]>(_ => throw unreachable);
+
+        Func<Task> act = () => service.EmbedQueryAsync("q", InContainer());
+
+        (await act.Should().ThrowAsync<EmbeddingUnavailableException>()).Which.InnerException.Should().BeSameAs(unreachable);
+    }
+
+    [Fact]
+    public async Task EmbedQueryAsync_ProviderTimesOut_ThrowsEmbeddingUnavailable()
+    {
+        VectorSearchService service = CreateService("text-embedding-3-small");
+        _provider.EmbedAsync(Arg.Any<string>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
+            .Returns<float[]>(_ => throw new TaskCanceledException("The request timed out"));
+
+        Func<Task> act = () => service.EmbedQueryAsync("q", InContainer());
+
+        await act.Should().ThrowAsync<EmbeddingUnavailableException>();
+    }
+
+    [Fact]
+    public async Task EmbedQueryAsync_CallerCancels_StaysACancellation()
+    {
+        VectorSearchService service = CreateService("text-embedding-3-small");
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        _provider.EmbedAsync(Arg.Any<string>(), Arg.Any<EmbeddingInputType>(), Arg.Any<CancellationToken>())
+            .Returns<float[]>(c => throw new OperationCanceledException(c.ArgAt<CancellationToken>(2)));
+
+        Func<Task> act = () => service.EmbedQueryAsync("q", InContainer(), cancelled.Token);
+
+        await act.Should().ThrowExactlyAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task EmbedQueryAsync_ModelIdFilterThatCantBeReproduced_SearchesNothing()
     {
         var options = new SearchOptions(Filters: new Dictionary<string, string> { ["modelId"] = "nomic-embed-text-recipe-00000000" });
