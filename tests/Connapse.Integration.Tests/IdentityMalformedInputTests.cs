@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 
 namespace Connapse.Integration.Tests;
 
@@ -35,6 +36,25 @@ public class IdentityMalformedInputTests(SharedWebAppFixture fixture)
         var response = await anonymous.PostAsJsonAsync(route, body);
 
         ((int)response.StatusCode).Should().BeInRange(400, 499, await response.Content.ReadAsStringAsync());
+    }
+
+    // CON-206: Schemathesis sent {"email": null}. JSON binding takes a null for a required string, so Identity
+    // passed it on to a lookup that threw. A null field gets the validation problem a missing one gets.
+    [Theory]
+    [InlineData("/api/v1/identity/resendConfirmationEmail", """{"email":null}""", "Email")]
+    [InlineData("/api/v1/identity/forgotPassword", """{"email":null}""", "Email")]
+    [InlineData("/api/v1/identity/login", """{"email":null,"password":null}""", "Email")]
+    [InlineData("/api/v1/identity/resetPassword", """{"email":null,"resetCode":"x","newPassword":"Whatever1!"}""", "Email")]
+    [InlineData("/api/v1/identity/refresh", """{"refreshToken":null}""", "RefreshToken")]
+    public async Task Post_NullRequiredField_IsAValidationProblem(string route, string json, string field)
+    {
+        using var anonymous = fixture.Factory.CreateClient();
+
+        var response = await anonymous.PostAsync(route, new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        var problem = await response.Content.ReadFromJsonAsync<HttpValidationProblemDetails>();
+        problem!.Errors.Should().ContainKey(field);
     }
 
     [Theory]
