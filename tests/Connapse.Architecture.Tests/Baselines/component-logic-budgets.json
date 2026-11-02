@@ -119,10 +119,10 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 714,
+    "CodeLines": 723,
     "Injects": 8,
-    "Complexity": 162,
-    "MarkupLogic": 79,
+    "Complexity": 164,
+    "MarkupLogic": 80,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
@@ -347,6 +347,13 @@
     "Injects": 3,
     "Complexity": 16,
     "MarkupLogic": 20,
+    "IsEmpty": false
+  },
+  "Shared/FileLinksPanel.razor": {
+    "CodeLines": 71,
+    "Injects": 2,
+    "Complexity": 24,
+    "MarkupLogic": 6,
     "IsEmpty": false
   },
   "Shared/Pagination.razor": {

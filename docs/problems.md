@@ -115,6 +115,11 @@ values the tool lists.
 Connapse couldn't check which of the files the caller may read, so it answered nothing rather than
 guess. Try again; if it keeps happening, the source's permission check is failing.
 
+## links-access-unchecked
+
+Connapse couldn't check which linked files the caller may read, so it listed no links rather than
+guess. Try again; if it keeps happening, the permission check on the linked documents is failing.
+
 ## memory-fact-not-found
 
 No fact in that container's memory has that id, or the caller can't see it. A fact is visible only

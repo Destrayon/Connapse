@@ -6288,6 +6288,102 @@
         }
       }
     },
+    "/api/containers/{containerId}/files/{fileId}/links": {
+      "get": {
+        "tags": [
+          "Files"
+        ],
+        "description": "The files of the same container a file links to and the ones that link to it, each with the kinds of link (calls, imports, inherits). Files the caller can't read are left out.",
+        "operationId": "files.links",
+        "parameters": [
+          {
+            "name": "containerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentLinkSet"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "files.links",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
+        }
+      }
+    },
     "/api/containers/{containerId}/files/bulk-delete": {
       "post": {
         "tags": [
@@ -14868,6 +14964,31 @@
           }
         }
       },
+      "DocumentLinkSet": {
+        "required": [
+          "linksTo",
+          "linkedFrom"
+        ],
+        "type": "object",
+        "properties": {
+          "linksTo": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedDocument"
+            }
+          },
+          "linkedFrom": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedDocument"
+            }
+          },
+          "denied": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "DocumentStatus": {
         "enum": [
           "Queued",
@@ -15653,6 +15774,32 @@
               "string"
             ],
             "format": "int64"
+          }
+        }
+      },
+      "LinkedDocument": {
+        "required": [
+          "id",
+          "fileName",
+          "path",
+          "types"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

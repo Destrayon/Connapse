@@ -45,6 +45,9 @@ public enum FileStatus
 
     [Failure(400, "container-not-writable", "Container not writable")]
     NotWritable,
+
+    [Failure(503, "links-access-unchecked", "Access could not be checked")]
+    LinksUnchecked,
 }
 
 /// <summary>
@@ -181,6 +184,31 @@ public sealed class GetFile(IContainerStore containers, IDocumentStore documents
         return await FileRules.FindReadableAsync(documents, access, context, containerId, fileRef, ct) is { } document
             ? Attempt<Document, FileStatus>.Succeed(document)
             : FileRules.FileNotFound<Document>(containerId, fileRef);
+    }
+}
+
+/// <summary>
+/// The files of the same container one file links to and the ones that link to it (CON-214), by id or path, when the
+/// caller may read it. A linked file the caller may not read is left out and not counted; when access to the links
+/// can't be checked, none are given. Open to viewers and reading agent keys.
+/// </summary>
+[Operation("files.links", Scope = "knowledge:read", Risk = RiskTier.Read)]
+public sealed class GetFileLinks(
+    IContainerStore containers, IDocumentStore documents, IDocumentAccess access, IDocumentLinkReader links, IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<DocumentLinkSet, FileStatus>> RunAsync(OperationContext context, Guid containerId, string fileRef, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
+            return FileRules.Fail<DocumentLinkSet>(FileStatus.Forbidden, "You don't have permission to view files.");
+        if (await containers.GetAsync(containerId, ct) is null)
+            return FileRules.ContainerNotFound<DocumentLinkSet>(containerId);
+        if (await FileRules.FindReadableAsync(documents, access, context, containerId, fileRef, ct) is not { } document)
+            return FileRules.FileNotFound<DocumentLinkSet>(containerId, fileRef);
+
+        DocumentLinkSet found = await links.ReadAsync(SearchPrincipal.Resolve(context.User), containerId, document.Id, ct);
+        return found.Denied
+            ? FileRules.Fail<DocumentLinkSet>(FileStatus.LinksUnchecked, "Access to this file's links could not be checked; try again.")
+            : Attempt<DocumentLinkSet, FileStatus>.Succeed(found);
     }
 }
 
@@ -417,11 +445,13 @@ public sealed class RetryFile(IContainerStore containers, IDocumentStore documen
 
 /// <summary>Every file operation in one place, for the file browser.</summary>
 public sealed class FileOperations(
-    ListFiles list, GetFile get, GetFileContent content, DeleteFile delete, BulkDeleteFiles bulkDelete, CheckFileReindex reindexCheck, RetryFile retry)
+    ListFiles list, GetFile get, GetFileLinks links, GetFileContent content, DeleteFile delete, BulkDeleteFiles bulkDelete, CheckFileReindex reindexCheck, RetryFile retry)
 {
     public ListFiles List { get; } = list;
 
     public GetFile Get { get; } = get;
+
+    public GetFileLinks Links { get; } = links;
 
     public GetFileContent Content { get; } = content;
 
