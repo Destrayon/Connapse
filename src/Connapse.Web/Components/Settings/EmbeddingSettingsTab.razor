@@ -68,16 +68,22 @@
         <div class="col-md-6">
             <label class="form-label">Dimensions</label>
             <InputNumber @bind-Value="localSettings.Dimensions" class="form-control" />
-            <small class="form-text text-muted">
-                @if (IsOpenAi || IsAzureOpenAi)
-                {
-                    @:text-embedding-3-small: 1536 (default), text-embedding-3-large: 3072
-                }
-                else
-                {
-                    @:Must match model output dimensions
-                }
-            </small>
+            @if (IsOpenAi || IsAzureOpenAi)
+            {
+                <small class="form-text text-muted">text-embedding-3-small: 1536 (default), text-embedding-3-large: 3072</small>
+                <div class="form-check mt-1">
+                    <InputCheckbox @bind-Value="localSettings.SendDimensions" class="form-check-input" id="emb-send-dimensions" />
+                    <label class="form-check-label" for="emb-send-dimensions">Ask the model for this size</label>
+                </div>
+                <small class="form-text text-muted d-block">
+                    For models that can return shorter vectors, such as Qwen3-Embedding. text-embedding-3 models are always asked.
+                    Vectors of any other size are refused, not stored.
+                </small>
+            }
+            else
+            {
+                <small class="form-text text-muted">Must match model output dimensions</small>
+            }
         </div>
 
         <div class="col-md-6">

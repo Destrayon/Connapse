@@ -24,6 +24,13 @@ public record EmbeddingSettings
     public int Dimensions { get; set; } = 768;
 
     /// <summary>
+    /// True asks an OpenAI or Azure OpenAI model for <see cref="Dimensions"/>-long vectors, for models
+    /// trained to return shorter ones (Matryoshka models such as Qwen3-Embedding). text-embedding-3 models
+    /// are always asked; other models are not unless this is on, since many reject the request.
+    /// </summary>
+    public bool SendDimensions { get; set; }
+
+    /// <summary>
     /// Base URL for Ollama embedding service.
     /// Defaults come from appsettings.json or environment variables — no hardcoded default
     /// so that Docker deployments can override via Knowledge__Embedding__BaseUrl.

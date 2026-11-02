@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using Azure.AI.OpenAI;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -21,6 +22,15 @@ public class AzureOpenAiEmbeddingProvider : IEmbeddingProvider
     public AzureOpenAiEmbeddingProvider(
         IOptionsSnapshot<EmbeddingSettings> settings,
         ILogger<AzureOpenAiEmbeddingProvider> logger)
+        : this(settings, logger, transport: null)
+    {
+    }
+
+    /// <summary>Sends requests through <paramref name="transport"/>, so tests can answer them.</summary>
+    internal AzureOpenAiEmbeddingProvider(
+        IOptionsSnapshot<EmbeddingSettings> settings,
+        ILogger<AzureOpenAiEmbeddingProvider> logger,
+        PipelineTransport? transport)
     {
         _logger = logger;
         _settings = settings.Value;
@@ -40,9 +50,13 @@ public class AzureOpenAiEmbeddingProvider : IEmbeddingProvider
             ? _settings.AzureDeploymentName
             : _settings.Model;
 
+        var options = new AzureOpenAIClientOptions();
+        if (transport is not null)
+            options.Transport = transport;
         var azureClient = new AzureOpenAIClient(
             new Uri(endpoint),
-            new ApiKeyCredential(apiKey));
+            new ApiKeyCredential(apiKey),
+            options);
 
         _client = azureClient.GetEmbeddingClient(deploymentName);
     }
@@ -99,7 +113,7 @@ public class AzureOpenAiEmbeddingProvider : IEmbeddingProvider
     {
         try
         {
-            var options = BuildOptions();
+            var options = EmbeddingDimensions.Options(_settings);
 
             ClientResult<OpenAIEmbeddingCollection> result =
                 await _client.GenerateEmbeddingsAsync(texts, options, ct);
@@ -112,6 +126,9 @@ public class AzureOpenAiEmbeddingProvider : IEmbeddingProvider
                 output[embedding.Index] = embedding.ToFloats().ToArray();
             }
 
+            foreach (var vector in output)
+                EmbeddingDimensions.Check(_settings, ModelId, vector);
+
             return output;
         }
         catch (ClientResultException ex)
@@ -121,17 +138,5 @@ public class AzureOpenAiEmbeddingProvider : IEmbeddingProvider
                 $"Azure OpenAI embedding request failed (HTTP {ex.Status}): {ex.Message}. " +
                 $"Verify your endpoint URL, API key, and deployment name '{ModelId}' are correct.", ex);
         }
-    }
-
-    private EmbeddingGenerationOptions? BuildOptions()
-    {
-        // Only send dimensions for text-embedding-3-* models
-        if (_settings.Model.StartsWith("text-embedding-3", StringComparison.OrdinalIgnoreCase)
-            && _settings.Dimensions > 0)
-        {
-            return new EmbeddingGenerationOptions { Dimensions = _settings.Dimensions };
-        }
-
-        return null;
     }
 }
