@@ -85,6 +85,7 @@ public sealed class ReconcileContainer(
     IContainerStore containers,
     IManagedStorageProvider managedStorage,
     IDocumentStore documents,
+    IStoredFileRemovalStore removals,
     IIngestionQueue queue,
     IOptionsMonitor<ChunkingSettings> chunking,
     IAuditLogger audit,
@@ -108,6 +109,9 @@ public sealed class ReconcileContainer(
 
         var existingByPath = (await documents.ListAsync(containerId, take: int.MaxValue, ct: ct)).ToDictionary(d => d.Path);
 
+        // Read after the documents, so a file whose record a delete removed since is owed a removal by now (#378).
+        var owedRemoval = await removals.OwedPathsAsync(containerId, ct);
+
         var batchId = Guid.NewGuid().ToString();
         int enqueued = 0, skipped = 0;
 
@@ -126,6 +130,14 @@ public sealed class ReconcileContainer(
             // a job (or the stuck-job sweep will give it one), and enqueueing it again would
             // supersede that job and repeat its work.
             if (existingByPath.ContainsKey(virtualPath))
+            {
+                skipped++;
+                continue;
+            }
+
+            // A deleted document's file, not yet removed: indexing it again would bring the document back (#378).
+            // Checked again in storage too, since a delete may have removed it since the listing.
+            if (owedRemoval.Contains(virtualPath) || !await connector.ExistsAsync(file.Path, ct))
             {
                 skipped++;
                 continue;

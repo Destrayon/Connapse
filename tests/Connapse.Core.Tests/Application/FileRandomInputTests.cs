@@ -42,6 +42,7 @@ public class FileRandomInputTests
         public readonly IWritableConnector Files = Substitute.For<IWritableConnector>();
         public readonly IManagedStorageProvider Storage = Substitute.For<IManagedStorageProvider>();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
+        public readonly IStoredFileRemovalStore Removals = Substitute.For<IStoredFileRemovalStore>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly IDocumentAccess Access = Substitute.For<IDocumentAccess>();
         public readonly PolicyAuthorizer Authorizer;
@@ -65,10 +66,10 @@ public class FileRandomInputTests
         }
 
         public bool Touched =>
-            Documents.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "DeleteAsync" or "StoreAsync")
+            Documents.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "DeleteAsync" or "DeleteOwingFileRemovalAsync" or "StoreAsync")
             || Queue.ReceivedCalls().Any() || Files.ReceivedCalls().Any() || Audit.ReceivedCalls().Any();
 
-        public DeleteFile Delete() => new(Containers, Documents, Folders, Storage, Queue, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
+        public DeleteFile Delete() => new(Containers, Documents, Folders, Storage, Queue, Removals, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
     }
 
     /// <summary>A document reference: this container's file by id or path, another container's, or none at all.</summary>
@@ -243,8 +244,10 @@ public class FileRandomInputTests
                 if (storageFails)
                     world.Files.DeleteFileAsync(Own.Path, Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("disk"));
                 string fileId = RefFor(kind, Own, Other);
+                var owed = Guid.NewGuid();
+                world.Documents.DeleteOwingFileRemovalAsync(Own.Id, Arg.Any<CancellationToken>()).Returns(owed);
 
-                var deleted = await new DeleteFile(world.Containers, world.Documents, world.Folders, world.Storage, world.Queue, world.Audit, world.Authorizer,
+                var deleted = await new DeleteFile(world.Containers, world.Documents, world.Folders, world.Storage, world.Queue, world.Removals, world.Audit, world.Authorizer,
                     NullLogger<DeleteFile>.Instance).RunAsync(caller, Here, fileId);
 
                 FileStatus expected = !writer ? FileStatus.Forbidden
@@ -261,7 +264,9 @@ public class FileRandomInputTests
                 await world.Documents.Received(1).RemoveUnrecordedFileAsync(Here, Own.Path, Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
                 await world.Files.Received(reuploaded ? 0 : 1).DeleteFileAsync(Own.Path, Arg.Any<CancellationToken>());
                 await world.Queue.Received(1).CancelJobForDocumentAsync(Own.Id);
-                await world.Documents.Received(1).DeleteAsync(Own.Id, Arg.Any<CancellationToken>());
+                await world.Documents.Received(1).DeleteOwingFileRemovalAsync(Own.Id, Arg.Any<CancellationToken>());
+                // The removal the delete owed is done once the file is gone; one that failed stays owed, for the job to retry.
+                await world.Removals.Received(storageFails && !reuploaded ? 0 : 1).CompleteAsync(owed, Arg.Any<CancellationToken>());
                 await world.Folders.Received(1).DeleteEmptyAncestorsAsync(Here, Own.Path, Arg.Any<CancellationToken>());
                 await world.Audit.Received(1).LogAsync("doc.deleted", "document", Own.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 2000);
@@ -273,10 +278,10 @@ public class FileRandomInputTests
         world.Holds([Own]);
         world.Documents.RemovesUnrecordedFiles();
         using var request = new CancellationTokenSource();
-        world.Documents.DeleteAsync(Own.Id, Arg.Any<CancellationToken>()).Returns(_ =>
+        world.Documents.DeleteOwingFileRemovalAsync(Own.Id, Arg.Any<CancellationToken>()).Returns(_ =>
         {
             request.Cancel();
-            return Task.CompletedTask;
+            return Task.FromResult<Guid?>(Guid.NewGuid());
         });
 
         var deleted = await world.Delete().RunAsync(new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Rest),
@@ -320,8 +325,8 @@ public class FileRandomInputTests
                 }
                 deleted.Result!.Select(i => (i.FileId, i.Deleted)).Should().Equal(ids.Select((id, i) => (id, ownFlags[i])));
                 deleted.Result!.Where(i => !i.Deleted).Should().OnlyContain(i => i.Error == $"File '{i.FileId}' not found in this container.");
-                await world.Documents.Received(ownFlags.Count(f => f)).DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-                await world.Documents.DidNotReceive().DeleteAsync(Other.Id, Arg.Any<CancellationToken>());
+                await world.Documents.Received(ownFlags.Count(f => f)).DeleteOwingFileRemovalAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+                await world.Documents.DidNotReceive().DeleteOwingFileRemovalAsync(Other.Id, Arg.Any<CancellationToken>());
             }, iter: 2000);
 
     // ── files.reindexCheck ────────────────────────────────────────────────────────────────────────

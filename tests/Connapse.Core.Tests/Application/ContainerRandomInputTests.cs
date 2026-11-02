@@ -536,6 +536,7 @@ public class ContainerRandomInputTests
                 connector.ListFilesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
                     .Returns(files.Select(f => new ConnectorFile(f.Path, 1, Epoch, null)).ToList());
                 var storage = Substitute.For<IManagedStorageProvider>();
+                connector.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
                 storage.CreateConnector(container.Id).Returns(connector);
                 static string Rooted(string path) => path.StartsWith('/') ? path : "/" + path;
                 world.Documents.ListAsync(id, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -544,7 +545,7 @@ public class ContainerRandomInputTests
                 var chunking = Substitute.For<IOptionsMonitor<ChunkingSettings>>();
                 chunking.CurrentValue.Returns(new ChunkingSettings());
 
-                var synced = await new ReconcileContainer(world.Containers, storage, world.Documents, queue, chunking, world.Audit, world.Authorizer)
+                var synced = await new ReconcileContainer(world.Containers, storage, world.Documents, Substitute.For<IStoredFileRemovalStore>(), queue, chunking, world.Audit, world.Authorizer)
                     .RunAsync(caller, id);
 
                 ContainerStatus expected = !writer ? ContainerStatus.Forbidden : exists ? ContainerStatus.Success : ContainerStatus.NotFound;
