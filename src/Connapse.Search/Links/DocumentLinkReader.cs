@@ -54,6 +54,9 @@ public sealed class DocumentLinkReader(
             scopes = SearchScopes.Failed;
         }
         scopes = ScopeResolution.Guard(scopes, userId);
+        // An empty scope still admits documents with no resource URI, so a failed resolver must stop the read here.
+        if (scopes.Outcome == ScopeOutcome.ResolverFailed)
+            return DocumentLinkSet.DeniedResult;
 
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         var access = new SearchDocumentAccess(context, verifier, new SearchOptions(ContainerId: containerId.ToString(), UserId: userId), scopes);
