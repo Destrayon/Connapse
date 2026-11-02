@@ -1,14 +1,14 @@
-# CON-198: What gets an open-source repo found and starred, and the Connapse 4.0 launch plan
+# CON-198: What gets an open-source repo found and starred, and the Connapse 0.4.0 launch plan
 
-**Date:** 2026-11-01 · **Status:** Proposed · **Feeds:** the 4.0 launch work (README, GIFs, repo settings, docs, launch day)
+**Date:** 2026-11-01 · **Status:** Proposed · **Feeds:** the 0.4.0 launch work (README, GIFs, repo settings, docs, launch day)
 
-People find a GitHub repo through four things: its name, its description, its topics, and outside links (Hacker News, awesome lists, newsletters). GitHub's repo search does not read the README unless the searcher asks it to [GH1]. Once people land, the README's first screen decides whether they understand the project. In most of the 13 comparable repos below, the first screen is a logo, a one-line category claim, a few badges and a product image, followed by a quickstart of one to five commands. Major-version announcements barely register on Hacker News (1–7 points). Posts that pitch the product in the founder's voice score 167–565 points [L1–L9]. So 4.0 should launch as "what you can now do with Connapse", not as "v4.0 is out".
+People find a GitHub repo through four things: its name, its description, its topics, and outside links (Hacker News, awesome lists, newsletters). GitHub's repo search does not read the README unless the searcher asks it to [GH1]. Once people land, the README's first screen decides whether they understand the project. In most of the 13 comparable repos below, the first screen is a logo, a one-line category claim, a few badges and a product image, followed by a quickstart of one to five commands. Major-version announcements barely register on Hacker News (1–7 points). Posts that pitch the product in the founder's voice score 167–565 points [L1–L9]. So 0.4.0 should launch as "what you can now do with Connapse", not as "v0.4.0 is out".
 
 Connapse today has the right category (self-hosted, MCP, RAG). Its weak points are the opening line, the 2026-03 GIFs, a repo description that undersells it ("5 connectors"), no homepage link, and a changelog that stops at v0.3.2. GitHub traffic for the 14 days to 2026-11-01 was 235 views (203 unique visitors), and Google sent 5 of those visitors [C1].
 
 Facts about Connapse come from `main` at `3eeb409d` and from `origin/epic/con-e3-links-and-memory` (the links-and-memory epic, which CON-197 is bringing to main). Facts about other repos come from `gh api` on 2026-11-01.
 
-**Decision needed from the user: the version label.** The repo milestone is `v0.4.0`, but this ticket says "4.0". Every comparable project that put a version number in its launch headline got 1–7 HN points [L1][L5][L6]. Settle the label before the README, the release title and the social preview are made, because all three show it.
+**Version label: v0.4.0.** The release is `v0.4.0`, matching the repo milestone. Every comparable project that put a version number in its launch headline got 1–7 HN points [L1][L5][L6], so the launch headline should lead with what Connapse does, not the version.
 
 ## 1. Connapse's GitHub page compared with 13 similar projects
 
@@ -100,10 +100,10 @@ Keep each GIF under 10 MB, GitHub's upload limit [GH3]. The current hero is 3.7 
 | # | Flow | Length | Where it goes | Replaces |
 |---|---|---|---|---|
 | 1 | **Agent remembers.** In Claude Code with Connapse connected, the user asks a question. The agent calls `search_knowledge` and answers with citations from a Confluence page and a GitHub issue, then calls `memory_remember` on a decision. Cut to a new session: "what did we decide about X?" → `memory_recall` returns the fact with its source and date. | 20–25 s | README hero | `hero-upload-search.gif` |
-| 2 | **From zero to a cited result.** Terminal: `docker compose --profile with-ollama up -d`, then `docker compose exec ollama ollama pull nomic-embed-text` (cut the wait for the pull), then the browser: create the owner account, upload a PDF, search, open a result with its citation. | 15–20 s | Quick start section, and the Quickstart doc | The current hero, re-recorded on the 4.0 UI |
+| 2 | **From zero to a cited result.** Terminal: `docker compose --profile with-ollama up -d`, then `docker compose exec ollama ollama pull nomic-embed-text` (cut the wait for the pull), then the browser: create the owner account, upload a PDF, search, open a result with its citation. | 15–20 s | Quick start section, and the Quickstart doc | The current hero, re-recorded on the 0.4.0 UI |
 | 3 | **Same question, two people, different answers.** Add a GitHub or S3 source and sync it. Then the same search signed in as two users: the second user's results drop what they can't open in the source. | 15–20 s | "Search trimmed to what each person can open", and the permissions concept page | New |
 | 4 | **Memory keeps history.** `memory_correct` with `kind="changed"`, then `memory_timeline` shows the old value ending and the new one starting on a date. | 10–15 s | "Memory for agents", and the memory concept page | New |
-| 5 | **Linked results.** With link search on, a search that finds a GitHub issue also brings back the PR that closes it, or one that finds a Jira issue brings back its linked Confluence page. Connapse stores no Jira-to-GitHub links, and a search scoped to one source doesn't reach another, so confirm the pair is in one container and reachable before recording. | 10–15 s | "Linked results" | New. Record only if link search is documented and supported in 4.0, since it ships off by default |
+| 5 | **Linked results.** With link search on, a search that finds a GitHub issue also brings back the PR that closes it, or one that finds a Jira issue brings back its linked Confluence page. Connapse stores no Jira-to-GitHub links, and a search scoped to one source doesn't reach another, so confirm the pair is in one container and reachable before recording. | 10–15 s | "Linked results" | New. Record only if link search is documented and supported in 0.4.0, since it ships off by default |
 | 6 | **Code tools.** `code_find_symbol`, then `code_impact` on a C# method, in an agent session. | 10–15 s | "What your agent gets" | New |
 
 Retire `settings-providers.gif` from the README; runtime settings are not why people star. Keep `mcp-agent-integration.gif` only if shot 1 isn't ready.
@@ -118,29 +118,29 @@ GitHub's specification is a PNG, JPG or GIF under 1 MB, ideally 1280×640 on a s
 
 Drop the bare `docker compose up -d`: on its own it starts no embedding model (Ollama is behind the `with-ollama` profile), so a reader who copies it gets a failing first search. A preview is read in about a second.
 
-## 7. Docs pages that are wrong or missing for 4.0
+## 7. Docs pages that are wrong or missing for 0.4.0
 
 **Wrong today, on `main`:**
 
-1. `CHANGELOG.md`. The last entry is v0.3.2 (2026-03-15), so nothing since March is recorded. It needs a 4.0 entry with **Breaking changes** and **Upgrade** sections first; the Connector/Source split and the endpoint changes are the obvious candidates. Mem0's 1.0 notes left breaking changes out and pushed them to a separate migration guide [L2].
+1. `CHANGELOG.md`. The last entry is v0.3.2 (2026-03-15), so nothing since March is recorded. It needs a 0.4.0 entry with **Breaking changes** and **Upgrade** sections first; the Connector/Source split and the endpoint changes are the obvious candidates. Mem0's 1.0 notes left breaking changes out and pushed them to a separate migration guide [L2].
 2. `README.md:77` says "12 named tools". After CON-197 it is 21: the 5 `memory_*` tools and 4 `code_*` tools are added. The features list mentions none of memory, links or code.
 3. `docs/reference/mcp-tools.md:9` has the same count, and the page has no sections for the `memory_*` or `code_*` tools. **Watch in CON-197:** the epic wrote its memory documentation into `docs/mcp-tools.md`, which on `main` is now a "Moved" stub. That text must land in `docs/reference/mcp-tools.md` and the stub must stay a stub.
-4. `docs/sources/github-setup.md:17` and `:156` say "Source code isn't indexed". With 4.0's code parsing and code tools, the page must say how code reaches Connapse and what the GitHub source still leaves out.
+4. `docs/sources/github-setup.md:17` and `:156` say "Source code isn't indexed". With 0.4.0's code parsing and code tools, the page must say how code reaches Connapse and what the GitHub source still leaves out.
 5. `docs/self-host/install.md:42` pins `v0.3.2` as its example release.
 6. The repo description ("5 connectors") and the empty homepage field, as covered in section 3.
 7. **GitHub wiki.** 11 old pages are still public, and `Connectors-Guide` was opened 5 times in the 14 days to 2026-11-01 [C1]. It still describes the removed InMemory connector and the old connector-per-container model. Either replace each page's body with a link to its `docs/` replacement, or turn the wiki off. Both are repo-setting changes for the user.
 8. **Releases.** The newest GitHub release is `v0.3.3-alpha.1` (2026-03-31), and "Latest" still points at `v0.3.2`. Anyone who arrives from search sees a project that last shipped seven months ago.
 
-**Missing for 4.0:**
+**Missing for 0.4.0:**
 
 9. `docs/concepts/memory.md`: what a fact is (subject, attribute, value, the dates it was true, its sources), why a fact is shown only to people who can read every source it cites, how corrections keep history, and that forgetting really deletes.
 10. A page on link search, `docs/concepts/links.md` or a section of `concepts/search.md`. It should cover what links are stored for GitHub, Jira, Confluence and code; that `EnableLinkSearch` is off by default; and how to turn it on. Add the setting to `docs/reference/configuration.md`.
 11. Code support in `docs/reference/file-types.md`: C#, TypeScript and Python are parsed with tree-sitter (a code parser), one passage per definition. Also a short guide to the four `code_*` tools.
-12. `docs/get-started/connect-an-agent.md`: the tutorial should end with the agent saving and recalling a memory, because that is the 4.0 story.
-13. `docs/self-host/upgrade.md`: a "from 0.3.x to 4.0" section. I haven't checked whether it already covers this; whoever does the docs work should check.
+12. `docs/get-started/connect-an-agent.md`: the tutorial should end with the agent saving and recalling a memory, because that is the 0.4.0 story.
+13. `docs/self-host/upgrade.md`: a "from 0.3.x to 0.4.0" section. I haven't checked whether it already covers this; whoever does the docs work should check.
 14. `docs/llms.txt` (the index file AI agents read, see [GO2]): add the memory, links and code pages.
 
-## 8. How comparable projects launched major versions, and the plan for 4.0
+## 8. How comparable projects launched major versions, and the plan for 0.4.0
 
 **Evidence [L1–L9]:**
 
@@ -159,9 +159,9 @@ HN's own rules exclude routine version releases from Show HN, allow a major over
 **Do before launch day (all in the repo):**
 
 1. Ship sections 3–7: description, topics, homepage, README, GIFs, social preview, docs fixes.
-2. Tag a public 4.0 beta 2–4 weeks before GA, as Mem0 did [L2], and fix what it turns up.
+2. Tag a public 0.4.0 beta 2–4 weeks before GA, as Mem0 did [L2], and fix what it turns up.
 3. Write the GA release note on Dify's pattern [L1]: a one-line headline about what people can now do, one GIF, 3–5 highlights (memory, linked results, code tools, permission-trimmed MCP), the upgrade command, numbered migration steps with "back up first", a link to the upgrade doc, then the full changelog.
-4. Make "Latest release" point at 4.0 on the same day.
+4. Make "Latest release" point at 0.4.0 on the same day.
 
 **Launch day: all of this needs the user, because posting anywhere is theirs.**
 
