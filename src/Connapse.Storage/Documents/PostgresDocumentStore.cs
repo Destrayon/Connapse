@@ -237,6 +237,52 @@ public class PostgresDocumentStore : IDocumentStore
             entity.FileName);
     }
 
+    public async Task<Guid?> DeleteOwingFileRemovalAsync(string documentId, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid))
+        {
+            _logger.LogWarning("Invalid document ID format: {DocumentId}", Sanitize(documentId));
+            return null;
+        }
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+
+        var entity = await context.Documents.FirstOrDefaultAsync(d => d.Id == guid, ct);
+        if (entity == null)
+        {
+            _logger.LogWarning("Document not found: {DocumentId}", Sanitize(documentId));
+            return null;
+        }
+
+        context.Documents.Remove(entity);
+
+        // One SaveChanges, so the record goes and the removal is owed together. Not due until the caller's own
+        // removal has had its chance, as with a folder delete's.
+        StoredFileRemovalEntity? removal = null;
+        if (entity.ContainerId is Guid containerId && !string.IsNullOrEmpty(entity.Path))
+        {
+            DateTime now = DateTime.UtcNow;
+            removal = new StoredFileRemovalEntity
+            {
+                Id = Guid.NewGuid(),
+                ContainerId = containerId,
+                Path = entity.Path,
+                CreatedAt = now,
+                NextAttemptAt = now + Folders.PostgresFolderStore.InlineRemovalGrace,
+            };
+            context.StoredFileRemovals.Add(removal);
+        }
+
+        await context.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Deleted document {DocumentId} ({FileName})",
+            Sanitize(documentId),
+            entity.FileName);
+
+        return removal?.Id;
+    }
+
     public async Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default)
     {
         await using var context = await _factory.CreateDbContextAsync(ct);

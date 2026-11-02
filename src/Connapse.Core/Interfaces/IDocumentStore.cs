@@ -25,6 +25,14 @@ public interface IDocumentStore
     Task<Document?> GetAsync(string documentId, CancellationToken ct = default);
     Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, int skip = 0, int take = 50, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes a container's document and, in the same transaction, saves its stored file as owed a removal, so a
+    /// removal that fails or is cut off is still retried and a sync meanwhile leaves the file alone (#378). Returns the
+    /// owed removal's id, for the caller to complete once it has removed the file; null when nothing was deleted or
+    /// the document has no stored file.
+    /// </summary>
+    Task<Guid?> DeleteOwingFileRemovalAsync(string documentId, CancellationToken ct = default);
     Task<bool> ExistsByPathAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default);

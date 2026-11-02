@@ -19,6 +19,16 @@ public sealed class PostgresStoredFileRemovalStore(IDbContextFactory<KnowledgeDb
             .ToListAsync(ct);
     }
 
+    public async Task<IReadOnlySet<string>> OwedPathsAsync(Guid containerId, CancellationToken ct = default)
+    {
+        await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
+        List<string> paths = await context.StoredFileRemovals.AsNoTracking()
+            .Where(r => r.ContainerId == containerId)
+            .Select(r => r.Path)
+            .ToListAsync(ct);
+        return paths.ToHashSet(StringComparer.Ordinal);
+    }
+
     public async Task CompleteAsync(Guid id, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);

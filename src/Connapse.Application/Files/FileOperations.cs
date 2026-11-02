@@ -265,6 +265,7 @@ public sealed class DeleteFile(
     IFolderStore folders,
     IManagedStorageProvider storage,
     IIngestionQueue queue,
+    IStoredFileRemovalStore removals,
     IAuditLogger audit,
     IOperationAuthorizer authorizer,
     ILogger<DeleteFile> logger)
@@ -286,7 +287,9 @@ public sealed class DeleteFile(
             return FileRules.FileNotFound<FileDeletion>(containerId, fileId);
 
         await queue.CancelJobForDocumentAsync(fileId);
-        await documents.DeleteAsync(fileId, ct);
+        // The stored file is owed a removal from the moment the record goes, so a removal below that fails, or that a
+        // crash cuts off, is retried, and a sync meanwhile doesn't index the file again (#378).
+        Guid? owedRemoval = await documents.DeleteOwingFileRemovalAsync(fileId, ct);
         if (!string.IsNullOrEmpty(document.Path))
             await folders.DeleteEmptyAncestorsAsync(containerId, document.Path, ct);
 
@@ -314,6 +317,19 @@ public sealed class DeleteFile(
         {
             logger.LogWarning(ex, "Failed to delete backing file {Path}", document.Path);
             cleanupFailed = true;
+        }
+
+        if (!cleanupFailed && owedRemoval is Guid removalId)
+        {
+            try
+            {
+                await removals.CompleteAsync(removalId, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                // Still owed, so the removal job finds the file already gone and completes it then.
+                logger.LogWarning(ex, "Failed to complete the owed removal of {Path}", document.Path);
+            }
         }
 
         await audit.LogAsync("doc.deleted", "document", fileId, new { document.FileName, ContainerId = containerId }, ct);

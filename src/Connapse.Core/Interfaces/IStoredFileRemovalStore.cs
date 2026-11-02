@@ -10,6 +10,9 @@ public interface IStoredFileRemovalStore
     /// <summary>Entries whose next attempt is due, oldest first.</summary>
     Task<IReadOnlyList<StoredFileRemoval>> DueAsync(DateTime now, int take, CancellationToken ct = default);
 
+    /// <summary>The paths in a container whose stored files are still owed a removal, due or not.</summary>
+    Task<IReadOnlySet<string>> OwedPathsAsync(Guid containerId, CancellationToken ct = default);
+
     /// <summary>The file is gone, or a new record points to it again: the entry is done.</summary>
     Task CompleteAsync(Guid id, CancellationToken ct = default);
 
