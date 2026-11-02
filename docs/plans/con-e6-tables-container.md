@@ -47,8 +47,9 @@ container holds tables, not passages: its files are not embedded or chunked, and
 it.
 
 ### Storage
-- **One schema per tables container.** Each table in it is a real PostgreSQL table with generated names (`t_<id>`,
-  columns `c_<n>`), so a file's headers never reach SQL text.
+- **One schema per tables container**, and per documents container once ticket 15 promotes one of its tables. Each
+  table in it is a real PostgreSQL table with generated names (`t_<id>`, columns `c_<n>`), so a file's headers never
+  reach SQL text.
 - **A catalog in Connapse's own schema.** For each table it records the original name, description, source document,
   row count, a Frictionless schema per column, a "needs review" flag, and the reject list (rows that failed their
   column's type, kept rather than silently set to empty).
@@ -72,7 +73,53 @@ it.
   data" datatype question noted in memory and is not part of this epic.
 - **Tables inside PDF and Office files** stay in their documents container as text. They are promoted to a queryable
   table only in a later ticket, and only when they pass a quality gate: one header row, the same column count on
-  every row, and types parsing on at least 95% of cells. Each promoted row keeps its page and table number.
+  every row, and types parsing on at least 95% of cells. Each promoted row keeps its page and table number. The
+  passage the table came from then links to it (see Links from passages to tables).
+
+### Links from passages to tables
+The user's idea, in their words: "in documents we could potentially somehow add a reference to a chunk that a table
+was generated because structured data was identified and give a reference that the agent could look up easily."
+
+When ticket 15 promotes a document's table, the text passage (chunk) that holds it keeps its text and gains a
+reference to the new table. A search hit on that passage then tells the agent "this passage contains table
+`orders_by_region` (id …); call `table_describe` or `table_read` on it", so the agent queries the table instead of
+reading numbers out of Markdown.
+
+Established tools do the same thing in different ways:
+- **LlamaIndex** puts a summary node for each table into the same vector index as the text. The node carries an
+  `index_id`, and its `RecursiveRetriever` follows that id to the table's query engine when the node is retrieved.
+  We take the idea of a reference that search returns and the agent follows. We don't take the summary node: our
+  reference rides on the passage that already exists, so search ranking doesn't change.
+- **Azure Document Intelligence** layout returns each table with `spans` (offset and length in the document text)
+  and `boundingRegions` (page and polygon), and each section lists its parts as JSON pointers such as `/tables/0`.
+  We take the pointer pair: the passage's position and the table's id, stored on both sides.
+- **Unstructured** keeps a table as its own `Table` element with `text_as_html`, `page_number` and `parent_id`, and
+  its chunker never merges a table into a text chunk. A chunk lists the elements it came from in `orig_elements`. We
+  take the page and table number on the link, which `PdfTables.cs` already knows.
+
+The design:
+- **Where it is stored.** A catalog table, `table_passage_links`, with table id, document id, chunk id, page and table
+  number. It is written in the same transaction that creates the promoted table. Re-ingesting the document replaces
+  its chunks and its promoted tables together, so the links are rebuilt with them, and deleting the document or table
+  deletes its links. The reference is never added to the passage's text, so embeddings and search ranking stay as they
+  are.
+- **Where the promoted table lives.** In the document's own container. A documents container gets a table schema the
+  first time one of its tables is promoted. The table tools accept a documents container and list its promoted tables
+  plus its built-in `memory` table (ticket 12); no other tables. `search_knowledge` behaves as before.
+- **Hiding survives re-ingest.** Each promoted table has a stable key: document id, page, table number and a hash of
+  its header row. An admin's hide is stored on that key, not on the table id, so the rebuilt table stays hidden. If a
+  re-ingest leaves any hidden key without an exact match (pages moved, headers changed), every table promoted from
+  that document starts hidden until an admin reviews it. A failed or retried ingest keeps the old tables, links and
+  hides until the new ones commit.
+- **How it shows.** `SearchHit` gains an optional list of table references (id, name, page, table number). REST search
+  returns them as a `tables` field. MCP `search_knowledge` adds one line under the passage naming the table and the
+  two tools to call. `get_document` lists the document's promoted tables at the end. The table name comes from the
+  document's caption or header row, so it sits inside the same untrusted-data notice as the passage.
+- **Permissions.** A reference shows only if the caller can read the table, checked with the same visibility code as
+  `table_list`: the document check, admin-hidden tables, and the container check. Seeing the passage implies the
+  document is readable, but the table check still runs because an admin can hide a table. If the check fails or
+  can't be made, the reference is left out and the passage still shows, so nothing reveals that a hidden table exists.
+  A link to a table that no longer exists is left out too.
 
 ### Tools (MCP and REST)
 | Tool | Does | Notes |
@@ -128,6 +175,7 @@ binding (`pgsqlparser` or `Npgquery`), after its own research ticket. It is outs
   that limits rows to readable documents.
 - **When access can't be checked**, the answer is empty with an "access could not be checked" error. Nothing falls
   back to showing everything.
+- **Hidden tables.** Admins can hide a whole table, which removes it from every table tool and from passage links.
 - **Hidden columns.** Admins can hide columns per table. A hidden column cannot be selected, filtered on, grouped by,
   or used in a join; otherwise a filter would reveal its values one question at a time.
 
@@ -193,6 +241,9 @@ it into `eval/pass-bars.md`.
   a count in a table.
 - **Permissions.** Some questions are asked as a user who can't see one of the source documents. Their correct answer
   is the trimmed one.
+- **Linked set.** 30 questions over 10 PDF and Word documents whose tables pass the promotion gate, for the passage
+  links in ticket 15. 20 need a table value that takes counting or summing; 10 are answered by the prose alone. Each
+  document table also has a hand-checked CSV copy, and the 20 table answers come from gold SQL over those copies.
 
 ### How it runs
 This follows CON-142 (`eval/agent-search/`).
@@ -203,6 +254,7 @@ This follows CON-142 (`eval/agent-search/`).
     `search_knowledge` and `get_document` on default hybrid search. This is the text-search baseline.
   - **tables:** the four table tools over a tables container.
   - **both:** all six tools, used on the mixed set.
+  - **both-linked** and **both-unlinked:** all six tools on the linked set, with passage links shown and hidden.
 - **Answers** come back as typed JSON and are graded by the DataBench rules:
   - Numbers match within 1% relative (or exactly, for integers).
   - Lists match as sets.
@@ -224,6 +276,26 @@ The tables container ships only if all of these hold on the 180 held-out questio
 6. **Leaks:** the CON-31 leak suite and the new table leak tests (ticket 7) pass with zero failures.
 7. **Cost and speed:** 0 server AI tokens. `table_aggregate` p95 under 500 ms on a 100k-row table. Average agent
    cost per question at most 1.5x rag's.
+
+### Bar for passage links
+Ticket 15's links ship only if, on the linked set:
+1. **Agents follow the link when it helps.** On the 20 table questions with both-linked, at least **80%** have a
+   followed link: a successful `table_read` or `table_aggregate` on a table id that first appeared in that run in a
+   `search_knowledge` or `get_document` answer, with no `table_list` call before it. The qualifying tool trace is
+   saved with each answer.
+2. **It helps.** both-linked answers at least as many of the 30 questions correctly as both-unlinked, and at least
+   **4 more** of the 20 table questions.
+3. **It doesn't distract.** On the 10 prose questions, both-linked makes a table call in at most 2, and answers no
+   fewer correctly than both-unlinked.
+4. **No leak.** A planted-leak test where the caller can read the document but the admin hid its table shows no
+   reference, no table name and no change in the passage's output, in `search_knowledge`, REST search,
+   `get_document` and `table_list`. The same holds after the document is re-ingested, including with its tables
+   reordered and after a failed ingest is retried.
+5. **Cost.** Average agent cost per question with both-linked is at most 1.2x both-unlinked's.
+
+Thirty questions are too few for a significance test, so these bars are counts. They gate ticket 15 only, not the
+tables container. A failed bar follows the same re-test rule as the main bar, with one sealed reserve linked set of
+30 questions.
 
 ### Gate for moving memory
 Memory moves (ticket 12) only if:
@@ -248,8 +320,9 @@ weak tool path pass. A 25-point gain on 180 paired questions is well above the M
 
 ## Build tickets, in order (one PR each)
 1. **Write the pass bar and build the test set.** Add the tables pass bar and the memory gate to
-   `eval/pass-bars.md`. Add the `tables-v1` dataset: CSV tables, questions, gold SQL, answer keys, the two sealed
-   reserve sets and a card. Port the DataBench grader to C# with its fixtures. No product code.
+   `eval/pass-bars.md`, plus the passage-link bar. Add the `tables-v1` dataset: CSV tables, questions, gold SQL,
+   answer keys, the two sealed reserve sets, the linked set's documents, CSV copies and questions with its sealed
+   reserve, and a card. Port the DataBench grader to C# with its fixtures. No product code.
 2. **Run the text-search baseline.** Add the agent runner for the rag setup, reusing CON-142's harness. Run rag on
    tables-v1 and commit the report.
 3. **Add the tables container type.** Add `Kind` to containers, a migration, a choice on the create page, the API
@@ -280,8 +353,13 @@ weak tool path pass. A 25-point gain on 180 paired questions is well above the M
     container has many tables.
 14. **Add admin-saved queries.** Add Toolbox-style saved queries with typed parameters, a "trusted" badge on their
     answers, and parameters filled from the caller's login.
-15. **Promote document tables.** PDF and Office tables that pass the quality gate become tables, keeping their page
-    and table number.
+15. **Promote document tables and link them from their passages.** PDF and Office tables that pass the quality gate
+    become tables in the document's own container, keeping their page and table number. Add `table_passage_links`,
+    written with the promotion and removed with the document or table. Show readable links in `SearchHit`, REST
+    search, MCP `search_knowledge` and `get_document`, checked with `table_list`'s visibility code and left out when
+    the check fails. Keep hides on the stable table key across re-ingest. Check that memory is still listed and
+    queryable in documents containers. Add the hidden-table leak tests, run both-linked and both-unlinked on the linked set, and commit
+    the report against the passage-link bar.
 
 Tickets 1 and 2 come first so the bar and baseline exist before any table code. Tickets 3–9 build everything the
 proof's six families need. Nothing ships until ticket 10 passes. Tickets 11–15 depend on it, and 13–15 can move to

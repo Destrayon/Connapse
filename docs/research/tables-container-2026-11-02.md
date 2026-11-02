@@ -200,6 +200,23 @@ typed tables with binary COPY.
   - A document table should become queryable only when it has one header row and a consistent column count, and
     types parse on at least 95% of cells. Otherwise it stays RAG text only. Each promoted row keeps the page and
     table it came from.
+- **Linking a promoted table back to its passage** (added 2026-11-02 at the user's request). Three established tools
+  keep a link between an extracted table and the text around it:
+  - [LlamaIndex's recursive retriever](https://developers.llamaindex.ai/python/examples/query_engine/pdf_tables/recursive_retriever/)
+    stores an `IndexNode` summary of each table in the same vector index as the text. Each node has an `index_id`
+    such as `pandas0`, and when search returns that node the `RecursiveRetriever` looks the id up and queries the
+    table's own engine ("Retrieved node with id, entering: pandas0").
+  - [Azure Document Intelligence layout](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/prebuilt/layout)
+    returns each table with `spans` (offset and length in the document's `content`) and `boundingRegions` (page and
+    polygon). Sections and figures list their parts in `elements` as JSON pointers such as `/paragraphs/0`, which
+    ties each table to its place in the text and in the section tree.
+  - [Unstructured's document elements](https://docs.unstructured.io/open-source/concepts/document-elements) keep a
+    table as its own `Table` element with `text_as_html`, `page_number`, `element_id` and `parent_id`. Composite
+    chunks are formed from non-table elements only, and each chunk lists its sources in `orig_elements`.
+
+  All three return the link with the text, so the reader can reach the table in one step. Connapse already has the
+  page and table number from `PdfTables.cs`, so it can store the link in its catalog and show it on search hits.
+  None of the three checks whether the reader may see the table; Connapse must.
 
 ## (d) Moving agent memory onto the table layer
 Memory's history model is the one the table layer needs for changing data. Memory should move onto the layer
@@ -294,6 +311,9 @@ literature gives no reason to set a small bar.
   - [MCP Toolbox](https://github.com/googleapis/genai-toolbox)
   - [DBHub](https://github.com/bytebase/dbhub)
   - [MotherDuck MCP](https://github.com/motherduckdb/mcp-server-motherduck)
+  - [LlamaIndex recursive retriever over PDF tables](https://developers.llamaindex.ai/python/examples/query_engine/pdf_tables/recursive_retriever/)
+  - [Azure Document Intelligence layout](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/prebuilt/layout)
+  - [Unstructured document elements](https://docs.unstructured.io/open-source/concepts/document-elements)
   - [LangChain SQL agent](https://docs.langchain.com/oss/python/langchain/sql-agent)
   - [LlamaIndex SQL demo](https://developers.llamaindex.ai/python/examples/index_structs/struct_indices/sqlindexdemo/)
   - [dbt MCP tools](https://docs.getdbt.com/docs/dbt-ai/mcp-available-tools)
