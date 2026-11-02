@@ -24,7 +24,12 @@ public sealed class MalformedSignInInputFilter : IEndpointFilter
 
         var nullFields = context.Arguments.SelectMany(NullRequiredFields).ToArray();
         if (nullFields.Length > 0)
-            return TypedResults.ValidationProblem(nullFields.ToDictionary(f => f, f => new[] { $"The {f} field is required." }));
+        {
+            // Login's and refresh's declared 400 require error. CustomizeProblemDetails adds it when a problem writer
+            // takes the response; setting it here keeps it when none does, such as for an Accept header no writer serves.
+            var errors = nullFields.ToDictionary(f => f, f => new[] { $"The {f} field is required." });
+            return TypedResults.ValidationProblem(errors, extensions: new Dictionary<string, object?> { ["error"] = errors.First().Value[0] });
+        }
 
         if (context.Arguments.Any(HasNul))
             return ApiProblem.BadRequest("invalid-text", "Request text can't contain a NUL character.");

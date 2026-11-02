@@ -57,6 +57,28 @@ public class IdentityMalformedInputTests(SharedWebAppFixture fixture)
         problem!.Errors.Should().ContainKey(field);
     }
 
+    // A client may ask for a media type no problem writer serves. The validation result then writes itself, and the
+    // error member login's and refresh's declared 400 require still has to be there.
+    [Theory]
+    [InlineData("/api/v1/identity/login", """{"email":null,"password":null}""")]
+    [InlineData("/api/v1/identity/refresh", """{"refreshToken":null}""")]
+    public async Task Post_NullRequiredField_UnservedAccept_StillCarriesError(string route, string json)
+    {
+        using var anonymous = fixture.Factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, route)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Accept.ParseAdd("application/vnd.api+json");
+
+        var response = await anonymous.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.TryGetProperty("error", out var error).Should().BeTrue(body.RootElement.ToString());
+        error.GetString().Should().NotBeNullOrEmpty();
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("?userId=e&code=%C3%9B%C3%9C")]
