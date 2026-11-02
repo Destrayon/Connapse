@@ -21,7 +21,7 @@ npm install --prefix tools/demo-recording; node tools/demo-recording/make-pdf.mj
 4. Agent shots: set `DEMO_AGENT_KEY_FILE` to a path outside the repository and run `shots/setup-agent.mjs`. Then run
    `shots/agent-session.mjs <name> "<prompt>"` for each transcript in `transcripts/` (the prompt is in its file), and
    `shots/agent-replay.mjs agent-remembers s1a s1b`, `... memory-history s4`, `... code-tools s6`.
-5. Linked results: `node tools/demo-recording/shots/linked-results.mjs` (turns link search on for one take, then off).
+5. Linked results: `node tools/demo-recording/shots/linked-results.mjs` (records a take with link search off and one with it on, then restores the original setting).
 6. `node tools/demo-recording/to-gif.mjs tools/demo-recording/gifs/<name>.json` for each plan.
 
 When done: `docker compose --profile with-ollama --profile demo-source down -v`.

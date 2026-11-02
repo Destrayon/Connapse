@@ -22,6 +22,7 @@ async function setLinkSearch(on) {
 
 const code = (await api('GET', '/api/containers')).items.find(c => c.name === 'example-server');
 const state = await signIn(OWNER);
+const original = (await api('GET', '/api/settings/search')).enableLinkSearch;
 let before = [];
 
 try {
@@ -67,5 +68,10 @@ try {
     await r.stop();
   }
 } finally {
-  await setLinkSearch(false);
+  try {
+    await setLinkSearch(original);
+  } catch (err) {
+    console.error(`Could not restore enableLinkSearch=${original}; set it back by hand.`, err);
+    process.exitCode = 1;
+  }
 }

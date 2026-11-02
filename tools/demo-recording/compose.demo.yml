@@ -2,8 +2,9 @@
 #   COMPOSE_PROJECT_NAME=connapse-demo COMPOSE_FILE="docker-compose.yml;tools/demo-recording/compose.demo.yml"
 services:
   web:
+    # Loopback only: the demo owner's credentials are in lib.mjs.
     ports: !override
-      - "${DEMO_PORT:-5201}:8080"
+      - "127.0.0.1:${DEMO_PORT:-5201}:8080"
     environment:
       CustomSources__AllowedHttpHosts__0: example-source
       Hangfire__IngestionWorkerCount: "1"
