@@ -407,8 +407,12 @@
                     <span class="detail-value text-danger">@error</span>
                 </div>
             }
+            <div class="detail-row links-section">
+                <span class="detail-label">Links</span>
+                <FileLinksPanel @key="selectedFile" ContainerId="Guid.Parse(ContainerId)" FileId="@selectedFile.Id" OnOpen="OpenLinkedFile" />
+            </div>
         </div>
-        @if (canEdit)
+        @if (canEdit && selectedBrowseEntry is not null)
         {
             <div class="detail-panel-footer">
                 <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDeleteEntry(selectedBrowseEntry!)">
@@ -794,6 +798,16 @@
         {
             selectedFile = null;
         }
+    }
+
+    /// <summary>Opens a linked file: moves to its folder and shows its details, as clicking it in the list does.</summary>
+    private async Task OpenLinkedFile(LinkedDocument doc)
+    {
+        currentPath = FileLinksPanel.FolderOf(doc.Path);
+        selectedEntryKeys.Clear();
+        await LoadEntries();
+        selectedBrowseEntry = entries.FirstOrDefault(e => e.Id == doc.Id);
+        await LoadFileDetails(doc.Id);
     }
 
     private void CloseDetailPanel()

@@ -52,6 +52,7 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
             [
                 (HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}", $"/api/containers/{a}/files/{fileOfB}"),
                 (HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}/content", $"/api/containers/{a}/files/{fileOfB}/content"),
+                (HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}/links", $"/api/containers/{a}/files/{fileOfB}/links"),
                 (HttpMethod.Get, "/api/containers/{containerId:guid}/files/{fileId}/reindex-check", $"/api/containers/{a}/files/{fileOfB}/reindex-check"),
             ];
             foreach (var (method, route, path) in reads)
