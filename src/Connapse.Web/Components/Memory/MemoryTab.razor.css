@@ -101,8 +101,8 @@
 }
 
 .col-sources { width: 26%; }
-.col-true { width: 150px; }
-.col-recorded { width: 120px; }
+.col-true { width: 140px; }
+.col-recorded { width: 150px; }
 
 .col-sources, .col-true, .col-recorded {
     color: var(--text-muted);
