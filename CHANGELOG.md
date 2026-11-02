@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Deleted documents no longer come back: a file whose storage delete fails is retried instead of only logged, and a sync running alongside a folder delete can no longer restore its files (#378, reported and traced by @marcusyoung)
+- The Files tab lists every file in a container's root: it used to fetch only the 50 newest documents in the whole container, so after many uploads into a subfolder the older root files disappeared from view (#812, reported by @marcusyoung)
+- Uploading a file that is already in the container replaces it instead of failing to index with `23505 duplicate key ... idx_documents_container_path` (#812, reported by @marcusyoung)
 
 ## [v0.3.2] - 2026-03-15
 
