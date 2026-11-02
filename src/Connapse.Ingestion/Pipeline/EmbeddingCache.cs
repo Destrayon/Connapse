@@ -30,9 +30,20 @@ public class EmbeddingCache(KnowledgeDbContext context)
             .Select(cv => new { cv.ContentHash, cv.Embedding })
             .ToListAsync(ct);
 
+        return Match(hashes, rows.Select(cv => (cv.ContentHash!, cv.Embedding.Memory.ToArray())), dimensions);
+    }
+
+    /// <summary>
+    /// The cached vector for each hash, or null. A vector whose length is not <paramref name="dimensions"/> is
+    /// a miss: before #666 a model could return its native size while the row was labelled with the setting.
+    /// </summary>
+    public static IReadOnlyList<float[]?> Match(
+        IReadOnlyList<string> hashes, IEnumerable<(string Hash, float[] Vector)> rows, int dimensions)
+    {
         var cached = rows
-            .GroupBy(cv => cv.ContentHash!)
-            .ToDictionary(g => g.Key, g => g.First().Embedding.Memory.ToArray());
+            .Where(r => dimensions <= 0 || r.Vector.Length == dimensions)
+            .GroupBy(r => r.Hash)
+            .ToDictionary(g => g.Key, g => g.First().Vector);
 
         return hashes.Select(h => cached.TryGetValue(h, out var v) ? v : null).ToList();
     }

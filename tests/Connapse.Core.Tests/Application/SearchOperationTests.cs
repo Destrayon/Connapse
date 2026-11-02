@@ -446,6 +446,21 @@ public class SearchOperationTests
         searched.Detail.Should().Contain("Keyword");
     }
 
+    [Fact]
+    public async Task Search_QueryVectorIsTheWrongSize_SaysWhichSettingToChange()
+    {
+        var world = new World();
+        var container = world.Container();
+        var mismatch = new Connapse.Storage.Vectors.EmbeddingDimensionMismatchException("Qwen/Qwen3-Embedding-8B", 1536, 4096, sentDimensions: false);
+        world.Search.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new EmbeddingUnavailableException(mismatch));
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope(container.Id), Query());
+
+        searched.Status.Should().Be(SearchStatus.EmbeddingsUnavailable);
+        searched.Detail.Should().Contain("Set Dimensions to 4096").And.Contain("Keyword").And.NotContain("Try again shortly");
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

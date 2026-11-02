@@ -11,6 +11,7 @@ using Connapse.Storage.Data.Entities;
 using Connapse.Storage.Connectors;
 using Connapse.Storage.Documents;
 using Connapse.Storage.Links;
+using Connapse.Storage.Vectors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -65,6 +66,8 @@ public class IngestionPipeline : IKnowledgeIngester
     public const string MetadataKeyEmbeddingProvider = "IndexedWith:EmbeddingProvider";
     public const string MetadataKeyEmbeddingModel = "IndexedWith:EmbeddingModel";
     public const string MetadataKeyEmbeddingDimensions = "IndexedWith:EmbeddingDimensions";
+    /// <summary>Whether the model was asked for the configured size; absent on documents indexed before #666.</summary>
+    public const string MetadataKeyEmbeddingDimensionsRequested = "IndexedWith:EmbeddingDimensionsRequested";
 
     /// <summary>Which parser produced the document's chunks, and which version of it (#596).</summary>
     public const string MetadataKeyParser = "IndexedWith:Parser";
@@ -378,7 +381,9 @@ public class IngestionPipeline : IKnowledgeIngester
             if (keepPreviousIndex)
                 return await KeepPreviousIndexAsync(existing!, generation, pageErrors!, warnings, stopwatch, ct);
 
-            var metadata = BuildMetadata(options, existing);
+            // One snapshot for the whole ingest, so the recorded model and size describe the vectors stored.
+            var embedSettings = _embeddingSettings.CurrentValue;
+            var metadata = BuildMetadata(options, existing, embedSettings);
 
             // Parser warnings used to reach only the log, or a failure message. A document that
             // indexed with half its pages empty now says so where the API and UI can show it.
@@ -407,7 +412,6 @@ public class IngestionPipeline : IKnowledgeIngester
             else
                 metadata.Remove(MetadataKeyExtractionIncomplete);
 
-            var embedSettings = _embeddingSettings.CurrentValue;
             IReadOnlyList<float[]> embeddings = await EmbedChunksAsync(chunks, embedSettings, ct);
 
             // The swap. Old chunks go and new ones arrive in the same transaction as the move to
@@ -588,11 +592,10 @@ public class IngestionPipeline : IKnowledgeIngester
     private static IngestionResult Superseded(Guid documentId, Stopwatch stopwatch, string reason) =>
         new(DocumentId: documentId.ToString(), ChunkCount: 0, Duration: stopwatch.Elapsed, Warnings: [reason]);
 
-    private Dictionary<string, string> BuildMetadata(IngestionOptions options, DocumentEntity? existing)
+    private Dictionary<string, string> BuildMetadata(IngestionOptions options, DocumentEntity? existing, EmbeddingSettings embedSettings)
     {
         var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>());
         var chunkSettings = _chunkingSettings.CurrentValue;
-        var embedSettings = _embeddingSettings.CurrentValue;
 
         // IMPORTANT: record the resolved strategy name (what ChunkDocumentAsync will actually
         // dispatch to via the auto-router), NOT the raw user-configured option. Otherwise a
@@ -612,6 +615,7 @@ public class IngestionPipeline : IKnowledgeIngester
         // The vector-space id (model plus its prompts), so changing prompts marks documents for reindex.
         metadata[MetadataKeyEmbeddingModel] = EmbeddingIdentity.For(embedSettings);
         metadata[MetadataKeyEmbeddingDimensions] = embedSettings.Dimensions.ToString();
+        metadata[MetadataKeyEmbeddingDimensionsRequested] = EmbeddingDimensions.Requested(embedSettings) ? "true" : "false";
 
         // Carry forward the sync layer's record of what the remote looked like when this
         // document was last ingested. Only SourceSyncService sets these, so any other caller —

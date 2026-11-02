@@ -2,6 +2,7 @@ using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Storage.Vectors;
 using Microsoft.Extensions.Options;
 
 namespace Connapse.Application.Search;
@@ -105,6 +106,12 @@ public sealed class SearchKnowledge(
         catch (Exception ex) when (!discoverable && ex is not OperationCanceledException)
         {
             return NotFound(scope);
+        }
+        catch (EmbeddingUnavailableException ex) when (ex.InnerException is EmbeddingDimensionMismatchException mismatch)
+        {
+            // A settings problem, not an outage: retrying won't help, so say what to change.
+            return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.EmbeddingsUnavailable,
+                mismatch.Message + " Keyword mode still works meanwhile.");
         }
         catch (EmbeddingUnavailableException)
         {

@@ -82,26 +82,28 @@ public class ContainerIntegrationTests(SharedWebAppFixture fixture)
     public async Task ListContainers_ReturnsAllCreatedContainers()
     {
         // Arrange
-        var c1 = await CreateContainer("list-test-1");
-        var c2 = await CreateContainer("list-test-2");
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        var c1 = await CreateContainer($"list-test-1-{suffix}");
+        var c2 = await CreateContainer($"list-test-2-{suffix}");
 
-        // Act — page to the end, since the shared database holds other tests' containers too
-        List<ContainerDto> all = [];
+        // Act: other tests' containers share the list, so read every page rather than the first.
+        var listed = new List<ContainerDto>();
         bool hasMore = true;
         while (hasMore)
         {
-            var response = await fixture.AdminClient.GetAsync($"/api/containers?skip={all.Count}&take=50");
+            var response = await fixture.AdminClient.GetAsync($"/api/containers?skip={listed.Count}&take=50");
             response.StatusCode.Should().Be(HttpStatusCode.OK);
 
             var paged = await response.Content.ReadFromJsonAsync<PagedResponse<ContainerDto>>(JsonOptions);
             paged.Should().NotBeNull();
-            paged!.Items.Should().NotBeEmpty("a page that says there is more must hold something");
-            all.AddRange(paged.Items);
+            paged!.Items.Should().NotBeEmpty("a page that says more follow must hold some");
+            listed.AddRange(paged.Items);
             hasMore = paged.HasMore;
         }
 
-        all.Should().Contain(c => c.Name == "list-test-1");
-        all.Should().Contain(c => c.Name == "list-test-2");
+        // Assert
+        listed.Should().Contain(c => c.Id == c1.Id && c.Name == c1.Name);
+        listed.Should().Contain(c => c.Id == c2.Id && c.Name == c2.Name);
 
         // Cleanup
         await fixture.AdminClient.DeleteAsync($"/api/containers/{c1.Id}");
