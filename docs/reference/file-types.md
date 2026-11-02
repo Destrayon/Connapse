@@ -18,6 +18,7 @@ Connapse indexes the file types below, whether they are uploaded or found by a s
 | HTML | `.html` `.htm` | The main content, without navigation |
 | Email | `.eml` `.msg` | Subject, sender, recipients, date and body. Attachments of a supported type are indexed as files of their own. |
 | EPUB | `.epub` | Chapters in reading order |
+| Code | `.cs` `.ts` `.mts` `.cts` `.tsx` `.py` `.pyi` | One passage per definition, and links between files from definitions, imports, calls and base types. The code is parsed, never compiled or run. |
 
 Spreadsheets (`.xlsx`) and older Office formats (`.doc`, `.ppt`) aren't supported.
 

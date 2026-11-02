@@ -133,6 +133,12 @@ Each group below is a tab on the **Settings** page and a category of `GET` and `
 | `CrossEncoderTimeoutSeconds`: Request timeout in seconds for cross-encoder reranking (default: 5). | **Settings** → **Search** | `Knowledge__Search__CrossEncoderTimeoutSeconds` | int | `5` | No | No |
 | `EnableCrossModelSearch`: When true, Semantic searches automatically include keyword results to surface documents embedded with previous embedding models. | **Settings** → **Search** | `Knowledge__Search__EnableCrossModelSearch` | bool | `false` | No | No |
 | `SentenceWindowSubstituteOnSearch`: When a search hit's metadata carries a "window" key (set by SentenceWindowChunker), substitute Content with the window text after reranking, before TopK truncation. | **Settings** → **Search** | `Knowledge__Search__SentenceWindowSubstituteOnSearch` | bool | `true` | No | No |
+| `EnableLinkSearch`: Also returns documents the top results link to; see [Following links](../concepts/search.md#following-links). | — | `Knowledge__Search__EnableLinkSearch` | bool | `false` | No | No |
+| `LinkWeight`: Share of the final score a link gets, 0 to 1 (default: 0.2); 0 doesn't run the walk. | — | `Knowledge__Search__LinkWeight` | float | `0.2` | No | No |
+| `LinkMaxHops`: Links followed outward from each top result, 1 or 2 (default: 1). | — | `Knowledge__Search__LinkMaxHops` | int | `1` | No | No |
+| `LinkSeeds`: Top results the link walk starts from, 1 to 50 (default: 10). | — | `Knowledge__Search__LinkSeeds` | int | `10` | No | No |
+| `UseVectorSearch`: Whether the vector search runs while link search is on (default: true). Usually set per container. | — | `Knowledge__Search__UseVectorSearch` | bool | `true` | No | No |
+| `UseKeywordSearch`: Whether the keyword search runs while link search is on (default: true); at least one of the two runs. | — | `Knowledge__Search__UseKeywordSearch` | bool | `true` | No | No |
 
 ### `Knowledge:LLM`
 
