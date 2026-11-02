@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Embedding size setting works for any OpenAI-compatible model: "Ask the model for this size" sends `dimensions` to models such as Qwen3-Embedding, and vectors of the wrong size are refused with an error naming the setting to change (#666, reported by @marcusyoung)
+
 ### Fixed
 - Deleted documents no longer come back: a file whose storage delete fails is retried instead of only logged, and a sync running alongside a folder delete can no longer restore its files (#378, reported and traced by @marcusyoung)
 
