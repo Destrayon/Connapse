@@ -1,8 +1,11 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Data;
 using Connapse.Web.Endpoints;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -42,6 +45,34 @@ public class UploadSamePathTests(SharedWebAppFixture fixture)
                 .ListAsync(containerId, pathPrefix: "/tmt/", take: int.MaxValue);
             documents.Where(d => d.Path == "/tmt/notes.md").Should().ContainSingle();
         }
+
+        // The upload re-queues the row before it answers, so Ready now means the replacement was indexed.
+        await WaitForReadyAsync(containerId, second.DocumentId);
+        using (var scope = fixture.Factory.Services.CreateScope())
+        {
+            var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+            await using var ctx = await dbFactory.CreateDbContextAsync();
+            Guid documentId = Guid.Parse(second.DocumentId);
+            var contents = await ctx.Chunks.Where(c => c.DocumentId == documentId).Select(c => c.Content).ToListAsync();
+            contents.Should().Contain(c => c.Contains("Second version"));
+            contents.Should().NotContain(c => c.Contains("First version"));
+        }
+    }
+
+    private async Task WaitForReadyAsync(Guid containerId, string documentId)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (DateTime.UtcNow < deadline)
+        {
+            string body = await fixture.AdminClient.GetStringAsync($"/api/containers/{containerId}/files/{documentId}");
+            string? status = JsonDocument.Parse(body).RootElement.GetProperty("status").GetString();
+            if (status == "Ready")
+                return;
+            if (status == "Failed")
+                throw new InvalidOperationException($"Indexing the re-upload failed: {body}");
+            await Task.Delay(250);
+        }
+        throw new TimeoutException($"{documentId} was not Ready within 90 s");
     }
 
     private async Task<UploadedDocumentResponse> UploadAsync(Guid containerId, string text)
