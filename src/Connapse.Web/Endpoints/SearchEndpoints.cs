@@ -41,6 +41,7 @@ public static class SearchEndpoints
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("search.containerByQuery")
         .WithDescription("Search within a container using query string parameters");
 
@@ -58,6 +59,7 @@ public static class SearchEndpoints
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("search.container")
         .WithDescription("Search within a container with advanced filters and options");
 
@@ -101,6 +103,7 @@ public static class SearchEndpoints
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("search.source")
         .WithDescription("Search a source. Every hit is checked for the caller, as a container search's are; a source the caller may not know exists reads as not found.");
 

@@ -132,6 +132,13 @@ cited source doesn't exist or can't be read by the writer. The detail says which
 Connapse couldn't check whether the caller may read the facts' sources, so it showed or wrote nothing
 rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
 
+## embeddings-unavailable
+
+The search needed the query embedded, and the embedding service (Ollama by default) didn't answer, timed
+out, or refused the request. Nothing is wrong with the request: retry once the service is back, or search
+in `Keyword` mode, which doesn't use it. A scope the caller may not know exists still reads as
+`search-scope-not-found`.
+
 ## settings-category-not-found
 
 Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,
