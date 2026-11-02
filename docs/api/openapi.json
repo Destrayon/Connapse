@@ -6380,7 +6380,7 @@
           "id": "files.links",
           "scope": "knowledge:read",
           "risk": "Read",
-          "mcp": "Off"
+          "mcp": "Generic"
         }
       }
     },

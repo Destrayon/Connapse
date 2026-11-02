@@ -192,7 +192,7 @@ public sealed class GetFile(IContainerStore containers, IDocumentStore documents
 /// caller may read it. A linked file the caller may not read is left out and not counted; when access to the links
 /// can't be checked, none are given. Open to viewers and reading agent keys.
 /// </summary>
-[Operation("files.links", Scope = "knowledge:read", Risk = RiskTier.Read)]
+[Operation("files.links", Scope = "knowledge:read", Risk = RiskTier.Read, Mcp = McpExposure.Generic)]
 public sealed class GetFileLinks(
     IContainerStore containers, IDocumentStore documents, IDocumentAccess access, IDocumentLinkReader links, IOperationAuthorizer authorizer)
 {

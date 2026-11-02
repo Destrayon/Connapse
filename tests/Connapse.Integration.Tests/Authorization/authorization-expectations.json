@@ -200,6 +200,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/containers/{containerId:guid}/files/{fileId}/links": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/containers/{containerId:guid}/files/{fileId}/reindex-check": {
       "requires": "viewer",
       "risk": "read",

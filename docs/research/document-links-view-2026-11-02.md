@@ -109,7 +109,11 @@ to a source.
 5. Empty state: one muted line, "No links found for this file." shown only after loading, rather than hiding the
    section, so people learn the feature exists (NN/g). Notion and Confluence hide it; we follow NN/g because the panel
    is the only place the feature is discoverable.
-6. Deferred: snippets per link (Obsidian, Logseq), confidence ranking (Sourcegraph), a local graph, links to source
+6. C# `using` imports are not listed. They point at a namespace, not a file, and a namespace is declared by every file
+   with a type in it, so one `using` would add a row per file in that namespace. The code tools leave namespace nodes
+   out for the same reason. The file-level relationship still shows through calls and inherits. Imports that name a
+   module file, as Python imports and relative TypeScript or JavaScript imports do, are listed.
+7. Deferred: snippets per link (Obsidian, Logseq), confidence ranking (Sourcegraph), a local graph, links to source
    documents once they have an in-app view.
 
 ## Conflicts and uncertainties
