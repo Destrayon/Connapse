@@ -80,12 +80,16 @@ public class VectorColumnManager(
                     await DropIndexAsync(connection, name, "container no longer large enough", ct);
             }
 
+            bool built = false;
             foreach ((string name, VectorGroup group) in byName.OrderBy(g => g.Value.Count))
             {
                 bool wanted = group.Count >= threshold && group.Dimensions <= MaxIndexedDimensions;
                 if (wanted && !(existing.TryGetValue(name, out bool valid) && valid))
-                    await CreateIndexAsync(connection, name, group, ct);
+                    built |= await CreateIndexAsync(connection, name, group, ct);
             }
+
+            if (built)
+                await AnalyzeAsync(connection, ct);
         }
         finally
         {
@@ -110,7 +114,8 @@ public class VectorColumnManager(
     internal static string Predicate(Guid ownerId, string modelId, int dimensions) =>
         $"owner_id = '{ownerId}'::uuid AND model_id = '{modelId.Replace("'", "''")}' AND vector_dims(embedding) = {dimensions}";
 
-    private async Task CreateIndexAsync(DbConnection connection, string name, VectorGroup group, CancellationToken ct)
+    /// <summary>Builds the index; false when the build failed and exact search continues.</summary>
+    private async Task<bool> CreateIndexAsync(DbConnection connection, string name, VectorGroup group, CancellationToken ct)
     {
         // CONCURRENTLY can't run in a transaction; a large build takes minutes, so no timeout. A
         // serial build keeps its working memory local: parallel builds put the graph in shared
@@ -127,15 +132,36 @@ public class VectorColumnManager(
             logger.LogInformation(
                 "Built vector index {IndexName} for container {ContainerId}, model {ModelId}: {Count} vectors in {Seconds:F0}s",
                 name, group.OwnerId, group.ModelId, group.Count, (DateTime.UtcNow - started).TotalSeconds);
+            return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "Failed to build vector index {IndexName}; exact search continues for container {ContainerId}",
                 name, group.OwnerId);
+            return false;
         }
         finally
         {
             await ExecuteAsync(connection, "RESET max_parallel_maintenance_workers; RESET maintenance_work_mem;", CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the table's planner statistics after an index build (CON-217). A container that
+    /// grew since the last analyze is estimated at about one row, and for one row the planner sorts
+    /// instead of using the new index, so its searches stay exact until autovacuum analyzes the table.
+    /// The whole table, not a column list: only a full ANALYZE gathers statistics for index
+    /// expressions. It reads a fixed-size sample, so its cost doesn't grow with the table.
+    /// </summary>
+    private async Task AnalyzeAsync(DbConnection connection, CancellationToken ct)
+    {
+        try
+        {
+            await ExecuteAsync(connection, "ANALYZE chunk_vectors", ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to refresh statistics after building vector indexes; autovacuum will refresh them later");
         }
     }
 
