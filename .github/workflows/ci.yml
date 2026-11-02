@@ -127,6 +127,8 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
+    env:
+      CONNAPSE_TEST_SHARD: ${{ matrix.shard }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4

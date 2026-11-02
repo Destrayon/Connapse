@@ -47,11 +47,12 @@ internal static class SpecConformance
         if (Seen.IsEmpty)
             return;
 
-        // One report per machine, so a shard that runs the suite twice (its tests, then the memory speed gate) still
-        // reports once: a later run adds what it saw to the earlier run's report.
+        // One report per shard, so a shard that runs the suite twice (its tests, then the memory speed gate) still
+        // reports once: a later run adds what it saw to the earlier run's report. CI gathers every shard's report into
+        // one folder, so each is named for its shard (CONNAPSE_TEST_SHARD, set by the integration job).
         string results = Path.Combine(RepoRoot, "tests", "Connapse.Integration.Tests", "TestResults");
         Directory.CreateDirectory(results);
-        string report = Path.Combine(results, "spec-conformance-run.json");
+        string report = Path.Combine(results, $"spec-conformance-{Environment.GetEnvironmentVariable("CONNAPSE_TEST_SHARD") ?? "run"}.json");
         SortedSet<string> seen = new(Seen.Keys, StringComparer.Ordinal);
         SortedDictionary<string, string> violations = new(Violations, StringComparer.Ordinal);
         if (File.Exists(report))
