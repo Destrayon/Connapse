@@ -140,6 +140,14 @@
       "mcp": "get_document"
     },
     {
+      "id": "files.links",
+      "capability": "See what a file links to and what links to it",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/files/{fileId}/links"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "files.delete",
       "capability": "Delete a file",
       "routes": [

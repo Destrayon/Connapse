@@ -122,6 +122,24 @@ public static class DocumentsEndpoints
         .WithDescription("Get file details including indexing status")
         .RequireAuthorization("RequireViewer");
 
+        // GET /api/containers/{containerId}/files/{fileId}/links - What a file links to and what links to it
+        group.MapGet("/{fileId}/links", async (
+            HttpContext http,
+            Guid containerId,
+            string fileId,
+            [FromServices] GetFileLinks links,
+            CancellationToken ct) =>
+        {
+            var read = await links.RunAsync(Rest(http), containerId, fileId, ct);
+            return read.Succeeded ? Results.Ok(read.Result) : FileProblems.Result(read);
+        })
+        .Produces<DocumentLinkSet>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("files.links")
+        .WithDescription("The files of the same container a file links to and the ones that link to it, each with the kinds of link (calls, imports, inherits). Files the caller can't read are left out.")
+        .RequireAuthorization("RequireViewer");
+
         // DELETE /api/containers/{containerId}/files/{fileId} - Delete file
         group.MapDelete("/{fileId}", async (
             HttpContext http,
