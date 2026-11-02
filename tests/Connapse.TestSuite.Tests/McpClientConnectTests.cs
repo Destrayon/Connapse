@@ -20,8 +20,10 @@ public class McpClientConnectTests
     public void TestCode_ConnectsToMcp_OnlyThroughTheHelper()
     {
         var files = TestSources.Files();
+        var globals = files.GroupBy(f => Project(f.RelativePath))
+            .ToDictionary(g => g.Key, g => GlobalUsings(g.Select(f => f.Root).Append(CsprojUsings(g.Key))), StringComparer.Ordinal);
         var direct = files.Where(f => f.RelativePath != Helper)
-            .SelectMany(f => DirectConnects(f.Root).Select(call => $"{f.RelativePath}: {FixedDelayTests.Member(call)}"));
+            .SelectMany(f => DirectConnects(f.Root, globals[Project(f.RelativePath)]).Select(call => $"{f.RelativePath}: {FixedDelayTests.Member(call)}"));
 
         direct.Should().BeEmpty("connect with McpTestClient.ConnectAsync, which lifts the SDK's 5 s discover-probe limit");
         DirectConnects(files.Single(f => f.RelativePath == Helper).Root).Should().ContainSingle("the helper is the one place that connects");
@@ -66,6 +68,20 @@ public class McpClientConnectTests
     }
 
     [Fact]
+    public void DirectConnects_FindsCallsThroughAnotherFilesGlobalUsings()
+    {
+        var usings = CSharpSyntaxTree.ParseText("""
+            global using static ModelContextProtocol.Client.McpClient;
+            global using Client = ModelContextProtocol.Client.McpClient;
+            """).GetRoot();
+        var calls = CSharpSyntaxTree.ParseText("""
+            class C { async Task M() { await CreateAsync(transport); await Client.CreateAsync(transport); } }
+            """).GetRoot();
+
+        DirectConnects(calls, GlobalUsings([usings, calls])).Should().HaveCount(2);
+    }
+
+    [Fact]
     public void DirectConnects_IgnoresBareCreateAsyncWithoutTheStaticImport()
     {
         const string source = """
@@ -80,9 +96,10 @@ public class McpClientConnectTests
     /// CreateAsync called on McpClient, on an alias of it (using Client = ...McpClient), or bare under
     /// using static ...McpClient.
     /// </summary>
-    internal static IEnumerable<InvocationExpressionSyntax> DirectConnects(SyntaxNode root)
+    internal static IEnumerable<InvocationExpressionSyntax> DirectConnects(SyntaxNode root, IEnumerable<UsingDirectiveSyntax>? projectGlobals = null)
     {
-        var usings = root.DescendantNodes().OfType<UsingDirectiveSyntax>().Where(u => u.Name is not null && IsMcpClient(u.Name.ToString())).ToList();
+        var usings = root.DescendantNodes().OfType<UsingDirectiveSyntax>().Concat(projectGlobals ?? [])
+            .Where(u => u.Name is not null && IsMcpClient(u.Name.ToString())).ToList();
         var names = usings.Where(u => u.Alias is not null).Select(u => u.Alias!.Name.Identifier.ValueText).Append("McpClient").ToHashSet(StringComparer.Ordinal);
         bool staticImport = usings.Any(u => u.StaticKeyword.IsKind(SyntaxKind.StaticKeyword));
 
@@ -94,6 +111,25 @@ public class McpClientConnectTests
             _ => false,
         });
     }
+
+    /// <summary>global using directives, which apply to every file of the project they're declared in.</summary>
+    internal static List<UsingDirectiveSyntax> GlobalUsings(IEnumerable<SyntaxNode> projectRoots) =>
+        projectRoots.SelectMany(r => r.DescendantNodes().OfType<UsingDirectiveSyntax>())
+            .Where(u => u.GlobalKeyword.IsKind(SyntaxKind.GlobalKeyword)).ToList();
+
+    /// <summary>The project's &lt;Using&gt; items, written as the global usings the SDK generates from them.</summary>
+    private static SyntaxNode CsprojUsings(string project)
+    {
+        var lines = Directory.EnumerateFiles(Path.Combine(TestSources.Root, "tests", project), "*.csproj")
+            .SelectMany(p => System.Xml.Linq.XDocument.Load(p).Descendants("Using"))
+            .Where(u => u.Attribute("Include") is not null)
+            .Select(u => u.Attribute("Alias") is { } alias ? $"global using {alias.Value} = {u.Attribute("Include")!.Value};"
+                : string.Equals(u.Attribute("Static")?.Value, "true", StringComparison.OrdinalIgnoreCase) ? $"global using static {u.Attribute("Include")!.Value};"
+                : $"global using {u.Attribute("Include")!.Value};");
+        return CSharpSyntaxTree.ParseText(string.Join("\n", lines)).GetRoot();
+    }
+
+    private static string Project(string relativePath) => relativePath.Split('/')[1];
 
     private static bool IsMcpClient(string name) =>
         name == "McpClient" || name.EndsWith(".McpClient", StringComparison.Ordinal);
