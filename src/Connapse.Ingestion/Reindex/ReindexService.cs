@@ -791,13 +791,14 @@ public class ReindexService : IReindexService
             return (true, storedKey, currentKey);
 
         // Same model, but asking it for a size (or a different size) changes its vectors (#666).
-        bool storedRequested = metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingDimensionsRequested, out var requested)
-            ? requested == "true"
-            : EmbeddingDimensions.RequestedBeforeSendDimensions(currentSettings);
         int? storedDimensions = metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingDimensions, out var dimensions)
             && int.TryParse(dimensions, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
                 ? parsed
                 : null;
+        // Documents indexed before the flag existed: the old rule, applied to the size they were indexed with.
+        bool storedRequested = metadata.TryGetValue(Pipeline.IngestionPipeline.MetadataKeyEmbeddingDimensionsRequested, out var requested)
+            ? requested == "true"
+            : EmbeddingDimensions.RequestedBeforeSendDimensions(currentSettings with { Dimensions = storedDimensions ?? 0 });
         bool currentRequested = EmbeddingDimensions.Requested(currentSettings);
         bool sizeChanged = storedRequested != currentRequested
             || currentRequested && storedDimensions is not null && storedDimensions != currentSettings.Dimensions;

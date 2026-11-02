@@ -14,7 +14,7 @@ public sealed class EmbeddingDimensionMismatchException(string modelId, int expe
 
     private static string MessageFor(string modelId, int expected, int actual, bool sentDimensions) =>
         $"The embedding model '{modelId}' returned {actual}-dimension vectors, but Settings > Embedding > Dimensions is {expected}, " +
-        "so nothing was stored. " + (sentDimensions
+        "so they were rejected. " + (sentDimensions
             ? $"The model was asked for {expected} and ignored it: set Dimensions to {actual}, or use an endpoint that honors the dimensions parameter."
             : $"Set Dimensions to {actual}, or, if the model can return shorter vectors, turn on \"Ask the model for this size\".");
 }

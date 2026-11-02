@@ -48,6 +48,19 @@ public class EmbeddingSettingsChangedTests
     }
 
     [Fact]
+    public void EmbeddingSettingsChanged_LegacyTextEmbedding3DocAndDimensionsNowZero_IsChanged()
+    {
+        // Indexed at 512 on request; Dimensions 0 now asks for the native size.
+        var before = Settings("OpenAI", "text-embedding-3-small", 512);
+
+        var (changed, stored, current) = ReindexService.EmbeddingSettingsChanged(IndexedWith(before, requested: null), before with { Dimensions = 0 });
+
+        changed.Should().BeTrue();
+        stored.Should().Contain("asked for 512 dimensions");
+        current.Should().Contain("native size");
+    }
+
+    [Fact]
     public void EmbeddingSettingsChanged_RequestedSizeChanged_IsChanged()
     {
         var before = Settings("AzureOpenAI", "text-embedding-3-large", 1024);
