@@ -455,6 +455,7 @@ public class ContainerOperationTests
         var connector = Substitute.For<IConnector>();
         connector.ListFilesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(
             [new ConnectorFile("known.md", 1, Epoch, null), new ConnectorFile("/new.pdf", 2, Epoch, null)]);
+        connector.ExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
         var storage = Substitute.For<IManagedStorageProvider>();
         storage.CreateConnector(container.Id).Returns(connector);
         _documents.ListAsync(id, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -463,7 +464,7 @@ public class ContainerOperationTests
         var chunking = Substitute.For<IOptionsMonitor<ChunkingSettings>>();
         chunking.CurrentValue.Returns(new ChunkingSettings());
 
-        var synced = await new ReconcileContainer(_containers, storage, _documents, queue, chunking, _audit, _authorizer).RunAsync(Caller, id);
+        var synced = await new ReconcileContainer(_containers, storage, _documents, Substitute.For<IStoredFileRemovalStore>(), queue, chunking, _audit, _authorizer).RunAsync(Caller, id);
 
         synced.Result.Should().BeEquivalentTo(new { TotalFiles = 2, EnqueuedCount = 1, SkippedCount = 1 });
         await _documents.Received(1).StoreAsync(Arg.Is<Document>(d => d.Path == "/new.pdf" && d.ContentType == "application/pdf"), Arg.Any<CancellationToken>());
@@ -472,12 +473,40 @@ public class ContainerOperationTests
     }
 
     [Fact]
+    public async Task Reconcile_FileOwedARemovalOrGoneSinceTheListing_RegistersNeither()
+    {
+        var container = Named("box");
+        var id = Guid.Parse(container.Id);
+        _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(container);
+        var connector = Substitute.For<IConnector>();
+        connector.ListFilesAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(
+            [new ConnectorFile("/deleted.md", 1, Epoch, null), new ConnectorFile("/vanished.md", 1, Epoch, null), new ConnectorFile("/new.md", 1, Epoch, null)]);
+        connector.ExistsAsync("/deleted.md", Arg.Any<CancellationToken>()).Returns(true);
+        connector.ExistsAsync("/vanished.md", Arg.Any<CancellationToken>()).Returns(false);
+        connector.ExistsAsync("/new.md", Arg.Any<CancellationToken>()).Returns(true);
+        var storage = Substitute.For<IManagedStorageProvider>();
+        storage.CreateConnector(container.Id).Returns(connector);
+        _documents.ListAsync(id, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
+        var removals = Substitute.For<IStoredFileRemovalStore>();
+        removals.OwedPathsAsync(id, Arg.Any<CancellationToken>()).Returns(new HashSet<string> { "/deleted.md" });
+        var queue = Substitute.For<IIngestionQueue>();
+        var chunking = Substitute.For<IOptionsMonitor<ChunkingSettings>>();
+        chunking.CurrentValue.Returns(new ChunkingSettings());
+
+        var synced = await new ReconcileContainer(_containers, storage, _documents, removals, queue, chunking, _audit, _authorizer).RunAsync(Caller, id);
+
+        synced.Result.Should().BeEquivalentTo(new { TotalFiles = 3, EnqueuedCount = 1, SkippedCount = 2 });
+        await _documents.Received(1).StoreAsync(Arg.Any<Document>(), Arg.Any<CancellationToken>());
+        await _documents.Received(1).StoreAsync(Arg.Is<Document>(d => d.Path == "/new.md"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Reconcile_NotAWriter_IsForbiddenAndListsNothing()
     {
         Deny(Policies.Writer);
         var storage = Substitute.For<IManagedStorageProvider>();
 
-        var synced = await new ReconcileContainer(_containers, storage, _documents, Substitute.For<IIngestionQueue>(),
+        var synced = await new ReconcileContainer(_containers, storage, _documents, Substitute.For<IStoredFileRemovalStore>(), Substitute.For<IIngestionQueue>(),
             Substitute.For<IOptionsMonitor<ChunkingSettings>>(), _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
 
         synced.Status.Should().Be(ContainerStatus.Forbidden);

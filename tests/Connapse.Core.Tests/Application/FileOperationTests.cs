@@ -46,7 +46,7 @@ public class FileOperationTests
     private void Deny() => _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(false);
 
     private DeleteFile Delete() => new(_containers, _documents, _folders, Substitute.For<IManagedStorageProvider>(),
-        Substitute.For<IIngestionQueue>(), Substitute.For<IAuditLogger>(), _authorizer, NullLogger<DeleteFile>.Instance);
+        Substitute.For<IIngestionQueue>(), Substitute.For<IStoredFileRemovalStore>(), Substitute.For<IAuditLogger>(), _authorizer, NullLogger<DeleteFile>.Instance);
 
     private GetFileContent Content(IManagedStorageProvider storage, params IDocumentParser[] parsers) =>
         new(_containers, _documents, _access, storage, parsers, _authorizer);

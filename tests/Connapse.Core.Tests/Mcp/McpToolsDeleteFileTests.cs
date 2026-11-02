@@ -66,7 +66,7 @@ public class McpToolsDeleteFileTests
         var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
 
         result.Should().Be($"File '{FileName}' (ID: {FileId}) deleted.");
-        await _documentStore.Received(1).DeleteAsync(FileId, Arg.Any<CancellationToken>());
+        await _documentStore.Received(1).DeleteOwingFileRemovalAsync(FileId, Arg.Any<CancellationToken>());
         await _fileSystem.Received(1).DeleteFileAsync(FilePath, Arg.Any<CancellationToken>());
     }
 
@@ -81,7 +81,7 @@ public class McpToolsDeleteFileTests
 
         result.Should().Contain("deleted from database");
         result.Should().Contain("backing storage file could not be removed");
-        await _documentStore.Received(1).DeleteAsync(FileId, Arg.Any<CancellationToken>());
+        await _documentStore.Received(1).DeleteOwingFileRemovalAsync(FileId, Arg.Any<CancellationToken>());
         _logger.Received(1).Log(
             LogLevel.Warning,
             Arg.Any<EventId>(),
@@ -99,7 +99,7 @@ public class McpToolsDeleteFileTests
         Received.InOrder(() =>
         {
             _ingestionQueue.CancelJobForDocumentAsync(FileId);
-            _documentStore.DeleteAsync(FileId, Arg.Any<CancellationToken>());
+            _documentStore.DeleteOwingFileRemovalAsync(FileId, Arg.Any<CancellationToken>());
         });
     }
 

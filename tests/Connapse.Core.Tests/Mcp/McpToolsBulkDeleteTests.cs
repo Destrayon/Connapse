@@ -62,7 +62,7 @@ public class McpToolsBulkDeleteTests
         var result = await McpTools.BulkDelete(McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), json);
 
         result.Should().Contain("Deleted 3 of 3");
-        await _documentStore.Received(3).DeleteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _documentStore.Received(3).DeleteOwingFileRemovalAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

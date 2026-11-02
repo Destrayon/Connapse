@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 
 namespace Connapse.Integration.Tests;
 
@@ -35,6 +36,47 @@ public class IdentityMalformedInputTests(SharedWebAppFixture fixture)
         var response = await anonymous.PostAsJsonAsync(route, body);
 
         ((int)response.StatusCode).Should().BeInRange(400, 499, await response.Content.ReadAsStringAsync());
+    }
+
+    // CON-206: Schemathesis sent {"email": null}. JSON binding takes a null for a required string, so Identity
+    // passed it on to a lookup that threw. A null field gets the validation problem a missing one gets.
+    [Theory]
+    [InlineData("/api/v1/identity/resendConfirmationEmail", """{"email":null}""", "Email")]
+    [InlineData("/api/v1/identity/forgotPassword", """{"email":null}""", "Email")]
+    [InlineData("/api/v1/identity/login", """{"email":null,"password":null}""", "Email")]
+    [InlineData("/api/v1/identity/resetPassword", """{"email":null,"resetCode":"x","newPassword":"Whatever1!"}""", "Email")]
+    [InlineData("/api/v1/identity/refresh", """{"refreshToken":null}""", "RefreshToken")]
+    public async Task Post_NullRequiredField_IsAValidationProblem(string route, string json, string field)
+    {
+        using var anonymous = fixture.Factory.CreateClient();
+
+        var response = await anonymous.PostAsync(route, new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest, await response.Content.ReadAsStringAsync());
+        var problem = await response.Content.ReadFromJsonAsync<HttpValidationProblemDetails>();
+        problem!.Errors.Should().ContainKey(field);
+    }
+
+    // A client may ask for a media type no problem writer serves. The validation result then writes itself, and the
+    // error member login's and refresh's declared 400 require still has to be there.
+    [Theory]
+    [InlineData("/api/v1/identity/login", """{"email":null,"password":null}""")]
+    [InlineData("/api/v1/identity/refresh", """{"refreshToken":null}""")]
+    public async Task Post_NullRequiredField_UnservedAccept_StillCarriesError(string route, string json)
+    {
+        using var anonymous = fixture.Factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, route)
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Accept.ParseAdd("application/vnd.api+json");
+
+        var response = await anonymous.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.TryGetProperty("error", out var error).Should().BeTrue(body.RootElement.ToString());
+        error.GetString().Should().NotBeNullOrEmpty();
     }
 
     [Theory]

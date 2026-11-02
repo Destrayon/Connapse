@@ -42,6 +42,7 @@ public class FolderOperationTests
         public readonly IWritableConnector Files = Substitute.For<IWritableConnector>();
         public readonly IManagedStorageProvider Storage = Substitute.For<IManagedStorageProvider>();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
+        public readonly IStoredFileRemovalStore Removals = Substitute.For<IStoredFileRemovalStore>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly IIngestionJobs Jobs = Substitute.For<IIngestionJobs>();
         public readonly IDocumentAccess Access = Substitute.For<IDocumentAccess>();
@@ -66,13 +67,13 @@ public class FolderOperationTests
         }
 
         public bool Touched =>
-            Documents.ReceivedCalls().Any(c => c.GetMethodInfo().Name == "DeleteAsync")
+            Documents.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "DeleteAsync" or "DeleteOwingFileRemovalAsync")
             || Folders.ReceivedCalls().Any(c => c.GetMethodInfo().Name is "CreateAsync")
             || Queue.ReceivedCalls().Any() || Files.ReceivedCalls().Any() || Audit.ReceivedCalls().Any();
 
         public CreateFolder Create() => new(Containers, Folders, Audit, Authorizer);
 
-        public DeleteFile DeleteFile() => new(Containers, Documents, Folders, Storage, Queue, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
+        public DeleteFile DeleteFile() => new(Containers, Documents, Folders, Storage, Queue, Removals, Audit, Authorizer, NullLogger<DeleteFile>.Instance);
 
         public DeleteFolder Delete() => new(Containers, Documents, Folders, Queue, DeleteFile(), Audit, Authorizer);
 
@@ -155,7 +156,7 @@ public class FolderOperationTests
                 {
                     world.Files.ReceivedCalls().Should().BeEmpty();
                     world.Audit.ReceivedCalls().Should().BeEmpty();
-                    world.Documents.ReceivedCalls().Should().NotContain(c => c.GetMethodInfo().Name == "DeleteAsync");
+                    world.Documents.ReceivedCalls().Should().NotContain(c => c.GetMethodInfo().Name == "DeleteAsync" || c.GetMethodInfo().Name == "DeleteOwingFileRemovalAsync");
                     return;
                 }
 
@@ -168,7 +169,7 @@ public class FolderOperationTests
                 }
                 // A recorded folder's records go in one delete; an implied one's documents one at a time, as files.delete does.
                 await world.Folders.Received(recorded ? 1 : 0).DeleteAsync(Here, "/docs/", Arg.Any<CancellationToken>());
-                world.Documents.ReceivedCalls().Count(c => c.GetMethodInfo().Name == "DeleteAsync").Should().Be(recorded ? 0 : count);
+                world.Documents.ReceivedCalls().Count(c => c.GetMethodInfo().Name == "DeleteOwingFileRemovalAsync").Should().Be(recorded ? 0 : count);
                 await world.Audit.Received(1).LogAsync("folder.deleted", "folder", "/docs/", Arg.Any<object>(), Arg.Any<CancellationToken>());
             }, iter: 1000);
 
