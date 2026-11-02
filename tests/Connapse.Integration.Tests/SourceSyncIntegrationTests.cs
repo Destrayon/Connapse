@@ -489,6 +489,30 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task SyncSourceAsync_OneCodeFileChanged_OnlyThatFileIsQueued()
+    {
+        // CON-110: a file is parsed only by the ingestion job a sync queues for it, one file per job, so a sync that
+        // queues only the changed code file re-parses only that file.
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (source, connection) = await SeedSourceAsync(scope.ServiceProvider);
+        ConnectorFile[] files = [File("/src/Ledger.cs"), File("/web/client.ts"), File("/cli/main.py")];
+
+        (await BuildService(scope.ServiceProvider, new FakeListConnector(files)).SyncSourceAsync(source, connection, CancellationToken.None))
+            .Upserted.Should().Be(3);
+        foreach (ConnectorFile file in files)
+            await DrainQueueAsync(scope.ServiceProvider, source, file);
+
+        ConnectorFile[] next = [files[0], files[1] with { SizeBytes = 99, LastModified = files[1].LastModified.AddHours(1) }, files[2]];
+        var queue = new RecordingIngestionQueue();
+        var service = new SourceSyncService(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(),
+            new FixedConnectorFactory(new FakeListConnector(next)), queue,
+            scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<SourceSyncService>());
+
+        (await service.SyncSourceAsync(source, connection, CancellationToken.None)).Upserted.Should().Be(1);
+        queue.Jobs.Select(j => j.Options.Path).Should().Equal("/web/client.ts");
+    }
+
+    [Fact]
     public async Task SyncSourceAsync_ChangedRemoteFile_IsReIngested()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();

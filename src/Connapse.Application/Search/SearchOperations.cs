@@ -142,7 +142,7 @@ public sealed class SearchKnowledge(
     /// The id to search and whether the caller may know it exists, or null when it reads as missing.
     /// Containers are checked first, so an id both kinds somehow share resolves to the more restricted kind.
     /// </summary>
-    private async Task<(Guid Id, bool Discoverable)?> ResolveAsync(OperationContext context, SearchScope scope, CancellationToken ct)
+    internal async Task<(Guid Id, bool Discoverable)?> ResolveAsync(OperationContext context, SearchScope scope, CancellationToken ct)
     {
         bool containersAllowed = scope.Kind != SearchScopeKind.Source;
         bool sourcesAllowed = scope.Kind != SearchScopeKind.Container;

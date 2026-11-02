@@ -5,6 +5,7 @@ using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace Connapse.Identity.Services;
@@ -61,11 +62,16 @@ public class AuditLogger(
         {
             // Audit logging should never fail the primary operation
             logger.LogError(ex, "Failed to write audit log entry: {Action}", action);
+            // Left tracked, the failed row would be saved again (and fail again) with every later entry in this scope.
+            dbContext.Entry(entry).State = EntityState.Detached;
         }
     }
 
+    // An agent's NameIdentifier is the agent's own id, not a user's; the row names the user it acts for.
     private static Guid? UserIdOf(ClaimsPrincipal? user) =>
-        Guid.TryParse(user?.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
+        Guid.TryParse(user?.FindFirst("actor_type")?.Value == "agent"
+            ? user.FindFirst("on_behalf_of")?.Value
+            : user?.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
 
     /// <summary>The signed-in user of the Blazor circuit or page render this runs in, if any.</summary>
     private async Task<Guid?> CircuitUserIdAsync()

@@ -1,0 +1,20 @@
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m1", "subject": "Halcyon", "attribute": "database", "value": "MariaDB 11", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m2", "subject": "Halcyon", "attribute": "deploy region", "value": "ca-central-1", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m3", "subject": "Halcyon", "attribute": "tech lead", "value": "Tamsin Quarrell", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m4", "subject": "Halcyon", "attribute": "CI system", "value": "GitHub Actions", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m5", "subject": "Halcyon", "attribute": "cache", "value": "Memcached 1.6", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m6", "subject": "Halcyon", "attribute": "public API rate limit", "value": "1000 requests/minute", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m7", "subject": "Halcyon", "attribute": "alert channel", "value": "#hal-oncall", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-05", "op": "remember", "id": "HAL-m8", "subject": "Halcyon", "attribute": "current release", "value": "v0.3.0", "validFrom": "2026-01-05", "reason": "HAL kickoff setup"}
+{"session": "HAL-2026-01-17", "op": "correct", "id": "HAL-m9", "target": "HAL-m7", "kind": "changed", "value": "#hal-alerts", "validFrom": "2026-01-17", "reason": "HAL-16 alert channel moved after outage review"}
+{"session": "HAL-2026-01-21", "op": "correct", "id": "HAL-m10", "target": "HAL-m8", "kind": "changed", "value": "v1.0.0", "validFrom": "2026-01-21", "reason": "HAL-17 released v1.0.0"}
+{"session": "HAL-2026-02-21", "op": "correct", "id": "HAL-m11", "target": "HAL-m10", "kind": "changed", "value": "v1.1.0", "validFrom": "2026-02-21", "reason": "HAL-18 released v1.1.0"}
+{"session": "HAL-2026-03-24", "op": "correct", "id": "HAL-m12", "target": "HAL-m1", "kind": "changed", "value": "MySQL 8.0", "validFrom": "2026-03-24", "reason": "HAL-19 match platform team standard"}
+{"session": "HAL-2026-04-03", "op": "correct", "id": "HAL-m13", "target": "HAL-m2", "kind": "changed", "value": "us-west-2", "validFrom": "2026-04-03", "reason": "HAL-20 customer request"}
+{"session": "HAL-2026-04-08", "op": "correct", "id": "HAL-m14", "target": "HAL-m12", "kind": "changed", "value": "MariaDB 11", "validFrom": "2026-04-08", "reason": "HAL-21 platform team standard"}
+{"session": "HAL-2026-04-22", "op": "correct", "id": "HAL-m15", "target": "HAL-m9", "kind": "changed", "value": "#hal-oncall", "validFrom": "2026-04-22", "reason": "HAL-22 outage review"}
+{"session": "HAL-2026-05-06", "op": "correct", "id": "HAL-m16", "target": "HAL-m6", "kind": "changed", "value": "100 requests/minute", "validFrom": "2026-05-06", "reason": "HAL-23 platform team standard"}
+{"session": "HAL-2026-05-16", "op": "correct", "id": "HAL-m17", "target": "HAL-m11", "kind": "changed", "value": "v1.2.0", "validFrom": "2026-05-16", "reason": "HAL-24 released v1.2.0"}
+{"session": "HAL-2026-06-13", "op": "correct", "id": "HAL-m18", "target": "HAL-m3", "kind": "changed", "value": "Ines Coldwater", "validFrom": "2026-06-13", "reason": "HAL-25 tech lead change"}
+{"session": "HAL-2026-06-20", "op": "correct", "id": "HAL-m19", "target": "HAL-m4", "kind": "changed", "value": "GitLab CI", "validFrom": "2026-06-20", "reason": "HAL-26 old CI end-of-life"}
+{"session": "HAL-2026-06-23", "op": "correct", "id": "HAL-m20", "target": "HAL-m13", "kind": "changed", "value": "eu-west-1", "validFrom": "2026-06-23", "reason": "HAL-27 latency to main customer"}

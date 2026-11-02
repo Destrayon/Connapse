@@ -132,7 +132,7 @@ public class KeywordSearchService
             INNER JOIN documents d ON c.document_id = d.id
             WHERE {whereClause}
               AND c.search_vector @@ {tsQuery}
-            ORDER BY Rank DESC
+            ORDER BY Rank DESC, {TieBreakSql}
             LIMIT {{{topKIdx}}}";
 
         var results = await _context.Database
@@ -209,17 +209,40 @@ public class KeywordSearchService
                 best[row.ChunkId] = row;
             scored = scored is null ? candidates : $"{scored} | {candidates}";
 
-            List<Bm25Row> top = best.Values.OrderByDescending(r => r.Score).Take(topK).ToList();
-            if (top.Count == topK && top[^1].Score >= threshold)
+            List<Bm25Row> top = Ranked(best.Values).Take(topK).ToList();
+            // Every unscored chunk scores at most θ, so its float4 is at most θ's. Only a k-th float4 above θ's
+            // rules out an unscored chunk tied with it on an earlier path; otherwise the next round fetches every
+            // chunk whose score could round to the k-th float4.
+            if (top.Count == topK && (float)top[^1].Score > (float)threshold)
                 return top.Select(r => r.ToRow()).ToList();
-            threshold = top.Count == topK ? top[^1].Score : 0.6 * threshold;
+            threshold = top.Count == topK ? MathF.BitDecrement((float)top[^1].Score) : 0.6 * threshold;
         }
 
         foreach (Bm25Row row in await Bm25TopKAsync(
                      whereClause, tsQuery, parameters, topK, ownerId, terms, null, scored, bm25, ct))
             best[row.ChunkId] = row;
-        return best.Values.OrderByDescending(r => r.Score).Take(topK).Select(r => r.ToRow()).ToList();
+        return Ranked(best.Values).Take(topK).Select(r => r.ToRow()).ToList();
     }
+
+    /// <summary>
+    /// The order every keyword cut-off uses, in SQL after the score: the earlier path, then the earlier chunk, then the
+    /// chunk id. Chunks tied at a cut-off would otherwise come back in heap order, which follows ingest order and
+    /// differs between two indexings of the same documents (CON-158). Paths compare bytewise, as C# ordinal does.
+    /// </summary>
+    internal const string TieBreakSql = """d.path COLLATE "C", c.chunk_index, c.id""";
+
+    /// <summary>
+    /// Score as float4 descending, then <see cref="TieBreakSql"/>'s order. BM25 cut-offs rank on float4, the
+    /// precision callers get, in SQL too: two scores equal in exact arithmetic can differ in their last float8 bits,
+    /// and a near-tie can swap when the owner's statistics move by a token; ranked on float8, either decides the
+    /// cut-off where the tie-breaker should (CON-158).
+    /// </summary>
+    internal static IEnumerable<Bm25Row> Ranked(IEnumerable<Bm25Row> rows) =>
+        rows
+            .OrderByDescending(r => (float)r.Score)
+            .ThenBy(r => r.Path, StringComparer.Ordinal)
+            .ThenBy(r => r.ChunkIndex)
+            .ThenBy(r => r.ChunkId);
 
     /// <summary>
     /// A repeatable-read transaction for a multi-statement read, unless the caller already has one.
@@ -258,6 +281,7 @@ public class KeywordSearchService
             candidates ?? "", excluded ?? "",
         ];
         string score = Bm25ScoreSql($"{{{ownerIdx + 3}}}", $"{{{ownerIdx + 4}}}", $"{{{ownerIdx + 5}}}");
+        string rank = $"({Bm25ScoreExprSql($"{{{ownerIdx + 3}}}", $"{{{ownerIdx + 4}}}", $"{{{ownerIdx + 5}}}")})::real";
         string candidateFilter = candidates is null ? "" : $"AND c.search_vector @@ {{{ownerIdx + 7}}}::tsquery";
         string excludedFilter = excluded is null ? "" : $"AND NOT (c.search_vector @@ {{{ownerIdx + 8}}}::tsquery)";
 
@@ -283,12 +307,12 @@ public class KeywordSearchService
                   AND c.search_vector @@ {tsQuery}
                   {candidateFilter}
                   {excludedFilter}
-                GROUP BY c.id
-                ORDER BY score DESC
+                GROUP BY c.id, d.id
+                ORDER BY {rank} DESC, {TieBreakSql}
                 LIMIT {{{ownerIdx + 6}}}) s
             INNER JOIN chunks c ON c.id = s.id
             INNER JOIN documents d ON c.document_id = d.id
-            ORDER BY s.score DESC";
+            ORDER BY s.score::real DESC, {TieBreakSql}";
 
         return await _context.Database
             .SqlQueryRaw<Bm25Row>(sql, bm25Parameters.ToArray())
@@ -530,17 +554,21 @@ public class KeywordSearchService
     /// textbook's constant (k1 + 1) factor; it rescales every score alike, so the ranking is the
     /// same. Chunk lengths are exact (chunks.bm25_length), not Lucene's lossy one-byte norms.
     /// </summary>
-    internal static string Bm25ScoreSql(string k1Param, string bParam, string avgdlParam) => $"""
+    internal static string Bm25ScoreSql(string k1Param, string bParam, string avgdlParam) =>
+        $"{Bm25ScoreExprSql(k1Param, bParam, avgdlParam)} AS score";
+
+    /// <summary><see cref="Bm25ScoreSql"/> without its alias, for an ORDER BY that casts it.</summary>
+    internal static string Bm25ScoreExprSql(string k1Param, string bParam, string avgdlParam) => $"""
         sum(w.weight * cardinality(u.positions)
             / (cardinality(u.positions) + {k1Param}::float8 * (1 - {bParam}::float8
-               + {bParam}::float8 * c.bm25_length / {avgdlParam}::float8))) AS score
+               + {bParam}::float8 * c.bm25_length / {avgdlParam}::float8)))
         """;
 
     private record Bm25Term(string Term, double Weight, double Df, int MaxTf, int MinLen, double N, double Avgdl);
 
     private record ChunkRankRow(Guid ChunkId, float Rank);
 
-    private record Bm25Row(
+    internal record Bm25Row(
         Guid ChunkId,
         Guid DocumentId,
         string Content,
@@ -555,7 +583,7 @@ public class KeywordSearchService
             new(ChunkId, DocumentId, Content, ChunkIndex, (float)Score, FileName, ContentType, ContainerId, Path);
     }
 
-    private record KeywordSearchRow(
+    internal record KeywordSearchRow(
         Guid ChunkId,
         Guid DocumentId,
         string Content,

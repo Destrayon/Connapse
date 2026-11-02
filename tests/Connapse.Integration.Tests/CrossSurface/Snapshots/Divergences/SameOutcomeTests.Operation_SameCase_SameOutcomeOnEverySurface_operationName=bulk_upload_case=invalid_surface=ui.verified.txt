@@ -1,7 +1,7 @@
 ﻿{
   Reason: absent: the page uploads from browser JavaScript straight to the REST route,
   Reference: {
-    Result: partial:1/2 failed=[Unsupported file extension. Supported types: .csv, .docx, .eml, .epub, .htm, .html, .json, .log, .markdown, .md, .msg, .pdf, .pptx, .txt, .xml, .yaml, .yml],
+    Result: partial:1/2 failed=[Unsupported file extension. Supported types: .cs, .csv, .cts, .docx, .eml, .epub, .htm, .html, .json, .log, .markdown, .md, .msg, .mts, .pdf, .pptx, .py, .pyi, .ts, .tsx, .txt, .xml, .yaml, .yml],
     State: [
       document ok.txt content=A155A2672E4A
     ],

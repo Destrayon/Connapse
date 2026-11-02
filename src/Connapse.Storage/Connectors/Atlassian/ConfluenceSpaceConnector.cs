@@ -371,7 +371,7 @@ public sealed partial class ConfluenceSpaceConnector(
         ContentResponse content;
         try
         {
-            content = await api.GetJsonAsync<ContentResponse>($"api/v2/{endpoint}/{page.Id}?body-format=storage", ct);
+            content = await api.GetJsonAsync<ContentResponse>($"api/v2/{endpoint}/{page.Id}?body-format=storage&include-labels=true", ct);
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound)
         {
@@ -406,7 +406,13 @@ public sealed partial class ConfluenceSpaceConnector(
                 c.Created,
                 c.Body))],
             names));
-        return new MemoryStream(Encoding.UTF8.GetBytes(rendered.Markdown));
+        var links = ConfluenceLinks.Metadata(
+            config.Site.CloudId, config.SpaceKey, page.Id, page.Title,
+            page.ParentType == "page" ? page.ParentId : null,
+            content.Labels?.Results?.Select(l => l.Name).OfType<string>() ?? [],
+            body,
+            AtlassianLinks.SiteHosts(config.Site.SiteUrl));
+        return new MetadataStream(Encoding.UTF8.GetBytes(rendered.Markdown), links);
     }
 
     public Task<bool> ExistsAsync(string path, CancellationToken ct = default) =>
@@ -1165,7 +1171,11 @@ public sealed partial class ConfluenceSpaceConnector(
 
     private sealed record ContentBody(StorageBody? Storage);
 
-    private sealed record ContentResponse(string? Id, string? Title, string? SpaceId, ContentBody? Body);
+    private sealed record ContentResponse(string? Id, string? Title, string? SpaceId, ContentBody? Body, ContentLabels? Labels = null);
+
+    private sealed record ContentLabels(List<ContentLabel>? Results);
+
+    private sealed record ContentLabel(string? Name);
 
     private sealed record UserResponse(string? AccountId, string? DisplayName, string? PublicName);
 

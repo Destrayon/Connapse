@@ -19,6 +19,9 @@ with `knowledge:read` may read too), and changing them needs Editor (over MCP, a
 `admin:oauth-clients`. Account links: reading needs a person or their own token with `knowledge:read`;
 unlinking needs the person signed in themselves, never a personal access token or agent key.
 Search needs `knowledge:read`: the Viewer role or above, or an agent key or token with that scope.
+Code questions (`code_find_symbol`, `code_references`, `code_impact`, `code_repo_map`) follow search's rule.
+Agent memory: recalling facts needs `knowledge:read`; remembering, correcting and forgetting them need Editor
+(over MCP, an agent key granted `knowledge:write` may write too).
 
 Settings: reading, changing and resetting them, and the settings actions (re-indexing, listing embedding
 models, testing a connection), need Administrator, and a token needs `admin:settings`.
@@ -101,6 +104,33 @@ nothing in it, so naming one doesn't confirm it exists.
 
 The search was refused: the query is missing or over 10,000 characters, `topK` is outside 1 to 100,
 or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
+
+## invalid-code-query
+
+The code question was refused: `query` or `symbol` is missing, or `match` or `kind` isn't one of the
+values the tool lists.
+
+## code-access-unchecked
+
+Connapse couldn't check which of the files the caller may read, so it answered nothing rather than
+guess. Try again; if it keeps happening, the source's permission check is failing.
+
+## memory-fact-not-found
+
+No fact in that container's memory has that id, or the caller can't see it. A fact is visible only
+when the caller can read every source it cites (one citing none, only to the user who wrote it), so
+a hidden fact and a missing one read the same.
+
+## invalid-memory
+
+The memory write was refused: `subject`, `attribute` or `value` is missing or too long, `validTo` isn't
+after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, or a
+cited source doesn't exist or can't be read by the writer. The detail says which.
+
+## memory-access-unchecked
+
+Connapse couldn't check whether the caller may read the facts' sources, so it showed or wrote nothing
+rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
 
 ## embeddings-unavailable
 

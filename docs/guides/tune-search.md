@@ -44,16 +44,37 @@ A reranker reads each of the top candidates next to the query and reorders them.
 
 ### 5. Set one container apart
 
-A container can override the global search, chunking, embedding and upload settings. An override replaces the whole category for that container, and any field you leave out takes its built-in default rather than the global value. So start from the global category and change it:
+A container can override the global search, chunking, embedding and upload settings. For search, send only the settings you want to change; every search setting you leave out keeps following the global value:
 
 ```bash
-curl -s -H "X-Api-Key: $TOKEN" http://localhost:5001/api/settings/search \
-  | jq '{ search: (. + { fusionAlpha: 0.5 }) }' > overrides.json
 curl -X PUT http://localhost:5001/api/containers/CONTAINER_ID/settings \
-  -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" --data @overrides.json
+  -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
+  --data '{ "search": { "fusionAlpha": 0.5 } }'
 ```
 
-A category you leave out of the override follows the global settings. `DELETE` on the same address removes every override.
+`GET` on the same address returns only the search settings the container chose, so a missing one means "use the global value". For chunking, embedding and upload, an override still replaces the whole category, and a field you leave out takes its built-in default. A category you leave out of the override follows the global settings. `DELETE` on the same address removes every override.
+
+### 6. Follow links between records
+
+Link search, off by default, also returns documents that the top results link to: the pull request that closed an issue, the Jira issue that blocks another, the class a method calls. [About search](../concepts/search.md#following-links) explains how. It has no screen yet, so turn it on with the API or environment variables:
+
+| Setting | Default | What it does |
+|---------|---------|--------------|
+| `EnableLinkSearch` | `false` | Turns link search on for the whole deployment. |
+| `LinkWeight` | 0.2 | Share of the score a link gets, 0 to 1. Raise it when linked records should rank higher; 0 turns the walk off. |
+| `LinkMaxHops` | 1 | Steps out from each top result, 1 or 2. |
+| `LinkSeeds` | 10 | Top results the walk starts from, 1 to 50. |
+
+```bash
+curl -s -D headers.txt -H "X-Api-Key: $TOKEN" http://localhost:5001/api/settings/search > search.json
+ETAG=$(grep -i '^etag:' headers.txt | cut -d' ' -f2 | tr -d '\r')
+jq '.enableLinkSearch = true' search.json > search-new.json
+curl -X PUT http://localhost:5001/api/settings/search \
+  -H "X-Api-Key: $TOKEN" -H "If-Match: $ETAG" \
+  -H "Content-Type: application/json" --data @search-new.json
+```
+
+Or set `Knowledge__Search__EnableLinkSearch=true`. Then reindex, because GitHub, Jira and Confluence documents get their links when they're ingested. Code files get theirs on upload. A container can set its own `linkWeight`, `linkMaxHops`, `linkSeeds`, `fusionAlpha`, `useVectorSearch` and `useKeywordSearch` as in step 5; those apply while link search is on.
 
 ## Do it with the API
 

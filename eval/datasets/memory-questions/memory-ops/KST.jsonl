@@ -1,0 +1,22 @@
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m1", "subject": "Kestrel Row", "attribute": "database", "value": "MariaDB 11", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m2", "subject": "Kestrel Row", "attribute": "deploy region", "value": "eu-central-1", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m3", "subject": "Kestrel Row", "attribute": "tech lead", "value": "Haruki Belmonde", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m4", "subject": "Kestrel Row", "attribute": "CI system", "value": "CircleCI", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m5", "subject": "Kestrel Row", "attribute": "cache", "value": "Memcached 1.6", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m6", "subject": "Kestrel Row", "attribute": "public API rate limit", "value": "100 requests/minute", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m7", "subject": "Kestrel Row", "attribute": "alert channel", "value": "#kst-pager", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-05", "op": "remember", "id": "KST-m8", "subject": "Kestrel Row", "attribute": "current release", "value": "v0.5.0", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "KST-2026-01-15", "op": "correct", "id": "KST-m9", "target": "KST-m4", "kind": "changed", "value": "Buildkite", "validFrom": "2026-01-15", "reason": "KST-9 CI moved to Buildkite"}
+{"session": "KST-2026-01-16", "op": "correct", "id": "KST-m10", "target": "KST-m7", "kind": "changed", "value": "#kst-alerts", "validFrom": "2026-01-16", "reason": "KST-10 alert channel changed"}
+{"session": "KST-2026-01-27", "op": "correct", "id": "KST-m11", "target": "KST-m8", "kind": "changed", "value": "v0.6.0", "validFrom": "2026-01-27", "reason": "KST-11 released v0.6.0"}
+{"session": "KST-2026-02-20", "op": "correct", "id": "KST-m12", "target": "KST-m11", "kind": "changed", "value": "v0.7.0", "validFrom": "2026-02-20", "reason": "KST-12 released v0.7.0"}
+{"session": "KST-2026-02-23", "op": "correct", "id": "KST-m13", "target": "KST-m5", "kind": "changed", "value": "Redis 7", "validFrom": "2026-02-23", "reason": "KST-13 cache moved to Redis 7"}
+{"session": "KST-2026-02-27", "op": "correct", "id": "KST-m14", "target": "KST-m6", "kind": "changed", "value": "250 requests/minute", "validFrom": "2026-02-27", "reason": "KST-14 rate limit raised"}
+{"session": "KST-2026-02-27", "op": "correct", "id": "KST-m15", "target": "KST-m2", "kind": "changed", "value": "ca-central-1", "validFrom": "2026-02-27", "reason": "KST-15 region moved"}
+{"session": "KST-2026-03-17", "op": "correct", "id": "KST-m16", "target": "KST-m12", "kind": "changed", "value": "v1.0.0", "validFrom": "2026-03-17", "reason": "KST-16 released v1.0.0"}
+{"session": "KST-2026-04-10", "op": "correct", "id": "KST-m17", "target": "KST-m1", "kind": "changed", "value": "MySQL 8.0", "validFrom": "2026-04-10", "reason": "KST-17 database moved"}
+{"session": "KST-2026-05-07", "op": "correct", "id": "KST-m18", "target": "KST-m10", "kind": "changed", "value": "#kst-oncall", "validFrom": "2026-05-07", "reason": "KST-18 alert channel changed"}
+{"session": "KST-2026-05-10", "op": "correct", "id": "KST-m19", "target": "KST-m13", "kind": "changed", "value": "Valkey 8", "validFrom": "2026-05-10", "reason": "KST-19 cache moved to Valkey 8"}
+{"session": "KST-2026-05-18", "op": "correct", "id": "KST-m20", "target": "KST-m16", "kind": "changed", "value": "v1.1.0", "validFrom": "2026-05-18", "reason": "KST-20 released v1.1.0"}
+{"session": "KST-2026-06-03", "op": "correct", "id": "KST-m21", "target": "KST-m19", "kind": "changed", "value": "no cache", "validFrom": "2026-06-03", "reason": "KST-21 cache removed to cut costs"}
+{"session": "KST-2026-06-18", "op": "correct", "id": "KST-m22", "target": "KST-m14", "kind": "changed", "value": "100 requests/minute", "validFrom": "2026-06-18", "reason": "KST-22 rate limit lowered after load test"}

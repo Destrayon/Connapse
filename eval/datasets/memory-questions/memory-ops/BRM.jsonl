@@ -1,0 +1,19 @@
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m1", "subject": "Bramblewood", "attribute": "database", "value": "MySQL 8.0", "validFrom": "2026-01-05", "reason": "kickoff: database"}
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m2", "subject": "Bramblewood", "attribute": "deploy region", "value": "ca-central-1", "validFrom": "2026-01-05", "reason": "kickoff: deploy region"}
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m3", "subject": "Bramblewood", "attribute": "tech lead", "value": "Caspian Oduya", "validFrom": "2026-01-05", "reason": "kickoff: tech lead"}
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m4", "subject": "Bramblewood", "attribute": "CI system", "value": "GitHub Actions", "validFrom": "2026-01-05", "reason": "kickoff: CI system"}
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m5", "subject": "Bramblewood", "attribute": "cache", "value": "Redis 7", "validFrom": "2026-01-05", "reason": "kickoff: cache"}
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m6", "subject": "Bramblewood", "attribute": "public API rate limit", "value": "1000 requests/minute", "validFrom": "2026-01-05", "reason": "kickoff: public API rate limit"}
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m7", "subject": "Bramblewood", "attribute": "alert channel", "value": "#brm-pager", "validFrom": "2026-01-05", "reason": "kickoff: alert channel"}
+{"session": "BRM-2026-01-05", "op": "remember", "id": "BRM-m8", "subject": "Bramblewood", "attribute": "current release", "value": "v1.5.0", "validFrom": "2026-01-05", "reason": "kickoff: current release"}
+{"session": "BRM-2026-01-16", "op": "correct", "id": "BRM-m9", "target": "BRM-m7", "kind": "changed", "value": "#brm-oncall", "validFrom": "2026-01-16", "reason": "BRM-4 alert channel changed"}
+{"session": "BRM-2026-02-03", "op": "correct", "id": "BRM-m10", "target": "BRM-m5", "kind": "changed", "value": "Valkey 8", "validFrom": "2026-02-03", "reason": "BRM-5 cache switched to Valkey 8"}
+{"session": "BRM-2026-02-08", "op": "correct", "id": "BRM-m11", "target": "BRM-m4", "kind": "changed", "value": "GitLab CI", "validFrom": "2026-02-08", "reason": "BRM-6 CI moved to GitLab CI"}
+{"session": "BRM-2026-03-17", "op": "correct", "id": "BRM-m12", "target": "BRM-m3", "kind": "changed", "value": "Ilario Brandtmoss", "validFrom": "2026-03-17", "reason": "BRM-7 tech lead changed"}
+{"session": "BRM-2026-03-22", "op": "correct", "id": "BRM-m13", "target": "BRM-m8", "kind": "changed", "value": "v1.6.0", "validFrom": "2026-03-22", "reason": "BRM-8 released v1.6.0"}
+{"session": "BRM-2026-04-23", "op": "correct", "id": "BRM-m14", "target": "BRM-m6", "kind": "changed", "value": "100 requests/minute", "validFrom": "2026-04-23", "reason": "BRM-9 rate limit lowered"}
+{"session": "BRM-2026-04-29", "op": "correct", "id": "BRM-m15", "target": "BRM-m13", "kind": "changed", "value": "v2.0.0", "validFrom": "2026-04-29", "reason": "BRM-10 released v2.0.0"}
+{"session": "BRM-2026-05-30", "op": "correct", "id": "BRM-m16", "target": "BRM-m2", "kind": "changed", "value": "us-east-2", "validFrom": "2026-05-30", "reason": "BRM-11 deploy region changed"}
+{"session": "BRM-2026-06-01", "op": "correct", "id": "BRM-m17", "target": "BRM-m10", "kind": "changed", "value": "Redis 7", "validFrom": "2026-06-01", "reason": "BRM-12 cache back to Redis 7"}
+{"session": "BRM-2026-06-21", "op": "correct", "id": "BRM-m18", "target": "BRM-m14", "kind": "changed", "value": "250 requests/minute", "validFrom": "2026-06-21", "reason": "BRM-13 rate limit raised"}
+{"session": "BRM-2026-06-24", "op": "correct", "id": "BRM-m19", "target": "BRM-m15", "kind": "changed", "value": "v2.1.0", "validFrom": "2026-06-24", "reason": "BRM-14 released v2.1.0"}

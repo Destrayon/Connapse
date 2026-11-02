@@ -1,0 +1,3187 @@
+{
+  "config": "code",
+  "split": "heldout",
+  "groups": {
+    "heldout": {
+      "questions": 162,
+      "recall@5": 0.9104,
+      "recall@10": 0.9759,
+      "recall@20": 0.9919,
+      "grepRecall@10": 0.8292
+    },
+    "heldout/callers": {
+      "questions": 38,
+      "recall@5": 0.8009,
+      "recall@10": 0.98,
+      "recall@20": 0.9987,
+      "grepRecall@10": 0.8828
+    },
+    "heldout/callers/click": {
+      "questions": 12,
+      "recall@5": 0.9583,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.9167
+    },
+    "heldout/callers/connapse": {
+      "questions": 11,
+      "recall@5": 0.9,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.9354
+    },
+    "heldout/callers/ky": {
+      "questions": 5,
+      "recall@5": 0.2,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.8
+    },
+    "heldout/callers/serilog": {
+      "questions": 10,
+      "recall@5": 0.8033,
+      "recall@10": 0.9242,
+      "recall@20": 0.995,
+      "grepRecall@10": 0.8258
+    },
+    "heldout/crowded": {
+      "questions": 71,
+      "recall@5": 0.8153,
+      "recall@10": 0.9467,
+      "recall@20": 0.9814,
+      "grepRecall@10": 0.7137
+    },
+    "heldout/crowded/callers": {
+      "questions": 18,
+      "recall@5": 0.613,
+      "recall@10": 0.9579,
+      "recall@20": 0.9972,
+      "grepRecall@10": 0.7526
+    },
+    "heldout/crowded/definition": {
+      "questions": 27,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.7407
+    },
+    "heldout/crowded/how": {
+      "questions": 5,
+      "recall@5": 0.96,
+      "recall@10": 0.84,
+      "recall@20": 0.8167,
+      "grepRecall@10": 0.2417
+    },
+    "heldout/crowded/usages": {
+      "questions": 21,
+      "recall@5": 0.7167,
+      "recall@10": 0.894,
+      "recall@20": 0.9832,
+      "grepRecall@10": 0.7578
+    },
+    "heldout/definition": {
+      "questions": 60,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.8833
+    },
+    "heldout/definition/click": {
+      "questions": 14,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 1
+    },
+    "heldout/definition/connapse": {
+      "questions": 15,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.8667
+    },
+    "heldout/definition/ky": {
+      "questions": 16,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.9375
+    },
+    "heldout/definition/serilog": {
+      "questions": 15,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.7333
+    },
+    "heldout/how": {
+      "questions": 20,
+      "recall@5": 0.97,
+      "recall@10": 0.9538,
+      "recall@20": 0.9542,
+      "grepRecall@10": 0.4433
+    },
+    "heldout/how/click": {
+      "questions": 5,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 0.7667
+    },
+    "heldout/how/connapse": {
+      "questions": 6,
+      "recall@5": 1,
+      "recall@10": 0.9792,
+      "recall@20": 1,
+      "grepRecall@10": 0.4708
+    },
+    "heldout/how/ky": {
+      "questions": 1,
+      "recall@5": 0.8,
+      "recall@10": 0.5,
+      "recall@20": 0.5,
+      "grepRecall@10": 0.125
+    },
+    "heldout/how/serilog": {
+      "questions": 8,
+      "recall@5": 0.95,
+      "recall@10": 0.9625,
+      "recall@20": 0.9479,
+      "grepRecall@10": 0.2604
+    },
+    "heldout/sparse": {
+      "questions": 91,
+      "recall@5": 0.9846,
+      "recall@10": 0.9986,
+      "recall@20": 1,
+      "grepRecall@10": 0.9193
+    },
+    "heldout/sparse/callers": {
+      "questions": 20,
+      "recall@5": 0.97,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 1
+    },
+    "heldout/sparse/definition": {
+      "questions": 33,
+      "recall@5": 1,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 1
+    },
+    "heldout/sparse/how": {
+      "questions": 15,
+      "recall@5": 0.9733,
+      "recall@10": 0.9917,
+      "recall@20": 1,
+      "grepRecall@10": 0.5106
+    },
+    "heldout/sparse/usages": {
+      "questions": 23,
+      "recall@5": 0.9826,
+      "recall@10": 1,
+      "recall@20": 1,
+      "grepRecall@10": 1
+    },
+    "heldout/usages": {
+      "questions": 44,
+      "recall@5": 0.8557,
+      "recall@10": 0.9494,
+      "recall@20": 0.992,
+      "grepRecall@10": 0.8844
+    },
+    "heldout/usages/click": {
+      "questions": 11,
+      "recall@5": 0.8364,
+      "recall@10": 0.9477,
+      "recall@20": 1,
+      "grepRecall@10": 0.8013
+    },
+    "heldout/usages/connapse": {
+      "questions": 11,
+      "recall@5": 0.9273,
+      "recall@10": 0.9636,
+      "recall@20": 0.9952,
+      "grepRecall@10": 0.8682
+    },
+    "heldout/usages/ky": {
+      "questions": 10,
+      "recall@5": 0.775,
+      "recall@10": 0.925,
+      "recall@20": 1,
+      "grepRecall@10": 0.925
+    },
+    "heldout/usages/serilog": {
+      "questions": 12,
+      "recall@5": 0.875,
+      "recall@10": 0.9583,
+      "recall@20": 0.975,
+      "grepRecall@10": 0.9417
+    }
+  },
+  "latency": {
+    "code_find_symbol": {
+      "calls": 80,
+      "p50Ms": 20.0076,
+      "p95Ms": 140.3886
+    },
+    "code_references": {
+      "calls": 82,
+      "p50Ms": 28.2431,
+      "p95Ms": 139.2312
+    }
+  },
+  "gate": {
+    "heldout/crowded": {
+      "recall@10": 0.9467,
+      "bar": 0.864,
+      "passed": true
+    },
+    "heldout/how": {
+      "recall@10": 0.9538,
+      "bar": 0.593,
+      "passed": true
+    },
+    "symbolLookupP95Under300Ms": true,
+    "passed": true
+  },
+  "questions": [
+    {
+      "id": "connapse-definition-001",
+      "name": "IngestionJobs.StuckAfter",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Background/Jobs/IngestionJobs.cs"
+      ],
+      "key": [
+        "src/Connapse.Background/Jobs/IngestionJobs.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-002",
+      "name": "GitHubRateLimitedException.ResetAt",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Connectors/GitHub/GitHubApiClient.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Connectors/GitHub/GitHubApiClient.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-003",
+      "name": "OllamaConnectionTester",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/ConnectionTesters/OllamaConnectionTester.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/ConnectionTesters/OllamaConnectionTester.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-006",
+      "name": "JiraProjectConnector.IssueIdOf",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Connectors/Atlassian/JiraProjectConnector.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Connectors/Atlassian/JiraProjectConnector.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-007",
+      "name": "OllamaEmbeddingProvider",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Vectors/OllamaEmbeddingProvider.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Vectors/OllamaEmbeddingProvider.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-009",
+      "name": "ChunkVectorEntity.Dimensions",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Data/Entities/ChunkVectorEntity.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Data/Entities/ChunkVectorEntity.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-013",
+      "name": "ConnapseIdentityDbContext.AuditLogs",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Identity/Data/ConnapseIdentityDbContext.cs"
+      ],
+      "key": [
+        "src/Connapse.Identity/Data/ConnapseIdentityDbContext.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-016",
+      "name": "PdfLayout.Iou",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Ingestion/Parsers/PdfLayout.cs"
+      ],
+      "key": [
+        "src/Connapse.Ingestion/Parsers/PdfLayout.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-018",
+      "name": "UserAtlassianIdentityLinkEntity",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Identity/Data/Entities/UserAtlassianIdentityLinkEntity.cs"
+      ],
+      "key": [
+        "src/Connapse.Identity/Data/Entities/UserAtlassianIdentityLinkEntity.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-019",
+      "name": "PathUtilities",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Utilities/PathUtilities.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Utilities/PathUtilities.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-020",
+      "name": "CustomProvider",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Models/CustomProviderModels.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Models/CustomProviderModels.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-025",
+      "name": "ChunkingStrategy",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Models/IngestionModels.cs",
+        "tests/Connapse.Eval/Systems/SystemConfig.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Models/IngestionModels.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-027",
+      "name": "IReindexService.RetryFailedAsync",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Interfaces/IReindexService.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Interfaces/IReindexService.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-028",
+      "name": "IngestionOptions.StrategyIsExplicit",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Models/IngestionModels.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Models/IngestionModels.cs"
+      ]
+    },
+    {
+      "id": "connapse-definition-029",
+      "name": "ChunkEntity.OwnerId",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Data/Entities/ChunkEntity.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Data/Entities/ChunkEntity.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-001",
+      "name": "PdfLayout.Infer",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Ingestion/Parsers/PdfModels.cs",
+        "tests/Connapse.Ingestion.Tests/Isolation/InferenceHostTests.cs",
+        "src/Connapse.Ingestion/Parsers/PdfLayout.cs",
+        "src/Connapse.Ingestion/Isolation/ParserProtocol.cs",
+        "src/Connapse.Ingestion/Parsers/PdfOcr.cs",
+        "src/Connapse.Ingestion/Parsers/PdfTableStructure.cs",
+        "src/Connapse.Ingestion/Isolation/ParserProcessPool.Inference.cs",
+        "src/Connapse.Ingestion/Isolation/RemotePdfModels.cs"
+      ],
+      "key": [
+        "src/Connapse.Ingestion/Parsers/PdfModels.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-003",
+      "name": "DocumentReadGuard.CanReadAsync",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "tests/Connapse.Web.Tests/Services/DocumentReadGuardTests.cs",
+        "src/Connapse.Web/Endpoints/DocumentsEndpoints.cs",
+        "tests/Connapse.Core.Tests/CloudScope/AtlassianSearchResultVerifierTests.cs",
+        "tests/Connapse.Integration.Tests/AtlassianDocumentEnforcementTests.cs",
+        "src/Connapse.Storage/CloudScope/ConfluencePermissionChecker.cs",
+        "tests/Connapse.Core.Tests/CloudScope/ConfluencePermissionCheckerTests.cs",
+        "src/Connapse.Storage/CloudScope/GitHubSearchScopeResolver.cs",
+        "src/Connapse.Web/Mcp/McpTools.cs",
+        "src/Connapse.Web/Services/DocumentReadGuard.cs",
+        "src/Connapse.Storage/CloudScope/AtlassianSearchResultVerifier.cs"
+      ],
+      "key": [
+        "src/Connapse.Web/Endpoints/DocumentsEndpoints.cs",
+        "src/Connapse.Web/Mcp/McpTools.cs",
+        "tests/Connapse.Core.Tests/CloudScope/AtlassianSearchResultVerifierTests.cs",
+        "tests/Connapse.Integration.Tests/AtlassianDocumentEnforcementTests.cs",
+        "tests/Connapse.Web.Tests/Services/DocumentReadGuardTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-004",
+      "name": "SearchScopes.OfPrefixes",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "tests/Connapse.Storage.Tests/CloudScope/CompositeSearchScopeResolverTests.cs",
+        "tests/Connapse.Core.Tests/Search/SearchScopesTests.cs",
+        "tests/Connapse.Integration.Tests/SearchScopeEnforcementTests.cs",
+        "tests/Connapse.Core.Tests/Search/ScopeResolutionGuardTests.cs",
+        "src/Connapse.Storage/CloudScope/AtlassianSearchScopeResolver.cs",
+        "src/Connapse.Storage/CloudScope/GitHubSearchScopeResolver.cs",
+        "tests/Connapse.Integration.Tests/CustomScopeSqlTests.cs",
+        "tests/Connapse.Integration.Tests/GitHubPrivateDocumentEnforcementTests.cs",
+        "src/Connapse.Core/Models/SearchScopes.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/CloudScope/AtlassianSearchScopeResolver.cs",
+        "src/Connapse.Storage/CloudScope/GitHubSearchScopeResolver.cs",
+        "tests/Connapse.Core.Tests/Search/ScopeResolutionGuardTests.cs",
+        "tests/Connapse.Core.Tests/Search/SearchScopesTests.cs",
+        "tests/Connapse.Integration.Tests/CustomScopeSqlTests.cs",
+        "tests/Connapse.Integration.Tests/GitHubPrivateDocumentEnforcementTests.cs",
+        "tests/Connapse.Integration.Tests/SearchScopeEnforcementTests.cs",
+        "tests/Connapse.Storage.Tests/CloudScope/CompositeSearchScopeResolverTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-005",
+      "name": "PdfOcr.SessionOptionsForOcr",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Ingestion/Parsers/PdfOcr.cs"
+      ],
+      "key": [
+        "src/Connapse.Ingestion/Parsers/PdfOcr.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-007",
+      "name": "IPerDocSummarizer.GenerateAsync",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Background/Jobs/IngestionJobs.cs",
+        "src/Connapse.Background/Jobs/SummaryJobs.cs",
+        "src/Connapse.Ingestion/Summarization/PerDocSummarizer.cs",
+        "tests/Connapse.Ingestion.Tests/Summarization/PerDocSummarizerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Summarization/ContainerSummarizerTests.cs",
+        "src/Connapse.Core/Interfaces/IPerDocSummarizer.cs",
+        "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs",
+        "tests/Connapse.Background.Tests/Jobs/IngestionJobsTests.cs",
+        "tests/Connapse.Background.Tests/Jobs/SummaryJobsHerculesTests.cs",
+        "src/Connapse.Core/Interfaces/IContainerSummarizer.cs"
+      ],
+      "key": [
+        "src/Connapse.Background/Jobs/IngestionJobs.cs",
+        "src/Connapse.Background/Jobs/SummaryJobs.cs",
+        "tests/Connapse.Background.Tests/Jobs/IngestionJobsTests.cs",
+        "tests/Connapse.Background.Tests/Jobs/SummaryJobsHerculesTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-009",
+      "name": "AgentService.SplitScopes",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Identity/Services/AgentService.cs",
+        "src/Connapse.Identity/Services/PatService.cs"
+      ],
+      "key": [
+        "src/Connapse.Identity/Services/AgentService.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-010",
+      "name": "JiraIssueStateStore.Ids",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Connectors/Atlassian/JiraProjectConnector.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/JiraIssueStateStore.cs",
+        "tests/Connapse.Core.Tests/CloudScope/AtlassianSearchResultVerifierTests.cs",
+        "tests/Connapse.Core.Tests/CloudScope/CustomPermissionTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/JiraProjectConnectorTests.cs",
+        "src/Connapse.Storage/CloudScope/JiraPermissionChecker.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/ConfluencePageStateStore.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/ConfluenceSpaceConnector.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubCredentialPool.cs",
+        "src/Connapse.Web/Components/Sources/AtlassianSourceSelection.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Connectors/Atlassian/JiraProjectConnector.cs",
+        "tests/Connapse.Core.Tests/Connectors/JiraProjectConnectorTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-011",
+      "name": "IProviderCredentialStore.RecordAtlassianLinkAppCheckAsync",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "tests/Connapse.Integration.Tests/AtlassianLinkStorageTests.cs",
+        "src/Connapse.Core/Interfaces/IProviderCredentialStore.cs",
+        "tests/Connapse.Core.Tests/Web/AtlassianLinkAppServiceTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/AtlassianUserSignInTests.cs",
+        "src/Connapse.Storage/Connections/PostgresProviderCredentialStore.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/AtlassianUserSignIn.cs",
+        "tests/Connapse.Web.Tests/Components/AtlassianProviderCardTests.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Connectors/Atlassian/AtlassianUserSignIn.cs",
+        "tests/Connapse.Core.Tests/Connectors/AtlassianUserSignInTests.cs",
+        "tests/Connapse.Core.Tests/Web/AtlassianLinkAppServiceTests.cs",
+        "tests/Connapse.Integration.Tests/AtlassianLinkStorageTests.cs",
+        "tests/Connapse.Web.Tests/Components/AtlassianProviderCardTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-012",
+      "name": "ITokenCounter.CountTokens",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Ingestion/Chunking/RecursiveChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceAwareFixedSizeChunker.cs",
+        "tests/Connapse.Ingestion.Tests/Utilities/TiktokenTokenCounterTests.cs",
+        "src/Connapse.Ingestion/Chunking/SemanticChunker.cs",
+        "src/Connapse.Ingestion/Chunking/DocumentAwareChunker.cs",
+        "src/Connapse.Ingestion/Chunking/FixedSizeChunker.cs",
+        "src/Connapse.Ingestion/Chunking/MarkdownTables.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs",
+        "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs",
+        "src/Connapse.Ingestion/Summarization/PerDocSummarizer.cs"
+      ],
+      "key": [
+        "src/Connapse.Ingestion/Chunking/DocumentAwareChunker.cs",
+        "src/Connapse.Ingestion/Chunking/FixedSizeChunker.cs",
+        "src/Connapse.Ingestion/Chunking/MarkdownTables.cs",
+        "src/Connapse.Ingestion/Chunking/RecordChunker.cs",
+        "src/Connapse.Ingestion/Chunking/RecursiveChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SemanticChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceAwareFixedSizeChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs",
+        "src/Connapse.Ingestion/Summarization/ContainerSummarizer.cs",
+        "src/Connapse.Ingestion/Summarization/PerDocSummarizer.cs",
+        "tests/Connapse.Ingestion.Tests/Summarization/ContainerSummarizerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Summarization/PerDocSummarizerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Utilities/TiktokenTokenCounterTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-019",
+      "name": "AzureSignInRequests.TakeByState",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "tests/Connapse.Identity.Tests/AzureLinkRevocationTests.cs",
+        "tests/Connapse.Identity.Tests/AzureSignInRequestsTests.cs",
+        "src/Connapse.Identity/Services/AzureSignInRequests.cs",
+        "tests/Connapse.Integration.Tests/CloudIdentityEndpointTests.cs",
+        "src/Connapse.Web/Endpoints/CloudIdentityEndpoints.cs"
+      ],
+      "key": [
+        "src/Connapse.Web/Endpoints/CloudIdentityEndpoints.cs",
+        "tests/Connapse.Identity.Tests/AzureLinkRevocationTests.cs",
+        "tests/Connapse.Identity.Tests/AzureSignInRequestsTests.cs",
+        "tests/Connapse.Integration.Tests/CloudIdentityEndpointTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-callers-020",
+      "name": "OwnerRef.ForSource",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "tests/Connapse.Integration.Tests/SourceIngestionOwnershipTests.cs",
+        "tests/Connapse.Core.Tests/Sync/OwnerRefTests.cs",
+        "tests/Connapse.Integration.Tests/ParserVersionReindexTests.cs",
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "src/Connapse.Ingestion/Reindex/ReindexService.cs",
+        "src/Connapse.Storage/Documents/PostgresDocumentStore.cs",
+        "tests/Connapse.Ingestion.Tests/Pipeline/IngestionPipelineTests.cs",
+        "tests/Connapse.Integration.Tests/SourceSyncS3IntegrationTests.cs",
+        "src/Connapse.Core/Models/SyncModels.cs",
+        "src/Connapse.Web/Services/SourceSyncService.cs"
+      ],
+      "key": [
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "src/Connapse.Ingestion/Reindex/ReindexService.cs",
+        "src/Connapse.Storage/Documents/PostgresDocumentStore.cs",
+        "src/Connapse.Web/Services/SourceSyncService.cs",
+        "tests/Connapse.Core.Tests/Sync/OwnerRefTests.cs",
+        "tests/Connapse.Ingestion.Tests/Pipeline/IngestionPipelineTests.cs",
+        "tests/Connapse.Integration.Tests/ParserVersionReindexTests.cs",
+        "tests/Connapse.Integration.Tests/SourceIngestionOwnershipTests.cs",
+        "tests/Connapse.Integration.Tests/SourceSyncS3IntegrationTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-003",
+      "name": "LinkNode",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "tests/Connapse.Integration.Tests/Links/LinkReaderContract.cs",
+        "tests/Connapse.Integration.Tests/Links/LinkWorld.cs",
+        "src/Connapse.Core/Models/LinkModels.cs",
+        "tests/Connapse.Integration.Tests/Links/LinkLeakChecker.cs",
+        "tests/Connapse.Integration.Tests/Links/ReferenceLinkReader.cs"
+      ],
+      "key": [
+        "tests/Connapse.Integration.Tests/Links/LinkLeakChecker.cs",
+        "tests/Connapse.Integration.Tests/Links/LinkReaderContract.cs",
+        "tests/Connapse.Integration.Tests/Links/LinkWorld.cs",
+        "tests/Connapse.Integration.Tests/Links/ReferenceLinkReader.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-005",
+      "name": "ChunkInfo",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Ingestion/Chunking/DocumentAwareChunker.cs",
+        "src/Connapse.Ingestion/Chunking/FixedSizeChunker.cs",
+        "src/Connapse.Ingestion/Chunking/RecursiveChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SemanticChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceAwareFixedSizeChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs",
+        "src/Connapse.Core/Interfaces/IChunkingStrategy.cs",
+        "src/Connapse.Ingestion/Chunking/RecordChunker.cs",
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/ChunkTitleHeaderTests.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Interfaces/IChunkingStrategy.cs",
+        "src/Connapse.Ingestion/Chunking/ChunkTitleHeader.cs",
+        "src/Connapse.Ingestion/Chunking/DocumentAwareChunker.cs",
+        "src/Connapse.Ingestion/Chunking/FixedSizeChunker.cs",
+        "src/Connapse.Ingestion/Chunking/RecordChunker.cs",
+        "src/Connapse.Ingestion/Chunking/RecursiveChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SemanticChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceAwareFixedSizeChunker.cs",
+        "src/Connapse.Ingestion/Chunking/SentenceWindowChunker.cs",
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/ChunkTitleHeaderTests.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/DocumentAwareChunkerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/DocumentAwareStructureTests.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/RecursiveChunkerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/SemanticChunkerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/SentenceAwareFixedSizeChunkerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/SentenceWindowChunkerTests.cs",
+        "tests/Connapse.Ingestion.Tests/Pipeline/IngestionPipelineTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-006",
+      "name": "OllamaEmbeddingProvider.OllamaEmbedResponse",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Vectors/OllamaEmbeddingProvider.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Vectors/OllamaEmbeddingProvider.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-007",
+      "name": "Gen2Permissions",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "tests/Connapse.Core.Tests/Models/Gen2AclTests.cs",
+        "src/Connapse.Core/Models/Gen2Acl.cs",
+        "src/Connapse.Storage/CloudScope/DataLakeGen2DirectoryReader.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/CloudScope/DataLakeGen2DirectoryReader.cs",
+        "tests/Connapse.Core.Tests/Models/Gen2AclTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-009",
+      "name": "ConnectorFileEvent",
+      "crowd": "crowded",
+      "recall@10": 0.9,
+      "ranked": [
+        "src/Connapse.Core/Models/StorageModels.cs",
+        "tests/Connapse.Integration.Tests/SourceSyncIntegrationTests.cs",
+        "src/Connapse.Storage/Connectors/FilesystemConnector.cs",
+        "src/Connapse.Core/Interfaces/IConnector.cs",
+        "tests/Connapse.Integration.Tests/CustomSourceSyncIntegrationTests.cs",
+        "tests/Connapse.Integration.Tests/DeleteGuardIntegrationTests.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/ConfluenceSpaceConnector.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/JiraProjectConnector.cs",
+        "src/Connapse.Storage/Connectors/AzureBlobConnector.cs",
+        "src/Connapse.Storage/Connectors/Custom/CustomSourceConnector.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Interfaces/IConnector.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/ConfluenceSpaceConnector.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/JiraProjectConnector.cs",
+        "src/Connapse.Storage/Connectors/AzureBlobConnector.cs",
+        "src/Connapse.Storage/Connectors/Custom/CustomSourceConnector.cs",
+        "src/Connapse.Storage/Connectors/FilesystemConnector.cs",
+        "src/Connapse.Storage/Connectors/GitHubConnector.cs",
+        "src/Connapse.Storage/Connectors/MinioConnector.cs",
+        "src/Connapse.Storage/Connectors/S3Connector.cs",
+        "src/Connapse.Storage/Connectors/SftpConnector.cs",
+        "tests/Connapse.Integration.Tests/CustomSourceSyncIntegrationTests.cs",
+        "tests/Connapse.Integration.Tests/DeleteGuardIntegrationTests.cs",
+        "tests/Connapse.Integration.Tests/RevokedSourceTests.cs",
+        "tests/Connapse.Integration.Tests/SourceSyncIntegrationTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-010",
+      "name": "PermanentIngestionException",
+      "crowd": "crowded",
+      "recall@10": 0.9,
+      "ranked": [
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/SizeCappedStream.cs",
+        "tests/Connapse.ParserHost.TestHost/TestHostProgram.cs",
+        "tests/Connapse.Core.Tests/Connectors/ConfluenceSpaceConnectorTests.cs",
+        "src/Connapse.Core/Interfaces/IDocumentLifecycle.cs",
+        "tests/Connapse.Ingestion.Tests/Isolation/ParserProcessPoolTests.cs",
+        "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs",
+        "tests/Connapse.Ingestion.Tests/Pipeline/IngestionPipelineTests.cs",
+        "tests/Connapse.Ingestion.Tests/Pipeline/ParseWithinMemoryTests.cs",
+        "src/Connapse.Ingestion/Parsers/PdfParser.cs"
+      ],
+      "key": [
+        "src/Connapse.Background/Jobs/IngestionJobs.cs",
+        "src/Connapse.Ingestion/Isolation/ParserHostLoop.cs",
+        "src/Connapse.Ingestion/Isolation/ParserProcessPool.cs",
+        "src/Connapse.Ingestion/Parsers/EpubParser.cs",
+        "src/Connapse.Ingestion/Parsers/PdfParser.cs",
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/ConfluenceSpaceConnector.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/JiraProjectConnector.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/SizeCappedStream.cs",
+        "tests/Connapse.Background.Tests/Jobs/IngestionJobsTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/ConfluenceSpaceConnectorTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/JiraProjectConnectorTests.cs",
+        "tests/Connapse.Ingestion.Tests/Isolation/ParserProcessPoolTests.cs",
+        "tests/Connapse.Ingestion.Tests/Parsers/EpubParserTests.cs",
+        "tests/Connapse.Ingestion.Tests/Parsers/PdfOcrTests.cs",
+        "tests/Connapse.Ingestion.Tests/Pipeline/IngestionPipelineTests.cs",
+        "tests/Connapse.Ingestion.Tests/Pipeline/ParseWithinMemoryTests.cs",
+        "tests/Connapse.Ingestion.Tests/Validation/ParseLimitsTests.cs",
+        "tests/Connapse.ParserHost.TestHost/TestHostProgram.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-011",
+      "name": "GitHubCredentialPool.Budget",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Connectors/GitHub/GitHubCredentialPool.cs",
+        "tests/Connapse.Core.Tests/Connectors/GitHubCredentialPoolTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/GitHubRecordSourceTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/FakeGitHubApi.cs",
+        "src/Connapse.Ingestion/Chunking/ChunkTitleHeader.cs",
+        "src/Connapse.Storage/CloudScope/CustomSearchResultVerifier.cs",
+        "tests/Connapse.Ingestion.Tests/Chunking/ChunkTitleHeaderTests.cs",
+        "eval/tools/seed_jira.py",
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "tests/Connapse.Ingestion.Tests/Parsers/EmailParserTests.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Connectors/GitHub/GitHubCredentialPool.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-013",
+      "name": "GitHubNotFoundException",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Connectors/GitHub/GitHubApiClient.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubRecordSource.cs",
+        "src/Connapse.Storage/CloudScope/GitHubSearchScopeResolver.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubRepositoryGuard.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubRepositoryLookup.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/CloudScope/GitHubSearchScopeResolver.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubApiClient.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubRecordSource.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubRepositoryGuard.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubRepositoryLookup.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-014",
+      "name": "ISearchResultVerifier",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Interfaces/ISearchResultVerifier.cs",
+        "src/Connapse.Storage/CloudScope/CompositeSearchResultVerifier.cs",
+        "src/Connapse.Storage/CloudScope/NoOpSearchResultVerifier.cs",
+        "tests/Connapse.Core.Tests/Mcp/McpToolsGetDocumentTests.cs",
+        "tests/Connapse.Web.Tests/Services/DocumentReadGuardTests.cs",
+        "src/Connapse.Search/Hybrid/HybridSearchService.cs",
+        "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs",
+        "src/Connapse.Web/Services/DocumentReadGuard.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Interfaces/ISearchResultVerifier.cs",
+        "src/Connapse.Search/Hybrid/HybridSearchService.cs",
+        "src/Connapse.Storage/CloudScope/CompositeSearchResultVerifier.cs",
+        "src/Connapse.Storage/CloudScope/NoOpSearchResultVerifier.cs",
+        "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs",
+        "src/Connapse.Web/Services/DocumentReadGuard.cs",
+        "tests/Connapse.Core.Tests/Mcp/McpToolsGetDocumentTests.cs",
+        "tests/Connapse.Web.Tests/Services/DocumentReadGuardTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-016",
+      "name": "LinkStore._links",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "samples/Connapse.CustomSource.Example/LinkStore.cs",
+        "tests/Connapse.Core.Tests/Connectors/AtlassianApiClientTests.cs",
+        "tests/Connapse.Core.Tests/Utilities/SftpPathConfinementTests.cs",
+        "tests/Connapse.Core.Tests/CloudScope/AtlassianSearchResultVerifierTests.cs",
+        "tests/Connapse.Core.Tests/CloudScope/AtlassianSearchScopeResolverTests.cs",
+        "tests/Connapse.Core.Tests/CloudScope/GitHubSearchScopeResolverTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/FakeConfluence.cs",
+        "tests/Connapse.Core.Tests/Connectors/FakeConfluenceChanges.cs",
+        "tests/Connapse.Core.Tests/Web/AtlassianLinkAppServiceTests.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/AtlassianApiClient.cs"
+      ],
+      "key": [
+        "samples/Connapse.CustomSource.Example/LinkStore.cs"
+      ]
+    },
+    {
+      "id": "connapse-usages-019",
+      "name": "ConnapseAzureCredentials",
+      "crowd": "crowded",
+      "recall@10": 0.8,
+      "ranked": [
+        "tests/Connapse.Storage.Tests/CloudScope/ConnapseAzureCredentialsTests.cs",
+        "src/Connapse.Storage/CloudScope/ConnapseAzureCredentials.cs",
+        "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs",
+        "src/Connapse.Storage/CloudScope/AzureBlobDiscovery.cs",
+        "src/Connapse.Identity/Services/AzureOidcTokenExchanger.cs",
+        "src/Connapse.Storage/Connectors/ConnectorFactory.cs",
+        "tests/Connapse.Storage.Tests/CloudScope/AzureBlobDiscoveryTests.cs",
+        "tests/Connapse.Integration.Tests/AzureProviderDiIntegrationTests.cs",
+        "src/Connapse.Storage/ConnectionTesters/AzureBlobConnectionTester.cs",
+        "tests/Connapse.Core.Tests/ConnectionTesterTests.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/CloudScope/AzureBlobDiscovery.cs",
+        "src/Connapse.Storage/ConnectionTesters/AzureBlobConnectionTester.cs",
+        "src/Connapse.Storage/Connectors/ConnectorFactory.cs",
+        "src/Connapse.Storage/Extensions/ServiceCollectionExtensions.cs",
+        "tests/Connapse.Core.Tests/ConnectionTesterTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/JiraProjectConnectorTests.cs",
+        "tests/Connapse.Core.Tests/Connectors/SourceConnectorFactoryTests.cs",
+        "tests/Connapse.Core.Tests/Sources/GitHubRepositoryFormTests.cs",
+        "tests/Connapse.Integration.Tests/AzureProviderDiIntegrationTests.cs",
+        "tests/Connapse.Storage.Tests/CloudScope/AzureBlobDiscoveryTests.cs",
+        "tests/Connapse.Storage.Tests/CloudScope/ConnapseAzureCredentialsTests.cs"
+      ]
+    },
+    {
+      "id": "connapse-how-001",
+      "name": "IngestionPipeline.BuildMetadata",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "src/Connapse.Core/Models/EmbeddingPrompts.cs",
+        "src/Connapse.Core/Models/SettingsModels.cs",
+        "src/Connapse.Core/Models/IngestionModels.cs",
+        "src/Connapse.Storage/Data/Entities/DocumentEntity.cs",
+        "src/Connapse.Core/Interfaces/IReindexService.cs",
+        "src/Connapse.Storage/Data/Entities/ChunkEntity.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/ConfluencePageStateStore.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/JiraIssueStateStore.cs",
+        "samples/Connapse.CustomSource.Example/LinkStore.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Models/EmbeddingPrompts.cs",
+        "src/Connapse.Core/Models/IngestionModels.cs",
+        "src/Connapse.Core/Models/SettingsModels.cs",
+        "src/Connapse.Ingestion/Pipeline/IngestionPipeline.cs",
+        "src/Connapse.Storage/Data/Entities/DocumentEntity.cs"
+      ]
+    },
+    {
+      "id": "connapse-how-003",
+      "name": "PathConfinement.ResolveWithin",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Utilities/PathConfinement.cs",
+        "src/Connapse.Storage/Connectors/FilesystemConnector.cs",
+        "src/Connapse.Core/Utilities/SftpPathConfinement.cs",
+        "src/Connapse.Storage/Data/Entities/DocumentEntity.cs",
+        "src/Connapse.Storage/Data/Entities/FolderEntity.cs",
+        "tests/Connapse.Eval/Runs/RunFolder.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Utilities/PathConfinement.cs"
+      ]
+    },
+    {
+      "id": "connapse-how-004",
+      "name": "AtlassianSite.FromConfigJson",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/Connectors/Atlassian/AtlassianSite.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/JiraIssueStateStore.cs",
+        "src/Connapse.Storage/Connectors/GitHub/GitHubCredentialPool.cs",
+        "src/Connapse.Storage/Connectors/GitHubConnector.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/AtlassianApiClient.cs",
+        "src/Connapse.Storage/ConnectionTesters/AtlassianConnectionTester.cs",
+        "src/Connapse.Web/Components/Settings/SourceEditForm.cs",
+        "tests/Connapse.Web.Tests/Components/SourcesSyncStatusTests.cs",
+        "src/Connapse.Core/Models/Result.cs",
+        "src/Connapse.Web/Components/Connections/AtlassianSiteStatus.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/Connectors/Atlassian/AtlassianApiClient.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/AtlassianSite.cs"
+      ]
+    },
+    {
+      "id": "connapse-how-007",
+      "name": "RolesAnywhereClient.CreateSessionAsync",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Storage/CloudScope/RolesAnywhere/RolesAnywhereClient.cs",
+        "src/Connapse.Storage/CloudScope/RolesAnywhere/RolesAnywhereSigner.cs",
+        "src/Connapse.Storage/CloudScope/RolesAnywhere/RolesAnywhereParameters.cs",
+        "src/Connapse.Web/Mcp/McpTools.cs",
+        "tools/Connapse.CustomSource.Conformance/ConformanceSuite.cs",
+        "src/Connapse.Core/Models/Result.cs",
+        "src/Connapse.Storage/Connectors/Atlassian/JiraIssueStateStore.cs",
+        "src/Connapse.Storage/Connectors/GitHub/ConnapseGitHubApp.cs",
+        "src/Connapse.Storage/Data/Entities/DocumentEntity.cs",
+        "tests/Connapse.Core.Tests/Utilities/TestOptionsSnapshot.cs"
+      ],
+      "key": [
+        "src/Connapse.Storage/CloudScope/RolesAnywhere/RolesAnywhereClient.cs",
+        "src/Connapse.Storage/CloudScope/RolesAnywhere/RolesAnywhereSigner.cs"
+      ]
+    },
+    {
+      "id": "connapse-how-009",
+      "name": "SummaryJobs.GenerateAndCacheSummaryAsync",
+      "crowd": "sparse",
+      "recall@10": 0.875,
+      "ranked": [
+        "src/Connapse.Background/Jobs/SummaryJobs.cs",
+        "src/Connapse.Core/Interfaces/IConnector.cs",
+        "src/Connapse.Core/Interfaces/IContainerStore.cs",
+        "src/Connapse.Core/Interfaces/IDocumentParser.cs",
+        "src/Connapse.Core/Interfaces/IManagedStorageProvider.cs",
+        "src/Connapse.Core/Interfaces/IPerDocSummarizer.cs",
+        "src/Connapse.Background/Jobs/IngestionJobs.cs",
+        "src/Connapse.Core/Utilities/LogSanitizer.cs",
+        "src/Connapse.Core/Models/SettingsModels.cs",
+        "src/Connapse.Storage/Llm/OllamaLlmProvider.cs"
+      ],
+      "key": [
+        "src/Connapse.Background/Jobs/SummaryJobs.cs",
+        "src/Connapse.Core/Interfaces/IConnector.cs",
+        "src/Connapse.Core/Interfaces/IContainerStore.cs",
+        "src/Connapse.Core/Interfaces/IDocumentParser.cs",
+        "src/Connapse.Core/Interfaces/IManagedStorageProvider.cs",
+        "src/Connapse.Core/Interfaces/IPerDocSummarizer.cs",
+        "src/Connapse.Core/Models/StorageModels.cs",
+        "src/Connapse.Core/Utilities/LogSanitizer.cs"
+      ]
+    },
+    {
+      "id": "connapse-how-012",
+      "name": "SearchScopes.OfPrefixes",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Connapse.Core/Models/SearchScopes.cs",
+        "src/Connapse.Core/Models/GrantScope.cs"
+      ],
+      "key": [
+        "src/Connapse.Core/Models/GrantScope.cs",
+        "src/Connapse.Core/Models/SearchScopes.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-001",
+      "name": "MessageTemplateParser.ParseTextToken",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Parsing/MessageTemplateParser.cs"
+      ],
+      "key": [
+        "src/Serilog/Parsing/MessageTemplateParser.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-003",
+      "name": "ReusableStringWriter",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Rendering/ReusableStringWriter.cs"
+      ],
+      "key": [
+        "src/Serilog/Rendering/ReusableStringWriter.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-004",
+      "name": "LevelAlias",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Events/LevelAlias.cs"
+      ],
+      "key": [
+        "src/Serilog/Events/LevelAlias.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-005",
+      "name": "MessageTemplate",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "test/Serilog.Tests/Support/Some.cs"
+      ],
+      "key": [
+        "src/Serilog/Events/MessageTemplate.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-007",
+      "name": "SettingValueConversions.TryParseStaticMemberAccessor",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Settings/KeyValuePairs/SettingValueConversions.cs"
+      ],
+      "key": [
+        "src/Serilog/Settings/KeyValuePairs/SettingValueConversions.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-011",
+      "name": "SurrogateConfigurationMethods.SurrogateMethodCandidates",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Settings/KeyValuePairs/SurrogateConfigurationMethods.cs"
+      ],
+      "key": [
+        "src/Serilog/Settings/KeyValuePairs/SurrogateConfigurationMethods.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-012",
+      "name": "MessageTemplateRenderer.Render",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Rendering/MessageTemplateRenderer.cs"
+      ],
+      "key": [
+        "src/Serilog/Rendering/MessageTemplateRenderer.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-014",
+      "name": "Constants",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Constants.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/Constants.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-015",
+      "name": "LoggerConfiguration.CreateLogger",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/LoggerConfiguration.cs"
+      ],
+      "key": [
+        "src/Serilog/LoggerConfiguration.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-020",
+      "name": "ILogger",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/ILogger.cs"
+      ],
+      "key": [
+        "src/Serilog/ILogger.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-022",
+      "name": "TextToken.Text",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Parsing/TextToken.cs"
+      ],
+      "key": [
+        "src/Serilog/Parsing/TextToken.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-023",
+      "name": "LoggerConfiguration.Filter",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/LoggerConfiguration.cs"
+      ],
+      "key": [
+        "src/Serilog/LoggerConfiguration.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-024",
+      "name": "PropertyToken",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Parsing/PropertyToken.cs"
+      ],
+      "key": [
+        "src/Serilog/Parsing/PropertyToken.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-025",
+      "name": "ILogEventEnricher",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/ILogEventEnricher.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/ILogEventEnricher.cs"
+      ]
+    },
+    {
+      "id": "serilog-definition-028",
+      "name": "MessageTemplateToken",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Parsing/MessageTemplateToken.cs"
+      ],
+      "key": [
+        "src/Serilog/Parsing/MessageTemplateToken.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-002",
+      "name": "MessageTemplateRenderer.RenderPropertyToken",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Rendering/MessageTemplateRenderer.cs",
+        "src/Serilog/Formatting/Json/JsonFormatter.cs",
+        "src/Serilog/Parsing/PropertyToken.cs"
+      ],
+      "key": [
+        "src/Serilog/Formatting/Json/JsonFormatter.cs",
+        "src/Serilog/Parsing/PropertyToken.cs",
+        "src/Serilog/Rendering/MessageTemplateRenderer.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-004",
+      "name": "MessageTemplateParser.Parse",
+      "crowd": "crowded",
+      "recall@10": 0.875,
+      "ranked": [
+        "test/Serilog.Tests/Parsing/MessageTemplateParserTests.cs",
+        "src/Serilog/Parsing/MessageTemplateParser.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonFormatterTests.cs",
+        "test/Serilog.PerformanceTests/MessageTemplateParsingBenchmark.cs",
+        "src/Serilog/Capturing/MessageTemplateProcessor.cs",
+        "src/Serilog/Formatting/Display/MessageTemplateTextFormatter.cs",
+        "test/Serilog.PerformanceTests/MessageTemplateCacheBenchmark/MessageTemplateCacheBenchmark_Cached.cs",
+        "test/Serilog.Tests/Core/LogEventPropertyCapturingTests.cs",
+        "test/Serilog.Tests/Core/MessageTemplateTests.cs",
+        "test/Serilog.Tests/Rendering/MessageTemplateRendererTests.cs"
+      ],
+      "key": [
+        "src/Serilog/Formatting/Display/MessageTemplateTextFormatter.cs",
+        "test/Serilog.PerformanceTests/MessageTemplateParsingBenchmark.cs",
+        "test/Serilog.Tests/Core/LogEventPropertyCapturingTests.cs",
+        "test/Serilog.Tests/Core/MessageTemplateTests.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonFormatterTests.cs",
+        "test/Serilog.Tests/Parsing/MessageTemplateParserTests.cs",
+        "test/Serilog.Tests/Rendering/MessageTemplateRendererTests.cs",
+        "test/Serilog.Tests/Support/Some.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-005",
+      "name": "LoggerConfiguration.CreateLogger",
+      "crowd": "crowded",
+      "recall@10": 0.9,
+      "ranked": [
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs",
+        "test/Serilog.Tests/Context/LogContextTests.cs",
+        "test/Serilog.Tests/Core/SecondaryLoggerSinkTests.cs",
+        "test/Serilog.Tests/Core/AuditSinkTests.cs",
+        "test/Serilog.Tests/Core/ChildLoggerDisposalTests.cs",
+        "test/Serilog.Tests/Core/ChildLoggerKnownLimitationsTests.cs",
+        "test/Serilog.Tests/Core/ChildLoggerTests.cs",
+        "src/Serilog/LoggerConfiguration.cs"
+      ],
+      "key": [
+        "src/Serilog/Configuration/LoggerSinkConfiguration.cs",
+        "src/Serilog/ILogger.cs",
+        "test/Serilog.PerformanceTests/AllocationsBenchmark.cs",
+        "test/Serilog.PerformanceTests/BindingBenchmark.cs",
+        "test/Serilog.PerformanceTests/LevelControlBenchmark.cs",
+        "test/Serilog.PerformanceTests/LogContextEnrichmentBenchmark.cs",
+        "test/Serilog.PerformanceTests/NestedLoggerCreationBenchmark.cs",
+        "test/Serilog.PerformanceTests/NestedLoggerLatencyBenchmark.cs",
+        "test/Serilog.PerformanceTests/PipelineBenchmark.cs",
+        "test/Serilog.PerformanceTests/SourceContextMatchBenchmark.cs",
+        "test/Serilog.PerformanceTests/Support/Some.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Context/LogContextTests.cs",
+        "test/Serilog.Tests/Core/AuditSinkTests.cs",
+        "test/Serilog.Tests/Core/ChildLoggerDisposalTests.cs",
+        "test/Serilog.Tests/Core/ChildLoggerKnownLimitationsTests.cs",
+        "test/Serilog.Tests/Core/ChildLoggerTests.cs",
+        "test/Serilog.Tests/Core/FailureListenerTests.cs",
+        "test/Serilog.Tests/Core/LoggerExtensionsTests.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "test/Serilog.Tests/Core/SecondaryLoggerSinkTests.cs",
+        "test/Serilog.Tests/Debugging/SelfLogTests.cs",
+        "test/Serilog.Tests/Filters/MatchingTests.cs",
+        "test/Serilog.Tests/MethodOverloadConventionTests.cs",
+        "test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs",
+        "test/Serilog.Tests/Support/DelegatingSink.cs",
+        "test/Serilog.Tests/Support/Some.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-008",
+      "name": "ILogEventEnricher.Enrich",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Enrichers/ConditionalEnricher.cs",
+        "src/Serilog/Core/Logger.cs",
+        "test/Serilog.Tests/Context/LogContextTests.cs",
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/Context/LogContextEnricher.cs",
+        "src/Serilog/Core/Enrichers/PropertyEnricher.cs",
+        "src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs",
+        "src/Serilog/Core/ILogEventEnricher.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "src/Serilog/Context/LogContext.cs"
+      ],
+      "key": [
+        "src/Serilog/Context/LogContext.cs",
+        "src/Serilog/Core/Enrichers/ConditionalEnricher.cs",
+        "src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs",
+        "src/Serilog/Core/Logger.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-009",
+      "name": "SelfLog.WriteLine",
+      "crowd": "crowded",
+      "recall@10": 0.8,
+      "ranked": [
+        "src/Serilog/Capturing/PropertyBinder.cs",
+        "src/Serilog/Capturing/PropertyValueConverter.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/Debugging/SelfLog.cs",
+        "src/Serilog/Configuration/LoggerSinkConfiguration.cs",
+        "src/Serilog/Core/Sinks/DisposingAggregateSink.cs",
+        "test/Serilog.Tests/Debugging/SelfLogTests.cs",
+        "test/Serilog.PerformanceTests/Support/NullTextWriter.cs",
+        "src/Serilog/Capturing/DepthLimiter.cs",
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs"
+      ],
+      "key": [
+        "src/Serilog/Capturing/DepthLimiter.cs",
+        "src/Serilog/Capturing/PropertyBinder.cs",
+        "src/Serilog/Capturing/PropertyValueConverter.cs",
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/Configuration/LoggerSinkConfiguration.cs",
+        "src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/Core/Sinks/AggregateSink.cs",
+        "src/Serilog/Core/Sinks/DisposingAggregateSink.cs",
+        "src/Serilog/Core/Sinks/FilteringSink.cs",
+        "src/Serilog/Core/Sinks/SafeAggregateSink.cs",
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs",
+        "test/Serilog.Tests/Debugging/SelfLogTests.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-014",
+      "name": "Logger.PostLevelCheckEmit",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Logger.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/Logger.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-017",
+      "name": "JsonValueFormatter.FormatDateTimeValue",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs"
+      ],
+      "key": [
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-018",
+      "name": "MessageTemplateTextFormatter.Format",
+      "crowd": "crowded",
+      "recall@10": 0.6667,
+      "ranked": [
+        "test/Serilog.Tests/Formatting/Display/MessageTemplateTextFormatterTests.cs",
+        "src/Serilog/Formatting/Display/MessageTemplateTextFormatter.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonValueFormatterTests.cs",
+        "test/Serilog.Tests/Parsing/MessageTemplateParserTests.cs",
+        "src/Serilog/Formatting/Json/JsonFormatter.cs",
+        "src/Serilog/Parsing/PropertyToken.cs",
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonFormatterTests.cs",
+        "test/Serilog.PerformanceTests/OutputTemplateRenderingBenchmark.cs",
+        "test/Serilog.Tests/Support/StringSink.cs"
+      ],
+      "key": [
+        "test/Serilog.PerformanceTests/AllocationsBenchmark.cs",
+        "test/Serilog.PerformanceTests/OutputTemplateRenderingBenchmark.cs",
+        "test/Serilog.Tests/Formatting/Display/MessageTemplateTextFormatterTests.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-019",
+      "name": "LoggerMinimumLevelConfiguration.ControlledBy",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Configuration/LoggerMinimumLevelConfiguration.cs",
+        "test/Serilog.PerformanceTests/LevelControlBenchmark.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Core/SecondaryLoggerSinkTests.cs"
+      ],
+      "key": [
+        "src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs",
+        "test/Serilog.PerformanceTests/LevelControlBenchmark.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "test/Serilog.Tests/Core/SecondaryLoggerSinkTests.cs"
+      ]
+    },
+    {
+      "id": "serilog-callers-020",
+      "name": "LogContext.Reset",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Context/LogContext.cs",
+        "test/Serilog.Tests/Context/LogContextTests.cs",
+        "test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs",
+        "test/Serilog.Tests/Debugging/SelfLogTests.cs",
+        "src/Serilog/Context/EnricherStack.cs",
+        "test/TestDummies/DummyRollingFileAuditSink.cs",
+        "test/TestDummies/DummyRollingFileSink.cs",
+        "test/TestDummies/DummyWrappingSink.cs"
+      ],
+      "key": [
+        "test/Serilog.Tests/Context/LogContextTests.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-001",
+      "name": "Logger._messageTemplateProcessor",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Logger.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/Logger.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-002",
+      "name": "Logger.None",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/Log.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "src/Serilog/Capturing/PropertyBinder.cs",
+        "src/Serilog/Core/Enrichers/FixedPropertyEnricher.cs",
+        "src/Serilog/Events/EventProperty.cs",
+        "src/Serilog/Events/LogEventProperty.cs",
+        "src/Serilog/Parsing/PropertyToken.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonFormatterTests.cs"
+      ],
+      "key": [
+        "src/Serilog/Log.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-003",
+      "name": "SequenceValue.Elements",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "test/Serilog.Tests/Capturing/PropertyValueConverterTests.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "src/Serilog/Data/LogEventPropertyValueRewriter.cs",
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs",
+        "test/Serilog.Tests/Support/LogEventPropertyValueComparer.cs",
+        "src/Serilog/Events/SequenceValue.cs",
+        "test/Serilog.Tests/Data/LogEventPropertyValueRewriterTests.cs",
+        "test/Serilog.Tests/Support/Extensions.cs",
+        "src/Serilog/Events/DictionaryValue.cs"
+      ],
+      "key": [
+        "src/Serilog/Data/LogEventPropertyValueRewriter.cs",
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs",
+        "test/Serilog.Tests/Capturing/PropertyValueConverterTests.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "test/Serilog.Tests/Data/LogEventPropertyValueRewriterTests.cs",
+        "test/Serilog.Tests/Support/Extensions.cs",
+        "test/Serilog.Tests/Support/LogEventPropertyValueComparer.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-004",
+      "name": "StructureValue",
+      "crowd": "crowded",
+      "recall@10": 0.9,
+      "ranked": [
+        "src/Serilog/Events/StructureValue.cs",
+        "test/Serilog.Tests/Capturing/PropertyValueConverterTests.cs",
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs",
+        "src/Serilog/Capturing/PropertyValueConverter.cs",
+        "src/Serilog/Data/LogEventPropertyValueRewriter.cs",
+        "src/Serilog/Data/LogEventPropertyValueVisitor.cs",
+        "test/Serilog.Tests/Data/LogEventPropertyValueRewriterTests.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonValueFormatterTests.cs",
+        "test/Serilog.Tests/Support/LogEventPropertyValueComparer.cs",
+        "src/Serilog/Formatting/Display/PropertiesOutputFormat.cs"
+      ],
+      "key": [
+        "src/Serilog/Capturing/PropertyValueConverter.cs",
+        "src/Serilog/Data/LogEventPropertyValueRewriter.cs",
+        "src/Serilog/Data/LogEventPropertyValueVisitor.cs",
+        "src/Serilog/Formatting/Display/PropertiesOutputFormat.cs",
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs",
+        "test/Serilog.Tests/Capturing/PropertyValueConverterTests.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Data/LogEventPropertyValueRewriterTests.cs",
+        "test/Serilog.Tests/Formatting/Display/MessageTemplateTextFormatterTests.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonFormatterTests.cs",
+        "test/Serilog.Tests/Formatting/Json/JsonValueFormatterTests.cs",
+        "test/Serilog.Tests/Support/LogEventPropertyValueComparer.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-007",
+      "name": "BatchingOptions.BufferingTimeLimit",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "test/Serilog.Tests/Core/BatchingSinkTests.cs",
+        "src/Serilog/Core/Sinks/Batching/BatchingSink.cs",
+        "src/Serilog/Configuration/BatchingOptions.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/Sinks/Batching/BatchingSink.cs",
+        "test/Serilog.Tests/Core/BatchingSinkTests.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-008",
+      "name": "SafeAggregateEnricher",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/ILogger.cs",
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/Context/LogContext.cs",
+        "src/Serilog/LoggerConfiguration.cs"
+      ],
+      "key": [
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/Context/LogContext.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/ILogger.cs",
+        "src/Serilog/LoggerConfiguration.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-010",
+      "name": "ILogger",
+      "crowd": "crowded",
+      "recall@10": 0.9,
+      "ranked": [
+        "src/Serilog/ILogger.cs",
+        "test/Serilog.Tests/MethodOverloadConventionTests.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/Log.cs",
+        "src/Serilog/Core/Pipeline/SilentLogger.cs",
+        "test/Serilog.Tests/Support/DisposableLogger.cs",
+        "src/Serilog/Configuration/LoggerMinimumLevelConfiguration.cs",
+        "src/Serilog/Configuration/LoggerSinkConfiguration.cs",
+        "src/Serilog/LoggerExtensions.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs"
+      ],
+      "key": [
+        "src/Serilog/Configuration/LoggerAuditSinkConfiguration.cs",
+        "src/Serilog/Configuration/LoggerSinkConfiguration.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/Core/Pipeline/SilentLogger.cs",
+        "src/Serilog/Core/Sinks/SecondaryLoggerSink.cs",
+        "src/Serilog/ILogger.cs",
+        "src/Serilog/Log.cs",
+        "src/Serilog/LoggerExtensions.cs",
+        "src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs",
+        "test/Serilog.ApprovalTests/ApiApprovalTests.cs",
+        "test/Serilog.PerformanceTests/AllocationsBenchmark.cs",
+        "test/Serilog.PerformanceTests/BindingBenchmark.cs",
+        "test/Serilog.PerformanceTests/LevelControlBenchmark.cs",
+        "test/Serilog.PerformanceTests/LogContextEnrichmentBenchmark.cs",
+        "test/Serilog.PerformanceTests/NestedLoggerCreationBenchmark.cs",
+        "test/Serilog.PerformanceTests/NestedLoggerLatencyBenchmark.cs",
+        "test/Serilog.PerformanceTests/PipelineBenchmark.cs",
+        "test/Serilog.PerformanceTests/SourceContextMatchBenchmark.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "test/Serilog.Tests/MethodOverloadConventionTests.cs",
+        "test/Serilog.Tests/Support/DelegatingLogger.cs",
+        "test/Serilog.Tests/Support/DelegatingSink.cs",
+        "test/Serilog.Tests/Support/DisposableLogger.cs",
+        "test/Serilog.Tests/Support/SyncDisposableLogger.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-011",
+      "name": "MessageTemplateProcessor._propertyBinder",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Capturing/MessageTemplateProcessor.cs"
+      ],
+      "key": [
+        "src/Serilog/Capturing/MessageTemplateProcessor.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-013",
+      "name": "EventProperty.None",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Events/EventProperty.cs",
+        "src/Serilog/Core/Logger.cs",
+        "test/TestDummies/Console/Themes/ConsoleTheme.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "src/Serilog/Capturing/PropertyBinder.cs",
+        "src/Serilog/Core/Enrichers/FixedPropertyEnricher.cs",
+        "src/Serilog/Events/LogEventProperty.cs",
+        "test/Serilog.Tests/Core/LoggerTests.cs",
+        "src/Serilog/Log.cs",
+        "src/Serilog/Parsing/PropertyToken.cs"
+      ],
+      "key": [
+        "src/Serilog/Capturing/PropertyBinder.cs",
+        "src/Serilog/Core/Enrichers/FixedPropertyEnricher.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "src/Serilog/Events/LogEventProperty.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-017",
+      "name": "KeyValuePairSettings",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs",
+        "test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs",
+        "src/Serilog/Configuration/LoggerSettingsConfiguration.cs"
+      ],
+      "key": [
+        "src/Serilog/Configuration/LoggerSettingsConfiguration.cs",
+        "test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-019",
+      "name": "LoggerEnrichmentConfiguration",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/LoggerConfiguration.cs",
+        "src/Serilog/Settings/KeyValuePairs/SurrogateConfigurationMethods.cs",
+        "src/Serilog/Context/LogContext.cs",
+        "src/Serilog/Settings/KeyValuePairs/CallableConfigurationMethodFinder.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Settings/CallableConfigurationMethodFinderTests.cs",
+        "src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs",
+        "test/TestDummies/DummyLoggerConfigurationExtensions.cs"
+      ],
+      "key": [
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/LoggerConfiguration.cs",
+        "src/Serilog/Settings/KeyValuePairs/CallableConfigurationMethodFinder.cs",
+        "src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs",
+        "src/Serilog/Settings/KeyValuePairs/SurrogateConfigurationMethods.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Settings/CallableConfigurationMethodFinderTests.cs",
+        "test/TestDummies/DummyLoggerConfigurationExtensions.cs"
+      ]
+    },
+    {
+      "id": "serilog-usages-020",
+      "name": "MessageTemplate",
+      "crowd": "crowded",
+      "recall@10": 0.7,
+      "ranked": [
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "test/Serilog.Tests/MethodOverloadConventionTests.cs",
+        "test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs",
+        "test/Serilog.Tests/Events/LogEventTests.cs",
+        "test/Serilog.PerformanceTests/BindingBenchmark.cs",
+        "src/Serilog/Capturing/PropertyBinder.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/Formatting/Json/JsonFormatter.cs",
+        "src/Serilog/Log.cs"
+      ],
+      "key": [
+        "src/Serilog/Capturing/MessageTemplateProcessor.cs",
+        "src/Serilog/Capturing/PropertyBinder.cs",
+        "src/Serilog/Core/IMessageTemplateParser.cs",
+        "src/Serilog/Core/Logger.cs",
+        "src/Serilog/Core/Pipeline/MessageTemplateCache.cs",
+        "src/Serilog/Core/Pipeline/SilentLogger.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Formatting/Display/MessageTemplateTextFormatter.cs",
+        "src/Serilog/Formatting/Display/PropertiesOutputFormat.cs",
+        "src/Serilog/ILogger.cs",
+        "src/Serilog/Log.cs",
+        "src/Serilog/Parsing/MessageTemplateParser.cs",
+        "src/Serilog/Rendering/MessageTemplateRenderer.cs",
+        "test/Serilog.PerformanceTests/BindingBenchmark.cs",
+        "test/Serilog.PerformanceTests/Support/ConcurrentDictionaryTemplateCache.cs",
+        "test/Serilog.PerformanceTests/Support/DictionaryMessageTemplateCache.cs",
+        "test/Serilog.PerformanceTests/Support/NoOpMessageTemplateParser.cs",
+        "test/Serilog.Tests/MethodOverloadConventionTests.cs",
+        "test/Serilog.Tests/Support/DisposableLogger.cs",
+        "test/Serilog.Tests/Support/Some.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-002",
+      "name": "MessageTemplateRenderer.Render",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Rendering/MessageTemplateRenderer.cs",
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Events/LogEventPropertyValue.cs",
+        "src/Serilog/Parsing/PropertyToken.cs",
+        "src/Serilog/Parsing/TextToken.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "test/Serilog.Tests/Support/Some.cs"
+      ],
+      "key": [
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Parsing/PropertyToken.cs",
+        "src/Serilog/Parsing/TextToken.cs",
+        "src/Serilog/Rendering/MessageTemplateRenderer.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-004",
+      "name": "LoggerConfiguration.CreateLogger",
+      "crowd": "crowded",
+      "recall@10": 0.7,
+      "ranked": [
+        "src/Serilog/LoggerConfiguration.cs",
+        "src/Serilog/Capturing/MessageTemplateProcessor.cs",
+        "src/Serilog/Core/ILogEventSink.cs",
+        "src/Serilog/Core/Sinks/AggregateSink.cs",
+        "src/Serilog/Core/Sinks/FilteringSink.cs",
+        "src/Serilog/Core/Sinks/SafeAggregateSink.cs",
+        "src/Serilog/Capturing/DepthLimiter.cs",
+        "src/Serilog/Capturing/PropertyValueConverter.cs",
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "test/Serilog.Tests/Core/MessageTemplateTests.cs"
+      ],
+      "key": [
+        "src/Serilog/Capturing/DepthLimiter.cs",
+        "src/Serilog/Capturing/MessageTemplateProcessor.cs",
+        "src/Serilog/Core/Enrichers/EmptyEnricher.cs",
+        "src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs",
+        "src/Serilog/Core/ILogEventSink.cs",
+        "src/Serilog/Core/LevelOverrideMap.cs",
+        "src/Serilog/Core/Sinks/AggregateSink.cs",
+        "src/Serilog/Core/Sinks/FilteringSink.cs",
+        "src/Serilog/Core/Sinks/SafeAggregateSink.cs",
+        "src/Serilog/Debugging/SelfMetrics.cs",
+        "src/Serilog/Events/LevelAlias.cs",
+        "src/Serilog/LoggerConfiguration.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-005",
+      "name": "PropertiesOutputFormat.TemplateContainsPropertyName",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Formatting/Display/PropertiesOutputFormat.cs",
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Parsing/PropertyToken.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "test/Serilog.Tests/Support/Some.cs"
+      ],
+      "key": [
+        "src/Serilog/Events/MessageTemplate.cs",
+        "src/Serilog/Formatting/Display/PropertiesOutputFormat.cs",
+        "src/Serilog/Parsing/PropertyToken.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-006",
+      "name": "FailureAwareBatchScheduler.MarkFailure",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Sinks/Batching/FailureAwareBatchScheduler.cs",
+        "src/Serilog/Util/TimeProvider.cs",
+        "test/Serilog.Tests/Support/TestTimeProvider.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/Sinks/Batching/FailureAwareBatchScheduler.cs",
+        "src/Serilog/Util/TimeProvider.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-007",
+      "name": "BatchingSink.Dispose",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Sinks/Batching/BatchingSink.cs",
+        "src/Serilog/Core/ILoggingFailureListener.cs",
+        "src/Serilog/Core/LoggingFailureKind.cs",
+        "src/Serilog/Core/Sinks/Fallback/DelegatingLoggingFailureListener.cs",
+        "src/Serilog/Debugging/SelfLog.cs",
+        "test/Serilog.Tests/Support/CollectingFailureListener.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/ILoggingFailureListener.cs",
+        "src/Serilog/Core/LoggingFailureKind.cs",
+        "src/Serilog/Core/Sinks/Batching/BatchingSink.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-010",
+      "name": "LogEventPropertyValueVisitor.Visit",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Data/LogEventPropertyValueVisitor.cs",
+        "src/Serilog/Data/LogEventPropertyValueRewriter.cs",
+        "src/Serilog/Guard.cs",
+        "src/Serilog/Formatting/Json/JsonValueFormatter.cs",
+        "src/Serilog/Events/DictionaryValue.cs",
+        "src/Serilog/Events/LogEventPropertyValue.cs",
+        "src/Serilog/Events/ScalarValue.cs",
+        "src/Serilog/Events/SequenceValue.cs",
+        "src/Serilog/Events/StructureValue.cs",
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs"
+      ],
+      "key": [
+        "src/Serilog/Data/LogEventPropertyValueVisitor.cs",
+        "src/Serilog/Events/DictionaryValue.cs",
+        "src/Serilog/Events/ScalarValue.cs",
+        "src/Serilog/Events/SequenceValue.cs",
+        "src/Serilog/Events/StructureValue.cs",
+        "src/Serilog/Guard.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-011",
+      "name": "BatchingSink.TryWaitToReadAsync",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Core/Sinks/Batching/BatchingSink.cs",
+        "src/Serilog/Core/ILoggingFailureListener.cs",
+        "src/Serilog/Core/LoggingFailureKind.cs",
+        "src/Serilog/Events/LogEvent.cs",
+        "test/Serilog.Tests/Support/Some.cs",
+        "src/Serilog/Core/Sinks/Fallback/DelegatingLoggingFailureListener.cs",
+        "src/Serilog/Debugging/SelfLog.cs",
+        "test/Serilog.Tests/Support/CollectingFailureListener.cs"
+      ],
+      "key": [
+        "src/Serilog/Core/ILoggingFailureListener.cs",
+        "src/Serilog/Core/LoggingFailureKind.cs",
+        "src/Serilog/Core/Sinks/Batching/BatchingSink.cs"
+      ]
+    },
+    {
+      "id": "serilog-how-012",
+      "name": "LoggerEnrichmentConfiguration.Wrap",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/LoggerConfiguration.cs",
+        "src/Serilog/Guard.cs",
+        "src/Serilog/Debugging/SelfLog.cs",
+        "src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs",
+        "src/Serilog/Core/ILogEventEnricher.cs",
+        "test/Serilog.Tests/Core/MessageTemplateTests.cs",
+        "src/Serilog/Configuration/LoggerDestructuringConfiguration.cs",
+        "src/Serilog/Configuration/LoggerFilterConfiguration.cs",
+        "src/Serilog/Rendering/ReusableStringWriter.cs"
+      ],
+      "key": [
+        "src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs",
+        "src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs",
+        "src/Serilog/Core/ILogEventEnricher.cs",
+        "src/Serilog/Debugging/SelfLog.cs",
+        "src/Serilog/Guard.cs",
+        "src/Serilog/LoggerConfiguration.cs"
+      ]
+    },
+    {
+      "id": "ky-definition-001",
+      "name": "invalidSchemaMessage",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/core/Ky.ts",
+        "test/response-handling.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-003",
+      "name": "TimeoutError",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "source/errors/TimeoutError.ts"
+      ],
+      "key": [
+        "source/errors/TimeoutError.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-007",
+      "name": "isResponse",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/utils/is.ts"
+      ],
+      "key": [
+        "source/utils/is.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-009",
+      "name": "Hooks",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/hooks.ts",
+        "test-d/hooks.ts",
+        "test/merge.ts"
+      ],
+      "key": [
+        "source/types/hooks.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-010",
+      "name": "KyOptions",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/options.ts"
+      ],
+      "key": [
+        "source/types/options.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-012",
+      "name": "NormalizedOptions",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/options.ts",
+        "test-d/normalized-options.ts"
+      ],
+      "key": [
+        "source/types/options.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-018",
+      "name": "StandardSchemaV1",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/standard-schema.ts",
+        "test-d/json-undefined-schema.ts",
+        "test/main.ts",
+        "test/response-handling.ts"
+      ],
+      "key": [
+        "source/types/standard-schema.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-019",
+      "name": "validateCallbackOptions",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/core/Ky.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-020",
+      "name": "beforeRetry",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "test/hooks.ts",
+        "test/retry-options.ts",
+        "test/retry.ts",
+        "source/types/hooks.ts",
+        "test/stream.ts",
+        "test/resilience.ts",
+        "source/types/ky.ts",
+        "test/context.ts",
+        "test/fetch.ts",
+        "source/core/constants.ts"
+      ],
+      "key": [
+        "source/types/hooks.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-021",
+      "name": "onUploadProgress",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/options.ts",
+        "source/types/hooks.ts",
+        "source/core/constants.ts",
+        "test-d/hooks.ts",
+        "test-d/normalized-options.ts",
+        "test/request-construction.ts",
+        "test/retry.ts"
+      ],
+      "key": [
+        "source/types/options.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-022",
+      "name": "validateAndMerge",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/utils/merge.ts"
+      ],
+      "key": [
+        "source/utils/merge.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-023",
+      "name": "SearchParamsInit",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/options.ts"
+      ],
+      "key": [
+        "source/types/options.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-025",
+      "name": "fromTotalTimeout",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/core/Ky.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-028",
+      "name": "allowTimestamp",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/core/retry-timing.ts"
+      ],
+      "key": [
+        "source/core/retry-timing.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-029",
+      "name": "normalizeRetryMethod",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/utils/normalize.ts"
+      ],
+      "key": [
+        "source/utils/normalize.ts"
+      ]
+    },
+    {
+      "id": "ky-definition-030",
+      "name": "onDownloadProgress",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/options.ts",
+        "test/main.ts",
+        "test/response-size.ts",
+        "source/core/constants.ts",
+        "test-d/hooks.ts",
+        "test-d/normalized-options.ts",
+        "test/http-metadata.ts",
+        "test/request-construction.ts",
+        "test/response-handling.ts",
+        "test/retry-options.ts"
+      ],
+      "key": [
+        "source/types/options.ts"
+      ]
+    },
+    {
+      "id": "ky-callers-003",
+      "name": "Ky.create",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "test/main.ts",
+        "test/retry.ts",
+        "test/headers.ts",
+        "test/hooks.ts",
+        "source/types/options.ts",
+        "source/core/Ky.ts",
+        "source/utils/merge.ts",
+        "source/index.ts",
+        "source/types/ky.ts",
+        "test/retry-options.ts"
+      ],
+      "key": [
+        "source/index.ts"
+      ]
+    },
+    {
+      "id": "ky-callers-004",
+      "name": "isHTTPError",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "test/hooks.ts",
+        "source/types/hooks.ts",
+        "source/utils/type-guards.ts",
+        "test/errors.ts",
+        "test/type-guards.ts",
+        "source/core/Ky.ts",
+        "test-d/error-names.ts",
+        "test/context.ts",
+        "test/http-error.ts",
+        "source/index.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-callers-006",
+      "name": "isNetworkError",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "test/retry.ts",
+        "source/utils/type-guards.ts",
+        "test/hooks.ts",
+        "test/network-error.ts",
+        "source/types/hooks.ts",
+        "test/stream.ts",
+        "test/type-guards.ts",
+        "source/core/Ky.ts",
+        "test-d/error-names.ts",
+        "test/errors.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-callers-011",
+      "name": "delay",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "test/retry.ts",
+        "test/resilience.ts",
+        "test/hooks.ts",
+        "test/retry-decisions.ts",
+        "test/main.ts",
+        "source/types/retry.ts",
+        "test/fetch.ts",
+        "test/retry-timing.ts",
+        "source/core/Ky.ts",
+        "source/core/retry-timing.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-callers-012",
+      "name": "isTimeoutError",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "test/hooks.ts",
+        "test/type-guards.ts",
+        "source/utils/type-guards.ts",
+        "source/core/Ky.ts",
+        "test-d/error-names.ts",
+        "test/errors.ts",
+        "source/index.ts",
+        "source/types/hooks.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-001",
+      "name": "delayPattern",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/core/retry-timing.ts"
+      ],
+      "key": [
+        "source/core/retry-timing.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-002",
+      "name": "normalizeRetryMethod",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/utils/normalize.ts",
+        "source/core/Ky.ts",
+        "test/normalize.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts",
+        "source/utils/normalize.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-004",
+      "name": "ForceRetryError.code",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "source/errors/ForceRetryError.ts",
+        "test/hooks.ts",
+        "source/core/constants.ts",
+        "source/types/hooks.ts",
+        "source/errors/HTTPError.ts",
+        "source/types/ky.ts",
+        "test/retry.ts",
+        "test/errors.ts",
+        "source/utils/type-guards.ts",
+        "source/types/options.ts"
+      ],
+      "key": [
+        "source/errors/ForceRetryError.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-005",
+      "name": "beforeRetryOptionKeys",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/core/constants.ts",
+        "source/types/hooks.ts",
+        "source/core/Ky.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts",
+        "source/types/hooks.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-006",
+      "name": "TimeoutError",
+      "crowd": "crowded",
+      "recall@10": 0.5,
+      "ranked": [
+        "test/retry.ts",
+        "test/hooks.ts",
+        "test/main.ts",
+        "source/core/Ky.ts",
+        "test/resilience.ts",
+        "source/utils/type-guards.ts",
+        "source/errors/TimeoutError.ts",
+        "test/http-error.ts",
+        "test/type-guards.ts",
+        "test/errors.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts",
+        "source/index.ts",
+        "source/utils/timeout.ts",
+        "source/utils/type-guards.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-007",
+      "name": "isResponse",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/core/Ky.ts",
+        "source/utils/is.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-008",
+      "name": "Options.signal",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/options.ts",
+        "test/hooks.ts",
+        "test/main.ts",
+        "test/retry.ts",
+        "test/http-error.ts",
+        "test/resilience.ts",
+        "source/core/Ky.ts",
+        "source/core/constants.ts",
+        "source/utils/delay.ts",
+        "test/request-construction.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts",
+        "source/utils/delay.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-009",
+      "name": "onUploadProgress",
+      "crowd": "crowded",
+      "recall@10": 0.75,
+      "ranked": [
+        "source/types/options.ts",
+        "source/types/hooks.ts",
+        "source/core/constants.ts",
+        "test-d/hooks.ts",
+        "test-d/normalized-options.ts",
+        "test/request-construction.ts",
+        "test/retry.ts",
+        "test/stream.ts",
+        "test/retry-options.ts",
+        "source/utils/body.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts",
+        "source/core/constants.ts",
+        "source/types/options.ts",
+        "source/utils/body.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-015",
+      "name": "KyRequest",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "source/types/hooks.ts",
+        "source/errors/HTTPError.ts",
+        "source/errors/NetworkError.ts",
+        "source/errors/ResponseSizeError.ts",
+        "source/errors/TimeoutError.ts",
+        "source/types/request.ts",
+        "test-d/request-clone.ts",
+        "test-d/response-size.ts",
+        "source/index.ts"
+      ],
+      "key": [
+        "source/errors/HTTPError.ts",
+        "source/errors/NetworkError.ts",
+        "source/errors/ResponseSizeError.ts",
+        "source/errors/TimeoutError.ts",
+        "source/index.ts",
+        "source/types/hooks.ts",
+        "source/types/request.ts"
+      ]
+    },
+    {
+      "id": "ky-usages-019",
+      "name": "calculateRetryTimingDelay",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "test/retry-timing.ts",
+        "source/core/Ky.ts",
+        "source/core/retry-timing.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts"
+      ]
+    },
+    {
+      "id": "ky-how-003",
+      "name": "Ky.create",
+      "crowd": "crowded",
+      "recall@10": 0.5,
+      "ranked": [
+        "source/core/Ky.ts",
+        "source/core/constants.ts",
+        "source/utils/body.ts",
+        "test/merge.ts",
+        "source/types/options.ts",
+        "test-d/normalized-options.ts",
+        "test/response-handling.ts",
+        "test/stream.ts",
+        "test/base-url.ts",
+        "test/bytes.ts"
+      ],
+      "key": [
+        "source/core/Ky.ts",
+        "source/core/constants.ts",
+        "source/errors/TimeoutError.ts",
+        "source/types/ResponsePromise.ts",
+        "source/types/hooks.ts",
+        "source/types/options.ts",
+        "source/types/standard-schema.ts",
+        "source/utils/body.ts"
+      ]
+    },
+    {
+      "id": "click-definition-002",
+      "name": "Parameter.opts",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/parser.py"
+      ],
+      "key": [
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-definition-004",
+      "name": "Context",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py"
+      ],
+      "key": [
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-definition-007",
+      "name": "ParamType",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/types.py"
+      ],
+      "key": [
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-definition-009",
+      "name": "_LazyFile.close_intelligently",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/utils.py"
+      ],
+      "key": [
+        "src/click/utils.py"
+      ]
+    },
+    {
+      "id": "click-definition-010",
+      "name": "Command",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py"
+      ],
+      "key": [
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-definition-012",
+      "name": "convert_type",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/types.py"
+      ],
+      "key": [
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-definition-014",
+      "name": "_FloatValueT_co",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/types.py"
+      ],
+      "key": [
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-definition-022",
+      "name": "Option",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py"
+      ],
+      "key": [
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-definition-025",
+      "name": "BadParameter",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/exceptions.py"
+      ],
+      "key": [
+        "src/click/exceptions.py"
+      ]
+    },
+    {
+      "id": "click-definition-026",
+      "name": "Result.stdout_bytes",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/testing.py"
+      ],
+      "key": [
+        "src/click/testing.py"
+      ]
+    },
+    {
+      "id": "click-definition-027",
+      "name": "UsageError.ctx",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/exceptions.py",
+        "src/click/types.py",
+        "tests/test_options.py",
+        "src/click/core.py",
+        "tests/test_context.py",
+        "src/click/shell_completion.py",
+        "tests/test_commands.py",
+        "tests/test_info_dict.py",
+        "src/click/decorators.py",
+        "tests/test_arguments.py"
+      ],
+      "key": [
+        "src/click/exceptions.py"
+      ]
+    },
+    {
+      "id": "click-definition-029",
+      "name": "get_binary_stdout",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/_compat.py"
+      ],
+      "key": [
+        "src/click/_compat.py"
+      ]
+    },
+    {
+      "id": "click-definition-031",
+      "name": "Context.color",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/termui.py",
+        "src/click/_termui_impl.py",
+        "src/click/exceptions.py",
+        "src/click/testing.py",
+        "tests/test_termui.py",
+        "src/click/decorators.py",
+        "src/click/utils.py",
+        "tests/test_compat.py"
+      ],
+      "key": [
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-definition-032",
+      "name": "CliRunner.catch_exceptions",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/testing.py",
+        "tests/test_arguments.py",
+        "tests/test_options.py"
+      ],
+      "key": [
+        "src/click/testing.py"
+      ]
+    },
+    {
+      "id": "click-callers-004",
+      "name": "_is_binary_reader",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/_compat.py"
+      ],
+      "key": [
+        "src/click/_compat.py"
+      ]
+    },
+    {
+      "id": "click-callers-005",
+      "name": "style",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/termui.py",
+        "src/click/core.py",
+        "tests/test_termui.py",
+        "examples/termui/termui.py",
+        "examples/colors/colors.py",
+        "tests/test_testing.py",
+        "src/click/__init__.py",
+        "src/click/utils.py",
+        "tests/test_utils/test_style.py",
+        "src/click/shell_completion.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/termui.py"
+      ]
+    },
+    {
+      "id": "click-callers-007",
+      "name": "Command.make_context",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/shell_completion.py",
+        "tests/test_custom_classes.py",
+        "tests/test_basic.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/shell_completion.py"
+      ]
+    },
+    {
+      "id": "click-callers-009",
+      "name": "Command.get_help_option_names",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/exceptions.py",
+        "tests/test_commands.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/exceptions.py"
+      ]
+    },
+    {
+      "id": "click-callers-010",
+      "name": "_expand_args",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "tests/test_utils/test__expand_args.py",
+        "src/click/utils.py"
+      ],
+      "key": [
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-callers-011",
+      "name": "Context.invoke",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "tests/test_basic.py",
+        "tests/test_defaults.py",
+        "tests/test_context.py",
+        "tests/test_formatting.py",
+        "src/click/decorators.py",
+        "tests/test_custom_classes.py",
+        "tests/test_options.py",
+        "tests/test_testing.py",
+        "tests/test_commands.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/decorators.py"
+      ]
+    },
+    {
+      "id": "click-callers-012",
+      "name": "File.resolve_lazy_flag",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/types.py"
+      ],
+      "key": [
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-callers-013",
+      "name": "term_len",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "tests/test_compat.py",
+        "src/click/formatting.py",
+        "src/click/_termui_impl.py",
+        "src/click/_textwrap.py",
+        "src/click/_compat.py",
+        "tests/test_formatting.py"
+      ],
+      "key": [
+        "src/click/_termui_impl.py",
+        "src/click/_textwrap.py",
+        "src/click/formatting.py"
+      ]
+    },
+    {
+      "id": "click-callers-015",
+      "name": "Command.main",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/testing.py",
+        "tests/test_options.py",
+        "examples/termui/termui.py",
+        "tests/test_context.py",
+        "tests/test_utils/test__detect_program_name.py",
+        "tests/test_stream_lifecycle.py",
+        "src/click/_textwrap.py",
+        "src/click/utils.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/testing.py"
+      ]
+    },
+    {
+      "id": "click-callers-017",
+      "name": "ParamType.to_info_dict",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/types.py",
+        "tests/test_info_dict.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-callers-019",
+      "name": "get_current_context",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/globals.py",
+        "src/click/decorators.py",
+        "tests/test_context.py",
+        "src/click/core.py",
+        "src/click/__init__.py",
+        "tests/test_chain.py",
+        "tests/test_defaults.py"
+      ],
+      "key": [
+        "src/click/decorators.py",
+        "src/click/globals.py"
+      ]
+    },
+    {
+      "id": "click-callers-020",
+      "name": "ParamType.get_missing_message",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/types.py",
+        "src/click/exceptions.py"
+      ],
+      "key": [
+        "src/click/exceptions.py"
+      ]
+    },
+    {
+      "id": "click-usages-001",
+      "name": "MAX_BYTES_WRITTEN",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/_winconsole.py"
+      ],
+      "key": [
+        "src/click/_winconsole.py"
+      ]
+    },
+    {
+      "id": "click-usages-002",
+      "name": "_MultiCommand",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/__init__.py",
+        "tests/test_deprecations.py"
+      ],
+      "key": [
+        "src/click/__init__.py",
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-usages-004",
+      "name": "Context",
+      "crowd": "crowded",
+      "recall@10": 0.875,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/types.py",
+        "tests/test_options.py",
+        "src/click/decorators.py",
+        "src/click/exceptions.py",
+        "tests/test_context.py",
+        "src/click/globals.py",
+        "src/click/parser.py",
+        "src/click/shell_completion.py",
+        "tests/test_commands.py"
+      ],
+      "key": [
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/decorators.py",
+        "src/click/exceptions.py",
+        "src/click/globals.py",
+        "src/click/parser.py",
+        "src/click/shell_completion.py",
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-usages-005",
+      "name": "BashComplete",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/shell_completion.py",
+        "tests/test_shell_completion.py"
+      ],
+      "key": [
+        "src/click/shell_completion.py"
+      ]
+    },
+    {
+      "id": "click-usages-006",
+      "name": "HelpFormatter",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/formatting.py",
+        "tests/test_formatting.py",
+        "src/click/__init__.py",
+        "tests/test_custom_classes.py"
+      ],
+      "key": [
+        "src/click/__init__.py",
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-usages-007",
+      "name": "Option",
+      "crowd": "crowded",
+      "recall@10": 0.8,
+      "ranked": [
+        "tests/test_shell_completion.py",
+        "tests/test_options.py",
+        "src/click/core.py",
+        "src/click/decorators.py",
+        "tests/test_commands.py",
+        "src/click/parser.py",
+        "tests/test_context.py",
+        "tests/test_basic.py",
+        "tests/test_info_dict.py",
+        "src/click/shell_completion.py"
+      ],
+      "key": [
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/decorators.py",
+        "src/click/parser.py",
+        "src/click/shell_completion.py"
+      ]
+    },
+    {
+      "id": "click-usages-012",
+      "name": "StringParamType",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/types.py",
+        "src/click/core.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-usages-015",
+      "name": "ParameterSource.COMMANDLINE",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "tests/test_defaults.py",
+        "tests/test_context.py",
+        "src/click/shell_completion.py",
+        "tests/test_options.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/shell_completion.py"
+      ]
+    },
+    {
+      "id": "click-usages-016",
+      "name": "Context.color",
+      "crowd": "crowded",
+      "recall@10": 0.75,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/termui.py",
+        "src/click/_termui_impl.py",
+        "src/click/exceptions.py",
+        "src/click/testing.py",
+        "tests/test_termui.py",
+        "src/click/decorators.py",
+        "src/click/utils.py",
+        "tests/test_compat.py",
+        "examples/colors/colors.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/decorators.py",
+        "src/click/exceptions.py",
+        "src/click/globals.py"
+      ]
+    },
+    {
+      "id": "click-usages-018",
+      "name": "Option.is_flag",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "tests/test_options.py",
+        "tests/test_shell_completion.py",
+        "tests/test_info_dict.py",
+        "tests/test_parser.py",
+        "tests/test_commands.py",
+        "src/click/decorators.py",
+        "src/click/shell_completion.py",
+        "tests/test_defaults.py",
+        "examples/repo/repo.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/shell_completion.py"
+      ]
+    },
+    {
+      "id": "click-usages-019",
+      "name": "Parameter",
+      "crowd": "crowded",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/types.py",
+        "src/click/decorators.py",
+        "src/click/exceptions.py",
+        "src/click/shell_completion.py",
+        "tests/test_context.py",
+        "src/click/__init__.py",
+        "tests/test_options.py",
+        "src/click/parser.py",
+        "tests/test_basic.py"
+      ],
+      "key": [
+        "src/click/__init__.py",
+        "src/click/core.py",
+        "src/click/decorators.py",
+        "src/click/exceptions.py",
+        "src/click/parser.py",
+        "src/click/shell_completion.py",
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-how-002",
+      "name": "open_stream",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/_compat.py",
+        "src/click/testing.py",
+        "src/click/types.py",
+        "examples/repo/repo.py",
+        "src/click/utils.py",
+        "examples/termui/termui.py"
+      ],
+      "key": [
+        "src/click/_compat.py"
+      ]
+    },
+    {
+      "id": "click-how-004",
+      "name": "wrap_text",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/formatting.py",
+        "src/click/_textwrap.py",
+        "src/click/_compat.py"
+      ],
+      "key": [
+        "src/click/_compat.py",
+        "src/click/_textwrap.py",
+        "src/click/formatting.py"
+      ]
+    },
+    {
+      "id": "click-how-007",
+      "name": "Parameter.value_from_envvar",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/types.py"
+      ],
+      "key": [
+        "src/click/core.py",
+        "src/click/types.py"
+      ]
+    },
+    {
+      "id": "click-how-008",
+      "name": "Command.make_context",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/core.py",
+        "src/click/testing.py",
+        "src/click/decorators.py",
+        "src/click/_compat.py",
+        "src/click/_winconsole.py",
+        "src/click/types.py"
+      ],
+      "key": [
+        "src/click/core.py"
+      ]
+    },
+    {
+      "id": "click-how-011",
+      "name": "_force_correct_text_reader",
+      "crowd": "sparse",
+      "recall@10": 1,
+      "ranked": [
+        "src/click/_compat.py"
+      ],
+      "key": [
+        "src/click/_compat.py"
+      ]
+    }
+  ]
+}

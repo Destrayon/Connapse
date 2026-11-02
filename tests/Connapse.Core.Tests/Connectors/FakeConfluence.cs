@@ -15,7 +15,8 @@ public sealed record FakeConfluencePage(
     string? ParentId = null,
     string? ParentType = null,
     int Version = 1,
-    DateTimeOffset? VersionAt = null);
+    DateTimeOffset? VersionAt = null,
+    IReadOnlyList<string>? Labels = null);
 
 /// <summary>
 /// Confluence's v2 content routes over in-memory state, answered for whichever site the request
@@ -146,7 +147,7 @@ public sealed partial class FakeConfluence
                 return List(rest, list.Groups["id"].Value, list.Groups["kind"].Value, query);
 
             if (ContentRoute().Match(rest) is { Success: true } content)
-                return Content(content.Groups["kind"].Value, content.Groups["id"].Value);
+                return Content(content.Groups["kind"].Value, content.Groups["id"].Value, query["include-labels"] == "true");
 
             if (FolderRoute().Match(rest) is { Success: true } folder)
                 return Folder(folder.Groups["id"].Value);
@@ -216,7 +217,7 @@ public sealed partial class FakeConfluence
         });
     }
 
-    private HttpResponseMessage Content(string kind, string id)
+    private HttpResponseMessage Content(string kind, string id, bool includeLabels)
     {
         string singular = kind == "pages" ? "page" : "blogpost";
         if (!_pages.TryGetValue(id, out var page) || page.Kind != singular)
@@ -231,6 +232,7 @@ public sealed partial class FakeConfluence
             parentType = page.ParentType,
             version = new { number = page.Version, createdAt = page.VersionAt },
             body = BodyShape is { } shape ? shape() : new { storage = new { value = page.Body, representation = "storage" } },
+            labels = includeLabels ? new { results = (page.Labels ?? []).Select(name => new { id = "1", name, prefix = "global" }) } : null,
         });
     }
 

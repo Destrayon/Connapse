@@ -31,8 +31,11 @@ public sealed record LinkExpandRequest(
 /// <summary>A node as one reader may see it: kinds, a name and summaries from readable documents only, and those documents.</summary>
 public sealed record VisibleNode(string Id, IReadOnlyList<SourcedText> Kinds, string Name, IReadOnlyList<SourcedText> Summaries, IReadOnlyList<string> Sources);
 
-/// <summary>A link as one reader may see it: only the readable evidence, and those documents.</summary>
-public sealed record VisibleEdge(string Id, string FromId, string ToId, string Type, IReadOnlyList<SourcedText> Evidence, IReadOnlyList<string> Sources);
+/// <summary>
+/// A link as one reader may see it: only the readable evidence, and those documents. <paramref name="Confidence"/> is
+/// the highest any readable document gave it.
+/// </summary>
+public sealed record VisibleEdge(string Id, string FromId, string ToId, string Type, IReadOnlyList<SourcedText> Evidence, IReadOnlyList<string> Sources, double Confidence = 1.0);
 
 /// <summary>
 /// What a walk found. <paramref name="Denied"/> is true when access could not be checked, and then nothing
@@ -51,16 +54,20 @@ public sealed record LinkFact(string NodeId, LinkFactField Field, string Text);
 
 /// <summary>
 /// One link a document asserts. Several documents may assert the same <paramref name="EdgeId"/>; each keeps its own
-/// <paramref name="Evidence"/> sentence (empty for a structural link such as "closes").
+/// <paramref name="Evidence"/> sentence (empty for a structural link such as "closes"). <paramref name="Confidence"/>,
+/// from 0 to 1, is how sure the document is: 1 for a link it states, less for one inferred, such as a code call
+/// matched to a definition by name.
 /// </summary>
-public sealed record LinkAssertion(string EdgeId, string FromId, string ToId, string Type, string Evidence = "");
+public sealed record LinkAssertion(string EdgeId, string FromId, string ToId, string Type, string Evidence = "", double Confidence = 1.0);
 
 /// <summary>
 /// Everything one document contributes to the link layer. Writing it replaces whatever that document said before.
-/// <paramref name="NodeId"/> is the node the document itself stands for (an issue's own key), or null.
+/// <paramref name="NodeId"/> is the node the document itself stands for (an issue's own key), or null;
+/// <paramref name="AlsoStandsFor"/> any further nodes it stands for, as a code file does for each definition in it.
 /// </summary>
 public sealed record DocumentLinks(
     string DocumentId,
     string? NodeId,
     IReadOnlyList<LinkFact> Facts,
-    IReadOnlyList<LinkAssertion> Links);
+    IReadOnlyList<LinkAssertion> Links,
+    IReadOnlyList<string>? AlsoStandsFor = null);

@@ -4,10 +4,13 @@ using Connapse.Core.Utilities;
 using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
+using Connapse.Ingestion.Parsers.Code;
 using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
+using Connapse.Storage.Connectors;
 using Connapse.Storage.Documents;
+using Connapse.Storage.Links;
 using Connapse.Storage.Vectors;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -42,6 +45,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IDocumentStore _documentStore;
     private readonly ISourceStore _sourceStore;
     private readonly IConnectionStore _connectionStore;
+    private readonly PostgresLinkStore? _linkStore;
     private readonly ICustomProviderStore? _customProviders;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
@@ -175,8 +179,10 @@ public class IngestionPipeline : IKnowledgeIngester
         IOptionsMonitor<UploadSettings> uploadSettings,
         ILogger<IngestionPipeline> logger,
         ParserProcessPool? parserPool = null,
-        ICustomProviderStore? customProviders = null)
+        ICustomProviderStore? customProviders = null,
+        PostgresLinkStore? linkStore = null)
     {
+        _linkStore = linkStore;
         _parserPool = parserPool;
         _customProviders = customProviders;
         _context = context;
@@ -452,6 +458,20 @@ public class IngestionPipeline : IKnowledgeIngester
 
             var vectorItems = StageChunks(documentId, owner, chunks, embeddings, embedSettings);
 
+            // A code file's links replace the ones it asserted before, in the same commit as its chunks (CON-109), so a
+            // superseded job's links roll back with its chunks. A file read without an outline asserts none, and nor does
+            // one that was code before and is not now. Links other documents get from elsewhere are left alone.
+            bool isCode = _parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension)) is CodeParser;
+            bool wasCode = existing?.Metadata?.GetValueOrDefault(MetadataKeyParser) == nameof(CodeParser);
+            if (isCode || wasCode)
+            {
+                CodeOutline? outline = isCode ? CodeOutline.From(parsedDocument.Metadata) : null;
+                DocumentLinks links = outline is null
+                    ? new DocumentLinks(documentId.ToString(), null, [], [])
+                    : CodeLinks.Build(documentId.ToString(), owner, virtualPath, parsedDocument.Content, outline);
+                await PostgresLinkStore.StageReplaceAsync(_context, [links], ct);
+            }
+
             // Saves the document fields, the staged chunks and the vectors in one round trip.
             try
             {
@@ -466,6 +486,8 @@ public class IngestionPipeline : IKnowledgeIngester
                     $"The extracted text could not be stored: {ex.InnerException.Message}", ex);
             }
 
+            bool linksStaged = await StageLinksAsync(documentId, metadata, existing, ct);
+
             if (existing is not null &&
                 (await DocumentLifecycle.CompleteAsync(_context, documentId, generation, ct)).Count == 0)
             {
@@ -477,6 +499,8 @@ public class IngestionPipeline : IKnowledgeIngester
             }
 
             await transaction.CommitAsync(CancellationToken.None);
+            if (linksStaged)
+                _linkStore?.Written();
             await _lifecycle.NotifyAsync(documentId, CancellationToken.None);
 
             stopwatch.Stop();
@@ -500,6 +524,25 @@ public class IngestionPipeline : IKnowledgeIngester
                 await workingStream.DisposeAsync();
             }
         }
+    }
+
+    /// <summary>
+    /// Replaces the links the document's connector metadata asserts (CON-33), in the swap's transaction, so a
+    /// superseded or failed job leaves the previous links standing with the previous chunks. A document whose
+    /// metadata never could carry links touches no link table.
+    /// </summary>
+    private async Task<bool> StageLinksAsync(
+        Guid documentId, Dictionary<string, string> metadata, DocumentEntity? existing, CancellationToken ct)
+    {
+        bool had = existing?.Metadata is { } previous && RecordLinks.MayHaveLinks(previous);
+        if (!had && !RecordLinks.MayHaveLinks(metadata))
+            return false;
+
+        string id = documentId.ToString();
+        DocumentLinks links = RecordLinks.For(id, metadata) ?? new DocumentLinks(id, null, [], []);
+        await PostgresLinkStore.StageReplaceAsync(_context, [links], ct);
+        await _context.SaveChangesAsync(ct);
+        return true;
     }
 
     private Task<DocumentEntity?> LoadExistingAsync(Guid documentId, CancellationToken ct) =>
@@ -751,7 +794,7 @@ public class IngestionPipeline : IKnowledgeIngester
         string jobPath = connector.ResolveJobPath(virtualPath.TrimStart('/'));
 
         await using Stream stream = await ReadSourceFileAsync(connector, jobPath, ct);
-        return await IngestAsync(stream, options, ct);
+        return await IngestAsync(stream, MetadataStream.Merge(options, stream), ct);
     }
 
     /// <summary>
@@ -779,7 +822,7 @@ public class IngestionPipeline : IKnowledgeIngester
         try
         {
             await using Stream stream = await ReadSourceFileAsync(connector, path, ct);
-            return await IngestAsync(stream, options, ct);
+            return await IngestAsync(stream, MetadataStream.Merge(options, stream), ct);
         }
         finally
         {
@@ -1098,6 +1141,15 @@ public class IngestionPipeline : IKnowledgeIngester
             strategy = _chunkingStrategies.First(s => s.Name == "FixedSize");
         }
 
+        // Chunkers copy the parser's metadata onto every chunk; a code file's outline is far too large to repeat there.
+        // Only the code chunker reads it, and leaves it off its chunks.
+        if (strategy.Name != CodeChunker.StrategyName && parsedDocument.Metadata.ContainsKey(CodeOutline.ParsedDocumentMetadataKey))
+        {
+            var metadata = new Dictionary<string, string>(parsedDocument.Metadata);
+            metadata.Remove(CodeOutline.ParsedDocumentMetadataKey);
+            parsedDocument = parsedDocument with { Metadata = metadata };
+        }
+
         if (!settings.PrependDocumentTitle)
             return await strategy.ChunkAsync(parsedDocument, settings, ct);
         // The chunker leaves room for the title line, so title + chunk still fits MaxChunkSize.
@@ -1148,6 +1200,8 @@ internal static class IngestionPipelineStrategyResolver
         if (string.IsNullOrEmpty(fileName)) return fallbackStrategy;
         string ext = System.IO.Path.GetExtension(fileName);
         if (MarkdownExtensions.Contains(ext)) return "DocumentAware";
+        // Code is cut at its definitions (CON-108) unless the caller chose a strategy themselves.
+        if (CodeGrammar.ForExtension(ext) is not null && !strategyIsExplicit) return CodeChunker.StrategyName;
         return ParsedMarkdownExtensions.Contains(ext) && !strategyIsExplicit ? "DocumentAware" : fallbackStrategy;
     }
 

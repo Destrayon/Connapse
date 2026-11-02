@@ -8,9 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Link-aware search: with `EnableLinkSearch` on, search also returns documents its top results link to, one step out. Links come from GitHub (pull request closes issue, sub-issue parent), Jira (issue links, epic, parent, fix version, linked Confluence pages), Confluence (parent page, labels, page links, mentioned Jira issues) and code files. Linked documents pass the same permission check as ordinary results (CON-33, CON-34)
+- Code files: `.cs`, `.ts`/`.mts`/`.cts`/`.tsx` and `.py`/`.pyi` are parsed with tree-sitter, cut into one passage per definition, and linked by definitions, imports, calls and base types (CON-36, CON-108, CON-109)
+- Code MCP tools: `code_find_symbol`, `code_references`, `code_impact` and `code_repo_map` (CON-37)
+- Agent memory MCP tools: `memory_remember`, `memory_correct`, `memory_forget`, `memory_recall` and `memory_timeline`, storing dated facts with sources and keeping their history (CON-39)
 - Embedding size setting works for any OpenAI-compatible model: "Ask the model for this size" sends `dimensions` to models such as Qwen3-Embedding, and vectors of the wrong size are refused with an error naming the setting to change (#666, reported by @marcusyoung)
 
+### Changed
+- **Breaking:** `GET` and `PUT /api/containers/{id}/settings` return only the search settings the container chose, and `PUT` stores only the search settings the body names; the rest follow the deployment (CON-157)
+- **Breaking:** `LinkMaxHops` defaults to 1 instead of 2 (CON-33)
+- Results whose scores tie are ordered by document path, so re-indexing gives the same ranking (CON-152, CON-158)
+
 ### Fixed
+- Audit entries for actions taken by agents were dropped; they are now recorded under the user the agent acts for
+- Changing one link-search setting on a container no longer resets its other search settings (CON-157)
+- A newly built vector index is used right away instead of being skipped on stale table statistics (CON-34)
 - Deleted documents no longer come back: a file whose storage delete fails is retried instead of only logged, and a sync running alongside a folder delete can no longer restore its files (#378, reported and traced by @marcusyoung)
 - The Files tab lists every file in a container's root: it used to fetch only the 50 newest documents in the whole container, so after many uploads into a subfolder the older root files disappeared from view (#812, reported by @marcusyoung)
 - Uploading a file that is already in the container replaces it instead of failing to index with `23505 duplicate key ... idx_documents_container_path` (#812, reported by @marcusyoung)

@@ -74,7 +74,7 @@ Create an agent key at **Agents** → **API Keys**, then add Connapse to your MC
 claude mcp add --transport http connapse http://localhost:5001/mcp --header "X-Api-Key: cnp_your_key"
 ```
 
-Agents get 12 named tools, such as `search_knowledge`, `upload_file` and `get_document`, plus 3 generic tools that reach the rest of the API. Other clients are in [Connect an MCP client](docs/guides/mcp-clients.md), and every tool is in [MCP tools](docs/reference/mcp-tools.md).
+Agents get 21 named tools, such as `search_knowledge`, `upload_file`, `get_document`, the `code_*` tools and the `memory_*` tools, plus 3 generic tools that reach the rest of the API. Other clients are in [Connect an MCP client](docs/guides/mcp-clients.md), and every tool is in [MCP tools](docs/reference/mcp-tools.md).
 
 ## 🚀 Features
 

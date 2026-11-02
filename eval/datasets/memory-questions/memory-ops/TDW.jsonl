@@ -1,0 +1,22 @@
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m1", "subject": "Tidewater", "attribute": "database", "value": "PostgreSQL 16", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m2", "subject": "Tidewater", "attribute": "deploy region", "value": "ap-southeast-1", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m3", "subject": "Tidewater", "attribute": "tech lead", "value": "Ilario Brandtmoss", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m4", "subject": "Tidewater", "attribute": "CI system", "value": "GitLab CI", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m5", "subject": "Tidewater", "attribute": "cache", "value": "Valkey 8", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m6", "subject": "Tidewater", "attribute": "public API rate limit", "value": "250 requests/minute", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m7", "subject": "Tidewater", "attribute": "alert channel", "value": "#tdw-alerts", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-05", "op": "remember", "id": "TDW-m8", "subject": "Tidewater", "attribute": "current release", "value": "v2.2.0", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "TDW-2026-01-22", "op": "correct", "id": "TDW-m9", "target": "TDW-m8", "kind": "changed", "value": "v2.3.0", "validFrom": "2026-01-22", "reason": "TDW-18 released v2.3.0"}
+{"session": "TDW-2026-01-24", "op": "correct", "id": "TDW-m10", "target": "TDW-m4", "kind": "changed", "value": "CircleCI", "validFrom": "2026-01-24", "reason": "TDW-19 CI moved to cut costs"}
+{"session": "TDW-2026-01-25", "op": "correct", "id": "TDW-m11", "target": "TDW-m6", "kind": "changed", "value": "100 requests/minute", "validFrom": "2026-01-25", "reason": "TDW-20 rate limit changed"}
+{"session": "TDW-2026-01-26", "op": "correct", "id": "TDW-m12", "target": "TDW-m5", "kind": "changed", "value": "no cache", "validFrom": "2026-01-26", "reason": "TDW-21 Valkey end-of-life"}
+{"session": "TDW-2026-02-02", "op": "correct", "id": "TDW-m13", "target": "TDW-m3", "kind": "changed", "value": "Marisol Ternby", "validFrom": "2026-02-02", "reason": "TDW-22 tech lead changed"}
+{"session": "TDW-2026-02-08", "op": "correct", "id": "TDW-m14", "target": "TDW-m7", "kind": "changed", "value": "#tdw-pager", "validFrom": "2026-02-08", "reason": "TDW-23 customer request"}
+{"session": "TDW-2026-02-14", "op": "correct", "id": "TDW-m15", "target": "TDW-m11", "kind": "changed", "value": "250 requests/minute", "validFrom": "2026-02-14", "reason": "TDW-24 simplify on-call"}
+{"session": "TDW-2026-02-26", "op": "correct", "id": "TDW-m16", "target": "TDW-m9", "kind": "changed", "value": "v3.0.0", "validFrom": "2026-02-26", "reason": "TDW-25 release"}
+{"session": "TDW-2026-03-08", "op": "correct", "id": "TDW-m17", "target": "TDW-m1", "kind": "changed", "value": "SQLite 3.45", "validFrom": "2026-03-08", "reason": "TDW-26 simplify on-call"}
+{"session": "TDW-2026-03-16", "op": "correct", "id": "TDW-m18", "target": "TDW-m2", "kind": "changed", "value": "us-west-2", "validFrom": "2026-03-16", "reason": "TDW-27 match platform standard"}
+{"session": "TDW-2026-04-01", "op": "correct", "id": "TDW-m19", "target": "TDW-m16", "kind": "changed", "value": "v3.1.0", "validFrom": "2026-04-01", "reason": "TDW-28 release"}
+{"session": "TDW-2026-04-14", "op": "correct", "id": "TDW-m20", "target": "TDW-m14", "kind": "changed", "value": "#platform-alerts", "validFrom": "2026-04-14", "reason": "TDW-29 latency to main customer"}
+{"session": "TDW-2026-04-27", "op": "correct", "id": "TDW-m21", "target": "TDW-m10", "kind": "changed", "value": "GitLab CI", "validFrom": "2026-04-27", "reason": "TDW-30 latency to main customer"}
+{"session": "TDW-2026-05-24", "op": "correct", "id": "TDW-m22", "target": "TDW-m19", "kind": "changed", "value": "v4.0.0", "validFrom": "2026-05-24", "reason": "TDW-31 release"}

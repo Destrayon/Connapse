@@ -18,6 +18,7 @@ A parser extracts a file's text and keeps its structure as Markdown, because hea
 - **Email** keeps its subject, sender, recipients and date, and its attachments are parsed as files of their own.
 - **EPUB** books keep their chapters in reading order.
 - **Plain-text** formats, such as Markdown, logs, CSV, JSON and YAML, are read as they are.
+- **Code** in C#, TypeScript (including TSX) and Python is parsed with tree-sitter, a syntax-tree parser, into an outline of its definitions. The parser also records what each file defines, imports, calls and inherits from, which become links between files for [link search](search.md#following-links) and the `code_*` [MCP tools](../reference/mcp-tools.md). Nothing is compiled or run.
 
 Parsers run in separate worker processes, not in the web server, so a malformed file can't take the server down. Each worker has a memory cap and a deadline (300 seconds by default), is replaced after 50 files, and on Linux is sandboxed with no network access and no reach into Connapse's data. A file that runs past the deadline, runs out of memory or crashes its worker fails with `parse_timeout`, `parse_out_of_memory` or `parse_crashed`.
 
@@ -35,6 +36,7 @@ The strategy depends on the file:
 | **Fixed size** | Splits every 512 tokens. |
 | **Sentence window** | Indexes single sentences and returns the sentences around each one. |
 | **Record** | GitHub issues and pull requests, chosen by the source rather than configured. |
+| **Code** | Code files, chosen by the file type. One passage per function, method, property or small type, each headed by what it is, such as `method Acme.Billing.Invoice.Pay`. A large type gets an outline passage and its members get their own. |
 
 ## Embedding and storage
 

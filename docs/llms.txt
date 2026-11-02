@@ -49,7 +49,7 @@ Every page below is Markdown. API keys go in the `X-Api-Key` header; errors are 
 
 - [REST API](reference/rest-api.md): every endpoint with its scope, plus auth, errors, paging and rate limits
 - [OpenAPI document](api/openapi.json): the machine-readable API
-- [MCP tools](reference/mcp-tools.md): the 12 named tools and 3 generic API tools
+- [MCP tools](reference/mcp-tools.md): the 21 named tools (including code and agent memory tools) and 3 generic API tools
 - [Configuration](reference/configuration.md): every setting, environment variable and default
 - [Roles and scopes](reference/roles-and-scopes.md): which role and token scope each operation needs
 - [File types](reference/file-types.md): supported formats, limits and failure codes

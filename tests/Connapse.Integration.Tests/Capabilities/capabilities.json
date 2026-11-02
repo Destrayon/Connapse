@@ -1009,6 +1009,87 @@
         "DELETE /api/v1/auth/custom/{providerId:guid}/"
       ],
       "mcp": "generic"
+    },
+    {
+      "id": "code.findSymbol",
+      "capability": "Find where a symbol is defined in indexed code",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/code/symbols"
+      ],
+      "mcp": "code_find_symbol",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "code.references",
+      "capability": "List the files that use a symbol",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/code/references"
+      ],
+      "mcp": "code_references",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "code.impact",
+      "capability": "List what a change to a symbol could affect",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/code/impact"
+      ],
+      "mcp": "code_impact",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "code.repoMap",
+      "capability": "Map indexed code by its most-referenced files",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/code/map"
+      ],
+      "mcp": "code_repo_map",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "memory.remember",
+      "capability": "Remember a fact in a container's memory",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/memory"
+      ],
+      "mcp": "memory_remember",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "memory.correct",
+      "capability": "Correct a remembered fact, keeping its history",
+      "routes": [
+        "PUT /api/containers/{containerId:guid}/memory/{factId:guid}"
+      ],
+      "mcp": "memory_correct",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "memory.forget",
+      "capability": "Forget a fact and every version of it",
+      "routes": [
+        "DELETE /api/containers/{containerId:guid}/memory/{factId:guid}"
+      ],
+      "mcp": "memory_forget",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "memory.recall",
+      "capability": "Recall the facts true now or on a date",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/memory"
+      ],
+      "mcp": "memory_recall",
+      "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "memory.recall",
+      "capability": "List a subject's facts in date order",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/memory/timeline"
+      ],
+      "mcp": "memory_timeline",
+      "note": "MCP only: no REST route yet."
     }
   ],
   "plumbing": {

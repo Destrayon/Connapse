@@ -1,0 +1,23 @@
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m1", "subject": "Saltmarsh", "attribute": "database", "value": "PostgreSQL 15", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m2", "subject": "Saltmarsh", "attribute": "deploy region", "value": "us-west-2", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m3", "subject": "Saltmarsh", "attribute": "tech lead", "value": "Anouk Vasquell", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m4", "subject": "Saltmarsh", "attribute": "CI system", "value": "Jenkins", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m5", "subject": "Saltmarsh", "attribute": "cache", "value": "Memcached 1.6", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m6", "subject": "Saltmarsh", "attribute": "public API rate limit", "value": "500 requests/minute", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m7", "subject": "Saltmarsh", "attribute": "alert channel", "value": "#slt-oncall", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-01-05", "op": "remember", "id": "SLT-m8", "subject": "Saltmarsh", "attribute": "current release", "value": "v0.7.0", "validFrom": "2026-01-05", "reason": "kickoff setup"}
+{"session": "SLT-2026-02-15", "op": "correct", "id": "SLT-m9", "target": "SLT-m8", "kind": "changed", "value": "v1.0.0", "validFrom": "2026-02-15", "reason": "SLT-13 released v1.0.0"}
+{"session": "SLT-2026-03-01", "op": "correct", "id": "SLT-m10", "target": "SLT-m5", "kind": "changed", "value": "Redis 7", "validFrom": "2026-03-01", "reason": "SLT-14 cache moved off EOL Memcached"}
+{"session": "SLT-2026-03-04", "op": "correct", "id": "SLT-m11", "target": "SLT-m6", "kind": "changed", "value": "100 requests/minute", "validFrom": "2026-03-04", "reason": "SLT-15 rate limit lowered"}
+{"session": "SLT-2026-03-06", "op": "correct", "id": "SLT-m12", "target": "SLT-m7", "kind": "changed", "value": "#slt-alerts", "validFrom": "2026-03-06", "reason": "SLT-16 customer request"}
+{"session": "SLT-2026-04-01", "op": "correct", "id": "SLT-m13", "target": "SLT-m11", "kind": "changed", "value": "250 requests/minute", "validFrom": "2026-04-01", "reason": "SLT-17 customer request"}
+{"session": "SLT-2026-04-03", "op": "correct", "id": "SLT-m14", "target": "SLT-m2", "kind": "changed", "value": "ca-central-1", "validFrom": "2026-04-03", "reason": "SLT-18 customer request"}
+{"session": "SLT-2026-04-04", "op": "correct", "id": "SLT-m15", "target": "SLT-m9", "kind": "changed", "value": "v2.0.0", "validFrom": "2026-04-04", "reason": "SLT-19 released v2.0.0"}
+{"session": "SLT-2026-04-06", "op": "correct", "id": "SLT-m16", "target": "SLT-m10", "kind": "changed", "value": "Memcached 1.6", "validFrom": "2026-04-06", "reason": "SLT-20 latency to main customer"}
+{"session": "SLT-2026-04-18", "op": "correct", "id": "SLT-m17", "target": "SLT-m3", "kind": "changed", "value": "Ines Coldwater", "validFrom": "2026-04-18", "reason": "SLT-21 simplify on-call"}
+{"session": "SLT-2026-04-19", "op": "correct", "id": "SLT-m18", "target": "SLT-m13", "kind": "changed", "value": "100 requests/minute", "validFrom": "2026-04-19", "reason": "SLT-22 customer request"}
+{"session": "SLT-2026-04-19", "op": "correct", "id": "SLT-m19", "target": "SLT-m14", "kind": "changed", "value": "us-west-2", "validFrom": "2026-04-19", "reason": "SLT-23 customer request"}
+{"session": "SLT-2026-04-30", "op": "correct", "id": "SLT-m20", "target": "SLT-m16", "kind": "changed", "value": "Valkey 8", "validFrom": "2026-04-30", "reason": "SLT-24 latency to main customer"}
+{"session": "SLT-2026-05-13", "op": "correct", "id": "SLT-m21", "target": "SLT-m19", "kind": "changed", "value": "us-east-2", "validFrom": "2026-05-13", "reason": "SLT-25 after load test"}
+{"session": "SLT-2026-05-30", "op": "correct", "id": "SLT-m22", "target": "SLT-m15", "kind": "changed", "value": "v3.0.0", "validFrom": "2026-05-30", "reason": "SLT-26 released v3.0.0"}
+{"session": "SLT-2026-06-20", "op": "correct", "id": "SLT-m23", "target": "SLT-m12", "kind": "changed", "value": "#slt-pager", "validFrom": "2026-06-20", "reason": "SLT-27 outage review"}

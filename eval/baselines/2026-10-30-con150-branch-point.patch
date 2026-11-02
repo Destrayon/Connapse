@@ -1,0 +1,35 @@
+diff --git a/tests/Connapse.Eval/Datasets/LinkQuestionsAdapter.cs b/tests/Connapse.Eval/Datasets/LinkQuestionsAdapter.cs
+index 36580614..5d8fde46 100644
+--- a/tests/Connapse.Eval/Datasets/LinkQuestionsAdapter.cs
++++ b/tests/Connapse.Eval/Datasets/LinkQuestionsAdapter.cs
+@@ -87,6 +87,8 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
+     internal static EvalDocument Render(JsonElement row, string where)
+     {
+         string id = row.GetProperty("id").GetString() ?? throw new InvalidDataException($"{where} has no id.");
++        if (row.TryGetProperty("page", out JsonElement page))
++            return RenderConfluence(id, page, row.GetProperty("space").GetString() ?? "");
+         JsonElement issue = row.GetProperty("issue");
+         return issue.TryGetProperty("fields", out _) ? RenderJira(id, issue) : RenderGitHub(id, issue, row);
+     }
+@@ -149,4 +151,21 @@ public sealed class LinkQuestionsAdapter : IDatasetAdapter
+             Strategy = nameof(ChunkingStrategy.Record),
+         };
+     }
++
++    // CON-150: the tip's Confluence rendering, backported without link metadata (ConfluenceLinks is not at the branch point).
++    private static EvalDocument RenderConfluence(string id, JsonElement page, string space)
++    {
++        string pageId = page.GetProperty("id").GetString() ?? throw new InvalidDataException($"Record '{id}' has no page id.");
++        string title = page.GetProperty("title").GetString() ?? "";
++        string body = page.GetProperty("body").GetProperty("storage").GetProperty("value").GetString() ?? "";
++        List<string> ancestors = page.TryGetProperty("ancestors", out JsonElement a)
++            ? [.. a.EnumerateArray().Select(x => x.GetProperty("title").GetString() ?? "")]
++            : [];
++        ConfluenceRenderOutput rendered = ConfluenceStorageRenderer.Render(new ConfluenceRenderInput(
++            [space, .. ancestors, title], body, [], new Dictionary<string, string>()));
++        return new EvalDocument(id, DocumentKind.Text, null, rendered.Markdown, null, new Dictionary<string, string>())
++        {
++            FileName = pageId + ".md",
++        };
++    }
+ }

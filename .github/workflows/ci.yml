@@ -43,6 +43,12 @@ jobs:
         echo $(( $(date +%s) - start )) > walls/small.txt
         exit $status
 
+    # Speed gates time real work, so they run alone: beside the unit tests' parallel projects
+    # the same parse took 3-4x as long (CON-110).
+    - name: Run speed gates
+      if: success() || failure()
+      run: dotnet test tests/Connapse.Ingestion.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=gate-tests.trx"
+
     - uses: ./.github/actions/disk-report
       if: always()
 
@@ -121,6 +127,8 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
+    env:
+      CONNAPSE_TEST_SHARD: ${{ matrix.shard }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -167,6 +175,12 @@ jobs:
         echo $wall > walls/integration-${{ matrix.shard }}.txt
         echo "Ran in ${wall} s, host start-up included." >> "$GITHUB_STEP_SUMMARY"
         exit $status
+
+    # The memory write gate times real writes against the shared Postgres container, so it runs alone,
+    # after the shard's tests, and in one shard only (CON-39).
+    - name: Run memory speed gate
+      if: matrix.shard == 1 && (success() || failure())
+      run: dotnet test tests/Connapse.Integration.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=memory-gate-tests.trx"
 
     - uses: ./.github/actions/disk-report
       if: always()

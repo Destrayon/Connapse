@@ -7,6 +7,7 @@ using Connapse.Eval.Model;
 using Connapse.Search.Reranking;
 using Connapse.Search.Keyword;
 using Connapse.Search.Vector;
+using Connapse.Storage.Connectors;
 using Hangfire;
 using Hangfire.Common;
 using Hangfire.Storage;
@@ -303,6 +304,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
             .ToList();
 
         _datasets[dataset.Name] = (containerId, docMap);
+        // As the pipeline does, only for documents whose ingestion succeeded.
+        HashSet<string> failedIds = [.. failed];
+        await WriteLinksAsync(dataset, docMap.Where(p => !failedIds.Contains(p.Value)), ct);
 
         // Production builds per-container vector indexes in the background a few minutes after a
         // container grows; build them now so searches see what a settled deployment would (#571).
@@ -312,6 +316,25 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         IndexReport report = new(dataset.Corpus.Count, failed.Count, failed) { Outcomes = outcomes };
         _reports[dataset.Name] = report;
         return report;
+    }
+
+    /// <summary>
+    /// The links a synced GitHub or Jira source would write (CON-33, CON-34). Uploads carry no connector metadata, so
+    /// the harness writes what the pipeline would have, from the same <see cref="RecordLinks"/> reading the same metadata.
+    /// </summary>
+    private async Task WriteLinksAsync(EvalDataset dataset, IEnumerable<KeyValuePair<string, string>> docMap, CancellationToken ct)
+    {
+        Dictionary<string, EvalDocument> byId = dataset.Corpus.ToDictionary(d => d.Id, StringComparer.Ordinal);
+        List<DocumentLinks> links = docMap
+            .Select(p => RecordLinks.For(p.Key, byId[p.Value].Metadata))
+            .OfType<DocumentLinks>()
+            .ToList();
+        if (links.Count == 0)
+            return;
+
+        await using AsyncServiceScope scope = _host.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<ILinkWriter>().ReplaceAsync(links, ct);
+        _log.WriteLine($"[{dataset.Name}] wrote links for {links.Count} documents ({links.Sum(l => l.Links.Count)} links)");
     }
 
     public async Task<SearchOutcome> SearchAsync(string dataset, EvalQuery query, int k, CancellationToken ct)
@@ -407,7 +430,8 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
             hit.ChunkId,
             docMap.GetValueOrDefault(hit.DocumentId, ""),
             vectorScores.TryGetValue(hit.ChunkId, out float v) ? v : null,
-            keywordScores.TryGetValue(hit.ChunkId, out float k) ? k : null);
+            keywordScores.TryGetValue(hit.ChunkId, out float k) ? k : null,
+            int.TryParse(hit.Metadata.GetValueOrDefault("chunkIndex"), out int index) ? index : null);
 
         return new CandidateCapture(vectorHits.Select(Describe).ToList(), keywordHits.Select(Describe).ToList());
     }
@@ -429,7 +453,8 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         : $"{index:D7}.txt";
 
     public static string UploadFolder(EvalDocument doc, int index) =>
-        doc.Kind == DocumentKind.Text && (SafeFileName(doc.FileName) ?? SafeFileName(doc.Title)) is not null ? $"/{index:D7}" : "/";
+        doc.Folder is not null ? doc.Folder
+        : doc.Kind == DocumentKind.Text && (SafeFileName(doc.FileName) ?? SafeFileName(doc.Title)) is not null ? $"/{index:D7}" : "/";
 
     // A named record goes in as the connector sends it: markdown when it is .md.
     private static string? ContentType(EvalDocument doc) =>

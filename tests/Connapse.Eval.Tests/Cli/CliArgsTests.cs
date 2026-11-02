@@ -72,4 +72,46 @@ public class CliArgsTests
 
         act.Should().Throw<ArgumentException>().WithMessage("*--limit-queries*");
     }
+
+    [Theory]
+    [InlineData("code", "--help")]
+    [InlineData("code", "-h")]
+    [InlineData("memory", "-?")]
+    [InlineData("code", "--config", "-h")]
+    [InlineData("--help")]
+    [InlineData("help")]
+    public void Parse_HelpAnywhere_WantsHelp(params string[] argv)
+    {
+        CliArgs.Parse(argv).WantsHelp.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Parse_NoHelpToken_DoesNotWantHelp()
+    {
+        CliArgs.Parse(["code", "--config", "code"]).WantsHelp.Should().BeFalse();
+    }
+
+    [Fact]
+    public void EnsureKnownOptions_CodeWithUnknownOption_Throws()
+    {
+        Action act = CliArgs.Parse(["code", "--splt", "tuning"]).EnsureKnownOptions;
+
+        act.Should().Throw<ArgumentException>().WithMessage("*--splt*");
+    }
+
+    [Theory]
+    [InlineData("run")]
+    [InlineData("extract")]
+    [InlineData("pool")]
+    [InlineData("datasets")]
+    [InlineData("compare")]
+    [InlineData("vector-index")]
+    [InlineData("report")]
+    [InlineData("memory")]
+    [InlineData("code")]
+    public void AllowedOptions_EveryCommand_HasAnEntry(string command)
+    {
+        // A command missing here skips the option check, so a typo or --help is ignored and the command runs.
+        CliArgs.AllowedOptions.Should().ContainKey(command);
+    }
 }

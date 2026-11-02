@@ -68,6 +68,33 @@ public class LinkQuestionsAdapterTests : IDisposable
         doc.Text.Should().StartWith("# Flink > FLINK-20 Checkpoint stalls under backpressure")
             .And.Contain("is blocked by FLINK-19")
             .And.Contain("Reproduced on 1.15.");
+        // The link metadata the connector hands the pipeline at read time (CON-34).
+        doc.Metadata["jira:site"].Should().Be("apache");
+        doc.Metadata["jira:links"].Should().Be("in|FLINK-19|blocker");
+    }
+
+    private const string Page =
+        """{"id":"pages/200","space":"FLINK","page":{"id":"200","type":"page","status":"current","title":"FLIP-9 Async Sinks","ancestors":[{"id":"100","title":"Flink Improvement Proposals"}],"metadata":{"labels":{"results":[{"name":"accepted"}]}},"body":{"storage":{"value":"<p>Design for async sinks.</p><ac:structured-macro ac:name=\"jira\"><ac:parameter ac:name=\"key\">FLINK-20</ac:parameter></ac:structured-macro>"}}}}""";
+
+    private const string ParentPage =
+        """{"id":"pages/100","space":"FLINK","page":{"id":"100","type":"page","status":"current","title":"Flink Improvement Proposals","ancestors":[],"body":{"storage":{"value":"<p>All FLIPs.</p>"}}}}""";
+
+    [Fact]
+    public async Task LoadAsync_ConfluencePages_RenderLikeTheConnectorWithTheirLinks()
+    {
+        EvalDataset dataset = await LoadAsync([Jira, JiraBlocker, Page, ParentPage],
+            [Question(start: "pages/200", answers: "\"pages/100\"")]);
+
+        EvalDocument doc = dataset.Corpus.Single(d => d.Id == "pages/200");
+        doc.FileName.Should().Be("200.md");
+        doc.Strategy.Should().BeNull();
+        doc.Text.Should().Contain("FLINK > Flink Improvement Proposals > FLIP-9 Async Sinks")
+            .And.Contain("Design for async sinks.");
+        doc.Metadata["confluence:site"].Should().Be("apache");
+        doc.Metadata["confluence:parent"].Should().Be("100");
+        doc.Metadata["confluence:labels"].Should().Be("accepted");
+        doc.Metadata["confluence:issues"].Should().Be("FLINK-20");
+        dataset.Corpus.Single(d => d.Id == "pages/100").Metadata["confluence:parent"].Should().BeEmpty();
     }
 
     [Fact]

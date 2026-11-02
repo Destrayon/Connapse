@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Storage.Connectors.Atlassian;
 using Connapse.Storage.Data;
 using Connapse.Storage.Links;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,12 @@ internal sealed class LinkSearch(
 
     /// <summary>The link score lost per hop beyond the first.</summary>
     internal const float HopDecay = 0.5f;
+
+    /// <summary>
+    /// The share of the link score a light link passes on: a Confluence page link or shared label is weaker evidence
+    /// that two pages answer one question than a stated relation such as "blocks" or "parent" (CON-34).
+    /// </summary>
+    internal const float LightLinkWeight = 0.5f;
 
     public async Task<List<SearchHit>> ApplyAsync(
         List<SearchHit> hits,
@@ -86,11 +93,9 @@ internal sealed class LinkSearch(
             return hits;
 
         IReadOnlySet<string> readable = await access.ReadableAsync(options.UserId, docScores.Keys, ct);
-        Dictionary<string, float> reached = docScores
-            .Where(d => readable.Contains(d.Key))
-            .OrderByDescending(d => d.Value).ThenBy(d => d.Key, StringComparer.Ordinal)
-            .Take(MaxReachedDocuments)
-            .ToDictionary(d => d.Key, d => d.Value, StringComparer.Ordinal);
+        List<KeyValuePair<string, float>> candidates = [.. docScores.Where(d => readable.Contains(d.Key))];
+        Dictionary<string, float> reached = TopReached(
+            candidates, await PathsAsync([.. candidates.Select(d => d.Key)], ct), MaxReachedDocuments);
         if (reached.Count == 0)
             return hits;
 
@@ -118,14 +123,19 @@ internal sealed class LinkSearch(
 
     /// <summary>
     /// Each node the walk reached, beyond the seeds, with the best of its seeds' scores times
-    /// <see cref="HopDecay"/> per hop after the first. Seeds reached from another seed keep the better of the two.
+    /// <see cref="HopDecay"/> per hop after the first, and <see cref="LightLinkWeight"/> per light link on the path.
+    /// Seeds reached from another seed keep the better of the two.
     /// </summary>
     internal static Dictionary<string, float> PropagateScores(
         IReadOnlyDictionary<string, float> seeds, LinkExpansion walk, int maxHops)
     {
         HashSet<string> visible = walk.Nodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
-        ILookup<string, string> neighbours = walk.Edges
-            .SelectMany(e => new[] { (e.FromId, e.ToId), (e.ToId, e.FromId) })
+        ILookup<string, (string Node, float Weight)> neighbours = walk.Edges
+            .SelectMany(e =>
+            {
+                float weight = ConfluenceLinks.LightTypes.Contains(e.Type) ? LightLinkWeight : 1f;
+                return new[] { (e.FromId, (e.ToId, weight)), (e.ToId, (e.FromId, weight)) };
+            })
             .ToLookup(x => x.Item1, x => x.Item2, StringComparer.Ordinal);
 
         // Paths carry the seed they started from, so a seed that walks out and back never scores itself.
@@ -139,26 +149,40 @@ internal sealed class LinkSearch(
         {
             List<(string Node, string Seed, float Score)> next = [];
             foreach ((string node, string seed, float score) in frontier)
-                foreach (string other in neighbours[node])
+                foreach ((string other, float weight) in neighbours[node])
                 {
                     if (other == seed)
                         continue;
-                    float value = score * factor;
+                    float value = score * weight * factor;
                     if (value > scores.GetValueOrDefault(other, -1f))
                         scores[other] = value;
-                    next.Add((other, seed, score));
+                    next.Add((other, seed, score * weight));
                 }
 
             // Each node walks on once per seed, with that seed's score.
-            frontier = next.GroupBy(x => (x.Node, x.Seed)).Select(g => g.First()).ToList();
+            frontier = next.GroupBy(x => (x.Node, x.Seed)).Select(g => g.MaxBy(x => x.Score)).ToList();
             factor *= HopDecay;
         }
         return scores;
     }
 
     /// <summary>
+    /// The <paramref name="max"/> best-scored reached documents. Ties go to the earlier path, then the earlier id
+    /// (CON-152).
+    /// </summary>
+    internal static Dictionary<string, float> TopReached(
+        IEnumerable<KeyValuePair<string, float>> scores, IReadOnlyDictionary<string, string> paths, int max) =>
+        scores
+            .OrderByDescending(d => d.Value)
+            .ThenBy(d => paths.GetValueOrDefault(d.Key, ""), StringComparer.Ordinal)
+            .ThenBy(d => d.Key, StringComparer.Ordinal)
+            .Take(max)
+            .ToDictionary(d => d.Key, d => d.Value, StringComparer.Ordinal);
+
+    /// <summary>
     /// Every score becomes (1 − w) × its ordinary score, min-max normalised over hits and extras, plus w × its
-    /// document's link score. Extras are tagged as found by links.
+    /// document's link score. Extras are tagged as found by links. Equal scores go to the earlier path, then the
+    /// earlier chunk, then the chunk id, so the order does not hang on the order the searches returned (CON-152).
     /// </summary>
     internal static List<SearchHit> Blend(
         List<SearchHit> hits, List<SearchHit> extras, IReadOnlyDictionary<string, float> linkScores, float weight)
@@ -183,6 +207,9 @@ internal sealed class LinkSearch(
                 return h with { Score = (1 - w) * baseScore + w * link, Metadata = metadata };
             })
             .OrderByDescending(h => h.Score)
+            .ThenBy(h => h.Metadata.GetValueOrDefault("path", ""), StringComparer.Ordinal)
+            .ThenBy(h => int.TryParse(h.Metadata.GetValueOrDefault("chunkIndex"), out int index) ? index : int.MaxValue)
+            .ThenBy(h => h.ChunkId, StringComparer.Ordinal)
             .ToList();
     }
 
@@ -208,13 +235,22 @@ internal sealed class LinkSearch(
             return [];
 
         IReadOnlyDictionary<string, float> scores = await scoreChunks([.. chunks.Select(c => c.ChunkId.ToString())], ct);
+        return BestChunks(chunks, scores);
+    }
 
-        return chunks
+    /// <summary>
+    /// Each document's highest-scored chunk (its first when none scores), in path order: the blend keeps this order
+    /// among equal scores, and the rows arrive in whatever order the database returns them.
+    /// </summary>
+    internal static List<SearchHit> BestChunks(IEnumerable<ChunkRow> chunks, IReadOnlyDictionary<string, float> scores) =>
+        chunks
             .GroupBy(c => c.DocumentId)
             .Select(g => g
                 .OrderByDescending(c => scores.GetValueOrDefault(c.ChunkId.ToString()))
                 .ThenBy(c => c.ChunkIndex)
                 .First())
+            .OrderBy(c => c.Path, StringComparer.Ordinal)
+            .ThenBy(c => c.DocumentId)
             .Select(c => new SearchHit(
                 ChunkId: c.ChunkId.ToString(),
                 DocumentId: c.DocumentId.ToString(),
@@ -222,6 +258,19 @@ internal sealed class LinkSearch(
                 Score: scores.GetValueOrDefault(c.ChunkId.ToString()),
                 Metadata: Metadata(c)))
             .ToList();
+
+    /// <summary>Each document's path, for breaking ties by a key that survives re-indexing.</summary>
+    private async Task<Dictionary<string, string>> PathsAsync(List<string> documentIds, CancellationToken ct)
+    {
+        Guid[] ids = documentIds.Select(Guid.Parse).ToArray();
+        if (ids.Length == 0)
+            return [];
+
+        List<DocumentPath> rows = await context.Database
+            .SqlQueryRaw<DocumentPath>(
+                """SELECT d.id AS "Id", d.path AS "Path" FROM documents d WHERE d.id = ANY({0})""", [ids])
+            .ToListAsync(ct);
+        return rows.ToDictionary(r => r.Id.ToString(), r => r.Path, StringComparer.Ordinal);
     }
 
     private static Dictionary<string, string> Metadata(ChunkRow c)
@@ -248,7 +297,13 @@ internal sealed class LinkSearch(
         return metadata;
     }
 
-    private sealed class ChunkRow
+    private sealed class DocumentPath
+    {
+        public Guid Id { get; init; }
+        public string Path { get; init; } = "";
+    }
+
+    internal sealed class ChunkRow
     {
         public Guid ChunkId { get; init; }
         public Guid DocumentId { get; init; }

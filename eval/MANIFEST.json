@@ -46,6 +46,24 @@
     "links-v1": [
       "links-connapse-github",
       "links-flink-jira"
+    ],
+    "memory-v1": [
+      "memory-questions"
+    ],
+    "links-v2": [
+      "links-connapse-github-2"
+    ],
+    "links-v3": [
+      "links-flink-atlassian"
+    ],
+    "code-v1": [
+      "code-questions"
+    ],
+    "enterprise-10k": [
+      "erb-10k"
+    ],
+    "links-company": [
+      "links-company"
     ]
   },
   "datasets": {
@@ -973,6 +991,207 @@
           "name": "questions.jsonl",
           "url": "repo:links-flink-jira/questions.jsonl",
           "sha256": "3259a517b92116b9d37168dc116cc1cbe81f987058555f675815eb6cba736b4a"
+        }
+      ]
+    },
+    "memory-questions": {
+      "adapter": "memory-questions",
+      "version": "con-111",
+      "tags": [
+        "shape:memory"
+      ],
+      "files": [
+        {
+          "name": "questions.jsonl",
+          "url": "repo:memory-questions/questions.jsonl",
+          "sha256": "d824fbd60983169fb14718c6dfb4437484f108a9d111696b1750b3b77f9087b7"
+        },
+        {
+          "name": "notes.jsonl",
+          "url": "repo:memory-questions/notes.jsonl",
+          "sha256": "c290c49643cad088b8563c9d56ec52a961669493a186d57a32c82ad3bc5d8ff7"
+        },
+        {
+          "name": "timeline.json",
+          "url": "repo:memory-questions/timeline.json",
+          "sha256": "46963e84dbe4a110ef151120abd06ef65e936c14d3ec942e017248be57f1470d"
+        },
+        {
+          "name": "ops-ASH.jsonl",
+          "url": "repo:memory-questions/memory-ops/ASH.jsonl",
+          "sha256": "22a56c397f061c7af3c5a133891fe9ac86b6e94af704a67eb7d7f9ee3cdba5e1"
+        },
+        {
+          "name": "ops-BRM.jsonl",
+          "url": "repo:memory-questions/memory-ops/BRM.jsonl",
+          "sha256": "29088c0c633c6b0cfdaa45512b5988ec59a52fd2ccfc1e6882acb5c2205ba1a1"
+        },
+        {
+          "name": "ops-EMB.jsonl",
+          "url": "repo:memory-questions/memory-ops/EMB.jsonl",
+          "sha256": "11df571094b28af47ad8777d50fc976ff92fdb80cb768a0f3c3692b7e34ac7e2"
+        },
+        {
+          "name": "ops-HAL.jsonl",
+          "url": "repo:memory-questions/memory-ops/HAL.jsonl",
+          "sha256": "e6c08b5aaaf00b0e50034037ea071a7c8db1ae41de182a6defa86572e9989089"
+        },
+        {
+          "name": "ops-KST.jsonl",
+          "url": "repo:memory-questions/memory-ops/KST.jsonl",
+          "sha256": "da3967de06cee370c51f667b30b63e62f0ab0b4e3416588655a6647ebbb654f8"
+        },
+        {
+          "name": "ops-LNF.jsonl",
+          "url": "repo:memory-questions/memory-ops/LNF.jsonl",
+          "sha256": "d2e8d438b8ff7e633f5e61e2a8228b8371f65cbf07b5b208deed8c4b70eaaab0"
+        },
+        {
+          "name": "ops-MRW.jsonl",
+          "url": "repo:memory-questions/memory-ops/MRW.jsonl",
+          "sha256": "0a0e50af68aec55a28cbb3718791d488a3cbd4382b128cc41281d1941c97d36c"
+        },
+        {
+          "name": "ops-QFT.jsonl",
+          "url": "repo:memory-questions/memory-ops/QFT.jsonl",
+          "sha256": "7b1d7294831d724f0bfeb3a1e0aff2737c6d7481f5f2a9bd6dd0d5d641e4b75a"
+        },
+        {
+          "name": "ops-SLT.jsonl",
+          "url": "repo:memory-questions/memory-ops/SLT.jsonl",
+          "sha256": "6618064c2c4156da7779aeb91796ed51756124df5fdd1f2455adc8cda9ba82a9"
+        },
+        {
+          "name": "ops-TDW.jsonl",
+          "url": "repo:memory-questions/memory-ops/TDW.jsonl",
+          "sha256": "ce69e3e38cf41ceb0d75fa282ae1c74b4eda86d7bd1c9162dc561d44ce31c505"
+        }
+      ]
+    },
+    "links-connapse-github-2": {
+      "adapter": "link-questions",
+      "version": "2026-10-27",
+      "tags": [
+        "shape:record",
+        "source:github"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "6cce489bcbf2264e081834db0962e426ab39bf4e9a1dc3858bea8d15e6e926a1"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "3c20b5f562f944fe5107dd7472371889a8f5e5d3bb38811d9dec27c54ac748f7"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-connapse-github-2/questions.jsonl",
+          "sha256": "80c6fa9b0a1336f2847c2984bd60d6d5dc73f5dffb1f159d0300b742ff487d4f"
+        }
+      ]
+    },
+    "links-flink-atlassian": {
+      "adapter": "link-questions",
+      "version": "2023",
+      "tags": [
+        "shape:record",
+        "source:jira",
+        "source:confluence"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "164bb398075c39d43a85b67d0131dcc9383845d858c23258a9986a5e9c22a5ed"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "06f0927d7fceca06503ba42bf0e0bd552d547e5c3172aeda70f094f7ad960546"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-flink-atlassian/questions.jsonl",
+          "sha256": "2869688312c5b09777b67c21054db9a2d97b704492daa4c9a1e680926901e69f"
+        }
+      ]
+    },
+    "code-questions": {
+      "adapter": "code-questions",
+      "version": "con-35",
+      "tags": [
+        "shape:code"
+      ],
+      "files": [
+        {
+          "name": "questions.jsonl",
+          "url": "repo:code-questions/questions.jsonl",
+          "sha256": "d60b68954c6bfd9d0e9baa8aa55dc4c57355100d671dcd4b3dd66b31619243c1"
+        },
+        {
+          "name": "repos.json",
+          "url": "repo:code-questions/repos.json",
+          "sha256": "4e1cdb86a4a84ee6e3e81850c88a6a5a71c3e9625b38fed41a0b5169cb13b8e4"
+        },
+        {
+          "name": "gate.json",
+          "url": "repo:code-questions/gate.json",
+          "sha256": "8a067ba4a93ce75298742bd0ea79eab8380f87f9ee9451d3f590b2a05b7af57f"
+        },
+        {
+          "name": "grep-baseline.json",
+          "url": "repo:code-questions/grep-baseline.json",
+          "sha256": "e92b76d0abffb4fc8f2233564b81df3cd627f8591713b23477aed9f39676c9f4"
+        }
+      ]
+    },
+    "erb-10k": {
+      "adapter": "enterprise-rag-bench",
+      "version": "69916e31c68a",
+      "tags": [
+        "domain:enterprise",
+        "source:enterprise-rag-bench"
+      ],
+      "files": [
+        {
+          "name": "documents.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "8d5b407fe67f082bdbdc980ef23a559260e728fdf2c65328b22f0dbf75e6bc83"
+        },
+        {
+          "name": "questions.parquet",
+          "url": "build:eval/tools/build_enterprise_suite.py",
+          "sha256": "06845198ab5e8adde84fcedd688dd1066ede324c68b4a87dbe7c53390eaf7c50"
+        }
+      ]
+    },
+    "links-company": {
+      "adapter": "link-questions",
+      "version": "2026-10-01",
+      "tags": [
+        "shape:record",
+        "source:jira",
+        "source:confluence",
+        "source:github"
+      ],
+      "files": [
+        {
+          "name": "records.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "c68e8dd7bdf44a753a97e87cf95d3aa8a5a9012e1a522d357327579bb42420eb"
+        },
+        {
+          "name": "links.jsonl",
+          "url": "build:eval/tools/build_link_suite.py",
+          "sha256": "de92d157135c968f59ca4fbd52f15c333592cceb080e42f0e5357faae7ba8844"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:links-company/questions.jsonl",
+          "sha256": "727669c47b5d408e6314f02f62484b5753c4971c5f831477b33f7051e41b8d36"
         }
       ]
     }

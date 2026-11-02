@@ -146,12 +146,12 @@ public sealed class PostgresLinkReader(IDbContextFactory<KnowledgeDbContext> con
 
     private static VisibleEdge Show(string id, List<LinkEdgeEntity> rows, IReadOnlySet<string> readable)
     {
-        List<SourcedText> evidence = [.. rows
+        List<LinkEdgeEntity> open = [.. rows
             .Where(r => readable.Contains(r.DocumentId))
-            .OrderBy(r => r.DocumentId, StringComparer.Ordinal).ThenBy(r => r.Ordinal)
-            .Select(r => new SourcedText(r.Evidence, r.DocumentId))];
+            .OrderBy(r => r.DocumentId, StringComparer.Ordinal).ThenBy(r => r.Ordinal)];
+        List<SourcedText> evidence = [.. open.Select(r => new SourcedText(r.Evidence, r.DocumentId))];
         LinkEdgeEntity first = rows[0];
         return new VisibleEdge(id, first.FromNode, first.ToNode, first.Type, evidence,
-            [.. evidence.Select(e => e.DocumentId).Distinct(StringComparer.Ordinal)]);
+            [.. evidence.Select(e => e.DocumentId).Distinct(StringComparer.Ordinal)], open.Max(r => (double)r.Confidence));
     }
 }
