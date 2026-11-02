@@ -6,7 +6,8 @@ namespace Connapse.Storage.Memory;
 
 /// <summary>
 /// Agent memory's rules over <see cref="IMemoryStore"/>. A source is readable when its document is (a link node:
-/// when a document standing for it is), asked of <paramref name="access"/> on every call; nothing is cached.
+/// when it stands for at least one document and every one of them is, since one node can span files with different
+/// permissions), asked of <paramref name="access"/> on every call; nothing is cached.
 /// <list type="bullet">
 /// <item>A writer must be able to read every source it cites, so a fact cannot claim a source nobody gave it.</item>
 /// <item>A reader sees a fact only when it can read every one of its sources, so citing one public document beside a
@@ -180,7 +181,7 @@ public sealed class MemoryService(
         IReadOnlySet<string> open = await access.ReadableAsync(userId, documents, ct);
         return all.Where(s => s.Kind == MemorySourceKind.Document
                 ? open.Contains(s.Ref)
-                : nodeDocuments[s.Ref].Any(open.Contains))
+                : nodeDocuments[s.Ref].Any() && nodeDocuments[s.Ref].All(open.Contains))
             .ToHashSet();
     }
 
