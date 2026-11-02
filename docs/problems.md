@@ -102,6 +102,13 @@ nothing in it, so naming one doesn't confirm it exists.
 The search was refused: the query is missing or over 10,000 characters, `topK` is outside 1 to 100,
 or `minScore` is outside 0.0 to 1.0. `field` names the input at fault.
 
+## embeddings-unavailable
+
+The search needed the query embedded, and the embedding service (Ollama by default) didn't answer, timed
+out, or refused the request. Nothing is wrong with the request: retry once the service is back, or search
+in `Keyword` mode, which doesn't use it. A scope the caller may not know exists still reads as
+`search-scope-not-found`.
+
 ## settings-category-not-found
 
 Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,

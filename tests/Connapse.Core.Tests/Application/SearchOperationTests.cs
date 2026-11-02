@@ -433,6 +433,36 @@ public class SearchOperationTests
     }
 
     [Fact]
+    public async Task Search_VisibleContainerWhileEmbeddingsAreDown_IsEmbeddingsUnavailable()
+    {
+        var world = new World();
+        var container = world.Container();
+        world.Search.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new EmbeddingUnavailableException(new HttpRequestException("ollama:11434")));
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope(container.Id), Query());
+
+        searched.Status.Should().Be(SearchStatus.EmbeddingsUnavailable);
+        searched.Detail.Should().Contain("Keyword");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Search_HiddenOrUnknownScopeWhileEmbeddingsAreDown_StillReadsAsMissing(bool exists)
+    {
+        var world = new World();
+        var hidden = world.Source(visible: false, searchableWhenHidden: true);
+        world.Search.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new EmbeddingUnavailableException(new HttpRequestException("ollama:11434")));
+        string id = exists ? hidden.Id.ToString() : Guid.NewGuid().ToString();
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope(id), Query());
+
+        searched.Status.Should().Be(SearchStatus.NotFound);
+    }
+
+    [Fact]
     public async Task SearchContainer_SourceId_ReadsAsMissingWithoutAskingAboutSources()
     {
         var world = new World();
