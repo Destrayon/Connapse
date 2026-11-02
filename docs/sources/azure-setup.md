@@ -1,5 +1,6 @@
 ---
 title: Azure setup
+description: Index Azure Blob Storage in Connapse, with each user's results trimmed by their Entra ID permissions.
 type: how-to
 audience: admin
 ---

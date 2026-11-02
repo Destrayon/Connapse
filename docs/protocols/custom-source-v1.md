@@ -1,3 +1,10 @@
+---
+title: Custom source protocol, version 1
+description: The HTTP contract a custom source server implements so Connapse can pull its documents and check each user's permissions live.
+type: reference
+audience: developer
+---
+
 # Connapse custom source protocol, version 1
 
 A **custom source server** (source server below) is any server that speaks this protocol: the system that holds

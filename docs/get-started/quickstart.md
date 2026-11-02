@@ -1,5 +1,6 @@
 ---
 title: Quickstart
+description: Run Connapse on your machine with Docker Compose and Ollama, create the Owner account, upload a document and search it.
 type: quickstart
 audience: user
 ---

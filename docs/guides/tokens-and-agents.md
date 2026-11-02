@@ -1,5 +1,6 @@
 ---
 title: Create tokens and agent keys
+description: Create personal access tokens and agent keys, choose their scopes, and revoke them.
 type: how-to
 audience: admin
 ---

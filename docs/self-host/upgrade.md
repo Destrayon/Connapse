@@ -1,5 +1,6 @@
 ---
 title: Upgrade Connapse
+description: Upgrade a self-hosted Connapse server, including the steps from v0.3.x to v0.4.0, and roll back if it goes wrong.
 type: how-to
 audience: operator
 ---
@@ -59,6 +60,52 @@ Use this when you want to move a running Connapse server to a newer release, and
    ```
 
    `/health` returns `200 OK`. Then sign in and run a search in a container you know.
+
+## From v0.3.x to v0.4.0
+
+v0.4.0 replaces a container's connector with sources and removes several old interfaces, so this upgrade needs more than the steps above. The [CHANGELOG](../../CHANGELOG.md) lists every breaking change. Do these in order.
+
+1. Let uploads that are still indexing finish. v0.3.x keeps queued jobs in memory, so they are lost when it stops.
+
+2. Back up, as in step 1 above.
+
+3. While v0.3.x is still running, save each S3, Azure Blob or filesystem container's settings. The upgrade deletes them, and you need them to set those containers up again:
+
+   ```bash
+   curl -H "X-Api-Key: cnp_your_key" http://localhost:5001/api/containers > containers-v0.3.json
+   ```
+
+   Each container's `connectorType` and `connectorConfig` hold its bucket, prefix or root path. Keep the file private, because a config can hold credentials.
+
+4. Take the new `docker-compose.yml` from the release package. The `minio/minio` image the old file names is no longer published, so the old file can't start MinIO. If you keep your own compose file, change MinIO's image to `cgr.dev/chainguard/minio` and add `user: "0"` to it. Reading PDFs by their layout needs about 3 GB for `web`; with less, PDFs are read in plain text order and the log says so.
+
+5. Set `CONNAPSE_VERSION=v0.4.0` in `.env`, then pull and start as in steps 2 to 5 above.
+
+6. Recreate each S3, Azure Blob or filesystem container as a source, using the settings you saved in step 3. [Containers, connections and sources](../sources/index.md) explains the new model.
+
+7. Re-issue every personal access token and agent key that has no scopes, and check that tokens used for admin work carry the scope they need. See [Create tokens and agent keys](../guides/tokens-and-agents.md).
+
+8. Move MCP clients that use the SSE transport to Streamable HTTP at `/mcp`, as in [Connect an MCP client](../guides/mcp-clients.md). MCP clients that signed in with OAuth sign in once more.
+
+9. The command-line tool is now separate. Install [connapse-cli](https://github.com/Destrayon/connapse-cli) and run `connapse auth login`.
+
+10. Ask everyone who linked an AWS or Azure account to link it again under **Profile** → **Integrations**.
+
+11. Re-read the files whose parser changed, which after this upgrade is most PDF, Word, PowerPoint and text files. To see how many a container has first, with a token that has `knowledge:write`:
+
+    ```bash
+    curl -X POST -H "X-Api-Key: cnp_your_key" -H "Content-Type: application/json" \
+      -d '{"dryRun": true}' http://localhost:5001/api/containers/<container-id>/reindex
+    ```
+
+    Then start it for every container, with a token that has the `admin:settings` scope:
+
+    ```bash
+    curl -X POST -H "X-Api-Key: cnp_your_key" -H "Content-Type: application/json" \
+      -d '{}' http://localhost:5001/api/settings/reindex
+    ```
+
+    Only documents whose parser or settings changed are re-read.
 
 ## Scripts that read error codes
 

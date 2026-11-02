@@ -1,5 +1,6 @@
 ---
 title: REST API
+description: Every Connapse REST API endpoint with the scope it needs, plus authentication, errors, paging and rate limits.
 type: reference
 audience: developer
 ---

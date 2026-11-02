@@ -1,5 +1,6 @@
 ---
 title: Roles and scopes
+description: Which user role and which token scope each Connapse operation needs.
 type: reference
 audience: admin
 ---

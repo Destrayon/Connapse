@@ -1,5 +1,6 @@
 ---
 title: Back up and restore Connapse
+description: "Back up and restore a self-hosted Connapse server: PostgreSQL, MinIO and the app data directory."
 type: how-to
 audience: operator
 ---
