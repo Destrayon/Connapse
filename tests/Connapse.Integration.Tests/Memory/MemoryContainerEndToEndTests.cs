@@ -95,29 +95,21 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
                 (await db.Documents.CountAsync(d => d.ContainerId == Guid.Parse(id))).Should().Be(0);
             }
 
-            // Permissions as in any container: a read-only key of the same owner recalls but can't write.
+            // A read-only key of the same owner recalls, and can keep a personal fact, which changes nothing anyone else sees.
             await using (var reader = await ConnectAsync(AuthzPrincipal.AgentRead))
             {
                 Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
                     .Should().Contain(Facts[0].Value);
-                string written;
-                try
+                string written = await CallAsync(reader, "memory_remember", new()
                 {
-                    written = await CallAsync(reader, "memory_remember", new()
-                    {
-                        ["containerId"] = id,
-                        ["subject"] = "team",
-                        ["attribute"] = "retro",
-                        ["value"] = "Thursdays",
-                    });
-                }
-                catch (McpException ex)
-                {
-                    written = ex.Message; // the tool isn't offered to a key without knowledge:write
-                }
-                written.Should().NotContain("remembered", "memory_remember needs knowledge:write");
+                    ["containerId"] = id,
+                    ["subject"] = "team",
+                    ["attribute"] = "retro",
+                    ["value"] = "Thursdays",
+                });
+                written.Should().StartWith("{\"remembered\"", written);
                 Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
-                    .Should().NotContain("Thursdays");
+                    .Should().Contain("Thursdays");
             }
 
             // A fact citing no documents is shown only to its owner, never to another user's agent.

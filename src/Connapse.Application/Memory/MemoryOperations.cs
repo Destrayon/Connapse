@@ -68,9 +68,13 @@ internal static class MemoryRules
     public static Attempt<T, MemoryStatus> ReadForbidden<T>() =>
         Fail<T>(MemoryStatus.Forbidden, "memory needs read access (knowledge:read).");
 
-    /// <summary>Whether the caller may write team facts: write access (knowledge:write).</summary>
-    public static Task<bool> TeamWriterAsync(IOperationAuthorizer authorizer, OperationContext context) =>
-        authorizer.AllowsAsync(context.User, Policies.Writer);
+    /// <summary>
+    /// Whether the caller may write team facts: write access (knowledge:write). Both checks are needed: the MCP memory
+    /// tools are open to knowledge:read so a reader can keep personal facts, and the writer role alone would pass an
+    /// Editor's read-only token.
+    /// </summary>
+    public static async Task<bool> TeamWriterAsync(IOperationAuthorizer authorizer, OperationContext context) =>
+        await authorizer.AllowsAsync(context.User, Policies.Writer) && await authorizer.AllowsAsync(context.User, Policies.KnowledgeWrite);
 
     /// <summary>Whether the caller may keep personal facts: read access, or write access, which covers it.</summary>
     public static async Task<bool> PersonalWriterAsync(IOperationAuthorizer authorizer, OperationContext context) =>
@@ -170,6 +174,7 @@ public sealed class ForgetFact(IContainerStore containers, IMemoryService memory
         {
             MemoryWriteFailure.None => Attempt<int, MemoryStatus>.Succeed(deleted),
             MemoryWriteFailure.Forbidden => MemoryRules.Fail<int>(MemoryStatus.Forbidden, "deleting a team fact needs write access (knowledge:write)."),
+            MemoryWriteFailure.Unchecked => MemoryRules.Fail<int>(MemoryStatus.Unchecked, "access to memory sources could not be checked; nothing was deleted."),
             _ => MemoryRules.FactNotFound<int>(factId),
         };
     }

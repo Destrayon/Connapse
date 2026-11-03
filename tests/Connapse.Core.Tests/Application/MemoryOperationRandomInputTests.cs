@@ -68,7 +68,7 @@ public class MemoryOperationRandomInputTests
 
         public World(bool reader, bool writer, Container container, bool exists)
         {
-            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.KnowledgeRead => reader, Policies.Writer => writer, _ => false });
+            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.KnowledgeRead => reader, Policies.Writer or Policies.KnowledgeWrite => writer, _ => false });
             Containers.GetAsync(Guid.Parse(container.Id), Arg.Any<CancellationToken>()).Returns(exists ? container : null);
             Containers.GetByNameAsync(container.Name, Arg.Any<CancellationToken>()).Returns(exists ? container : null);
         }
@@ -137,13 +137,40 @@ public class MemoryOperationRandomInputTests
                 world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);
             }, iter: 1000);
 
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, true)]
+    public async Task Remember_TeamFact_NeedsTheWriterRoleAndTheWriteScope(bool writerRole, bool writeScope, bool expected)
+    {
+        // An Editor's knowledge:read token passes the writer role but not the scope; it must not write team facts.
+        var authorizer = new PolicyAuthorizer(policy => policy switch
+        {
+            Policies.Writer => writerRole,
+            Policies.KnowledgeWrite => writeScope,
+            _ => false,
+        });
+
+        Container container = AnyContainer.Single();
+        var world = new World(true, false, container, true);
+        world.Memory.RememberAsync(Guid.Parse(container.Id), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(world.Answers(MemoryWriteFailure.None, Guid.Parse(container.Id)));
+
+        var written = await new RememberFact(world.Containers, world.Memory, authorizer).RunAsync(
+            new OperationContext(new ClaimsPrincipal(), OperationSurface.Mcp), container.Id,
+            new NewMemoryFact("Halcyon", "database", "PostgreSQL", null, null, [], null, MemoryScope.Team));
+
+        written.Status.Should().Be(expected ? MemoryStatus.Success : MemoryStatus.Forbidden);
+    }
+
     // ── memory.forget ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     [RandomInputTestOf(typeof(ForgetFact))]
     public Task Forget_AnyCall_DeletesOnlyForAReaderOrWriterAndHidesWhyAFactWasNotFound() =>
         Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool, FactId, Gen.Int[0, 4])
-            .SelectMany(t => KeyFor(t.Item4).SelectMany(key => Gen.OneOfConst(MemoryWriteFailure.None, MemoryWriteFailure.NotFound, MemoryWriteFailure.Forbidden)
+            .SelectMany(t => KeyFor(t.Item4).SelectMany(key => Gen.OneOfConst(MemoryWriteFailure.None, MemoryWriteFailure.NotFound, MemoryWriteFailure.Forbidden, MemoryWriteFailure.Unchecked)
                 .Select(failure => (t, key, failure))))
             .SampleAsync(async s =>
             {
@@ -161,6 +188,7 @@ public class MemoryOperationRandomInputTests
                     : !factId.IsId ? MemoryStatus.FactNotFound
                     : failure == MemoryWriteFailure.Forbidden ? MemoryStatus.Forbidden
                     : failure == MemoryWriteFailure.NotFound ? MemoryStatus.FactNotFound
+                    : failure == MemoryWriteFailure.Unchecked ? MemoryStatus.Unchecked
                     : MemoryStatus.Success;
                 forgotten.Status.Should().Be(expected);
                 world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);

@@ -80,9 +80,6 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             ["bulk_delete"] = new() { ["containerId"] = missing, ["fileIds"] = $"[\"{Guid.NewGuid()}\"]" },
             ["bulk_upload"] = new() { ["containerId"] = missing, ["files"] = "[{\"filename\":\"probe.txt\",\"content\":\"probe\"}]" },
             [McpApiTools.WriteName] = new() { ["operation"] = missing },
-            ["memory_remember"] = new() { ["containerId"] = missing, ["subject"] = "probe", ["attribute"] = "probe", ["value"] = "probe" },
-            ["memory_correct"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString(), ["value"] = "probe", ["kind"] = "wrong" },
-            ["memory_forget"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString() },
         };
 
         var hidden = Tools.Keys.Where(t => !Visible(AuthzPrincipal.AgentRead, t)).Order().ToList();

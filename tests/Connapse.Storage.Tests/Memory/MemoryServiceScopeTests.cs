@@ -103,6 +103,15 @@ public class MemoryServiceScopeTests
         await _store.Received(1).AddAsync(Container, Arg.Is<NewMemoryFact>(f => f.Scope == MemoryScope.Team), Me, Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Remember_WithAnUndefinedScope_IsRefusedBeforeTheStore()
+    {
+        MemoryWriteResult result = await _service.RememberAsync(Container, new NewMemoryFact("s", "a", "v", null, null, [], null, (MemoryScope)7), Me);
+
+        result.Error.Should().Contain("scope must be");
+        await _store.DidNotReceiveWithAnyArgs().AddAsync(default, default!, default!, default);
+    }
+
     // ── who sees a fact ───────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -280,6 +289,18 @@ public class MemoryServiceScopeTests
         ForgetRunsAllow([first, Fact(Other, MemoryScope.Team, Restricted)]);
 
         (await _service.ForgetAsync(Container, first.Id, Me, teamWriter: false)).Should().Be((0, MemoryWriteFailure.NotFound));
+    }
+
+    [Fact]
+    public async Task Forget_AccessCheckFails_ReportsUncheckedAndDeletesNothing()
+    {
+        MemoryFact first = Fact(Me, MemoryScope.Team, Shared);
+        ForgetRunsAllow([first]);
+        _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("down"));
+
+        (await _service.ForgetAsync(Container, first.Id, Me, teamWriter: true)).Should().Be((0, MemoryWriteFailure.Unchecked));
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
     }
 
     // ── sharing a fact or making it personal ──────────────────────────────────────────────────────

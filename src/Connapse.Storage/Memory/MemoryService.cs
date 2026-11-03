@@ -85,7 +85,7 @@ public sealed class MemoryService(
     public async Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(
         Guid containerId, Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default)
     {
-        bool forbidden = false;
+        bool forbidden = false, sourcesUnchecked = false;
 
         // Every version must be visible: corrections can cite other sources, and forgetting deletes them all. A chain
         // with any hidden version is reported as missing, so the answer does not reveal that it exists.
@@ -103,12 +103,13 @@ public sealed class MemoryService(
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 logger.LogWarning(ex, "Could not check memory sources; refusing the forget");
+                sourcesUnchecked = true;
                 return false;
             }
         }
 
         if (await store.ForgetAsync(containerId, factId, AllVisible, ct) is not { } deleted)
-            return (0, forbidden ? MemoryWriteFailure.Forbidden : MemoryWriteFailure.NotFound);
+            return (0, sourcesUnchecked ? MemoryWriteFailure.Unchecked : forbidden ? MemoryWriteFailure.Forbidden : MemoryWriteFailure.NotFound);
 
         await audit.LogAsync("memory.forgotten", "memory_fact", factId.ToString(),
             new { ContainerId = containerId, Deleted = deleted, caller.UserId, caller.AgentId }, ct);
@@ -315,6 +316,8 @@ public sealed class MemoryService(
             return "Error: 'reason' must be at most 1000 characters.";
         if (fact.ValidFrom is { } from && fact.ValidTo is { } to && to <= from)
             return "Error: 'validTo' must be after 'validFrom'.";
+        if (fact.Scope is { } scope && !Enum.IsDefined(scope))
+            return "Error: scope must be \"personal\" or \"team\".";
         IReadOnlyList<MemorySource> sources = fact.Sources ?? [];
         if (sources.Count > MaxSources)
             return $"Error: at most {MaxSources} sources.";
