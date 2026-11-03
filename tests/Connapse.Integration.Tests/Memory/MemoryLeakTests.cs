@@ -120,6 +120,41 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
         (await service.RecallAsync(new MemoryQuery(container, Subject: "Billing"), new MemoryCaller(reader, null, null))).Facts.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Recall_ByChain_ReturnsEveryVersionOfThatFactOnly()
+    {
+        Guid user = Guid.NewGuid();
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid container = Guid.NewGuid();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.Containers.Add(new ContainerEntity { Id = container, Name = $"chain-{Guid.NewGuid():N}" });
+            await db.SaveChangesAsync();
+        }
+        var store = new PostgresMemoryStore(factory, TimeProvider.System);
+        var service = new MemoryService(store, new FakeAccess([]), new FakeIndex([]),
+            Substitute.For<IAuditLogger>(), NullLogger<MemoryService>.Instance);
+        var me = new MemoryCaller(user, null, null);
+        DateTimeOffset jan = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        MemoryFact first = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "database", "MySQL", jan, null, []), me)).Fact!;
+        MemoryFact wrong = (await service.CorrectAsync(container, first.Id, MemoryCorrection.Wrong,
+            new NewMemoryFact("", "", "PostgreSQL 14", null, null, []), me)).Fact!;
+        MemoryFact changed = (await service.CorrectAsync(container, wrong.Id, MemoryCorrection.Changed,
+            new NewMemoryFact("", "", "PostgreSQL 15", jan.AddMonths(3), null, []), me)).Fact!;
+        await service.RememberAsync(container, new NewMemoryFact("Halcyon", "region", "eu-west", jan, null, []), me);
+
+        MemoryRecall history = await service.RecallAsync(new MemoryQuery(container, ChainId: first.ChainId, Limit: 100), me);
+
+        history.Facts.Select(f => f.Fact.Id).Should().BeEquivalentTo([first.Id, wrong.Id, changed.Id],
+            "a chain holds the superseded, the ended and the current version, and no other fact");
+        (await service.RecallAsync(new MemoryQuery(container, ChainId: first.ChainId, Limit: 2), me))
+            .Facts.Select(f => f.Fact.Id).Should().Equal([changed.Id, wrong.Id], "a capped chain read keeps its newest versions");
+        (await service.RecallAsync(new MemoryQuery(container, ChainId: first.ChainId, Limit: 100), new MemoryCaller(Guid.NewGuid(), null, null)))
+            .Facts.Should().BeEmpty("a sourceless fact's history is its author's alone");
+    }
+
     [Theory]
     [InlineData(38)]
     [InlineData(39)]
@@ -209,6 +244,7 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             new(container, ChangedFrom: new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero),
                 ChangedTo: new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero), Limit: 100),
             new(container, History: true, Limit: 3),
+            new(container, ChainId: written.GroupBy(f => f.ChainId).MaxBy(g => g.Count())!.Key, Limit: 100),
         ];
 
         int shown = 0;
