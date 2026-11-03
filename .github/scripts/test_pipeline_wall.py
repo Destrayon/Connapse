@@ -205,7 +205,7 @@ RUN_1103 = json.loads((pathlib.Path(__file__).parent / "fixtures" / "run-4153504
 RUN_1103_NOW = datetime(2026, 11, 2, 22, 18, 28, tzinfo=timezone.utc)
 
 
-def run_1103(jobs: list[dict], outside: str | None = "3") -> tuple[int, str]:
+def run_1103(jobs: list[dict], outside: str | None = "3", now: datetime = RUN_1103_NOW) -> tuple[int, str]:
     args = ["pipeline_wall.py", "--max-seconds", "360", "--current", "build-and-test",
             "--setup-allowances", str(SETUP_FILE)]
     for a in ALLOWANCES:
@@ -214,7 +214,7 @@ def run_1103(jobs: list[dict], outside: str | None = "3") -> tuple[int, str]:
         args += ["--outside-steps", outside]
     out = io.StringIO()
     with mock.patch.object(pw, "jobs", return_value=jobs), \
-         mock.patch.object(pw, "utcnow", return_value=RUN_1103_NOW), \
+         mock.patch.object(pw, "utcnow", return_value=now), \
          mock.patch.object(sys, "argv", args), contextlib.redirect_stdout(out):
         rc = pw.main()
     return rc, out.getvalue()
@@ -270,19 +270,40 @@ class OutsideSteps(unittest.TestCase):
         rc, out = run_1103(RUN_1103)
         self.assertEqual(rc, 0, out)
         self.assertIn("::warning::integration (2): 85 s outside its steps", out)
-        self.assertIn("pipeline: integration (2) 323 s + build-and-test 9 s = 332 s", out)
+        self.assertIn("pipeline: integration (2) 323 s + build-and-test 11 s = 334 s", out)
 
     def test_main_Run1103With60sMoreTests_Fails(self):
         # The same run, with a PR that adds a minute to shard 2's tests: that is the PR's time, counted in full.
         rc, out = run_1103(slower_tests(RUN_1103, "integration (2)", "Run Integration.Tests shard 2 of 3", 60))
         self.assertEqual(rc, 1, out)
-        self.assertIn("pipeline: integration (2) 383 s + build-and-test 9 s = 392 s", out)
+        self.assertIn("pipeline: integration (2) 383 s + build-and-test 11 s = 394 s", out)
         self.assertIn("::error::PrPipeline_WallTimeUnder6Min", out)
 
     def test_main_Run1103With60sMoreTestsOnAnotherShard_Fails(self):
         rc, out = run_1103(slower_tests(RUN_1103, "integration (3)", "Run Integration.Tests shard 3 of 3", 60))
         self.assertEqual(rc, 1, out)
         self.assertIn("::error::PrPipeline_WallTimeUnder6Min", out)
+
+    def test_counted_OneStepWithoutTimes_CountsTheJobAsItRan(self):
+        # A 400 s test step without its times mustn't become time outside the steps.
+        j = job("integration (2)", [("Run ./.github/actions/build", 10), ("Run tests", 400)])
+        j["steps"][1]["completed_at"] = None
+        self.assertEqual(pw.counted(j, {}, outside=3), (410, []))
+
+    def test_main_Run1103SlowCurrentJobStart_Passes(self):
+        # GitHub taking 60 s longer to start build-and-test is no more the PR's than closing shard 2 was.
+        jobs = copy.deepcopy(RUN_1103)
+        current = next(j for j in jobs if j["name"] == "build-and-test")
+        current["started_at"] = later(current["started_at"], -60)
+        rc, out = run_1103(jobs)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("::warning::build-and-test: 61 s before its first step", out)
+
+    def test_main_Run1103With60sMoreInCurrentJob_Fails(self):
+        # 60 s more of build-and-test's own steps: the check runs 60 s later and counts all of it.
+        rc, out = run_1103(RUN_1103, now=RUN_1103_NOW + timedelta(seconds=60))
+        self.assertEqual(rc, 1, out)
+        self.assertIn("build-and-test 71 s", out)
 
     def test_outsideSteps_Negative_IsAnError(self):
         with self.assertRaises(argparse.ArgumentTypeError):

@@ -101,9 +101,10 @@ def counted(j: dict, allowances: dict[str, float], setup: dict[str, float] | Non
     seconds = (at(j["completed_at"]) - at(j["started_at"])).total_seconds()
     over = []
     timed = [s for s in j.get("steps") or [] if s.get("started_at") and s.get("completed_at")]
-    if outside is not None and timed:
+    if outside is not None and timed and len(timed) == len(j.get("steps") or []):
         # Before the first step and after the last, GitHub is starting or closing the job: no step of this
-        # pipeline runs then, so a PR can't make it slower. Counted as its usual time, both ways.
+        # pipeline runs then, so a PR can't make it slower. Counted as its usual time, both ways. Only when
+        # every step has its times (a skipped step has them too): a step without them could be anywhere.
         span = (max(at(s["completed_at"]) for s in timed) - min(at(s["started_at"]) for s in timed)).total_seconds()
         took = seconds - span
         if took != outside:
@@ -196,6 +197,14 @@ def main() -> int:
             else:
                 print(f"           {name} took {took:.0f} s; counted {count:g} s, its usual time")
     own = (now - at(current["started_at"])).total_seconds()
+    begun = [at(s["started_at"]) for s in current.get("steps") or [] if s.get("started_at")]
+    if a.outside_steps is not None and begun:
+        # This job's own start counts as its usual time too; it hasn't closed yet, so that is all of it.
+        took = (min(begun) - at(current["started_at"])).total_seconds()
+        own += a.outside_steps - took
+        if took > OUTSIDE_WARNING:
+            print(f"::warning::{a.current}: {took:.0f} s before its first step, while GitHub started the job;"
+                  f" counted {a.outside_steps:g} s, its usual time")
     longest = max(done, key=lambda j: counted_job(j)[0])
     longest_seconds = counted_job(longest)[0]
     pipeline = longest_seconds + own
