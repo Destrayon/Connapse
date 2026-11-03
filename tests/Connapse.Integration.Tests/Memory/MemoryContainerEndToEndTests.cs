@@ -149,10 +149,7 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
     {
         var http = fixture.Factory.CreateClient();
         credential(http.DefaultRequestHeaders);
-        return await McpClient.CreateAsync(new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true));
+        return await McpTestClient.ConnectAsync(http);
     }
 
     private static async Task<string> CallAsync(McpClient agent, string tool, Dictionary<string, object?> arguments)
