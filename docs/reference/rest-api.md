@@ -138,7 +138,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 
 | Method | Path | Scope | Description |
 |--------|------|-------|-------------|
-| `POST` | `/api/containers` | `knowledge:write` | Create a new container for organizing files |
+| `POST` | `/api/containers` | `knowledge:write` | Create a container. Body: `name`, optional `description`, optional `kind`: `Documents` (default) or `Memory`, an agent memory container that holds only memory facts and refuses document routes with `memory-container` |
 | `GET` | `/api/containers` | `knowledge:read` | List containers with pagination (?skip=0&take=50) |
 | `GET` | `/api/containers/{containerId}` | `knowledge:read` | Get a specific container by ID |
 | `PATCH` | `/api/containers/{containerId}` | `knowledge:write` | Rename a container or change its description. |

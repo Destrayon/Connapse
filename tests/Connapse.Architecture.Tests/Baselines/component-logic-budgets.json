@@ -133,17 +133,17 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 739,
+    "CodeLines": 743,
     "Injects": 8,
-    "Complexity": 167,
-    "MarkupLogic": 84,
+    "Complexity": 169,
+    "MarkupLogic": 87,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
-    "CodeLines": 138,
+    "CodeLines": 140,
     "Injects": 3,
     "Complexity": 18,
-    "MarkupLogic": 21,
+    "MarkupLogic": 24,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
@@ -347,6 +347,13 @@
     "Injects": 0,
     "Complexity": 37,
     "MarkupLogic": 14,
+    "IsEmpty": false
+  },
+  "Shared/ContainerKindPicker.razor": {
+    "CodeLines": 8,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 5,
     "IsEmpty": false
   },
   "Shared/ContainerStatsLine.razor": {

@@ -28,17 +28,22 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_create", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Create a new container for organizing documents. Use when setting up a new knowledge domain or project.")]
+     Description("Create a new container. Use when setting up a new knowledge domain or project. kind=documents (the default) holds documents; kind=memory holds only agent memory facts — general facts that belong to no document set — and refuses uploads and document tools.")]
     public static async Task<string> ContainerCreate(
         CreateContainer create,
         IHttpContextAccessor http,
         [Description("Container name (lowercase alphanumeric and hyphens, 2-128 chars)")] string name,
         [Description("Optional description for the container")] string? description = null,
+        [Description("What the container holds: \"documents\" (default) or \"memory\" (agent memory facts only). Fixed once created.")] string? kind = null,
         CancellationToken ct = default)
     {
-        var created = await create.RunAsync(Mcp(http), new CreateContainerRequest(name, description), ct);
+        if (ParseKind(kind) is not { } containerKind)
+            return "Error: kind must be \"documents\" or \"memory\".";
+        var created = await create.RunAsync(Mcp(http), new CreateContainerRequest(name, description, containerKind), ct);
         return created.Status switch
         {
+            ContainerStatus.Success when created.Result!.Kind == ContainerKind.Memory =>
+                $"Agent memory container '{created.Result.Name}' created. Save facts to it with `memory_remember` and read them with `memory_recall`.\n\nID: {created.Result.Id}",
             ContainerStatus.Success => $"Container '{created.Result!.Name}' created.\n\nID: {created.Result.Id}",
             ContainerStatus.Invalid => "Error: Container name must be 2-128 chars, lowercase alphanumeric and hyphens.",
             ContainerStatus.Conflict => $"Error: Container '{name.Trim()}' already exists.",
@@ -48,7 +53,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Lists every searchable knowledge scope with its description and document count. Each entry is either kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
+     Description("Lists every searchable knowledge scope with its description and document count. Each entry is kind=managed (storage Connapse owns, browsable with `list_files`), kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing), or kind=memory (agent memory only: use `memory_recall` and `memory_remember`; document tools refuse it). Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
         ListContainers list,
         ListSources listSources,
@@ -87,7 +92,9 @@ public partial class McpTools
         text += $"Found {owners.Count} knowledge scope(s):\n\n";
         foreach (var owner in owners)
         {
-            text += $"- {owner.Name} [{owner.Kind}] ({owner.DocumentCount} files)";
+            text += owner.IsMemory
+                ? $"- {owner.Name} [{owner.Kind}] (agent memory: use memory_recall)"
+                : $"- {owner.Name} [{owner.Kind}] ({owner.DocumentCount} files)";
             if (!string.IsNullOrEmpty(owner.Description))
                 text += $" — {owner.Description}";
             text += "\n";
@@ -150,6 +157,7 @@ public partial class McpTools
                 SearchStatus.Invalid => $"Error: Invalid search: {searched.Detail}.",
                 // The operation says whether this is an outage or a size mismatch, and what to do about each.
                 SearchStatus.EmbeddingsUnavailable => $"Error: The search could not be run. {searched.Detail}",
+                SearchStatus.MemoryContainer => Refused(searched),
                 _ => $"Error: Container '{containerId}' not found.",
             };
         var result = searched.Result!;
@@ -652,6 +660,10 @@ public partial class McpTools
             // no file listing, by design rather than by omission.
             text += "Type: external source (read-only; searchable, but `list_files` does not apply)\n";
         }
+        else if (owner.IsMemory)
+        {
+            text += "Type: agent memory (holds memory facts only; use `memory_remember` and `memory_recall`, document tools refuse it)\n";
+        }
         else
         {
             text += "Type: managed storage (browsable and writable)\n";
@@ -714,13 +726,25 @@ public partial class McpTools
     {
         public const string ManagedKind = "managed";
         public const string SourceKind = "source";
+        public const string MemoryKind = "memory";
 
         public bool IsSource => Kind == SourceKind;
+
+        public bool IsMemory => Kind == MemoryKind;
     }
+
+    /// <summary>The container kind container_create names, or null for one it doesn't know. No kind means documents.</summary>
+    internal static ContainerKind? ParseKind(string? kind) => kind?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "documents" => ContainerKind.Documents,
+        "memory" => ContainerKind.Memory,
+        _ => null,
+    };
 
     private static SearchableOwner? ToOwner(Connapse.Core.Container container) =>
         Guid.TryParse(container.Id, out var id)
-            ? new SearchableOwner(id, container.Name, SearchableOwner.ManagedKind,
+            ? new SearchableOwner(id, container.Name,
+                container.Kind == ContainerKind.Memory ? SearchableOwner.MemoryKind : SearchableOwner.ManagedKind,
                 container.Description, container.DocumentCount, container.CreatedAt)
             : null;
 

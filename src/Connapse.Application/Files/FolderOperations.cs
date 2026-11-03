@@ -1,3 +1,4 @@
+using Connapse.Application.Containers;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -24,6 +25,9 @@ public enum FolderStatus
 
     [Failure(409, "folder-exists", "Folder already exists")]
     Exists,
+
+    [Failure(409, "memory-container", "Agent memory container")]
+    MemoryContainer,
 }
 
 /// <summary>A deleted folder: how many documents went with it, and whether any stored file could not be removed.</summary>
@@ -62,8 +66,10 @@ public sealed class CreateFolder(IContainerStore containers, IFolderStore folder
         var (normalized, error) = FolderRules.Normalize(path);
         if (normalized is null)
             return FolderRules.Fail<Folder>(FolderStatus.Invalid, error!, "path");
-        if (await containers.GetAsync(containerId, ct) is null)
+        if (await containers.GetAsync(containerId, ct) is not { } container)
             return FolderRules.Fail<Folder>(FolderStatus.ContainerNotFound, $"Container {containerId} not found");
+        if (container.Kind == ContainerKind.Memory)
+            return FolderRules.Fail<Folder>(FolderStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
         if (await folders.ExistsAsync(containerId, normalized, ct))
             return FolderRules.Fail<Folder>(FolderStatus.Exists, $"Folder '{normalized}' already exists");
 

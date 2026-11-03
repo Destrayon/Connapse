@@ -80,8 +80,10 @@ public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLo
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Attempt<ContainerSettingsOverrides, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to change containers.");
-        if (!await containers.ExistsAsync(containerId, ct))
+        if (await containers.GetAsync(containerId, ct) is not { } container)
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
+        if (container.Kind == ContainerKind.Memory)
+            return ContainerRules.MemoryOnly<ContainerSettingsOverrides>(container);
 
         var saved = searchSettingsNamed is null
             ? await containers.UpdateSettingsOverridesAsync(containerId, overrides.KeepingSecretsOf, ct)

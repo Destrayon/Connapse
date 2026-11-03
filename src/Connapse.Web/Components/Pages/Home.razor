@@ -62,9 +62,16 @@ else
             <div class="container-card" @onclick="() => NavigateToContainer(container.Id)">
                 <div class="container-card-header">
                     <div class="container-card-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
-                        </svg>
+                        @if (container.Kind == ContainerKind.Memory)
+                        {
+                            <span class="bi-lightbulb container-card-memory-icon" title="Agent memory"></span>
+                        }
+                        else
+                        {
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
+                            </svg>
+                        }
                     </div>
                     @if (canEdit)
                     {
@@ -85,7 +92,14 @@ else
                     <p class="container-card-desc">@container.Description</p>
                 }
                 <div class="container-card-meta">
-                    <span>@container.DocumentCount @(container.DocumentCount == 1 ? "file" : "files")</span>
+                    @if (container.Kind == ContainerKind.Memory)
+                    {
+                        <span>Agent memory</span>
+                    }
+                    else
+                    {
+                        <span>@container.DocumentCount @(container.DocumentCount == 1 ? "file" : "files")</span>
+                    }
                     <span>@container.CreatedAt.ToString("MMM d, yyyy")</span>
                 </div>
             </div>
@@ -111,6 +125,7 @@ else
                 <button class="btn-close btn-close-white" @onclick="HideCreateModal"></button>
             </div>
             <div class="modal-body-custom">
+                <ContainerKindPicker @bind-Kind="newContainerKind" />
                 <div class="mb-3">
                     <label class="form-label">Name</label>
                     <input type="text" class="form-control" placeholder="my-project"
@@ -126,11 +141,6 @@ else
                    since the API began rejecting every other ConnectorType, so the form was
                    offering choices the server refuses. External systems are configured as a
                    connection plus a source instead. *@
-                <div class="alert alert-info py-2 small">
-                    <span class="bi-info-circle me-1"></span>
-                    A container is storage Connapse owns — upload to it, organise it, delete from it.
-                    To index data that lives somewhere else, add a <a href="sources">source</a> instead.
-                </div>
                 @if (createError is not null)
                 {
                     <div class="alert alert-danger py-2">@createError</div>
@@ -171,6 +181,12 @@ else
                         This container has @containerToDelete.DocumentCount file(s). It must be empty before deletion.
                     </div>
                 }
+                @if (containerToDelete.Kind == ContainerKind.Memory)
+                {
+                    <div class="alert alert-warning py-2" id="delete-memory-warning">
+                        Every memory fact in it is deleted too, including facts other people's agents saved.
+                    </div>
+                }
                 @if (deleteError is not null)
                 {
                     <div class="alert alert-danger py-2">@deleteError</div>
@@ -207,6 +223,7 @@ else
     private bool showCreateModal;
     private string newContainerName = "";
     private string? newContainerDescription;
+    private ContainerKind newContainerKind = ContainerKind.Documents;
     private string? createError;
     private bool isCreating;
 
@@ -272,6 +289,7 @@ else
         showCreateModal = true;
         newContainerName = "";
         newContainerDescription = null;
+        newContainerKind = ContainerKind.Documents;
         createError = null;
     }
 
@@ -288,7 +306,7 @@ else
         try
         {
             var created = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(),
-                new CreateContainerRequest(newContainerName, newContainerDescription));
+                new CreateContainerRequest(newContainerName, newContainerDescription, newContainerKind));
             if (!created.Succeeded)
             {
                 createError = created.Detail;

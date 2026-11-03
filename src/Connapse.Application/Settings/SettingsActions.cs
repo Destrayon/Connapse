@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Connapse.Application.Containers;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -63,7 +64,8 @@ public sealed class ListEmbeddingModels(ISettingsStore store, IConfiguredSetting
 /// </summary>
 [Operation("settings.reindex", Scope = SettingsScope.Name, Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
 public sealed class StartReindex(
-    ISettingsStore store, IConfiguredSettings configured, IBackgroundReindex reindex, IAuditLogger audit, IOperationAuthorizer authorizer)
+    ISettingsStore store, IConfiguredSettings configured, IBackgroundReindex reindex, IAuditLogger audit, IOperationAuthorizer authorizer,
+    IContainerStore containers)
 {
     public const string StartedEvent = "settings.reindex_started";
 
@@ -73,6 +75,10 @@ public sealed class StartReindex(
             return Attempt<ReindexRequest, SettingsStatus>.Fail(SettingsStatus.Forbidden, "Only administrators can re-index.");
         if (request.ContainerId is not null && !Guid.TryParse(request.ContainerId, out _))
             return Attempt<ReindexRequest, SettingsStatus>.Fail(SettingsStatus.Invalid, "containerId must be a container's id.", "containerId");
+        // An agent memory container has no documents to re-embed (CON-227).
+        if (request.ContainerId is not null
+            && await containers.GetAsync(Guid.Parse(request.ContainerId), ct) is { Kind: ContainerKind.Memory } memory)
+            return Attempt<ReindexRequest, SettingsStatus>.Fail(SettingsStatus.MemoryContainer, ContainerRules.MemoryOnly(memory));
 
         var search = await store.GetAsync<SearchSettings>("search", ct) ?? configured.Current<SearchSettings>();
         if (!search.EnableCrossModelSearch)

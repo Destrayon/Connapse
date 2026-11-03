@@ -127,6 +127,12 @@ guess. Try again; if it keeps happening, the source's permission check is failin
 Connapse couldn't check which linked files the caller may read, so it listed no links rather than
 guess. Try again; if it keeps happening, the permission check on the linked documents is failing.
 
+## memory-container
+
+The container is an agent memory container: it holds memory facts, not documents, so uploads, file listings,
+folders, search, reindexing, syncing and document settings don't apply to it. Use the memory tools
+(`memory_remember`, `memory_recall`) on it instead, or pick a documents container.
+
 ## memory-fact-not-found
 
 No fact in that container's memory has that id, or the caller can't see it. A fact is visible only
