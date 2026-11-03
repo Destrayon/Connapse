@@ -1,5 +1,6 @@
 ---
 title: Containers, connections and sources
+description: How Connapse containers, connections and sources fit together, and what each provider indexes.
 type: explanation
 audience: admin
 ---

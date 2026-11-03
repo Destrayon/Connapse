@@ -1,3 +1,10 @@
+---
+title: GitHub repository setup
+description: "The manual GitHub settings for the Connapse repository: description and topics, Discussions and security features."
+type: how-to
+audience: contributor
+---
+
 # GitHub Repository Setup Guide
 
 > Part of [Connapse](https://github.com/Destrayon/Connapse) — open-source AI knowledge management platform.

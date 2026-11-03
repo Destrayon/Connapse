@@ -141,13 +141,7 @@ public class UnscopedTokenTests(SharedWebAppFixture fixture)
     public async Task McpTools_AdministratorsTokenWithNoScopes_ListsNoScopedTool()
     {
         using var http = await UnscopedPatClientAsync();
-        var transport = new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http);
-        // The discover probe's own 5 s limit is shorter than the shared host can take to answer while other tests
-        // load it; past it the test server answers the cancelled probe with 499 and the connect fails.
-        await using var mcp = await McpClient.CreateAsync(transport,
-            new McpClientOptions { DiscoverProbeTimeout = Timeout.InfiniteTimeSpan });
+        await using var mcp = await McpTestClient.ConnectAsync(http, ownsHttpClient: false);
 
         var tools = await mcp.ListToolsAsync();
 

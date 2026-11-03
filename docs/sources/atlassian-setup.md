@@ -1,5 +1,6 @@
 ---
 title: Atlassian setup
+description: Index Confluence spaces and Jira projects in Connapse, with each user seeing only the pages and issues Atlassian lets them read.
 type: how-to
 audience: admin
 ---

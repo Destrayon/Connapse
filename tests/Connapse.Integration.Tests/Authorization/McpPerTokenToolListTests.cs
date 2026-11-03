@@ -51,11 +51,7 @@ public class McpPerTokenToolListTests(SharedWebAppFixture fixture)
     {
         var http = host.CreateClient();
         credential(http.DefaultRequestHeaders);
-        var transport = new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true);
-        return await McpClient.CreateAsync(transport);
+        return await McpTestClient.ConnectAsync(http);
     }
 }
 

@@ -1,5 +1,6 @@
 ---
 title: Command-line tool
+description: Where to find the standalone connapse command-line tool, which talks to a Connapse server only through the REST API.
 type: reference
 audience: developer
 ---
