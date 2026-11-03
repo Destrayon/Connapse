@@ -50,8 +50,8 @@ public sealed class MemoryService(
         // A fact the caller cannot see is reported as missing, so a correction cannot probe for one.
         if (await VisibleFactAsync(containerId, factId, caller, ct) is not { } old)
             return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
-        if (replacement.Scope is { } scope && scope != old.Scope)
-            return MemoryWriteResult.Failed("Error: a correction keeps the fact's scope. Share the fact or make it personal instead.");
+        if (ScopeChangeError(old, replacement.Scope) is { } scopeChange)
+            return scopeChange;
         // A blank subject or attribute keeps the old fact's, and sources not given keep the old fact's: an omitted list
         // read as "no sources" would drop a team fact's restriction and show the new value to every container reader.
         replacement = replacement with
@@ -67,8 +67,12 @@ public sealed class MemoryService(
         if (await UnreadableSourcesAsync(sources, caller, ct) is { } refused)
             return refused;
 
+        // The scope is checked again under the lock: the chain may have been shared or made personal since the read
+        // above, and the store writes the locked version's scope, so a correction asked to stay personal would publish.
+        MemoryScope? requested = replacement.Scope;
         MemoryWriteResult result = await store.CorrectAsync(containerId, factId, kind, replacement, caller,
             async chain => await WholeChainVisibleAsync(factId, chain, sources, caller, ct)
+                ?? ScopeChangeError(chain.Single(f => f.Id == factId), requested)
                 ?? TeamCorrectionError(chain.Single(f => f.Id == factId), sources, teamWriter), ct);
         if (result.Fact is { } written)
         {
@@ -195,6 +199,15 @@ public sealed class MemoryService(
     /// <paramref name="sources"/>, or the error refusing it. A team fact's correction needs write access and must cite
     /// every source the old fact cites: leaving one out would show the new value to people that source is hidden from.
     /// </summary>
+    /// <summary>
+    /// Null when a correction asking for <paramref name="requested"/> keeps <paramref name="old"/>'s scope (or asks
+    /// for none), or the error refusing it: a correction never changes who sees a fact.
+    /// </summary>
+    internal static MemoryWriteResult? ScopeChangeError(MemoryFact old, MemoryScope? requested) =>
+        requested is { } scope && scope != old.Scope
+            ? MemoryWriteResult.Failed("Error: a correction keeps the fact's scope. Share the fact or make it personal instead.")
+            : null;
+
     internal static MemoryWriteResult? TeamCorrectionError(MemoryFact old, IReadOnlyList<MemorySource> sources, bool teamWriter)
     {
         if (old.Scope != MemoryScope.Team)

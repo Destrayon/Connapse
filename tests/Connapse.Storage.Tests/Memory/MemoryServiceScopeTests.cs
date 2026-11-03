@@ -171,6 +171,22 @@ public class MemoryServiceScopeTests
     }
 
     [Fact]
+    public async Task Correct_AskingToStayPersonalAfterTheChainWasShared_IsRefusedUnderTheLock()
+    {
+        // Read as personal before the lock; shared by its author before the correction took the lock. The store writes
+        // the locked scope, so going ahead would publish a value its author asked to keep personal.
+        MemoryFact current = Fact(Me, MemoryScope.Personal, Shared);
+        CorrectionRunsCheck(current, [current with { Scope = MemoryScope.Team }], Fact(Me, MemoryScope.Team, Shared));
+
+        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+            Replacement([Shared], MemoryScope.Personal), Me, teamWriter: true);
+
+        result.Fact.Should().BeNull();
+        result.Error.Should().Contain("keeps the fact's scope");
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
+    }
+
+    [Fact]
     public async Task Correct_AskingForTheSameScope_IsWritten()
     {
         MemoryFact current = Fact(Me, MemoryScope.Personal);
