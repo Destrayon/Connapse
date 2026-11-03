@@ -129,9 +129,12 @@ same answer before and after.
   Their team facts stay. The Create Container dialog loses its "Agent memory" type; spaces are made on the Memory
   page.
 - **A chain that mixes personal and team versions** (only possible from before the scope column, when one person
-  corrected another's fact without sources) can't move without splitting its history. It stays where it is, each
-  version keeping its scope, and its personal versions show to their author with an "Only you (older fact)" label.
-  The migration logs how many there are; we expect very few.
+  corrected another's fact without sources) can't move without splitting its history. It stays where it is, and
+  it is the one exception to "container memory is team only": each version keeps its scope in current reads,
+  history and the Memory tab, its personal versions show only to their author with an "Only you" label, and a
+  correction keeps the scope of the version it replaces (PR #1123's rule), not the container's. Its current version
+  can be personal: PR #1123's `MemoryScopeMigrationTests` seeds a personal, then team, then personal chain, and that
+  chain is part of this migration's test. The migration logs how many there are; we expect very few.
 - **Container ids and fact ids don't change.** Only a moved fact's container id changes. An agent that recalls from
   `halcyon-project` by name no longer gets its old personal notes there, but a recall without `space` finds them.
 
@@ -154,6 +157,22 @@ Most of it is reused as it is:
   planned before). The memory-scope pictures stay valid for what the PR does.
 - **Unchanged until CON-235:** when `scope` is left out, sources still decide it, as the PR does now.
 
+## Old-style saves never widen a fact
+
+Agents already call `memory_remember` with `containerId` and no scope, and under PR #1123 a call that cites no
+sources saves a personal fact. Once spaces decide scope, the same call on a document container or a former agent
+memory container would save a team fact that every account can read. Tool descriptions changed later can't protect
+clients that are already running, so from CON-235 on, and for as long as the `containerId` alias lasts:
+
+- A save that names a place with `containerId` (not `space`) and cites no sources is saved as personal, in the
+  caller's `<container>-personal` space (made if missing, the same space the migration uses), and the answer says
+  where it went. A sourced save stays a team fact on the container, as it is today.
+- Saving a team fact with no sources needs the new `space` parameter naming a team space or container, so sharing
+  is always an explicit choice.
+
+CON-235's tests send PR #1123's old sourceless requests to a document container and an agent memory container and
+check the facts stay visible only to their author.
+
 ## Revised build tickets, in order
 
 One ticket per PR. Each needs the one before it merged.
@@ -163,13 +182,14 @@ One ticket per PR. Each needs the one before it merged.
 2. **CON-235: memory spaces in storage and REST.** Add audience (`personal` or `team`) and owner to memory
    containers; personal space names unique per owner; `my-memory` made on first use; REST endpoints to list,
    create, rename and delete spaces; new facts take their scope from the space (personal space: personal; team space
-   or document container: team); personal saves on a document container refused; personal spaces hidden from
+   or document container: team); personal saves on a document container refused; old-style `containerId` saves
+   without sources kept personal (the section above); personal spaces hidden from
    every other caller in container lists, lookups by id and name, search and the admin pages. Done when tests show
    a non-owner gets "not found" for a personal space by id and by name on every surface, and a Viewer can recall
    from a team space but not save to it.
 3. **CON-236: move today's memory into spaces.** The migration in the section above. Done when the before-and-after
-   test shows every reader sees exactly the same facts, and agent memory containers open as team spaces with
-   their old ids.
+   test shows every reader sees exactly the same facts, including a mixed chain whose current version is
+   personal, and agent memory containers open as team spaces with their old ids.
 4. **CON-237: MCP tools and docs.** `memory_spaces`; required `space` on remember (with the `containerId` alias);
    optional `space` and labels on recall and timeline; the plain-words answers; tool descriptions;
    `docs/reference/mcp-tools.md`, `docs/problems.md`, and a rewrite of `docs/concepts/memory.md` around spaces (it
