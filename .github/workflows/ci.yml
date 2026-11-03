@@ -378,6 +378,8 @@ jobs:
     # Setup steps (checkout, restore, build, Ollama) count as their median over 30 green runs,
     # in setup-allowances.json (CON-141): a runner slow at setup put #1023 and #1024 over with no slower tests.
     # A step renamed or added here needs its line there, or it counts in full.
+    # The time GitHub takes to start or close a job, outside its steps, counts as its usual 3 s (CON-223):
+    # on #1103 it took 85 s to close integration shard 2, whose tests weren't slower, and failed the PR.
     - name: PrPipeline_WallTimeUnder6Min
       if: success() || failure()
       env:
@@ -385,7 +387,7 @@ jobs:
       run: |
         python3 .github/scripts/pipeline_wall.py --max-seconds 360 --current build-and-test \
           --network-step "Upload coverage reports=15" --network-step "Wait for container images=15" \
-          --setup-allowances .github/setup-allowances.json
+          --setup-allowances .github/setup-allowances.json --outside-steps 3
 
   code-quality:
     runs-on: ubuntu-latest

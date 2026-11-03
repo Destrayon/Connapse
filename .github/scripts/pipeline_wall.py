@@ -20,9 +20,15 @@ in full: those are what a PR's code makes slower. A setup step that goes past it
 slow runner explains, has the time over the ceiling counted and warned about, so a PR that makes the
 build much slower still fails.
 
+The time before a job's first step and after its last is GitHub starting and closing the job, and is
+counted as its usual time from --outside-steps (CON-223): 3 s, the median over 408 jobs of 50 PR runs.
+It is usually 1 to 13 s, but GitHub took 85 s to close #1103's integration shard 2 after its last step,
+whose tests had run no slower, and that alone put the PR over. No step of the pipeline runs then, so
+nothing a PR changes is hidden; over 15 s it is warned about, so a GitHub slowdown that lasts is seen.
+
 Usage (in a workflow step, with GH_TOKEN set; run it as the job's last step):
   pipeline_wall.py --max-seconds 360 --current build-and-test --network-step "Upload coverage reports=15" \
-    --setup-allowances .github/setup-allowances.json
+    --setup-allowances .github/setup-allowances.json --outside-steps 3
 """
 import argparse
 import json
@@ -70,15 +76,40 @@ def ceiling(usual: float) -> float:
     return usual + max(30, usual / 2)
 
 
-def counted(j: dict, allowances: dict[str, float],
-            setup: dict[str, float] | None = None) -> tuple[float, list[tuple[str, float, float]]]:
-    """A finished job's run time with each network step capped at its allowance and each setup step counted
-    at its usual time, plus whatever it took over its ceiling; and the steps counted at other than they took."""
+def nonnegative(s: str) -> float:
+    """A --outside-steps value: zero or more seconds."""
+    try:
+        value = float(s)
+        if value < 0:
+            raise ValueError
+        return value
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected zero or more seconds, got {s!r}") from None
+
+
+# The name the time outside a job's steps is reported under, and how long it can take before a warning:
+# 13 s was the 95th percentile over 408 jobs of 50 PR runs (2026-11-02), whose median was 3 s.
+OUTSIDE = "time outside its steps"
+OUTSIDE_WARNING = 15
+
+
+def counted(j: dict, allowances: dict[str, float], setup: dict[str, float] | None = None,
+            outside: float | None = None) -> tuple[float, list[tuple[str, float, float]]]:
+    """A finished job's run time with each network step capped at its allowance, each setup step counted
+    at its usual time, plus whatever it took over its ceiling, and the time outside its steps counted as
+    `outside`; and the steps (and OUTSIDE) counted at other than they took."""
     seconds = (at(j["completed_at"]) - at(j["started_at"])).total_seconds()
     over = []
-    for s in j.get("steps") or []:
-        if not s.get("started_at") or not s.get("completed_at"):
-            continue
+    timed = [s for s in j.get("steps") or [] if s.get("started_at") and s.get("completed_at")]
+    if outside is not None and timed:
+        # Before the first step and after the last, GitHub is starting or closing the job: no step of this
+        # pipeline runs then, so a PR can't make it slower. Counted as its usual time, both ways.
+        span = (max(at(s["completed_at"]) for s in timed) - min(at(s["started_at"]) for s in timed)).total_seconds()
+        took = seconds - span
+        if took != outside:
+            seconds -= took - outside
+            over.append((OUTSIDE, took, outside))
+    for s in timed:
         took = (at(s["completed_at"]) - at(s["started_at"])).total_seconds()
         if setup and s["name"] in setup:
             # Both ways: a runner fast at setup mustn't make room for slower tests either.
@@ -108,6 +139,8 @@ def main() -> int:
                    help="a step that only waits on a third-party service, counted up to SECONDS")
     p.add_argument("--setup-allowances", metavar="FILE",
                    help='JSON {"<job>": {"<setup step>": seconds}}: each setup step counted as its usual seconds')
+    p.add_argument("--outside-steps", type=nonnegative, metavar="SECONDS",
+                   help="each job's time before its first step and after its last, counted as SECONDS")
     a = p.parse_args()
     network = dict(a.network_step)
     setup = {}
@@ -142,7 +175,7 @@ def main() -> int:
         return (at(j["completed_at"]) - at(j["started_at"])).total_seconds()
 
     def counted_job(j: dict) -> tuple[float, list[tuple[str, float, float]]]:
-        return counted(j, network, job_setup(j["name"], setup))
+        return counted(j, network, job_setup(j["name"], setup), a.outside_steps)
 
     start = min(at(j["started_at"]) for j in done)
     for j in sorted(done, key=lambda j: j["started_at"]):
@@ -151,7 +184,11 @@ def main() -> int:
         print(f"  {(at(j['started_at']) - start).total_seconds():5.0f} s  ran {runtime(j):4.0f} s"
               f"  counted {seconds:4.0f} s  {j['name']} ({j['conclusion']})")
         for name, took, count in over:
-            if name not in usual:
+            if name == OUTSIDE:
+                if took > OUTSIDE_WARNING:
+                    print(f"::warning::{j['name']}: {took:.0f} s outside its steps, while GitHub started or closed the job;"
+                          f" counted {count:g} s, its usual time")
+            elif name not in usual:
                 print(f"::warning::{j['name']}: {name} took {took:.0f} s; counted {count:g} s, the rest waited on a slow third-party service")
             elif took > ceiling(usual[name]):
                 print(f"::warning::{j['name']}: {name} took {took:.0f} s, over the {ceiling(usual[name]):g} s a slow runner"
