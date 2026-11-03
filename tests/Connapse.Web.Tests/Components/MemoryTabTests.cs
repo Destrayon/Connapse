@@ -358,6 +358,10 @@ public class MemoryTabTests : IDisposable
             return Task.FromResult<(int, string?)>((deleted, null));
         }
 
+        public Task<MemoryClearResult> ClearAsync(
+            Guid containerId, MemoryCaller caller, Func<Guid, CancellationToken, Task<bool>> userExists, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         /// <summary>Facts the reader can no longer see, as when access to their sources is taken away.</summary>
         public HashSet<Guid> Hidden { get; } = [];
 

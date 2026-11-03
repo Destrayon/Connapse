@@ -90,5 +90,12 @@ public sealed record MemoryWriteResult(MemoryFact? Fact, MemoryFact? Replaced, s
     public static MemoryWriteResult Failed(string error, MemoryWriteFailure failure = MemoryWriteFailure.Invalid) => new(null, null, error, failure);
 }
 
+/// <summary>
+/// What clearing a container's memory did. <paramref name="Blocking"/> counts the facts hidden from the caller that
+/// someone could still see; when there are any, nothing was deleted. <paramref name="Unchecked"/> is true when access
+/// could not be checked, and then nothing was deleted either.
+/// </summary>
+public sealed record MemoryClearResult(int Deleted, int Blocking = 0, bool Unchecked = false);
+
 /// <summary>Why a write was refused: the fact named is missing (or hidden), the write is invalid, or access could not be checked.</summary>
 public enum MemoryWriteFailure { None = 0, Invalid = 1, NotFound = 2, Unchecked = 3 }

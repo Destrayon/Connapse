@@ -107,7 +107,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_delete", Destructive = true),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
-     Description("Delete a container. It must be emptied first, because deleting one deletes its stored files. External sources are not containers and cannot be deleted here.")]
+     Description("Delete a container. It must be emptied first, because deleting one deletes its stored files. Its memory facts are deleted with it, so a container holding facts you can't see is refused. External sources are not containers and cannot be deleted here.")]
     public static async Task<string> ContainerDelete(
         DeleteContainer delete,
         IHttpContextAccessor http,

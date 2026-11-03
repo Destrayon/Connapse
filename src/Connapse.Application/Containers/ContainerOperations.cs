@@ -1,3 +1,4 @@
+using Connapse.Application.Memory;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -34,6 +35,12 @@ public enum ContainerStatus
 
     [Failure(409, "memory-container", "Agent memory container")]
     MemoryContainer,
+
+    [Failure(409, "container-has-hidden-memory", "Container holds memory you can't see")]
+    HiddenMemory,
+
+    [Failure(503, "memory-access-unchecked", "Access could not be checked")]
+    MemoryUnchecked,
 }
 
 /// <summary>Names a container by id, or by name as REST's by-name route and MCP's tools accept.</summary>
@@ -209,9 +216,14 @@ public sealed class RenameContainer(IContainerStore containers, IAuditLogger aud
     }
 }
 
-/// <summary>Deletes an empty container. Editors and above; one with files is refused, since deleting it deletes them.</summary>
+/// <summary>
+/// Deletes an empty container. Editors and above; one with files is refused, since deleting it deletes them. Its
+/// memory facts go with it, so one holding a fact the deleter can't see is refused too (CON-231), unless nobody can
+/// see that fact any more.
+/// </summary>
 [Operation("containers.delete", Scope = "knowledge:write", Risk = RiskTier.Destructive)]
-public sealed class DeleteContainer(IContainerStore containers, IAuditLogger audit, IOperationAuthorizer authorizer)
+public sealed class DeleteContainer(
+    IContainerStore containers, IMemoryService memory, IUserDirectory users, IAuditLogger audit, IOperationAuthorizer authorizer)
 {
     public async Task<Attempt<Container, ContainerStatus>> RunAsync(OperationContext context, ContainerKey key, CancellationToken ct = default)
     {
@@ -221,6 +233,26 @@ public sealed class DeleteContainer(IContainerStore containers, IAuditLogger aud
         var container = await ContainerRules.FindAsync(containers, key, ct);
         if (container is null || !Guid.TryParse(container.Id, out var id))
             return ContainerRules.NotFound<Container>(key);
+        // Before memory is cleared, so a container that can't go anyway keeps its facts.
+        if (container.DocumentCount > 0)
+        {
+            return Attempt<Container, ContainerStatus>.Fail(ContainerStatus.NotEmpty,
+                $"Container '{container.Name}' is not empty ({container.DocumentCount} documents). Delete all files first.");
+        }
+
+        var cleared = await memory.ClearAsync(id, MemoryRules.Caller(context.User),
+            async (user, token) => await users.GetAsync(user, token) is not null, ct);
+        if (cleared.Unchecked)
+        {
+            return Attempt<Container, ContainerStatus>.Fail(ContainerStatus.MemoryUnchecked,
+                $"Couldn't check who may see the memory facts in container '{container.Name}', so nothing was deleted. Try again.");
+        }
+        if (cleared.Blocking > 0)
+        {
+            return Attempt<Container, ContainerStatus>.Fail(ContainerStatus.HiddenMemory,
+                $"Container '{container.Name}' holds {cleared.Blocking} memory {(cleared.Blocking == 1 ? "fact" : "facts")} you can't see, "
+                + "and deleting the container would delete them. Their owners must forget them first (memory_forget); nothing was deleted.");
+        }
 
         try
         {

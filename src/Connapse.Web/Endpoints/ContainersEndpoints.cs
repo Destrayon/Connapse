@@ -134,8 +134,10 @@ public static class ContainersEndpoints
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("DeleteContainer")
-        .WithDescription("Delete a container. It must be empty first — deleting a container deletes its stored objects.")
+        .WithDescription("Delete a container. It must be empty first — deleting a container deletes its stored objects. Its memory facts are deleted with it, so a container holding facts the caller can't see is refused (409).")
         .RequireAuthorization("RequireEditor");
 
         // GET /api/containers/{containerId}/stats - Get container statistics

@@ -125,6 +125,81 @@ public sealed class MemoryService(
         }
     }
 
+    public async Task<MemoryClearResult> ClearAsync(
+        Guid containerId, MemoryCaller caller, Func<Guid, CancellationToken, Task<bool>> userExists, CancellationToken ct = default)
+    {
+        int blocking = 0;
+        bool notChecked = false;
+
+        // Deleting a fact the caller can't see would take it from the people who can, so any such fact refuses the
+        // whole clear. One nobody can see any more refuses nothing: no one could ever forget it.
+        async Task<bool> NoneBlocking(IReadOnlyList<MemoryFact> facts)
+        {
+            try
+            {
+                IReadOnlySet<MemorySource> readable = await ReadableAsync(facts.SelectMany(f => f.Sources), caller.UserId, ct);
+                blocking = await SeenByOthersAsync([.. facts.Where(f => !Visible(f, readable, caller))], userExists, ct);
+                return blocking == 0;
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Could not check memory access; refusing to clear the container's memory");
+                notChecked = true;
+                return false;
+            }
+        }
+
+        if (await store.ClearAsync(containerId, NoneBlocking, ct) is not { } deleted)
+            return new MemoryClearResult(0, blocking, notChecked);
+
+        if (deleted > 0)
+        {
+            await audit.LogAsync("memory.cleared", "container", containerId.ToString(),
+                new { ContainerId = containerId, Deleted = deleted, caller.UserId, caller.AgentId }, ct);
+        }
+        return new MemoryClearResult(deleted);
+    }
+
+    /// <summary>
+    /// How many of <paramref name="hidden"/> someone could still see: a sourceless fact while its author exists, a
+    /// sourced one while every source does (a document still stored, a link node still standing for one).
+    /// </summary>
+    private async Task<int> SeenByOthersAsync(
+        IReadOnlyList<MemoryFact> hidden, Func<Guid, CancellationToken, Task<bool>> userExists, CancellationToken ct)
+    {
+        if (hidden.Count == 0)
+            return 0;
+
+        MemorySource[] sources = [.. hidden.SelectMany(f => f.Sources).Distinct()];
+        string[] nodes = [.. sources.Where(s => s.Kind == MemorySourceKind.Node).Select(s => s.Ref)];
+        ILookup<string, string> nodeDocuments = await links.DocumentsOfAsync(nodes, ct);
+        HashSet<Guid> storedDocuments = [.. (await store.DocumentTitlesAsync(
+                [.. sources.Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref)], ct)).Keys
+            .Select(Guid.Parse)];
+        bool Stands(MemorySource source) => source.Kind == MemorySourceKind.Document
+            ? Guid.TryParse(source.Ref, out Guid id) && storedDocuments.Contains(id)
+            : nodeDocuments[source.Ref].Any();
+
+        Dictionary<Guid, bool> authors = [];
+        int seen = 0;
+        foreach (MemoryFact fact in hidden)
+        {
+            if (fact.Sources.Count > 0)
+            {
+                if (fact.Sources.All(Stands))
+                    seen++;
+            }
+            else if (fact.Author.UserId is { } author)
+            {
+                if (!authors.TryGetValue(author, out bool exists))
+                    authors[author] = exists = await userExists(author, ct);
+                if (exists)
+                    seen++;
+            }
+        }
+        return seen;
+    }
+
     internal static bool Visible(MemoryFact fact, IReadOnlySet<MemorySource> readable, MemoryCaller caller) =>
         fact.Sources.Count == 0
             ? caller.UserId is { } user && fact.Author.UserId == user

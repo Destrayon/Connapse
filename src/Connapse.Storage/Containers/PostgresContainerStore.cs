@@ -96,6 +96,9 @@ public class PostgresContainerStore(
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        // Locked, so nothing can be written into the container between the checks below and the delete.
+        await context.Database.ExecuteSqlAsync($"SELECT 1 FROM containers WHERE id = {id} FOR UPDATE", ct);
 
         var entity = await context.Containers
             .Include(c => c.Documents)
@@ -103,6 +106,12 @@ public class PostgresContainerStore(
 
         if (entity is null)
             return false;
+
+        // Memory facts would go with it (cascade), and only the memory service can tell whether the deleter may
+        // delete them, so it must have cleared them first. One written since stops the delete.
+        if (await context.MemoryFacts.AnyAsync(f => f.ContainerId == id, ct))
+            throw new InvalidOperationException(
+                $"Container '{entity.Name}' still holds memory facts. Delete the container again to check them.");
 
         // Every container is managed storage now, so the "just stop watching" exemption that
         // used to apply to Filesystem and S3 rows has nothing left to apply to.
@@ -113,6 +122,7 @@ public class PostgresContainerStore(
 
         context.Containers.Remove(entity);
         await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         logger.LogInformation("Deleted container {ContainerId} ({Name})", id, Sanitize(entity.Name));
         return true;

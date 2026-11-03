@@ -50,6 +50,8 @@ public class ContainerRandomInputTests
         public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
+        public readonly IMemoryService Memory = Substitute.For<IMemoryService>();
+        public readonly IUserDirectory Users = Substitute.For<IUserDirectory>();
         public readonly PolicyAuthorizer Authorizer;
 
         public World(bool reader, bool writer)
@@ -230,8 +232,11 @@ public class ContainerRandomInputTests
 
     // ── containers.delete ─────────────────────────────────────────────────────────────────────────
 
-    /// <summary>What the store does with a delete: removes it, finds nothing, or refuses one with documents.</summary>
-    public enum DeleteAnswer { Deleted, Gone, NotEmpty }
+    /// <summary>
+    /// What a delete meets: the store removes it, finds nothing, or refuses one with documents; or clearing its memory
+    /// finds facts the caller can't see, or can't check who may see them.
+    /// </summary>
+    public enum DeleteAnswer { Deleted, Gone, NotEmpty, HiddenMemory, MemoryUnchecked }
 
     [Fact]
     [RandomInputTestOf(typeof(DeleteContainer))]
@@ -247,9 +252,17 @@ public class ContainerRandomInputTests
                 if (answer == DeleteAnswer.NotEmpty)
                     world.Containers.DeleteAsync(id, Arg.Any<CancellationToken>()).ThrowsAsync(new InvalidOperationException("Container has 3 documents"));
                 else
-                    world.Containers.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(answer == DeleteAnswer.Deleted);
+                    world.Containers.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(answer != DeleteAnswer.Gone);
+                world.Memory.ClearAsync(id, Arg.Any<MemoryCaller>(), Arg.Any<Func<Guid, CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>())
+                    .Returns(answer switch
+                    {
+                        DeleteAnswer.HiddenMemory => new MemoryClearResult(0, Blocking: 2),
+                        DeleteAnswer.MemoryUnchecked => new MemoryClearResult(0, Unchecked: true),
+                        _ => new MemoryClearResult(1),
+                    });
 
-                var deleted = await new DeleteContainer(world.Containers, world.Audit, world.Authorizer).RunAsync(caller, key);
+                var deleted = await new DeleteContainer(world.Containers, world.Memory, world.Users, world.Audit, world.Authorizer)
+                    .RunAsync(caller, key);
 
                 bool named = exists && Names(key, container);
                 ContainerStatus expected = !writer ? ContainerStatus.Forbidden
@@ -258,10 +271,17 @@ public class ContainerRandomInputTests
                     {
                         DeleteAnswer.NotEmpty => ContainerStatus.NotEmpty,
                         DeleteAnswer.Gone => ContainerStatus.NotFound,
+                        DeleteAnswer.HiddenMemory => ContainerStatus.HiddenMemory,
+                        DeleteAnswer.MemoryUnchecked => ContainerStatus.MemoryUnchecked,
                         _ => ContainerStatus.Success,
                     };
                 deleted.Status.Should().Be(expected);
                 if (!named)
+                {
+                    await world.Containers.DidNotReceiveWithAnyArgs().DeleteAsync(default);
+                    world.Memory.ReceivedCalls().Should().BeEmpty();
+                }
+                if (expected is ContainerStatus.HiddenMemory or ContainerStatus.MemoryUnchecked)
                     await world.Containers.DidNotReceiveWithAnyArgs().DeleteAsync(default);
                 if (expected == ContainerStatus.Success)
                     await world.Audit.Received(1).LogAsync("container.deleted", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());

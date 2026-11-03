@@ -2871,7 +2871,7 @@
         "tags": [
           "Containers"
         ],
-        "description": "Delete a container. It must be empty first — deleting a container deletes its stored objects.",
+        "description": "Delete a container. It must be empty first — deleting a container deletes its stored objects. Its memory facts are deleted with it, so a container holding facts the caller can't see is refused (409).",
         "operationId": "DeleteContainer",
         "parameters": [
           {
@@ -2920,6 +2920,26 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {

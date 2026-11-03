@@ -31,7 +31,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `container_describe` | `knowledge:read` | Read | Describes one container or source: its description and document statistics. |
 | `container_stats` | `knowledge:read` | Read | A container's document, chunk and storage counts and its embedding model. |
 | `container_create` | `knowledge:write` | Write | Creates a container. |
-| `container_delete` | `knowledge:write` | Destructive | Deletes an empty container. Sources can't be deleted here. |
+| `container_delete` | `knowledge:write` | Destructive | Deletes an empty container and its memory facts. Refused if it holds facts you can't see. Sources can't be deleted here. |
 | `search_knowledge` | `knowledge:read` | Read | Searches a container or source and returns ranked passages with their document ids and scores. |
 | `list_files` | `knowledge:read` | Read | Lists the folders and documents at a path in a container. |
 | `get_document` | `knowledge:read` | Read | Returns one document's full extracted text, by id or path. |

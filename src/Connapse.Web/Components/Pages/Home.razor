@@ -184,7 +184,7 @@ else
                 @if (containerToDelete.Kind == ContainerKind.Memory)
                 {
                     <div class="alert alert-warning py-2" id="delete-memory-warning">
-                        Every memory fact in it is deleted too, including facts other people's agents saved.
+                        Every memory fact in it is deleted too. If it holds facts you can't see, it isn't deleted.
                     </div>
                 }
                 @if (deleteError is not null)

@@ -148,7 +148,8 @@ cited source doesn't exist or can't be read by the writer. The detail says which
 ## memory-access-unchecked
 
 Connapse couldn't check whether the caller may read the facts' sources, so it showed or wrote nothing
-rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
+rather than guess. A container delete is refused the same way when it can't check who may see the
+memory facts it would delete. Try again; if it keeps happening, the check against the cited documents is failing.
 
 ## embeddings-unavailable
 
@@ -223,6 +224,12 @@ Another container already has that name. Names are unique across Connapse.
 
 The container still has files. Deleting a container deletes what it stores, so it must be emptied
 first; the detail says how many documents remain.
+
+## container-has-hidden-memory
+
+The container holds memory facts you can't see, and deleting it would delete them too, so nothing was
+deleted. The detail says how many. Their owners must forget them first (`memory_forget`); a fact
+whose author's account is gone, or whose cited documents no longer exist, doesn't block the delete.
 
 ## invalid-reindex
 

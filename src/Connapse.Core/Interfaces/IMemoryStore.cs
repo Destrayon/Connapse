@@ -22,6 +22,13 @@ public interface IMemoryStore
     /// </summary>
     Task<int?> ForgetAsync(Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
 
+    /// <summary>
+    /// Deletes every fact in the container and their sources, in one transaction with the container's row locked so no
+    /// fact can be written meanwhile, but only when <paramref name="allow"/> approves them all. Returns how many facts
+    /// went, or null when they were refused.
+    /// </summary>
+    Task<int?> ClearAsync(Guid containerId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
+
     Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default);
 
     /// <summary>One page of matching facts, best match first (newest first without text), skipping <paramref name="skip"/>.</summary>
@@ -48,4 +55,13 @@ public interface IMemoryService
     Task<(int Deleted, string? Error)> ForgetAsync(Guid containerId, Guid factId, MemoryCaller caller, CancellationToken ct = default);
 
     Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes every fact in the container, as deleting the container does, unless one is hidden from the caller while
+    /// someone else could still see it: then nothing is deleted and those facts are counted. A fact nobody can see any
+    /// more does not block: a sourceless one whose author <paramref name="userExists"/> says is gone, or one citing a
+    /// source that no longer exists.
+    /// </summary>
+    Task<MemoryClearResult> ClearAsync(
+        Guid containerId, MemoryCaller caller, Func<Guid, CancellationToken, Task<bool>> userExists, CancellationToken ct = default);
 }

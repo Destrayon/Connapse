@@ -24,6 +24,8 @@ public class ContainerOperationTests
     private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
     private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
     private readonly IAuditLogger _audit = Substitute.For<IAuditLogger>();
+    private readonly IMemoryService _memory = Substitute.For<IMemoryService>();
+    private readonly IUserDirectory _users = Substitute.For<IUserDirectory>();
     private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();
     private readonly VectorModelDiscovery _models = Substitute.ForPartsOf<VectorModelDiscovery>(
         Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), Substitute.For<ILogger<VectorModelDiscovery>>());
@@ -233,12 +235,82 @@ public class ContainerOperationTests
             Arg.Is<object>(d => d.ToString() == new { From = "old", Name = "new" }.ToString()), Arg.Any<CancellationToken>());
     }
 
-    private DeleteContainer Delete() => new(_containers, _audit, _authorizer);
+    private DeleteContainer Delete() => new(_containers, _memory, _users, _audit, _authorizer);
+
+    private void Clears(Container container, MemoryClearResult result) =>
+        _memory.ClearAsync(Guid.Parse(container.Id), Arg.Any<MemoryCaller>(), Arg.Any<Func<Guid, CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>())
+            .Returns(result);
+
+    [Fact]
+    public async Task Delete_WithDocuments_IsNotEmptyAndLeavesMemoryAlone()
+    {
+        var container = Named("docs", documents: 2);
+        _containers.GetByNameAsync("docs", Arg.Any<CancellationToken>()).Returns(container);
+
+        var deleted = await Delete().RunAsync(Caller, ContainerKey.Parse("docs"));
+
+        deleted.Status.Should().Be(ContainerStatus.NotEmpty);
+        deleted.Detail.Should().Be("Container 'docs' is not empty (2 documents). Delete all files first.");
+        _memory.ReceivedCalls().Should().BeEmpty();
+        await _containers.DidNotReceiveWithAnyArgs().DeleteAsync(default);
+    }
+
+    [Theory]
+    [InlineData(1, "holds 1 memory fact you can't see")]
+    [InlineData(3, "holds 3 memory facts you can't see")]
+    public async Task Delete_HiddenMemory_IsRefusedWithTheCountAndDeletesNothing(int blocking, string says)
+    {
+        var container = Named("docs");
+        _containers.GetByNameAsync("docs", Arg.Any<CancellationToken>()).Returns(container);
+        Clears(container, new MemoryClearResult(0, blocking));
+
+        var deleted = await Delete().RunAsync(Caller, ContainerKey.Parse("docs"));
+
+        deleted.Status.Should().Be(ContainerStatus.HiddenMemory);
+        deleted.Detail.Should().Be($"Container 'docs' {says}, and deleting the container would delete them. "
+            + "Their owners must forget them first (memory_forget); nothing was deleted.");
+        await _containers.DidNotReceiveWithAnyArgs().DeleteAsync(default);
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!);
+    }
+
+    [Fact]
+    public async Task Delete_MemoryUnchecked_IsRefusedAndDeletesNothing()
+    {
+        var container = Named("docs");
+        _containers.GetByNameAsync("docs", Arg.Any<CancellationToken>()).Returns(container);
+        Clears(container, new MemoryClearResult(0, Blocking: 4, Unchecked: true));
+
+        var deleted = await Delete().RunAsync(Caller, ContainerKey.Parse("docs"));
+
+        deleted.Status.Should().Be(ContainerStatus.MemoryUnchecked);
+        deleted.Detail.Should().Be("Couldn't check who may see the memory facts in container 'docs', so nothing was deleted. Try again.");
+        await _containers.DidNotReceiveWithAnyArgs().DeleteAsync(default);
+        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Delete_AsksTheUserDirectoryWhetherAFactsAuthorStillExists(bool exists)
+    {
+        var container = Named("docs");
+        var author = Guid.NewGuid();
+        _containers.GetByNameAsync("docs", Arg.Any<CancellationToken>()).Returns(container);
+        _users.GetAsync(author, Arg.Any<CancellationToken>()).Returns(exists ? new UserAccount(author, "a@b.c", null, [], DateTime.UtcNow, null) : null);
+        Func<Guid, CancellationToken, Task<bool>>? userExists = null;
+        _memory.ClearAsync(Arg.Any<Guid>(), Arg.Any<MemoryCaller>(), Arg.Do<Func<Guid, CancellationToken, Task<bool>>>(f => userExists = f), Arg.Any<CancellationToken>())
+            .Returns(new MemoryClearResult(0));
+
+        await Delete().RunAsync(Caller, ContainerKey.Parse("docs"));
+
+        (await userExists!(author, CancellationToken.None)).Should().Be(exists);
+    }
 
     [Fact]
     public async Task Delete_NotEmpty_IsNotEmptyWithTheStoresReasonAndNoAuditRow()
     {
-        var container = Named("docs", documents: 2);
+        var container = Named("docs");
+        Clears(container, new MemoryClearResult(0));
         _containers.GetByNameAsync("docs", Arg.Any<CancellationToken>()).Returns(container);
         _containers.DeleteAsync(Guid.Parse(container.Id), Arg.Any<CancellationToken>())
             .Returns<bool>(_ => throw new InvalidOperationException("Container 'docs' is not empty (2 documents). Delete all files first."));
@@ -257,6 +329,7 @@ public class ContainerOperationTests
         var id = Guid.Parse(container.Id);
         _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(container);
         _containers.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        Clears(container, new MemoryClearResult(5));
 
         var deleted = await Delete().RunAsync(Caller, ContainerKey.Parse(container.Id));
 

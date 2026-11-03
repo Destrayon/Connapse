@@ -146,6 +146,27 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     /// <summary>How many times a forget starts again when the chain grew under it, before it refuses.</summary>
     private const int MaxForgetAttempts = 3;
 
+    public async Task<int?> ClearAsync(Guid containerId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default)
+    {
+        await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        // A new fact's foreign key check takes a share lock on this row, so locking it holds every write to the
+        // container's memory until this commits: the facts allow sees are all the facts deleted.
+        await context.Database.ExecuteSqlAsync($"SELECT 1 FROM containers WHERE id = {containerId} FOR UPDATE", ct);
+        List<MemoryFactEntity> rows = await context.MemoryFacts
+            .AsNoTracking()
+            .Include(f => f.Sources)
+            .Where(f => f.ContainerId == containerId)
+            .ToListAsync(ct);
+        if (!await allow([.. rows.Select(ToFact)]))
+            return null;
+
+        // Sources go with their facts (cascade).
+        int deleted = await context.MemoryFacts.Where(f => f.ContainerId == containerId).ExecuteDeleteAsync(ct);
+        await transaction.CommitAsync(ct);
+        return deleted;
+    }
+
     public async Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
