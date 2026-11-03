@@ -372,22 +372,18 @@ jobs:
         git commit -m "Update test badge"
         git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
 
-    # Last, so the measurement includes this job's own steps. Steps that only wait on a third-party service
-    # count up to an allowance a little over their usual time (CON-127); the rest is printed as a warning.
-    # On 2026-10-28 the Codecov upload took 105 s instead of 3 s and failed a PR whose tests all passed.
-    # Setup steps (checkout, restore, build, Ollama) count as their median over 30 green runs,
-    # in setup-allowances.json (CON-141): a runner slow at setup put #1023 and #1024 over with no slower tests.
-    # A step renamed or added here needs its line there, or it counts in full.
-    # The time GitHub takes to start or close a job, outside its steps, counts as its usual 3 s (CON-223):
-    # on #1103 it took 85 s to close integration shard 2, whose tests weren't slower, and failed the PR.
+    # Fails when the tests this change adds, slows or drops add over 45 s against main's last five runs,
+    # read on a median runner (CON-223). The pipeline's wall time over 6 minutes depends on the runner
+    # GitHub hands out, so it is a warning with main's trend beside it, and fails nothing: wall time
+    # failed eleven runs whose tests were no slower, through four patches that each discounted one cause.
+    # Last, so the wall time includes this job's own steps.
     - name: PrPipeline_WallTimeUnder6Min
       if: success() || failure()
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        python3 .github/scripts/pipeline_wall.py --max-seconds 360 --current build-and-test \
-          --network-step "Upload coverage reports=15" --network-step "Wait for container images=15" \
-          --setup-allowances .github/setup-allowances.json --outside-steps 3
+        python3 .github/scripts/pipeline_time.py --results . --max-added-seconds 45 --max-wall-seconds 360 \
+          --current build-and-test
 
   code-quality:
     runs-on: ubuntu-latest
