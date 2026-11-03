@@ -201,34 +201,6 @@ public class MemoryOperationRandomInputTests
                     forgotten.Result.Should().Be(deleted);
             }, iter: 1000);
 
-    // ── memory.setScope ───────────────────────────────────────────────────────────────────────────
-
-    [Fact]
-    [RandomInputTestOf(typeof(SetFactScope))]
-    public Task SetScope_AnyCall_ReachesMemoryOnlyForAWriterWithARealFactIdAndAKnownScope() =>
-        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, Gen.Enum<MemoryWriteFailure>(), FactId, Gen.Int[0, 2])
-            .SelectMany(t => KeyFor(t.Item3).Select(key => (t, key)))
-            .SampleAsync(async s =>
-            {
-                var ((caller, writer, container, exists, failure, factId, scopeValue), key) = s;
-                var scope = (MemoryScope)scopeValue;
-                var world = new World(reader: true, writer, container, exists);
-                Guid id = Guid.Parse(container.Id);
-                world.Memory.SetScopeAsync(id, Arg.Any<Guid>(), scope, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
-                    .Returns(world.Answers(failure, id));
-
-                var changed = await new SetFactScope(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text, scope);
-
-                MemoryStatus expected = !writer ? MemoryStatus.Forbidden
-                    : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
-                    : !factId.IsId ? MemoryStatus.FactNotFound
-                    : scopeValue > 1 ? MemoryStatus.Invalid
-                    : StatusOf(failure);
-                changed.Status.Should().Be(expected);
-                bool reached = writer && exists && key.Names && factId.IsId && scopeValue <= 1;
-                world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);
-            }, iter: 1000);
-
     // ── memory.recall ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]

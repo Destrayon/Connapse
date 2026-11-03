@@ -166,30 +166,6 @@ public sealed class ForgetFact(IContainerStore containers, IMemoryService memory
 }
 
 /// <summary>
-/// Shares a fact with the team, or makes a team fact personal, every version of it at once. Either way it changes what
-/// other people see, so it needs write access, and the caller must have written every version.
-/// </summary>
-[Operation("memory.setScope", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class SetFactScope(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
-{
-    /// <returns>The fact named, with its new scope.</returns>
-    public async Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
-        OperationContext context, string containerId, string factId, MemoryScope scope, CancellationToken ct = default)
-    {
-        if (!await MemoryRules.WriterAsync(authorizer, context))
-            return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Forbidden, "sharing a fact or making it personal needs write access (knowledge:write).");
-        if (await MemoryRules.ContainerAsync(containers, containerId, ct) is not { } container)
-            return MemoryRules.WriteContainerNotFound<MemoryWritten>(containerId);
-        if (!Guid.TryParse(factId, out Guid id))
-            return MemoryRules.FactNotFound<MemoryWritten>(factId);
-        if (!Enum.IsDefined(scope))
-            return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Invalid, "scope must be \"personal\" or \"team\".", "scope");
-
-        return MemoryRules.Written(await memory.SetScopeAsync(container, id, scope, MemoryRules.Caller(context.User), ct));
-    }
-}
-
-/// <summary>
 /// Reads facts from a container's memory, each only when the caller can read every source it cites. When access
 /// cannot be checked, nothing is shown.
 /// </summary>
@@ -213,7 +189,7 @@ public sealed class RecallMemory(IContainerStore containers, IMemoryService memo
 }
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
-public sealed class MemoryOperations(RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall, SetFactScope setScope)
+public sealed class MemoryOperations(RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall)
 {
     public RememberFact Remember { get; } = remember;
 
@@ -222,6 +198,4 @@ public sealed class MemoryOperations(RememberFact remember, CorrectFact correct,
     public ForgetFact Forget { get; } = forget;
 
     public RecallMemory Recall { get; } = recall;
-
-    public SetFactScope SetScope { get; } = setScope;
 }

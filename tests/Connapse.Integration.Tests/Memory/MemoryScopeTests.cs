@@ -120,48 +120,6 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SetScope_FactWithVersionsByDifferentPeople_IsRefusedAndNothingChanges()
-    {
-        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
-        string shared = Guid.NewGuid().ToString();
-        var (container, service) = await ArrangeAsync(new() { [a] = [shared], [b] = [shared] });
-        MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
-        MemorySource source = new(MemorySourceKind.Document, shared);
-        MemoryFact first = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "region", "eu-west", Jan, null, [source]), userA)).Fact!;
-        MemoryFact byB = (await service.CorrectAsync(container, first.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "eu-north", null, null, null), userB, true)).Fact!;
-
-        MemoryWriteResult byA = await service.SetScopeAsync(container, first.Id, MemoryScope.Personal, userA);
-        MemoryWriteResult byOtherAuthor = await service.SetScopeAsync(container, byB.Id, MemoryScope.Personal, userB);
-
-        byA.Error.Should().Contain("other people wrote");
-        byOtherAuthor.Error.Should().Contain("other people wrote");
-        (await SeenAsync(service, container, userB)).Should().Equal("eu-north", "eu-west");
-    }
-
-    [Fact]
-    public async Task SetScope_OwnFact_ChangesEveryVersion()
-    {
-        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
-        string shared = Guid.NewGuid().ToString();
-        var (container, service) = await ArrangeAsync(new() { [a] = [shared], [b] = [shared] });
-        MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
-        MemorySource source = new(MemorySourceKind.Document, shared);
-        MemoryFact first = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "owner", "Ana", Jan, null, [source]), userA)).Fact!;
-        MemoryFact second = (await service.CorrectAsync(container, first.Id, MemoryCorrection.Changed,
-            new NewMemoryFact("", "", "Bo", Jan.AddMonths(1), null, null), userA, true)).Fact!;
-
-        MemoryWriteResult personal = await service.SetScopeAsync(container, second.Id, MemoryScope.Personal, userA);
-
-        personal.Fact!.Scope.Should().Be(MemoryScope.Personal);
-        (await SeenAsync(service, container, userB)).Should().BeEmpty("both versions are now A's own");
-        (await SeenAsync(service, container, userA)).Should().Equal("Ana", "Bo");
-
-        (await service.SetScopeAsync(container, first.Id, MemoryScope.Team, userA)).Fact!.Scope.Should().Be(MemoryScope.Team);
-        (await SeenAsync(service, container, userB)).Should().Equal("Ana", "Bo");
-    }
-
-    [Fact]
     public async Task Operations_ReadOnlyUser_SavesNoMemoryButRecallsTeamFacts()
     {
         Guid container = await ContainerAsync();
@@ -181,7 +139,6 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
             new NewMemoryFact("me", "editor", "vim", null, null, [], null, MemoryScope.Personal));
         var team = await memory.Remember.RunAsync(viewer, container.ToString(),
             new NewMemoryFact("Halcyon", "editor", "vim", null, null, [], null, MemoryScope.Team));
-        var share = await memory.SetScope.RunAsync(viewer, container.ToString(), fact, MemoryScope.Personal);
         var corrected = await memory.Correct.RunAsync(viewer, container.ToString(), fact, MemoryCorrection.Wrong,
             new NewMemoryFact("", "", "MySQL 8", null, null, null));
         var forgotten = await memory.Forget.RunAsync(viewer, container.ToString(), fact);
@@ -189,7 +146,6 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
 
         personal.Status.Should().Be(MemoryStatus.Forbidden, "read access alone saves no memory, personal or team");
         team.Status.Should().Be(MemoryStatus.Forbidden);
-        share.Status.Should().Be(MemoryStatus.Forbidden);
         corrected.Status.Should().Be(MemoryStatus.Forbidden);
         forgotten.Status.Should().Be(MemoryStatus.Forbidden);
         own.Status.Should().Be(MemoryStatus.Success);

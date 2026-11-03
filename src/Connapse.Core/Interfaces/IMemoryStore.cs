@@ -25,15 +25,6 @@ public interface IMemoryStore
     /// </summary>
     Task<int?> ForgetAsync(Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
 
-    /// <summary>
-    /// Gives every version of <paramref name="factId"/>'s correction chain <paramref name="scope"/>, in one transaction
-    /// with the chain locked as a correction locks it, unless <paramref name="check"/> returns an error for the chain's
-    /// versions. Returns <paramref name="factId"/> as it is now, or why nothing changed.
-    /// </summary>
-    Task<MemoryWriteResult> SetScopeAsync(
-        Guid containerId, Guid factId, MemoryScope scope,
-        Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> check, CancellationToken ct = default);
-
     Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default);
 
     /// <summary>One page of matching facts, best match first (newest first without text), skipping <paramref name="skip"/>.</summary>
@@ -63,12 +54,6 @@ public interface IMemoryService
     /// not see every version, forbidden when a version is team and the caller is not a team writer.
     /// </summary>
     Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(Guid containerId, Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default);
-
-    /// <summary>
-    /// Shares a fact with the team or makes it personal, every version of its chain at once. The caller must have
-    /// written every version, so one person's change never publishes or hides another's.
-    /// </summary>
-    Task<MemoryWriteResult> SetScopeAsync(Guid containerId, Guid factId, MemoryScope scope, MemoryCaller caller, CancellationToken ct = default);
 
     Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default);
 }

@@ -10,8 +10,7 @@ namespace Connapse.Storage.Tests.Memory;
 
 /// <summary>
 /// Personal and team facts (CON-234): a personal fact is seen only by its author whatever it cites, a team fact by
-/// everyone who can read its sources; a correction never widens who sees a fact; and only the sole author of every
-/// version may share a fact or make it personal.
+/// everyone who can read its sources; and a correction never widens who sees a fact.
 /// </summary>
 [Trait("Category", "Unit")]
 public class MemoryServiceScopeTests
@@ -180,22 +179,6 @@ public class MemoryServiceScopeTests
     }
 
     [Fact]
-    public async Task Correct_AskingToStayPersonalAfterTheChainWasShared_IsRefusedUnderTheLock()
-    {
-        // Read as personal before the lock; shared by its author before the correction took the lock. The store writes
-        // the locked scope, so going ahead would publish a value its author asked to keep personal.
-        MemoryFact current = Fact(Me, MemoryScope.Personal, Shared);
-        CorrectionRunsCheck(current, [current with { Scope = MemoryScope.Team }], Fact(Me, MemoryScope.Team, Shared));
-
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
-            Replacement([Shared], MemoryScope.Personal), Me, teamWriter: true);
-
-        result.Fact.Should().BeNull();
-        result.Error.Should().Contain("keeps the fact's scope");
-        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
-    }
-
-    [Fact]
     public async Task Correct_AskingForTheSameScope_IsWritten()
     {
         MemoryFact current = Fact(Me, MemoryScope.Personal);
@@ -303,79 +286,4 @@ public class MemoryServiceScopeTests
         await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
     }
 
-    // ── sharing a fact or making it personal ──────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task SoleAuthorError_EveryVersionMine_Allows()
-    {
-        (await _service.SoleAuthorErrorAsync(Guid.NewGuid(), [Fact(Me, MemoryScope.Personal), Fact(Me, MemoryScope.Team, Shared)], Me, CancellationToken.None))
-            .Should().BeNull();
-    }
-
-    [Fact]
-    public async Task SoleAuthorError_AVersionAnotherPersonWrote_IsRefused()
-    {
-        MemoryWriteResult? result = await _service.SoleAuthorErrorAsync(Guid.NewGuid(),
-            [Fact(Me, MemoryScope.Team, Shared), Fact(Other, MemoryScope.Team, Shared)], Me, CancellationToken.None);
-
-        result!.Failure.Should().Be(MemoryWriteFailure.Invalid);
-        result.Error.Should().Contain("other people wrote");
-    }
-
-    [Fact]
-    public async Task SoleAuthorError_AVersionTheCallerCannotSee_ReadsAsMissing()
-    {
-        MemoryWriteResult? result = await _service.SoleAuthorErrorAsync(Guid.NewGuid(),
-            [Fact(Me, MemoryScope.Team, Shared), Fact(Me, MemoryScope.Team, Restricted)], Me, CancellationToken.None);
-
-        result!.Failure.Should().Be(MemoryWriteFailure.NotFound);
-    }
-
-    [Fact]
-    public async Task SoleAuthorError_WhenAccessCannotBeChecked_IsRefusedAsUnchecked()
-    {
-        _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("down"));
-
-        MemoryWriteResult? result = await _service.SoleAuthorErrorAsync(Guid.NewGuid(), [Fact(Me, MemoryScope.Team, Shared)], Me, CancellationToken.None);
-
-        result!.Failure.Should().Be(MemoryWriteFailure.Unchecked);
-    }
-
-    [Fact]
-    public async Task SetScope_AnUnknownScope_IsRefusedBeforeTheStore()
-    {
-        MemoryWriteResult result = await _service.SetScopeAsync(Container, Guid.NewGuid(), (MemoryScope)7, Me);
-
-        result.Failure.Should().Be(MemoryWriteFailure.Invalid);
-        _store.ReceivedCalls().Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task SetScope_OwnChain_IsChangedAndAudited()
-    {
-        MemoryFact fact = Fact(Me, MemoryScope.Personal, Shared);
-        _store.SetScopeAsync(Container, fact.Id, MemoryScope.Team, Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>())
-            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(3)([fact])
-                ?? new MemoryWriteResult(fact with { Scope = MemoryScope.Team }, null, null));
-
-        MemoryWriteResult result = await _service.SetScopeAsync(Container, fact.Id, MemoryScope.Team, Me);
-
-        result.Fact!.Scope.Should().Be(MemoryScope.Team);
-        await _audit.Received(1).LogAsync("memory.scope-changed", "memory_fact", fact.Id.ToString(), Arg.Any<object>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task SetScope_ChainWithAnotherAuthor_IsRefusedAndAuditsNothing()
-    {
-        MemoryFact fact = Fact(Me, MemoryScope.Team, Shared);
-        _store.SetScopeAsync(Container, fact.Id, MemoryScope.Personal, Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>())
-            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(3)([Fact(Other, MemoryScope.Team, Shared), fact])
-                ?? new MemoryWriteResult(fact, null, null));
-
-        MemoryWriteResult result = await _service.SetScopeAsync(Container, fact.Id, MemoryScope.Personal, Me);
-
-        result.Fact.Should().BeNull();
-        await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
-    }
 }

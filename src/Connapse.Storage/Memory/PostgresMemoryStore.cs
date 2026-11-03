@@ -69,25 +69,6 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         return new MemoryWriteResult(ToFact(row), ToFact(old), null);
     }
 
-    public async Task<MemoryWriteResult> SetScopeAsync(
-        Guid containerId, Guid factId, MemoryScope scope,
-        Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> check, CancellationToken ct = default)
-    {
-        await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        await using var transaction = await context.Database.BeginTransactionAsync(ct);
-
-        if (await LockedChainAsync(context, containerId, factId, ct) is not { } chain)
-            return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
-        if (await check([.. chain.Select(ToFact)]) is { } refused)
-            return refused;
-
-        foreach (MemoryFactEntity version in chain)
-            version.Scope = (short)scope;
-        await context.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
-        return new MemoryWriteResult(ToFact(chain.Single(f => f.Id == factId)), null, null);
-    }
-
     /// <summary>
     /// Every version of <paramref name="factId"/>'s chain, locked, or null when the fact is not in the container. Every
     /// write to a chain first locks its first fact (whose id is the chain's), so they run one at a time. A write is

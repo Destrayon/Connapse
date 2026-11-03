@@ -360,9 +360,6 @@ public class MemoryTabTests : IDisposable
             return Task.FromResult((deleted, MemoryWriteFailure.None));
         }
 
-        public Task<MemoryWriteResult> SetScopeAsync(Guid containerId, Guid factId, MemoryScope scope, MemoryCaller caller, CancellationToken ct = default) =>
-            throw new NotSupportedException("The Memory tab doesn't change a fact's scope yet.");
-
         /// <summary>Facts the reader can no longer see, as when access to their sources is taken away.</summary>
         public HashSet<Guid> Hidden { get; } = [];
 

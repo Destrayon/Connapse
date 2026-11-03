@@ -14,7 +14,6 @@ namespace Connapse.Storage.Memory;
 /// private one does not widen who sees it, and only when the fact is team or the reader wrote it.</item>
 /// <item>A correction keeps the fact's scope and, when it names no sources, the fact's sources. A correction of a team
 /// fact needs write access and must cite every source the old fact cites, so it can never be seen more widely.</item>
-/// <item>Sharing a fact or making it personal changes every version of its chain, and only its sole author may.</item>
 /// <item>When access cannot be checked, reads show nothing and writes are refused.</item>
 /// <item>Every write is audited by id, never by content, so forgetting leaves no copy behind.</item>
 /// </list>
@@ -67,12 +66,8 @@ public sealed class MemoryService(
         if (await UnreadableSourcesAsync(sources, caller, ct) is { } refused)
             return refused;
 
-        // The scope is checked again under the lock: the chain may have been shared or made personal since the read
-        // above, and the store writes the locked version's scope, so a correction asked to stay personal would publish.
-        MemoryScope? requested = replacement.Scope;
         MemoryWriteResult result = await store.CorrectAsync(containerId, factId, kind, replacement, caller,
             async chain => await WholeChainVisibleAsync(factId, chain, sources, caller, ct)
-                ?? ScopeChangeError(chain.Single(f => f.Id == factId), requested)
                 ?? TeamCorrectionError(chain.Single(f => f.Id == factId), sources, teamWriter), ct);
         if (result.Fact is { } written)
         {
@@ -114,25 +109,6 @@ public sealed class MemoryService(
         await audit.LogAsync("memory.forgotten", "memory_fact", factId.ToString(),
             new { ContainerId = containerId, Deleted = deleted, caller.UserId, caller.AgentId }, ct);
         return (deleted, MemoryWriteFailure.None);
-    }
-
-    public async Task<MemoryWriteResult> SetScopeAsync(Guid containerId, Guid factId, MemoryScope scope, MemoryCaller caller, CancellationToken ct = default)
-    {
-        if (!Enum.IsDefined(scope))
-            return MemoryWriteResult.Failed("Error: scope must be \"personal\" or \"team\".");
-
-        int versions = 0;
-        MemoryWriteResult result = await store.SetScopeAsync(containerId, factId, scope, async chain =>
-        {
-            versions = chain.Count;
-            return await SoleAuthorErrorAsync(factId, chain, caller, ct);
-        }, ct);
-        if (result.Fact is not null)
-        {
-            await audit.LogAsync("memory.scope-changed", "memory_fact", factId.ToString(),
-                new { ContainerId = containerId, Scope = scope.ToString(), Versions = versions, caller.UserId, caller.AgentId }, ct);
-        }
-        return result;
     }
 
     public async Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default)
@@ -206,7 +182,7 @@ public sealed class MemoryService(
     /// </summary>
     internal static MemoryWriteResult? ScopeChangeError(MemoryFact old, MemoryScope? requested) =>
         requested is { } scope && scope != old.Scope
-            ? MemoryWriteResult.Failed("Error: a correction keeps the fact's scope. Share the fact or make it personal instead.")
+            ? MemoryWriteResult.Failed("Error: a correction keeps the fact's scope. Remember a new fact with the scope you want instead.")
             : null;
 
     internal static MemoryWriteResult? TeamCorrectionError(MemoryFact old, IReadOnlyList<MemorySource> sources, bool teamWriter)
@@ -220,30 +196,6 @@ public sealed class MemoryService(
             ? null
             : MemoryWriteResult.Failed($"Error: a correction of a team fact must keep every source the old fact cites; this one leaves out {string.Join(", ", dropped)}, "
                 + "which would show the new value to people who cannot read it. To share it more widely, forget the fact and remember a new team fact.");
-    }
-
-    /// <summary>
-    /// Null when <paramref name="caller"/> may change the scope of the whole chain, or the error refusing it. Every
-    /// version must be visible (a chain with a hidden one reads as missing) and written by the caller: a chain can mix
-    /// authors, and sharing it would publish another person's private version, or making it personal hide their team one.
-    /// </summary>
-    internal async Task<MemoryWriteResult?> SoleAuthorErrorAsync(Guid factId, IReadOnlyList<MemoryFact> chain, MemoryCaller caller, CancellationToken ct)
-    {
-        IReadOnlySet<MemorySource> readable;
-        try
-        {
-            readable = await ReadableAsync(chain.SelectMany(f => f.Sources), caller.UserId, ct);
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            logger.LogWarning(ex, "Could not check memory sources; refusing the scope change");
-            return MemoryWriteResult.Failed("Error: could not check access to the sources; nothing was changed.", MemoryWriteFailure.Unchecked);
-        }
-        if (!chain.All(f => Visible(f, readable, caller)))
-            return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
-        return chain.All(f => caller.IsAuthorOf(f.Author))
-            ? null
-            : MemoryWriteResult.Failed($"Error: fact '{factId}' has versions other people wrote, so you cannot share it or make it personal. Remember a new fact instead.");
     }
 
     internal static bool Visible(MemoryFact fact, IReadOnlySet<MemorySource> readable, MemoryCaller caller) =>
