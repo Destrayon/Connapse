@@ -181,6 +181,12 @@ else
                         This container has @containerToDelete.DocumentCount file(s). It must be empty before deletion.
                     </div>
                 }
+                @if (containerToDelete.Kind == ContainerKind.Memory)
+                {
+                    <div class="alert alert-warning py-2" id="delete-memory-warning">
+                        Every memory fact in it is deleted too, including facts other people's agents saved.
+                    </div>
+                }
                 @if (deleteError is not null)
                 {
                     <div class="alert alert-danger py-2">@deleteError</div>

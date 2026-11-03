@@ -143,7 +143,7 @@
     "CodeLines": 140,
     "Injects": 3,
     "Complexity": 18,
-    "MarkupLogic": 23,
+    "MarkupLogic": 24,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {

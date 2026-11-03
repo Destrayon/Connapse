@@ -134,6 +134,22 @@ public class MemoryContainerPagesTests : IDisposable
     }
 
     [Fact]
+    public void DeleteDialog_MemoryContainer_WarnsThatItsFactsGoToo()
+    {
+        List<Container> seeded = [Seed("docs", ContainerKind.Documents), Seed("agent-notes", ContainerKind.Memory)];
+        containers.ListAsync(default, default, default).ReturnsForAnyArgs(seeded);
+        var cut = ctx.Render<Home>();
+        cut.WaitForAssertion(() => cut.FindAll(".container-card").Should().HaveCount(2));
+
+        cut.FindAll(".container-delete-btn")[0].Click();
+        cut.FindAll("#delete-memory-warning").Should().BeEmpty();
+        cut.Find(".modal-footer-custom .btn-outline-secondary").Click();
+        cut.FindAll(".container-delete-btn")[1].Click();
+
+        cut.Find("#delete-memory-warning").TextContent.Should().Contain("Every memory fact in it is deleted too");
+    }
+
+    [Fact]
     public void ContainerPage_MemoryContainer_IsTheMemoryTabAlone()
     {
         var memory = Seed("agent-notes", ContainerKind.Memory);

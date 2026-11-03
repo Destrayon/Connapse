@@ -25,6 +25,7 @@ public partial class SettingsOperationTests
         public readonly ReindexStateService Runs = new();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
         public readonly IConnectionTests Tests = Substitute.For<IConnectionTests>();
+        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
 
         public Actions(bool admin = true)
         {
@@ -35,7 +36,7 @@ public partial class SettingsOperationTests
 
         public ListEmbeddingModels Models() => new(World.Store, World.Configured, World.Models, World.Authorizer);
 
-        public StartReindex Start() => new(World.Store, World.Configured, Reindex, World.Audit, World.Authorizer);
+        public StartReindex Start() => new(World.Store, World.Configured, Reindex, World.Audit, World.Authorizer, Containers);
 
         public GetReindexStatus Status() => new(Runs, Queue, World.Authorizer);
 
@@ -549,19 +550,42 @@ public partial class SettingsOperationTests
         }, iter: 300);
 
     [Fact]
+    public async Task Reindex_MemoryContainer_RefusedWithoutChangingSettingsOrStarting()
+    {
+        var actions = new Actions();
+        Guid id = Guid.NewGuid();
+        actions.Containers.GetAsync(id, Arg.Any<CancellationToken>())
+            .Returns(new Container(id.ToString(), "agent-notes", null, DateTime.UnixEpoch, DateTime.UnixEpoch, Kind: ContainerKind.Memory));
+
+        var started = await actions.Start().RunAsync(Caller, new ReindexRequest(id.ToString()));
+
+        started.Status.Should().Be(SettingsStatus.MemoryContainer);
+        started.Detail.Should().Contain("'agent-notes' is an agent memory container");
+        actions.Reindex.ReceivedCalls().Should().BeEmpty();
+        actions.World.Store.Rows.Should().BeEmpty();
+    }
+
+    [Fact]
     [RandomInputTestOf(typeof(StartReindex))]
     public Task Reindex_AnyRequest_StartsOnlyValidRequestsForAdministrators() =>
         Gen.Select(Gen.Bool, Gen.OneOf(Gen.Const((string?)null), Gen.Const((string?)"x"), Gen.Const((string?)""), Gen.Guid.Select(g => (string?)g.ToString())),
-            Gen.Bool, Gen.Bool).SampleAsync(async t =>
+            Gen.Bool, Gen.Bool, Gen.OneOf(Gen.Const((ContainerKind?)null), Gen.Const((ContainerKind?)ContainerKind.Documents), Gen.Const((ContainerKind?)ContainerKind.Memory)))
+            .SampleAsync(async t =>
         {
-            var (admin, container, force, crossModelOn) = t;
+            var (admin, container, force, crossModelOn, kind) = t;
             var actions = new Actions(admin);
             actions.World.Configured.Values[typeof(SearchSettings)] = new SearchSettings { EnableCrossModelSearch = crossModelOn };
+            if (kind is { } k && Guid.TryParse(container, out Guid id))
+                actions.Containers.GetAsync(id, Arg.Any<CancellationToken>())
+                    .Returns(new Container(container!, "c", null, DateTime.UnixEpoch, DateTime.UnixEpoch, Kind: k));
 
-            var started = await new StartReindex(actions.World.Store, actions.World.Configured, actions.Reindex, actions.World.Audit, actions.World.Authorizer).RunAsync(Caller, new ReindexRequest(container, force));
+            var started = await new StartReindex(actions.World.Store, actions.World.Configured, actions.Reindex, actions.World.Audit,
+                actions.World.Authorizer, actions.Containers).RunAsync(Caller, new ReindexRequest(container, force));
 
             bool valid = container is null || Guid.TryParse(container, out _);
-            started.Status.Should().Be(!admin ? SettingsStatus.Forbidden : !valid ? SettingsStatus.Invalid : SettingsStatus.Success);
+            bool memory = container is not null && valid && kind == ContainerKind.Memory;
+            started.Status.Should().Be(!admin ? SettingsStatus.Forbidden : !valid ? SettingsStatus.Invalid
+                : memory ? SettingsStatus.MemoryContainer : SettingsStatus.Success);
             if (started.Status != SettingsStatus.Success)
             {
                 actions.Reindex.ReceivedCalls().Should().BeEmpty();
