@@ -37,8 +37,8 @@ public interface IMemoryStore
 /// <summary>
 /// Agent memory with its rules: the writer must be able to read every source it cites, every write is audited, and
 /// a reader sees a fact only when it can read every one of its sources and the fact is team or the reader's own.
-/// Writing a team fact needs write access, which the caller's surface checks and passes as
-/// <c>teamWriter</c>; a personal fact needs only read access. Access is checked on every call; when it cannot be
+/// Writing any fact, personal or team, needs write access, which the caller's surface must check before calling; this
+/// service checks it only for team facts, passed as <c>teamWriter</c>. Access is checked on every call; when it cannot be
 /// checked, reads return <see cref="MemoryRecall.DeniedResult"/> and writes fail.
 /// </summary>
 public interface IMemoryService
