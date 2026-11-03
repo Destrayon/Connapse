@@ -105,8 +105,13 @@ a space, and a space has one audience.
    container the caller can see, and each fact comes back labelled with its space and `personal` or `team`. When a
    personal and a team fact disagree, both come back and the description says the team fact is the shared record
    and the personal one is this user's own note. Viewers' agents can recall; they just can't save.
-5. **`memory_correct` and `memory_forget`** find the fact by id, so `space` is optional there. A correction stays
-   in the fact's space, keeps its scope and, when `sources` is left out, its sources (PR #1123).
+5. **`memory_correct` and `memory_forget`** find the fact by id, so `space` is optional there. Today both require
+   `containerId` and the store only looks in that container, so a fact moved by the migration would come back "not
+   found" under its old container. From CON-236, the ticket that moves facts, they look the fact up by id across
+   every space and container the caller can see; a `containerId` or `space` that is passed is ignored for the
+   lookup, so an agent holding the old container id still reaches a moved fact. A fact the caller can't see is still
+   "not found". A correction stays in the fact's space, keeps its scope and, when `sources` is left out, its sources
+   (PR #1123).
 6. **`search_knowledge` and `container_list`** never show another user's personal space. Asking for one by id or
    name gets the same "not found" as a space that doesn't exist, so nobody can probe for one.
 
@@ -189,7 +194,9 @@ One ticket per PR. Each needs the one before it merged.
    from a team space but not save to it.
 3. **CON-236: move today's memory into spaces.** The migration in the section above. Done when the before-and-after
    test shows every reader sees exactly the same facts, including a mixed chain whose current version is
-   personal, and agent memory containers open as team spaces with their old ids.
+   personal, and agent memory containers open as team spaces with their old ids. It also makes `memory_correct`
+   and `memory_forget` find a fact by id across visible spaces, with `containerId` optional and not used to
+   filter, and tests that a moved fact can be corrected and forgotten by its old container id.
 4. **CON-237: MCP tools and docs.** `memory_spaces`; required `space` on remember (with the `containerId` alias);
    optional `space` and labels on recall and timeline; the plain-words answers; tool descriptions;
    `docs/reference/mcp-tools.md`, `docs/problems.md`, and a rewrite of `docs/concepts/memory.md` around spaces (it
