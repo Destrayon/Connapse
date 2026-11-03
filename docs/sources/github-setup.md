@@ -1,12 +1,13 @@
 ---
 title: GitHub setup
+description: Index a GitHub repository's docs, code, issues and pull requests in Connapse.
 type: how-to
 audience: admin
 ---
 
 # GitHub setup
 
-Connapse reads GitHub as a GitHub App that you create from Connapse in one step. Each organisation or account you install the App on becomes a connection, and each repository you add becomes up to two sources: its Markdown docs, and its issues and pull requests. Reads use hour-long installation tokens; you never paste in or store a personal access token.
+Connapse reads GitHub as a GitHub App that you create from Connapse in one step. Each organisation or account you install the App on becomes a connection, and each repository you add becomes up to two sources: its files (Markdown by default, code too if you choose), and its issues and pull requests. Reads use hour-long installation tokens; you never paste in or store a personal access token.
 
 The App is set up under **Admin** → **Providers** → **GitHub** (`/admin/providers/github`).
 
@@ -14,7 +15,7 @@ The App is set up under **Admin** → **Providers** → **GitHub** (`/admin/prov
 
 Each source reads one repository, as one of two kinds:
 
-- **Docs:** Markdown files on the default branch. By default that's `*.md` and `*.markdown`; file patterns change which file names are read. Source code isn't indexed.
+- **Docs:** files on the default branch whose names match the source's file patterns. By default that's Markdown, `*.md` and `*.markdown`. To index code as well, add patterns such as `*.cs`, `*.ts`, `*.tsx` or `*.py`: each definition becomes its own passage, and agents can query it with the `code_*` tools in [Search code with an agent](../guides/search-code.md).
 - **Issues and pull requests:** their titles and bodies, and optionally their comments. Comments from bots are left out unless you include specific bots.
 
 ## How permissions work
@@ -153,7 +154,7 @@ Each source is checked every 5 minutes by default, or at its `syncIntervalSecond
 
 ## Limitations
 
-- Source code isn't indexed on purpose. Docs sources read the file names your patterns allow, Markdown by default, on the default branch only.
+- Docs sources read only the file names your patterns allow, Markdown by default, on the default branch only. Code is indexed only when the patterns name its extensions, and only C#, TypeScript and Python are parsed into definitions; any other file a pattern matches must be one of the [file types](../reference/file-types.md) Connapse reads.
 - Connapse polls; it doesn't use webhooks, so a change appears at the next sync.
 - One source reads one repository. Add a source per repository.
 

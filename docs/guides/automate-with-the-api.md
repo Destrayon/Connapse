@@ -1,5 +1,6 @@
 ---
 title: Automate Connapse with the API
+description: Create providers, connections and sources over the REST API, and save settings safely with ETags.
 type: how-to
 audience: admin
 ---

@@ -1,5 +1,6 @@
 ---
 title: Architecture internals
+description: Connapse's projects, dependency rules, key patterns and data flow, for people changing Connapse itself.
 type: explanation
 audience: contributor
 ---

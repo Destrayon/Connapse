@@ -1,5 +1,6 @@
 ---
 title: Tune search
+description: Improve Connapse search results, starting with the reranker, then the fusion, cut-off and chunking settings worth changing.
 type: how-to
 audience: admin
 ---
