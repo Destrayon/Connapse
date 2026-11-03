@@ -14,6 +14,7 @@ Use this when you want to move a running Connapse server to a newer release, and
 - Shell access to the Docker host, in the folder that holds `docker-compose.yml`.
 - A backup from the last hour, made with [Back up and restore Connapse](backup-and-restore.md). Rolling back means restoring it.
 - The [CHANGELOG](../../CHANGELOG.md) entries between your version and the new one, read for breaking changes and security fixes.
+- From v0.3.x, start with [From v0.3.x to v0.4.0](#from-v03x-to-v040), which uses the steps below. That upgrade removes the documents of every S3, Azure Blob and filesystem container, so save their settings first.
 
 ## Steps
 
