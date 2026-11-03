@@ -211,6 +211,139 @@ clients that are already running, so from CON-235 on, and for as long as the `co
 CON-235's tests send PR #1123's old sourceless requests to a document container and an agent memory container and
 check the facts stay visible only to their author.
 
+## Scaling: hundreds of spaces, tens of thousands of facts, long histories
+
+The Memory page has to stay quick and usable when a team has hundreds of spaces, one space holds tens of thousands
+of facts, and one fact has been corrected hundreds of times. The database already copes; today's app does not.
+Research on how Notion, Linear, Obsidian, mem0, Zep and Letta handle big lists is in
+[`docs/research/memory-large-lists-2026-11-03.md`](../research/memory-large-lists-2026-11-03.md).
+
+### What today's Memory tab does, and where it breaks
+
+Today's tab (CON-225, `MemoryTab.razor`) asks for one batch of at most 100 facts and shows "the first 100. Search to
+narrow them down." It has a full-text search box and a Current / All versions switch, and nothing else: no next
+page, no total, no sort, no subject or author filter. A fact's history is also capped at its newest 100 versions,
+and the delete prompt counts versions from that capped list.
+
+Behind it, `MemoryService.RecallAsync` reads 200 rows at a time with offset paging and then drops, in the app, every
+fact the caller may not see (a personal fact by someone else, or a fact citing a document the caller can't read). It
+keeps reading until it has enough. When the caller can see only a few facts in a big space, it reads the whole space
+and checks document permissions page by page before it can show anything.
+
+We measured the database on a Postgres container capped at 2 CPUs and 4 GB, seeded with 104,706 fact versions: one
+space with 50,000 current facts, one with 10,000, 40 spaces of 500, a third of facts corrected at least once, one
+fact with 500 versions, and 70% of facts citing a document.
+
+| Query | Today's indexes | With the two indexes below |
+|---|---|---|
+| First 200 current facts, 50k space | 11.9 ms | 0.24 ms |
+| A page 40,000 rows in (offset today, keyset with the index) | 37 ms, sorting on disk | 0.28 ms |
+| Exact count of current facts | 13.8 ms | 4.4 ms |
+| Ranked full-text search, first 200 | 1.5 ms | (unchanged) |
+| Subjects with counts, first 50 | 1.3 ms | (unchanged) |
+| Newest 100 versions of the 500-version fact | 0.31 ms | 0.23 ms |
+| Every current fact plus its sources (the "sees almost nothing" case) | 45.7 ms, plus permission checks in the app | not needed (below) |
+
+So the limits are the 100-row cap with no paging, the filter that runs in the app instead of in SQL, and offset paging
+deep in a list. "Keyset paging" fixes the last one: instead of "skip 40,000 rows", the next page asks for "rows after
+the last one I showed", which an index answers directly however deep you are.
+
+### Many spaces (the Memory page)
+
+![The Memory page with 165 spaces: find box, kind filters with counts, sort, starred spaces first, paged table](../images/memory-spaces/many-spaces.png)
+
+- **Find and filter.** A "Find a space" box matches name and description. Filters across the top show a count each:
+  All, Starred, Personal, Team, Containers.
+- **Sort.** Recently updated (the default), Name, or Most facts.
+- **Starred spaces first.** Anyone can star a space for themselves, as Notion and Linear favourites work, and starred
+  spaces stay at the top of every list and filter. The personal `my-memory` space is starred for you at the start.
+- **Cards, then a table.** Up to nine spaces show as the cards in the first picture. Past that the page switches to
+  the compact table above, 50 rows a page, with "1–50 of 165 spaces" and Previous / Next. Space lists are small
+  enough that an exact total is cheap.
+- **Counts load late.** The rows appear first. Each row's fact count and "Updated" time then fill in from one grouped
+  query over just the spaces on screen.
+
+### Many facts in one space
+
+![A team space with 4,812 facts, filtered to one author, 50 per page](../images/memory-spaces/big-space.png)
+
+- **Paging on the server.** A space shows 50 facts a page with Previous / Next and "1–50 of 4,812 facts you can see".
+  Each page is one keyset query, so page 90 costs the same as page 1. We don't use virtual scrolling (a long list
+  that draws only the rows in view), because it needs the exact total and a jump to any row up front, and both cost a
+  full count for every viewer, since what each person can see differs.
+- **The visibility filter moves into SQL.** Before each list, the server works out once which of the space's cited
+  documents this caller can read, using the per-user permission cache, and passes that set into the query. The query
+  then returns only facts the caller can see: their own or team facts whose every cited document is in the set. This
+  removes the read-and-drop loop, and a viewer who sees 1% of a space waits no longer than one who sees all of it.
+- **Counts never reveal hidden facts.** The total counts only facts the caller can see, using the same readable set.
+  It loads after the first page. If it takes longer than 2 seconds it stops and shows "4,000+".
+- **Search.** The ranked full-text search stays. Its results page the same way, up to the best 1,000 matches.
+- **Filters.** Subject (type ahead, with counts), Author, Sources (cites a document, or none), Recorded between two
+  dates, and Current / All versions. Filters combine.
+- **Sort.** Recently recorded (the default), Subject A–Z, True from, and Best match while searching.
+- **Group by subject.** An optional view that shows each subject as a heading with its count, 50 subjects a page.
+  A subject shows its first three facts and loads the rest when opened.
+- **The address keeps the view.** Search, filters, sort and page live in the page address, so a link or Back reopens
+  the same view.
+- **Only what's on screen loads.** Source titles load for the rows shown, a fact's history when it's opened, and the
+  count after the first page.
+
+![The same space searched for "refund" and grouped by subject](../images/memory-spaces/big-space-grouped.png)
+
+### Long histories
+
+![A fact with 212 versions: the newest five, the first, and Show 25 older versions](../images/memory-spaces/long-history.png)
+
+Opening a fact shows its exact version count, its newest five versions and its first. "Show 25 older versions" loads
+the next 25 with a keyset query on the chain index, as Linear collapses older activity on an issue. The 100-version
+cap goes, and the delete prompt gets its number from a count query, not from the loaded list.
+
+### API and database
+
+Every list endpoint returns `items` and an opaque `nextCursor` (the last row's sort value and id, encoded), and none
+returns a total; totals come from their own endpoint so the first page never waits on them. This is the shape
+Notion, Zep and Letta use.
+
+| Endpoint | Parameters | Returns |
+|---|---|---|
+| `GET /api/memory/spaces` | `cursor`, `limit` (default 50, max 100), `kind`, `q`, `starred`, `sort` | spaces, `nextCursor`, and a total (space lists are small) |
+| `GET /api/memory/spaces/{id}/facts` | `cursor`, `limit` (default 50, max 100), `q`, `subject`, `author`, `cites`, `from`, `to`, `status`, `sort` | facts, `nextCursor` |
+| `GET /api/memory/spaces/{id}/facts/count` | the same filters | `{ count, capped }` |
+| `GET /api/memory/spaces/{id}/subjects` | `cursor`, `limit`, `q` | subjects with counts, `nextCursor` |
+| `GET /api/memory/facts/{id}/history` | `cursor`, `limit` (default 25) | versions, `nextCursor`, `total` |
+
+MCP follows: `memory_recall` and `memory_timeline` return a `nextCursor` an agent can pass back, and `memory_spaces`
+returns at most 100 spaces with a name filter.
+
+Two indexes, both measured above:
+
+- `(container_id, recorded_at DESC, id) WHERE superseded_at IS NULL`, a partial index over current facts only, for
+  the default list, its keyset pages and the count.
+- `(chain_id, recorded_at DESC, id)`, replacing today's `idx_memory_facts_chain`, for history pages.
+
+The existing `(container_id, subject, attribute)` index already serves the subject filter and the grouped view, and
+the full-text index serves search. The CON-236 migration moves facts in batches of about 1,000 chains, so a 50,000-fact
+container never sits in one long transaction.
+
+### Targets and the load test
+
+Targets are server time on Postgres capped at 2 CPUs and 4 GB, with 50,000 current facts (about 65,000 versions) in
+one team space, 200 spaces in all, a 500-version fact, and a viewer who can read only 1% of the cited documents. Each
+is the 95th percentile over 20 runs.
+
+| Operation | Target |
+|---|---|
+| First page of a space, any filter or sort | under 150 ms |
+| Any later page | under 150 ms |
+| Search, first page | under 300 ms |
+| Visible count | under 2 s, or shown as capped |
+| Memory page list with 200 spaces, counts included | under 300 ms |
+| First history page of the 500-version fact | under 100 ms |
+
+The load test seeds exactly that data, runs each operation as both a full reader and the 1% viewer, and fails if a
+target is missed. It is tagged `[Trait("Category", "Load")]` so the normal test run skips it; it runs before a
+ticket's PR merges and its numbers go in the PR body.
+
 ## Revised build tickets, in order
 
 One ticket per PR. Each needs the one before it merged.
@@ -222,26 +355,38 @@ One ticket per PR. Each needs the one before it merged.
    create, rename and delete spaces; new facts take their scope from the space (personal space: personal; team space
    or document container: team); personal saves on a document container refused; old-style `containerId` saves
    without sources kept personal (the section above); personal spaces hidden from
-   every other caller in container lists, lookups by id and name, search and the admin pages. Done when tests show
-   a non-owner gets "not found" for a personal space by id and by name on every surface, and a Viewer can recall
-   from a team space but not save to it.
+   every other caller in container lists, lookups by id and name, search and the admin pages. It also carries the
+   storage half of the Scaling section: the two indexes, the visibility filter moved into SQL with the readable set,
+   the paged spaces, facts, count, subjects and history endpoints with their filters and sorts, and stars. Done when
+   tests show a non-owner gets "not found" for a personal space by id and by name on every surface, a Viewer can
+   recall from a team space but not save to it, paging through a space returns every visible fact exactly once and no
+   hidden one, the count never includes a fact the caller can't see, and the load test at 50,000 facts and 200 spaces
+   meets every target in the Scaling section, with its numbers in the PR body.
 3. **CON-236: move today's memory into spaces.** The migration in the section above. Done when the before-and-after
    test shows every reader sees exactly the same facts, including a mixed chain whose current version is
    personal, and agent memory containers open as team spaces with their old ids. It also makes `memory_correct`
    and `memory_forget` find a fact by id across visible spaces, with `containerId` optional and not used to
-   filter, and tests that a moved fact can be corrected and forgotten by its old container id.
+   filter, and tests that a moved fact can be corrected and forgotten by its old container id. The migration moves
+   facts in batches of about 1,000 chains; it is also done when it moves a 50,000-fact container in under 2 minutes
+   on the load test's 2-CPU, 4 GB Postgres.
 4. **CON-237: MCP tools and docs.** `memory_spaces`; required `space` on remember (with the `containerId` alias);
    optional `space` and labels on recall and timeline; the plain-words answers; tool descriptions;
    `docs/reference/mcp-tools.md`, `docs/problems.md`, and a rewrite of `docs/concepts/memory.md` around spaces (it
-   still says memory has no web page). Done when an agent that leaves out `space` gets an error that lists its
-   spaces, and the concept page matches the tools.
+   still says memory has no web page). `memory_recall` and `memory_timeline` return a `nextCursor`, and
+   `memory_spaces` returns at most 100 spaces with a name filter. Done when an agent that leaves out `space` gets an
+   error that lists its spaces, an agent can page through a 50,000-fact space by passing the cursor back, and the
+   concept page matches the tools.
 5. **New ticket: the Memory page.** The nav entry, the page, the New space dialog, a space's view (the CON-225
    fact table, with an Author column for team spaces and the Viewer notice), the "Team memory" label and pointer on
    a container's Memory tab, and removing the "Agent memory" type from the Create Container dialog. It also carries
-   the **Copy to team** button and its REST endpoint, which needs no storage change. Done when the pages match the
-   pictures above for an Editor and a Viewer, and tests show a copy keeps only the current version and its
-   citations, leaves the personal fact unchanged, is refused for a Viewer or a non-owner, and is not shown to a
-   teammate who can't read a cited document.
+   the **Copy to team** button and its REST endpoint, which needs no storage change. It also carries the page half
+   of the Scaling section: find, filters, sort, stars and the paged table on the Memory page; paging, filters, sort,
+   group by subject, the late-loading count and the view kept in the address on a space; and paged history. One
+   shared paged fact list serves both a space and a container's Memory tab, replacing today's 100-row table. Done
+   when the pages match the pictures above for an Editor and a Viewer, a browser test against the load test's 50,000
+   facts shows the first page within 1 second and page 2 and a search within 1 second each, and tests show a copy keeps
+   only the current version and its citations, leaves the personal fact unchanged, is refused for a Viewer or a
+   non-owner, and is not shown to a teammate who can't read a cited document.
 
 CON-235 is the largest. If it passes the PR size limit, it splits into storage and rules first, then REST, and the
 split goes to the PM before coding.
@@ -252,3 +397,6 @@ split goes to the PM before coding.
   `docs/images/memory-spaces/`. No product code. Next: CON-234 (PR #1123) drops `memory.setScope` and merges.
 - **CON-238 rework, 2026-11-03.** The user answered both open questions: team spaces stay visible to every account,
   and a Copy to team button is added (its own section, the Memory page ticket, a fifth picture). Docs only.
+- **CON-238 scaling rework, 2026-11-03.** Measured today's queries at 50,000 facts, added the Scaling section with
+  targets and a load test, a research report on large lists, four more pictures, and folded the work into CON-235,
+  CON-236, CON-237 and the Memory page ticket. Docs only. Next: unchanged, CON-234 (PR #1123) merges.

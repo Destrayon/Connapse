@@ -45,6 +45,20 @@ a team space or container. Only the note as it stands now is copied, with its da
 earlier versions stay private. Your personal note stays where it was, and changing one later doesn't change the
 other. Viewers can't copy, because copying is saving.
 
+## When there's a lot
+
+Memory is built to stay quick when a team has hundreds of spaces and a single space holds tens of thousands of facts.
+
+- **Finding a space.** Type part of its name, or narrow the list to personal, team or container spaces. Star the
+  ones you use most and they stay at the top.
+- **A big space.** It shows 50 facts at a time, with the next page a click away and a count of the facts you can
+  see. Search, or filter by subject, author, date, or whether a fact cites a document. You can also group facts by
+  subject to see what the space knows about before reading any of it.
+- **A long history.** A fact corrected hundreds of times opens with its latest few versions and its first one; older
+  versions load 25 at a time.
+- **How quick.** With 50,000 facts in one space, each page should arrive in well under a second. A load test with that
+  much data checks it before each part of this work ships.
+
 ## Two rules that hold everywhere
 
 - **A fact never shows more than its documents.** If a fact cites a document, only people who can read that
