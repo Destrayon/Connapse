@@ -48,7 +48,8 @@ public interface IDocumentStore
     /// <summary>
     /// Those of <paramref name="documentIds"/> that have no <c>resource_uri</c> and are governed by Connapse's own
     /// access control alone: uploads, and documents from sources that never report one. A document whose source
-    /// always reports one but which has none is left out, as search leaves it out (<see cref="SearchScopes.UnaddressedAdmitted"/>).
+    /// always reports one but which has none is left out, as search leaves it out (<see cref="SearchScopes.UnaddressedAdmitted"/>),
+    /// and so is one whose source's access has been revoked.
     /// </summary>
     Task<IReadOnlySet<string>> GetUnaddressedAdmittedAsync(
         IReadOnlyCollection<string> documentIds, CancellationToken ct = default);

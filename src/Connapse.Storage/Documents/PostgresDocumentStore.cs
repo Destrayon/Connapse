@@ -365,7 +365,9 @@ public class PostgresDocumentStore : IDocumentStore
 
         // The same rule search applies, so a direct read never hands out what search would hide.
         // Only fixed SQL is spliced in; the ids are a parameter.
-        string sql = "SELECT d.id AS \"Value\" FROM documents d WHERE d.id = ANY({0}) AND " + SearchScopes.UnaddressedAdmitted;
+        // Search also hides a source the remote stopped letting us read (a public repository gone private).
+        string sql = "SELECT d.id AS \"Value\" FROM documents d WHERE d.id = ANY({0}) AND " + SearchScopes.UnaddressedAdmitted
+            + " AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = d.source_id AND s.access_revoked_at IS NOT NULL)";
         List<Guid> admitted = await context.Database
             .SqlQueryRaw<Guid>(sql, ids)
             .ToListAsync(ct);

@@ -157,6 +157,21 @@ public sealed class LegacyCloudContainerUpgradeTests : IAsyncLifetime
         (await ReadableDocumentsAsync(sourceId, bySource: true)).Should().HaveCount(expected);
     }
 
+    [Fact]
+    public async Task DirectRead_UnaddressedDocumentOfRevokedSource_IsRefusedAsSearchRefusesIt()
+    {
+        await using var context = CreateContext();
+        await context.GetService<IMigrator>().MigrateAsync();
+
+        // A public repository that has since gone private.
+        Guid sourceId = await SeedUnaddressedSourceDocumentAsync(context, ConnectionProvider.GitHub, throughConnection: false);
+        await context.Sources.Where(s => s.Id == sourceId)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.AccessRevokedAt, DateTime.UtcNow));
+
+        (await KeywordHitsAsync(sourceId, SearchScopes.None)).Should().Be(0);
+        (await ReadableDocumentsAsync(sourceId, bySource: true)).Should().BeEmpty("a direct read must hide what search hides");
+    }
+
     /// <summary>A source of <paramref name="provider"/> holding one indexed document that has no resource URI.</summary>
     private static async Task<Guid> SeedUnaddressedSourceDocumentAsync(
         KnowledgeDbContext context, ConnectionProvider provider, bool throughConnection)
