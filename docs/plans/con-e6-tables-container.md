@@ -1,3 +1,5 @@
+> **Short on time?** Read [the two-minute explainer](con-e6-tables-container-explainer.md) first.
+
 # CON-E6: the tables container (v0.5.0)
 
 **Status:** proposed, for approval before any code (CON-220).
