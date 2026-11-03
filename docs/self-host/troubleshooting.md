@@ -1,5 +1,6 @@
 ---
 title: Troubleshoot a self-hosted server
+description: Symptoms and fixes for common problems on a self-hosted Connapse server.
 type: troubleshooting
 audience: operator
 ---

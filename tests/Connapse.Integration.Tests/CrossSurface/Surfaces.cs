@@ -64,15 +64,7 @@ public static partial class Surfaces
                 await AdminPats.GetOrAdd(fixture, f => new Lazy<Task<string>>(() => NoApprovalAdminPatAsync(f))).Value);
         else
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await Principals.TokenAsync(fixture, principal));
-        var transport = new HttpClientTransport(
-            new HttpClientTransportOptions
-            {
-                Endpoint = new Uri(http.BaseAddress!, "mcp"),
-                TransportMode = HttpTransportMode.StreamableHttp,
-            },
-            http,
-            ownsHttpClient: true);
-        return await McpClient.CreateAsync(transport);
+        return await McpTestClient.ConnectAsync(http);
     }
 
     /// <summary>

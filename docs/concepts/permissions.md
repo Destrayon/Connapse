@@ -1,5 +1,6 @@
 ---
 title: About permissions
+description: How Connapse trims every search and read to what each user may see in the source system, per object, and fails closed when it can't check.
 type: explanation
 audience: admin
 ---

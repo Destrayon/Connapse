@@ -33,8 +33,10 @@ public sealed class ReindexContainer(IContainerStore containers, IReindexService
 
         if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Fail(ContainerStatus.Forbidden, "You don't have permission to reindex containers.");
-        if (!await containers.ExistsAsync(containerId, ct))
+        if (await containers.GetAsync(containerId, ct) is not { } container)
             return ContainerRules.NotFound<ReindexResult>(ContainerKey.ById(containerId));
+        if (container.Kind == ContainerKind.Memory)
+            return ContainerRules.MemoryOnly<ReindexResult>(container);
         if (query.MaxDocuments is <= 0)
             return Fail(ContainerStatus.InvalidReindex, "maxDocuments must be a positive number", "maxDocuments");
         if (query.ContinueAfter is not null && !Guid.TryParse(query.ContinueAfter, out _))
@@ -62,8 +64,10 @@ public sealed class RetryFailedContainerDocuments(IContainerStore containers, IS
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Attempt<int, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to retry documents.");
-        if (!await containers.ExistsAsync(containerId, ct))
+        if (await containers.GetAsync(containerId, ct) is not { } container)
             return ContainerRules.NotFound<int>(ContainerKey.ById(containerId));
+        if (container.Kind == ContainerKind.Memory)
+            return ContainerRules.MemoryOnly<int>(container);
 
         // Its own scope: the reindex service holds a DbContext, which a Blazor circuit must not share
         // across its handlers, and the file browser calls this operation from one.
@@ -98,6 +102,8 @@ public sealed class ReconcileContainer(
         var container = await containers.GetAsync(containerId, ct);
         if (container is null)
             return ContainerRules.NotFound<ContainerReconcileResult>(ContainerKey.ById(containerId));
+        if (container.Kind == ContainerKind.Memory)
+            return ContainerRules.MemoryOnly<ContainerReconcileResult>(container);
 
         // Managed storage directly, rather than through IConnectorFactory. A container has
         // no connector type to dispatch on any more, and the cloud-scope check that used to

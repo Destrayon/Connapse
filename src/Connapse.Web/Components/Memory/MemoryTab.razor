@@ -1,0 +1,608 @@
+@using Connapse.Application.Memory
+@using Connapse.Core
+@inject MemoryOperations MemoryOps
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* The container's memory: the facts agents wrote here, read and changed through the same operations as the MCP
+   memory tools, so a person sees and changes only what an agent acting for them could. *@
+<div class="memory-tab browser-content">
+    <div class="memory-toolbar">
+        <form class="memory-search" @onsubmit="Search" role="search">
+            <span class="bi-search memory-search-icon" aria-hidden="true"></span>
+            <input id="memory-search" type="search" class="form-control form-control-sm" placeholder="Search facts"
+                   aria-label="Search facts" @bind="searchText" />
+        </form>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Which facts">
+            <button id="memory-filter-current" type="button" class="btn @(showAll ? "btn-outline-secondary" : "btn-secondary")"
+                    aria-pressed="@(!showAll)" @onclick="() => SetShowAll(false)">Current</button>
+            <button id="memory-filter-all" type="button" class="btn @(showAll ? "btn-secondary" : "btn-outline-secondary")"
+                    aria-pressed="@showAll" title="Also show facts that ended or were corrected"
+                    @onclick="() => SetShowAll(true)">All versions</button>
+        </div>
+    </div>
+
+    @if (errorMessage is not null)
+    {
+        <div class="alert alert-danger alert-dismissible m-3 mb-0" role="alert">
+            @errorMessage
+            <button type="button" class="btn-close" aria-label="Close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+    @if (notice is not null)
+    {
+        <div id="memory-notice" class="alert alert-success alert-dismissible m-3 mb-0" role="status">
+            @notice
+            <button type="button" class="btn-close" aria-label="Close" @onclick="() => notice = null"></button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="memory-empty">
+            <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Loading facts</span></div>
+        </div>
+    }
+    else if (facts.Count == 0 && searchedFor is not null)
+    {
+        <div id="memory-no-matches" class="memory-empty">
+            <span class="bi-search memory-empty-icon" aria-hidden="true"></span>
+            <p class="memory-empty-title">No facts match “@searchedFor”</p>
+            <p>Try other words, or include facts that ended or were corrected.</p>
+            <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="ClearSearch">Clear search</button>
+        </div>
+    }
+    else if (facts.Count == 0)
+    {
+        <div id="memory-empty" class="memory-empty">
+            <span class="bi-lightbulb memory-empty-icon" aria-hidden="true"></span>
+            <p class="memory-empty-title">@(showAll ? "No facts in this container's memory" : "No current facts")</p>
+            <p>
+                Agents add facts here with the memory tools while they work in this container, and cite the
+                documents they learned them from. You'll only see facts whose sources you can read.
+            </p>
+        </div>
+    }
+    else
+    {
+        <table class="memory-table">
+            <thead>
+                <tr>
+                    <th>Fact</th>
+                    <th class="col-sources">Sources</th>
+                    <th class="col-true">True from</th>
+                    <th class="col-recorded">Recorded</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var recalled in facts)
+                {
+                    var fact = recalled.Fact;
+                    <tr class="memory-row @(selected?.Fact.Id == fact.Id ? "row-selected" : "") @(Status(fact) != FactStatus.Current ? "memory-row-old" : "")"
+                        @onclick="() => Select(recalled)" tabindex="0" @onkeydown="e => OnRowKey(e, recalled)"
+                        data-fact-id="@fact.Id">
+                        <td>
+                            <div class="fact-key">@fact.Subject <span class="fact-sep">·</span> @fact.Attribute</div>
+                            <div class="fact-value">@fact.Value</div>
+                            @if (Status(fact) != FactStatus.Current)
+                            {
+                                <span class="badge fact-status fact-status-@Status(fact).ToString().ToLowerInvariant()">@StatusLabel(fact)</span>
+                            }
+                        </td>
+                        <td class="col-sources">
+                            @if (recalled.Sources.Count == 0)
+                            {
+                                <span class="only-you" title="This fact cites no sources, so only the person who wrote it sees it">
+                                    <span class="bi-lock me-1" aria-hidden="true"></span>Only you
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="source-chip" title="@SourceName(recalled.Sources[0])">
+                                    <span class="@SourceIcon(recalled.Sources[0]) me-1" aria-hidden="true"></span>@SourceName(recalled.Sources[0])
+                                </span>
+                                @if (recalled.Sources.Count > 1)
+                                {
+                                    <span class="source-more">+@(recalled.Sources.Count - 1)</span>
+                                }
+                            }
+                        </td>
+                        <td class="col-true">@ValidityShort(fact)</td>
+                        <td class="col-recorded" title="@Absolute(fact.RecordedAt)">@Relative(fact.RecordedAt)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <div class="memory-count">
+            @facts.Count @(facts.Count == 1 ? "fact" : "facts")@(facts.Count >= PageSize ? $" shown, the first {PageSize}. Search to narrow them down." : "")
+        </div>
+    }
+</div>
+
+@if (selected is not null)
+{
+    var fact = selected.Fact;
+    <div class="memory-panel" role="dialog" aria-labelledby="memory-panel-title">
+        <div class="memory-panel-header">
+            <h4 id="memory-panel-title">@(editing ? "Correct fact" : "Fact")</h4>
+            <button class="btn btn-sm btn-outline-secondary" aria-label="Close" @onclick="CloseDetail">
+                <span class="bi-x-lg"></span>
+            </button>
+        </div>
+
+        <div class="memory-panel-body">
+            @if (editing)
+            {
+                <div class="detail-row">
+                    <span class="detail-label">Now</span>
+                    <span class="detail-value"><span class="fact-key">@fact.Subject · @fact.Attribute</span><br />@fact.Value</span>
+                </div>
+                <div class="mb-3 mt-3">
+                    <label for="memory-edit-value" class="form-label">Correct value</label>
+                    <textarea id="memory-edit-value" class="form-control" rows="3" maxlength="2000" @bind="editValue" @bind:event="oninput"></textarea>
+                </div>
+                <fieldset class="mb-3">
+                    <legend class="form-label fs-6">What happened?</legend>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="memory-kind" id="memory-kind-changed"
+                               checked="@(editKind == MemoryCorrection.Changed)" @onchange="() => editKind = MemoryCorrection.Changed" />
+                        <label class="form-check-label" for="memory-kind-changed">
+                            It changed
+                            <span class="form-hint">The old value was true until then, and stays in the history as ended.</span>
+                        </label>
+                    </div>
+                    @if (editKind == MemoryCorrection.Changed)
+                    {
+                        <div class="ms-4 mt-1 mb-2">
+                            <label for="memory-edit-date" class="form-label small mb-1">Changed on</label>
+                            <input id="memory-edit-date" type="date" class="form-control form-control-sm memory-date" @bind="editChangedOn" />
+                        </div>
+                    }
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="memory-kind" id="memory-kind-wrong"
+                               checked="@(editKind == MemoryCorrection.Wrong)" @onchange="() => editKind = MemoryCorrection.Wrong" />
+                        <label class="form-check-label" for="memory-kind-wrong">
+                            It was wrong
+                            <span class="form-hint">The old value was never true. It stays in the history, marked corrected.</span>
+                        </label>
+                    </div>
+                </fieldset>
+                <div class="mb-3">
+                    <label for="memory-edit-reason" class="form-label">Why <span class="text-muted fw-normal">(optional)</span></label>
+                    <input id="memory-edit-reason" class="form-control" maxlength="1000" placeholder="For example: confirmed in the 3 March planning notes"
+                           @bind="editReason" />
+                </div>
+                <p class="form-hint">
+                    @if (selected.Sources.Count == 0)
+                    {
+                        <text>The corrected fact cites no sources, so only you will see it.</text>
+                    }
+                    else
+                    {
+                        <text>The corrected fact keeps this fact's @(selected.Sources.Count == 1 ? "source" : $"{selected.Sources.Count} sources"), so the same people can see it.</text>
+                    }
+                </p>
+                @if (editError is not null)
+                {
+                    <div id="memory-edit-error" class="alert alert-danger py-2 small" role="alert">@editError</div>
+                }
+            }
+            else
+            {
+                <div class="fact-hero">
+                    <div class="fact-key">@fact.Subject · @fact.Attribute</div>
+                    <div class="fact-hero-value">@fact.Value</div>
+                    <span class="badge fact-status fact-status-@Status(fact).ToString().ToLowerInvariant()">@StatusLabel(fact)</span>
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">True</span>
+                    <span class="detail-value">@ValidityLong(fact)</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Recorded</span>
+                    <span class="detail-value">@Absolute(fact.RecordedAt) by <MemoryAuthor Caller="fact.Author" /></span>
+                </div>
+                @if (fact.SupersededAt is { } superseded)
+                {
+                    <div class="detail-row">
+                        <span class="detail-label">Corrected</span>
+                        <span class="detail-value">@Absolute(superseded)</span>
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(fact.Reason))
+                {
+                    <div class="detail-row">
+                        <span class="detail-label">Why</span>
+                        <span class="detail-value">@fact.Reason</span>
+                    </div>
+                }
+                <div class="detail-row">
+                    <span class="detail-label">Sources</span>
+                    @if (selected.Sources.Count == 0)
+                    {
+                        <span class="detail-value text-muted">None cited, so only the person who wrote it can see it.</span>
+                    }
+                    else
+                    {
+                        <ul class="source-list">
+                            @foreach (var source in selected.Sources)
+                            {
+                                <li><span class="@SourceIcon(source) me-1" aria-hidden="true"></span>@SourceName(source)</li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+                <div class="detail-row">
+                    <span class="detail-label">History</span>
+                    @if (history is null)
+                    {
+                        <span class="detail-value text-muted">Loading…</span>
+                    }
+                    else if (history.Count <= 1)
+                    {
+                        <span id="memory-history-none" class="detail-value text-muted">Never corrected.</span>
+                    }
+                    else
+                    {
+                        <ol id="memory-history" class="history-list">
+                            @foreach (var version in history.AsEnumerable().Reverse())
+                            {
+                                var v = version.Fact;
+                                <li class="history-item @(v.Id == fact.Id ? "history-item-shown" : "")">
+                                    <div class="history-value">@v.Value</div>
+                                    <div class="history-meta">
+                                        <span class="badge fact-status fact-status-@Status(v).ToString().ToLowerInvariant()">@StatusLabel(v)</span>
+                                        @ValidityShort(v) · recorded @Absolute(v.RecordedAt) by <MemoryAuthor Caller="v.Author" />
+                                    </div>
+                                    @if (ReplacedIn(v) is { } replaced)
+                                    {
+                                        <div class="history-replaced">
+                                            Replaced “@replaced.Value”@(replaced.SupersededAt is not null ? ", which was wrong" : ", which had ended")@(string.IsNullOrWhiteSpace(v.Reason) ? "." : $": {v.Reason}")
+                                        </div>
+                                    }
+                                    @if (v.Id != fact.Id)
+                                    {
+                                        <button class="btn btn-link btn-sm p-0 history-open" @onclick="() => ShowVersion(version)">Open this version</button>
+                                    }
+                                </li>
+                            }
+                        </ol>
+                        @if (HistoryCapped)
+                        {
+                            <span id="memory-history-capped" class="form-hint">Showing the newest @PageSize versions; older ones aren't listed.</span>
+                        }
+                    }
+                </div>
+            }
+        </div>
+
+        @if (CanEdit)
+        {
+            <div class="memory-panel-footer">
+                @if (editing)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEdit" disabled="@isSaving">Cancel</button>
+                    <button id="memory-edit-save" class="btn btn-sm btn-primary" @onclick="SaveCorrection"
+                            disabled="@(isSaving || string.IsNullOrWhiteSpace(editValue))">
+                        @if (isSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        }
+                        Save correction
+                    </button>
+                }
+                else
+                {
+                    <button id="memory-delete" class="btn btn-sm btn-outline-danger me-auto" @onclick="AskDelete" disabled="@(history is null)">
+                        <span class="bi-trash me-1"></span> Delete
+                    </button>
+                    @if (Status(fact) == FactStatus.Corrected)
+                    {
+                        <span class="form-hint">Corrected facts can't be corrected again.</span>
+                    }
+                    else
+                    {
+                        <button id="memory-correct" class="btn btn-sm btn-primary" @onclick="StartEdit">
+                            <span class="bi-pencil me-1"></span> Correct
+                        </button>
+                    }
+                }
+            </div>
+        }
+    </div>
+}
+
+@if (toDelete is not null)
+{
+    <div class="modal-backdrop" @onclick="CancelDelete"></div>
+    <div class="memory-modal" role="alertdialog" aria-labelledby="memory-delete-title" aria-describedby="memory-delete-body">
+        <div class="memory-modal-content">
+            <div class="memory-modal-header">
+                <h4 id="memory-delete-title">Delete this fact?</h4>
+                <button class="btn btn-sm btn-outline-secondary" aria-label="Close" @onclick="CancelDelete"><span class="bi-x-lg"></span></button>
+            </div>
+            <div id="memory-delete-body" class="memory-modal-body">
+                <p class="delete-fact-name"><span class="fact-key">@toDelete.Subject · @toDelete.Attribute</span><br />@toDelete.Value</p>
+                <p class="mb-0">
+                    This permanently deletes the fact@(deleteVersions >= PageSize ? " and every earlier version" : deleteVersions > 1 ? $" and its {deleteVersions - 1} earlier {(deleteVersions == 2 ? "version" : "versions")}" : "").
+                    Agents won't recall it again, and it can't be undone. The activity log keeps a record that it was
+                    deleted, but not what it said.
+                </p>
+                @if (deleteError is not null)
+                {
+                    <div class="alert alert-danger py-2 small mt-3 mb-0" role="alert">@deleteError</div>
+                }
+            </div>
+            <div class="memory-modal-footer">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="CancelDelete" disabled="@isDeleting">Keep fact</button>
+                <button id="memory-delete-confirm" class="btn btn-sm btn-danger" @onclick="ConfirmDelete" disabled="@isDeleting">
+                    @if (isDeleting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                    }
+                    Delete fact
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>The container whose memory is shown.</summary>
+    [Parameter, EditorRequired] public string ContainerId { get; set; } = "";
+
+    /// <summary>Whether the caller may correct and delete; viewers only read.</summary>
+    [Parameter] public bool CanEdit { get; set; }
+
+    private const int PageSize = 100;
+
+    private enum FactStatus { Current, Ended, Corrected }
+
+    private List<RecalledFact> facts = [];
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string? notice;
+    private string searchText = "";
+    private string? searchedFor;
+    private bool showAll;
+
+    private RecalledFact? selected;
+    private List<RecalledFact>? history;
+    private int historyRequest;
+
+    private bool editing;
+    private string editValue = "";
+    private MemoryCorrection editKind = MemoryCorrection.Changed;
+    private DateTime? editChangedOn;
+    private string editReason = "";
+    private string? editError;
+    private bool isSaving;
+
+    private MemoryFact? toDelete;
+    private int deleteVersions;
+    private string? deleteError;
+    private bool isDeleting;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        string? text = string.IsNullOrWhiteSpace(searchText) ? null : searchText.Trim();
+        var read = await MemoryOps.Recall.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
+            new MemoryQuery(Guid.Empty, Text: text, History: showAll, Limit: PageSize));
+        facts = [.. read.ResultOr(failed => errorMessage = failed, [])];
+        searchedFor = text;
+        isLoading = false;
+        // The open fact was read before this refresh; show it only if it can still be read now.
+        if (!read.Succeeded)
+            ClearDetail();
+        else if (selected is not null)
+            await LoadHistoryAsync(selected.Fact.Id);
+    }
+
+    private Task Search() => LoadAsync();
+
+    private async Task ClearSearch()
+    {
+        searchText = "";
+        await LoadAsync();
+    }
+
+    private async Task SetShowAll(bool all)
+    {
+        if (showAll == all) return;
+        showAll = all;
+        await LoadAsync();
+    }
+
+    private async Task OnRowKey(KeyboardEventArgs e, RecalledFact fact)
+    {
+        if (e.Key is "Enter" or " ")
+            await Select(fact);
+    }
+
+    private async Task Select(RecalledFact fact)
+    {
+        (selected, history, editing, notice) = (fact, null, false, null);
+        await LoadHistoryAsync(fact.Fact.Id);
+    }
+
+    private void ShowVersion(RecalledFact version) => (selected, editing) = (version, false);
+
+    /// <summary>Every version of the fact the caller may see, up to the newest <see cref="PageSize"/>, oldest first (shown newest first), through the same recall as agents.</summary>
+    private async Task<List<RecalledFact>> ChainAsync(MemoryFact fact)
+    {
+        var read = await MemoryOps.Recall.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
+            new MemoryQuery(Guid.Empty, ChainId: fact.ChainId, Limit: PageSize));
+        // Recorded order is correction order: a correction is always recorded after the fact it replaces.
+        return [.. read.ResultOr(failed => errorMessage = failed, []).OrderBy(f => f.Fact.RecordedAt).ThenBy(f => f.Fact.Id)];
+    }
+
+    /// <summary>
+    /// Reloads the open fact's chain and shows the version <paramref name="showId"/> from it, or closes the panel when
+    /// that version can no longer be read. A reply for an earlier selection is dropped, so it can't replace this one's.
+    /// </summary>
+    private async Task LoadHistoryAsync(Guid showId)
+    {
+        if (selected is null) return;
+        int request = ++historyRequest;
+        var chain = await ChainAsync(selected.Fact);
+        if (request != historyRequest) return;
+        if (chain.FirstOrDefault(f => f.Fact.Id == showId) is { } shown)
+            (selected, history) = (shown, chain);
+        else
+            ClearDetail();
+    }
+
+    private bool HistoryCapped => history?.Count >= PageSize;
+
+    private MemoryFact? ReplacedIn(MemoryFact version) =>
+        version.ReplacesId is { } id ? history?.FirstOrDefault(h => h.Fact.Id == id)?.Fact : null;
+
+    private void CloseDetail() => ClearDetail();
+
+    /// <summary>Forgets everything read about the open fact and drops any history reply still on its way.</summary>
+    private void ClearDetail()
+    {
+        historyRequest++;
+        (selected, history, editing, toDelete, deleteError) = (null, null, false, null, null);
+    }
+
+    private void StartEdit()
+    {
+        if (selected is null) return;
+        editing = true;
+        editValue = selected.Fact.Value;
+        editKind = MemoryCorrection.Changed;
+        editChangedOn = DateTime.UtcNow.Date;
+        editReason = "";
+        editError = null;
+    }
+
+    private void CancelEdit() => (editing, editError) = (false, null);
+
+    private async Task SaveCorrection()
+    {
+        if (selected is null || string.IsNullOrWhiteSpace(editValue)) return;
+        var old = selected.Fact;
+        DateTimeOffset? validFrom = null;
+        if (editKind == MemoryCorrection.Changed)
+        {
+            if (editChangedOn is not { } day)
+            {
+                editError = "Say when it changed.";
+                return;
+            }
+            // Today means now, so a fact recorded earlier today can still be changed today.
+            validFrom = day.Date == DateTime.UtcNow.Date
+                ? DateTimeOffset.UtcNow
+                : new DateTimeOffset(DateTime.SpecifyKind(day.Date, DateTimeKind.Utc));
+        }
+
+        isSaving = true;
+        editError = null;
+        // The old fact's sources carry over, so the correction is seen by the same people, not only its writer.
+        var corrected = await MemoryOps.Correct.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId, old.Id.ToString(),
+            editKind, new NewMemoryFact(old.Subject, old.Attribute, editValue.Trim(), validFrom, null, old.Sources,
+                string.IsNullOrWhiteSpace(editReason) ? null : editReason.Trim()));
+        isSaving = false;
+        if (!corrected.Succeeded)
+        {
+            editError = corrected.Detail ?? "The correction wasn't saved.";
+            return;
+        }
+
+        editing = false;
+        await LoadAsync();
+        // The correction is in the same chain, and the newest version is always in its first page.
+        await LoadHistoryAsync(corrected.Result!.Fact.Id);
+        notice = "Fact corrected. The old value is kept in its history.";
+    }
+
+    private void AskDelete()
+    {
+        // Until the history has loaded, the confirmation couldn't say how many versions go with it.
+        if (selected is null || history is null) return;
+        toDelete = selected.Fact;
+        deleteError = null;
+        deleteVersions = Math.Max(1, history.Count);
+    }
+
+    private void CancelDelete()
+    {
+        if (isDeleting) return;
+        (toDelete, deleteError) = (null, null);
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (toDelete is null) return;
+        isDeleting = true;
+        var forgotten = await MemoryOps.Forget.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId, toDelete.Id.ToString());
+        isDeleting = false;
+        if (!forgotten.Succeeded)
+        {
+            deleteError = forgotten.Detail ?? "The fact wasn't deleted.";
+            return;
+        }
+
+        int deleted = forgotten.Result;
+        (toDelete, selected, history, editing) = (null, null, null, false);
+        await LoadAsync();
+        notice = deleted == 1 ? "Fact deleted." : $"Fact deleted, with all {deleted} versions.";
+    }
+
+    private static FactStatus Status(MemoryFact fact) =>
+        fact.SupersededAt is not null ? FactStatus.Corrected
+        : fact.ValidTo is not null ? FactStatus.Ended
+        : FactStatus.Current;
+
+    private static string StatusLabel(MemoryFact fact) => Status(fact) switch
+    {
+        FactStatus.Corrected => "Corrected",
+        FactStatus.Ended => "Ended",
+        _ => "Current",
+    };
+
+    private static string SourceName(ShownMemorySource source) =>
+        !string.IsNullOrWhiteSpace(source.Title) ? source.Title : source.Ref;
+
+    private static string SourceIcon(ShownMemorySource source) =>
+        source.Kind == MemorySourceKind.Document ? "bi-file-earmark-text" : "bi-diagram-3";
+
+    private static string Day(DateTimeOffset at) => at.UtcDateTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Absolute(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("MMM d, yyyy, HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Relative under a month ("3 days ago"), the day after that, as Primer's relative time does.</summary>
+    public static string Relative(DateTimeOffset at, DateTimeOffset? now = null)
+    {
+        TimeSpan ago = (now ?? DateTimeOffset.UtcNow) - at;
+        if (ago < TimeSpan.FromMinutes(1)) return "just now";
+        if (ago < TimeSpan.FromHours(1)) return Plural((int)ago.TotalMinutes, "minute");
+        if (ago < TimeSpan.FromDays(1)) return Plural((int)ago.TotalHours, "hour");
+        if (ago < TimeSpan.FromDays(30)) return Plural((int)ago.TotalDays, "day");
+        return Day(at);
+
+        static string Plural(int n, string unit) => $"{n} {unit}{(n == 1 ? "" : "s")} ago";
+    }
+
+    private static string ValidityShort(MemoryFact fact) => (fact.ValidFrom, fact.ValidTo) switch
+    {
+        (null, null) => "Not stated",
+        ({ } from, null) => Day(from),
+        (null, { } to) => $"Until {Day(to)}",
+        ({ } from, { } to) => $"{Day(from)} – {Day(to)}",
+    };
+
+    private static string ValidityLong(MemoryFact fact) => (fact.ValidFrom, fact.ValidTo) switch
+    {
+        (null, null) => "No dates given",
+        ({ } from, null) => $"Since {Day(from)}",
+        (null, { } to) => $"Until {Day(to)}",
+        ({ } from, { } to) => $"From {Day(from)} until {Day(to)}",
+    };
+}

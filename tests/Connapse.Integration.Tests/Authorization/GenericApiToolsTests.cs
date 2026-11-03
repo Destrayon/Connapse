@@ -262,10 +262,7 @@ public class GenericApiToolsTests(SharedWebAppFixture fixture)
     {
         var http = fixture.Factory.CreateClient();
         credential(http.DefaultRequestHeaders);
-        return await McpClient.CreateAsync(new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true));
+        return await McpTestClient.ConnectAsync(http);
     }
 
     private async Task<string> CreateContainerAsync(string prefix)

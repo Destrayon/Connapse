@@ -1,0 +1,6 @@
+{ "out": "docs/demos/permission-trimmed-search.gif", "clips": [
+  { "file": "two-users-dana.webm", "from": 0.8, "to": 4.4, "speed": 1.5 },
+  { "file": "two-users-dana.webm", "from": 4.4, "to": 7.2 },
+  { "file": "two-users-sam.webm", "from": 0.8, "to": 5.0, "speed": 1.5 },
+  { "file": "two-users-sam.webm", "from": 5.0, "to": 7.8 }
+] }

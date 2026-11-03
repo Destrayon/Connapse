@@ -164,6 +164,16 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.Description)
                 .HasColumnName("description");
 
+            // Text so a row reads plainly in SQL. The column defaults to 'documents', which is what every container
+            // created before CON-227 holds.
+            entity.Property(e => e.Kind)
+                .HasColumnName("kind")
+                .HasMaxLength(16)
+                .HasConversion(
+                    kind => kind == ContainerKind.Memory ? "memory" : "documents",
+                    text => text == "memory" ? ContainerKind.Memory : ContainerKind.Documents)
+                .IsRequired();
+
             entity.Property(e => e.SettingsOverridesJson)
                 .HasColumnName("settings_overrides")
                 .HasColumnType("jsonb");

@@ -1,0 +1,10 @@
+@using Connapse.Core
+
+@* Who wrote a fact: an agent (acting for a person) or the person themself. *@
+<span class="memory-author" title="@(Caller.AgentId is not null ? "Written by an agent" : "Written by a person")">
+    <span class="@(Caller.AgentId is not null ? "bi-robot" : "bi-person") me-1" aria-hidden="true"></span>@(string.IsNullOrWhiteSpace(Caller.Name) ? "unknown" : Caller.Name)@(Caller.AgentId is not null ? " (agent)" : "")
+</span>
+
+@code {
+    [Parameter, EditorRequired] public MemoryCaller Caller { get; set; } = new(null, null, null);
+}

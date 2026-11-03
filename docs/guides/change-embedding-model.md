@@ -1,5 +1,6 @@
 ---
 title: Change the embedding model
+description: Switch Connapse to a different embedding model or provider and reindex existing documents without losing search meanwhile.
 type: how-to
 audience: admin
 ---
