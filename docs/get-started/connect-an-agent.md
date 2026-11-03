@@ -1,12 +1,13 @@
 ---
 title: "Tutorial: connect Claude to Connapse"
+description: Give Claude Code its own Connapse key, connect it over MCP, and have it build, search and remember facts from a container.
 type: tutorial
 audience: user
 ---
 
 # Tutorial: connect Claude to Connapse
 
-In this tutorial we'll give Claude Code its own key to Connapse, connect it over MCP (the Model Context Protocol, the standard way AI agents call tools), and have it build and search a container for us. You need a running Connapse server where you are the Owner or an Admin; the [quickstart](quickstart.md) gets you one.
+In this tutorial we'll give Claude Code its own key to Connapse, connect it over MCP (the Model Context Protocol, the standard way AI agents call tools), have it build and search a container for us, and have it remember a fact for its next session. You need a running Connapse server where you are the Owner or an Admin; the [quickstart](quickstart.md) gets you one.
 
 ## Before you begin
 
@@ -72,6 +73,22 @@ Search the agent-notes container for why jitter matters, and quote the passage y
 
 Claude calls `search_knowledge` and answers from the passage, naming `retries.md` as the source.
 
+## Save and recall a memory
+
+Agent memory keeps facts between sessions. Ask Claude:
+
+```text
+Remember in the agent-notes container that our retry policy uses exponential backoff with jitter, citing retries.md as the source.
+```
+
+Claude calls `memory_remember` with the subject, an attribute such as `retry policy`, the value, and the document ID of `retries.md`. Now quit Claude Code, start it again so it has no memory of this conversation, and ask:
+
+```text
+What do you remember in agent-notes about our retry policy?
+```
+
+Claude calls `memory_recall` and answers with the fact, its date, its author `claude-code` and its source `/retries.md`. Notice that the fact came from Connapse, not from the conversation. Because it cites `retries.md`, only people who can read that file see it. [About agent memory](../concepts/memory.md) explains why.
+
 ## Approve a delete
 
 Ask Claude:
@@ -84,10 +101,11 @@ Notice that Claude doesn't delete anything yet. Connapse holds the call and Clau
 
 ## What you built
 
-Claude Code now reaches Connapse with its own revocable key, scoped to reading and writing knowledge, and every delete it attempts waits for a person to approve it.
+Claude Code now reaches Connapse with its own revocable key, scoped to reading and writing knowledge. It keeps what it learns as facts that outlast the session, and every delete it attempts waits for a person to approve it.
 
 ## Next steps
 
 - [Connect other MCP clients](../guides/mcp-clients.md), such as Claude Desktop, VS Code and Cursor, or sign in with OAuth instead of a key.
 - [Manage tokens and agent keys](../guides/tokens-and-agents.md).
+- [Search code with an agent](../guides/search-code.md) with the `code_*` tools.
 - [MCP tools reference](../reference/mcp-tools.md) lists every tool and the scope each one needs.

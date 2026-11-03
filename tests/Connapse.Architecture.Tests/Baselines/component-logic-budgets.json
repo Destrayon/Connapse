@@ -48,6 +48,20 @@
     "MarkupLogic": 1,
     "IsEmpty": false
   },
+  "Memory/MemoryAuthor.razor": {
+    "CodeLines": 1,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 4,
+    "IsEmpty": false
+  },
+  "Memory/MemoryTab.razor": {
+    "CodeLines": 228,
+    "Injects": 2,
+    "Complexity": 81,
+    "MarkupLogic": 57,
+    "IsEmpty": false
+  },
   "Pages/Admin/AgentManagement.razor": {
     "CodeLines": 211,
     "Injects": 4,
@@ -119,10 +133,10 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 714,
+    "CodeLines": 739,
     "Injects": 8,
-    "Complexity": 162,
-    "MarkupLogic": 79,
+    "Complexity": 167,
+    "MarkupLogic": 84,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
@@ -347,6 +361,13 @@
     "Injects": 3,
     "Complexity": 16,
     "MarkupLogic": 20,
+    "IsEmpty": false
+  },
+  "Shared/FileLinksPanel.razor": {
+    "CodeLines": 71,
+    "Injects": 2,
+    "Complexity": 24,
+    "MarkupLogic": 6,
     "IsEmpty": false
   },
   "Shared/Pagination.razor": {

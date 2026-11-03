@@ -42,6 +42,9 @@
                 <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
             </li>
             <li class="nav-item">
+                <button id="memory-tab" class="nav-link @(activeTab == "memory" ? "active" : "")" @onclick='() => activeTab = "memory"'>Memory</button>
+            </li>
+            <li class="nav-item">
                 <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
             </li>
         </ul>
@@ -176,6 +179,11 @@
             </div>
         }
     </div>
+}
+
+@if (activeTab == "memory" && container is not null)
+{
+    <Connapse.Web.Components.Memory.MemoryTab ContainerId="@ContainerId" CanEdit="canEdit" />
 }
 
 @* Upload Drop Zone — always rendered so JS event listeners survive navigation *@
@@ -407,8 +415,12 @@
                     <span class="detail-value text-danger">@error</span>
                 </div>
             }
+            <div class="detail-row links-section">
+                <span class="detail-label">Links</span>
+                <FileLinksPanel @key="selectedFile" ContainerId="Guid.Parse(ContainerId)" FileId="@selectedFile.Id" OnOpen="OpenLinkedFile" />
+            </div>
         </div>
-        @if (canEdit)
+        @if (canEdit && selectedBrowseEntry is not null)
         {
             <div class="detail-panel-footer">
                 <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDeleteEntry(selectedBrowseEntry!)">
@@ -572,6 +584,9 @@
     // Container-wide, not just the folder on screen, so failures elsewhere are not hidden.
     private int failedCount;
     private ContainerStats? containerStats;
+    private CoalescedRefresh? _statsRefresh;
+    // Uploaded from this page and not yet settled, so the header still follows them from another folder.
+    private readonly HashSet<string> _uploadedIds = new();
     private string? containerError;
     private List<BrowseEntryDto> entries = new();
     private string currentPath = "/";
@@ -655,11 +670,19 @@
         if (_disposed) return;
         try
         {
-            await InvokeAsync(() =>
+            await InvokeAsync(async () =>
             {
                 var idx = entries.FindIndex(e => e.Id == ev.DocumentId);
-                if (idx < 0) return;
-                entries[idx] = entries[idx] with { IngestionStatus = ev.Status };
+                if (idx >= 0)
+                    entries[idx] = entries[idx] with { IngestionStatus = ev.Status };
+                else if (!_uploadedIds.Contains(ev.DocumentId))
+                    return;
+                // The header counts are container-wide; re-read them once one of these files settles.
+                if (ev.Status is DocumentStatus.Ready or DocumentStatus.FailedRetryable or DocumentStatus.FailedPermanent)
+                {
+                    _uploadedIds.Remove(ev.DocumentId);
+                    await RefreshStats();
+                }
                 StateHasChanged();
             });
         }
@@ -707,6 +730,9 @@
             // container that was already loaded; just log silently and leave state as-is.
         }
     }
+
+    // A burst of completions while one read is in flight costs one more read, not one each.
+    private Task RefreshStats() => (_statsRefresh ??= new CoalescedRefresh(LoadContainer)).RunAsync();
 
     private async Task LoadEntries()
     {
@@ -794,6 +820,16 @@
         {
             selectedFile = null;
         }
+    }
+
+    /// <summary>Opens a linked file: moves to its folder and shows its details, as clicking it in the list does.</summary>
+    private async Task OpenLinkedFile(LinkedDocument doc)
+    {
+        currentPath = FileLinksPanel.FolderOf(doc.Path);
+        selectedEntryKeys.Clear();
+        await LoadEntries();
+        selectedBrowseEntry = entries.FirstOrDefault(e => e.Id == doc.Id);
+        await LoadFileDetails(doc.Id);
     }
 
     private void CloseDetailPanel()
@@ -918,7 +954,10 @@
                     }
                 }
                 catch { /* best-effort */ }
+                _uploadedIds.Add(doc.DocumentId);
             }
+
+            await RefreshStats();
         }
 
         await InvokeAsync(StateHasChanged);

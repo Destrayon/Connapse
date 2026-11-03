@@ -174,6 +174,46 @@ public class FileRandomInputTests
                     read.Result.Should().Be(Own);
             }, iter: 2000);
 
+    // ── files.links ───────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetFileLinks))]
+    public Task Links_AnyReference_AsksTheReaderOnlyForThisContainersReadableFile() =>
+        Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>(), Gen.Bool, Gen.Bool, Gen.Guid)
+            .SampleAsync(async t =>
+            {
+                var (reader, exists, signedIn, kind, readable, denied, user) = t;
+                var world = new World(reader, writer: false, exists);
+                world.Holds([Own, Other]);
+                world.Access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(readable);
+                var found = new DocumentLinkSet([new LinkedDocument(Guid.NewGuid().ToString(), "b.md", "/docs/b.md", ["calls"])], []);
+                var links = Substitute.For<IDocumentLinkReader>();
+                links.ReadAsync(Arg.Any<Guid?>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    .Returns(denied ? DocumentLinkSet.DeniedResult : found);
+                var caller = new OperationContext(new ClaimsPrincipal(signedIn
+                    ? new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.ToString())], "test")
+                    : new ClaimsIdentity()), OperationSurface.Rest);
+
+                var read = await new GetFileLinks(world.Containers, world.Documents, world.Access, links, world.Authorizer)
+                    .RunAsync(caller, Here, RefFor(kind, Own, Other));
+
+                bool asks = reader && exists && kind is FileRef.OwnId or FileRef.OwnPath && readable;
+                FileStatus expected = !reader ? FileStatus.Forbidden
+                    : !exists ? FileStatus.ContainerNotFound
+                    : !asks ? FileStatus.NotFound
+                    : denied ? FileStatus.LinksUnchecked
+                    : FileStatus.Success;
+                read.Status.Should().Be(expected);
+                if (!asks)
+                {
+                    links.ReceivedCalls().Should().BeEmpty("a refused or missing file's links are never looked up");
+                    return;
+                }
+                await links.Received(1).ReadAsync(signedIn ? user : null, Here, Own.Id, Arg.Any<CancellationToken>());
+                if (expected == FileStatus.Success)
+                    read.Result.Should().Be(found);
+            }, iter: 2000);
+
     // ── files.content ─────────────────────────────────────────────────────────────────────────────
 
     public enum Storage { Reads, Missing, Denied }

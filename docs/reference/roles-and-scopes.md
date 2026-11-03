@@ -1,5 +1,6 @@
 ---
 title: Roles and scopes
+description: Which user role and which token scope each Connapse operation needs.
 type: reference
 audience: admin
 ---
@@ -147,6 +148,7 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `containers.stats` | `GET /api/containers/{containerId}/stats` | Read | — |
 | `files.content` | `GET /api/containers/{containerId}/files/{fileId}/content` | Read | — |
 | `files.get` | `GET /api/containers/{containerId}/files/{fileId}` | Read | Generic tools |
+| `files.links` | `GET /api/containers/{containerId}/files/{fileId}/links` | Read | Generic tools |
 | `files.list` | `GET /api/containers/{containerId}/files` | Read | — |
 | `files.reindexCheck` | `GET /api/containers/{containerId}/files/{fileId}/reindex-check` | Read | Generic tools |
 | `links.list` | `GET /api/v1/auth/links` | Read | Generic tools |

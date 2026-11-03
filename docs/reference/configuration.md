@@ -1,5 +1,6 @@
 ---
 title: Configuration
+description: Every Connapse setting, its environment variable, its default and where to change it.
 type: reference
 audience: admin
 ---

@@ -1,5 +1,6 @@
 ---
 title: Use uploads and MinIO
+description: Upload files to Connapse's built-in MinIO storage, the default for a new container.
 type: how-to
 audience: admin
 ---

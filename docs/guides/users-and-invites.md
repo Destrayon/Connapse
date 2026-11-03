@@ -1,5 +1,6 @@
 ---
 title: Manage users and invites
+description: Invite people to a Connapse server, assign their roles, and remove users.
 type: how-to
 audience: admin
 ---

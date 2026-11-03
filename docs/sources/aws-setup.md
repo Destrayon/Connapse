@@ -1,5 +1,6 @@
 ---
 title: AWS setup
+description: Index Amazon S3 buckets in Connapse, with each user's results trimmed by S3 Access Grants.
 type: how-to
 audience: admin
 ---

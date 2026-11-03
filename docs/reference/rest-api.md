@@ -1,5 +1,6 @@
 ---
 title: REST API
+description: Every Connapse REST API endpoint with the scope it needs, plus authentication, errors, paging and rate limits.
 type: reference
 audience: developer
 ---
@@ -210,6 +211,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | `POST` | `/api/containers/{containerId}/files` | — | Upload one or more files to a container |
 | `GET` | `/api/containers/{containerId}/files` | `knowledge:read` | List files and folders at a path within a container (?skip=0&take=50) |
 | `GET` | `/api/containers/{containerId}/files/{fileId}` | `knowledge:read` | Get file details including indexing status |
+| `GET` | `/api/containers/{containerId}/files/{fileId}/links` | `knowledge:read` | List the files in this container that a file links to and that link to it, leaving out any the caller can't read. 503 `links-access-unchecked` when access can't be checked. |
 | `DELETE` | `/api/containers/{containerId}/files/{fileId}` | `knowledge:write` | Delete a file and all associated chunks and vectors |
 | `POST` | `/api/containers/{containerId}/files/bulk-delete` | `knowledge:write` | Delete up to 100 files in one call. |
 | `GET` | `/api/containers/{containerId}/files/{fileId}/content` | `knowledge:read` | Get the full text content of a file. |

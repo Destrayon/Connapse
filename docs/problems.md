@@ -1,3 +1,10 @@
+---
+title: Problem types
+description: Every problem type the Connapse REST API returns, with its HTTP status, what it means and how to fix it.
+type: reference
+audience: developer
+---
+
 # Problem types
 
 Every REST API failure is an RFC 9457 problem: `application/problem+json` with `type`, `title`,
@@ -114,6 +121,11 @@ values the tool lists.
 
 Connapse couldn't check which of the files the caller may read, so it answered nothing rather than
 guess. Try again; if it keeps happening, the source's permission check is failing.
+
+## links-access-unchecked
+
+Connapse couldn't check which linked files the caller may read, so it listed no links rather than
+guess. Try again; if it keeps happening, the permission check on the linked documents is failing.
 
 ## memory-fact-not-found
 
