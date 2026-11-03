@@ -153,6 +153,9 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         // A new fact's foreign key check takes a share lock on this row, so locking it holds every write to the
         // container's memory until this commits: the facts allow sees are all the facts deleted.
         await context.Database.ExecuteSqlAsync($"SELECT 1 FROM containers WHERE id = {containerId} FOR UPDATE", ct);
+        // A document's foreign key check waits on the same lock, so one counted absent here can't arrive before commit.
+        if (await context.Documents.AnyAsync(d => d.ContainerId == containerId, ct))
+            return 0;
         List<MemoryFactEntity> rows = await context.MemoryFacts
             .AsNoTracking()
             .Include(f => f.Sources)

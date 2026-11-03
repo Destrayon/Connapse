@@ -25,7 +25,8 @@ public interface IMemoryStore
     /// <summary>
     /// Deletes every fact in the container and their sources, in one transaction with the container's row locked so no
     /// fact can be written meanwhile, but only when <paramref name="allow"/> approves them all. Returns how many facts
-    /// went, or null when they were refused.
+    /// went, or null when they were refused. Nothing is deleted from a container that holds documents, since deleting
+    /// it will be refused: an upload that lands before the lock must not cost the container its memory.
     /// </summary>
     Task<int?> ClearAsync(Guid containerId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
 

@@ -119,6 +119,37 @@ public class ContainerDeleteMemoryPrivacyTests(SharedWebAppFixture fixture) : ID
         }
     }
 
+    [Fact]
+    public async Task StoreClear_ContainerHoldingADocument_DeletesNoFact()
+    {
+        // The delete checks for documents before clearing memory; one uploaded in between must not cost the container
+        // its memory when the delete is then refused.
+        Guid container = await ContainerWithFactsAsync(Guid.NewGuid());
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IMemoryStore>();
+
+        try
+        {
+            await using (var db = await DbAsync())
+            {
+                db.Documents.Add(new DocumentEntity { Id = Guid.NewGuid(), ContainerId = container, FileName = "late.txt", Path = "/late.txt" });
+                await db.SaveChangesAsync();
+            }
+
+            int? deleted = await store.ClearAsync(container, _ => Task.FromResult(true));
+
+            deleted.Should().Be(0);
+            await using var check = await DbAsync();
+            (await check.MemoryFacts.CountAsync(f => f.ContainerId == container)).Should().Be(1);
+        }
+        finally
+        {
+            await using var db = await DbAsync();
+            await db.Documents.Where(d => d.ContainerId == container).ExecuteDeleteAsync();
+            await db.Containers.Where(c => c.Id == container).ExecuteDeleteAsync();
+        }
+    }
+
     /// <summary>A memory container with one sourceless fact by each author: each is seen only by the user who wrote it.</summary>
     private async Task<Guid> ContainerWithFactsAsync(params Guid[] authors)
     {
