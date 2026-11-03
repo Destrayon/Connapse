@@ -1044,17 +1044,17 @@
     },
     "memory_remember": {
       "requires": "mcp",
-      "scope": "knowledge:read",
+      "scope": "knowledge:write",
       "risk": "write"
     },
     "memory_correct": {
       "requires": "mcp",
-      "scope": "knowledge:read",
+      "scope": "knowledge:write",
       "risk": "write"
     },
     "memory_forget": {
       "requires": "mcp",
-      "scope": "knowledge:read",
+      "scope": "knowledge:write",
       "risk": "destructive"
     },
     "memory_recall": {

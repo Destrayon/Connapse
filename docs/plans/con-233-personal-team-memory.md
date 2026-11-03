@@ -19,7 +19,8 @@ Each fact gets a **scope**, stored on each version's row and carried through cor
 |---|---|---|
 | Who sees it | Its author, meaning the user and the agents acting for that user (an agent with no user: that agent) | Everyone who can read the container and every document the fact cites |
 | Cited documents | Still must all be readable by the author | Still must all be readable by each reader, so a fact never reveals what its sources hide |
-| Who can write it | Anyone who can read the container | Only people and agents with write access (`knowledge:write`) |
+| Who can write it | Only people and agents with write access (`knowledge:write`) | Only people and agents with write access (`knowledge:write`) |
+| Who can recall it | Its author, with read access | Anyone with read access who passes the rule below |
 | Typical facts | "I prefer short answers", "I'm rewriting the onboarding guide this week" | "Halcyon uses PostgreSQL 15", "deploys freeze on the last Friday of the quarter" |
 
 The rule on every read becomes: the caller can read the container, every cited source is readable, and the fact
@@ -48,7 +49,7 @@ PrivacyLens), so the design makes the choice explicit, visible and reversible ra
    every container reader. So omitted sources are inherited, and a correction of a team fact whose source list
    leaves out any of the old fact's sources is refused, with an error saying to forget the fact and save a new
    team fact if the wider audience is intended. Changing scope is not a correction either. A correction to a team
-   fact needs write access, as today.
+   fact needs write access, as today, and so does a correction to a personal one.
 
 Agents don't get a "share" tool in this plan. Turning a personal fact into a team fact is a person's action in
 the Memory tab (below); if a user tells an agent to share something, the agent saves it again as a team fact.
@@ -93,7 +94,7 @@ There is no separate page for personal memory. The existing container Memory tab
 ## Work to do, one ticket per PR
 
 1. **Scope in storage and rules.** Add the `scope` column and migration (sourced facts to team, sourceless to
-   personal), the new visibility rule, personal writes on read access, and the write-access check for team.
+   personal), the new visibility rule, and the write-access check for saving either scope.
    Done when tests show every existing fact keeps its exact audience, a personal fact citing a public
    document stays private, a correction of a team fact citing a restricted document stays restricted, and
    sharing a mixed-author chain is refused.
@@ -108,8 +109,9 @@ There is no separate page for personal memory. The existing container Memory tab
 
 ## Open questions for the user
 
-- Should a reader without write access be able to keep personal facts on a container? The plan says yes, since a
-  personal fact changes nothing anyone else sees; say no if memory should stay an editor feature.
+- ~~Should a reader without write access be able to keep personal facts?~~ Answered 2026-11-03: no. Every saved
+  fact costs storage and embedding compute, so saving any memory needs write access. Read-only users and keys
+  can still recall and search the team facts they are allowed to see.
 - Should owners see a count of other people's personal facts before deleting a container? Today the delete dialog
   says facts are deleted "including facts other people's agents saved", which would now include private ones.
 
@@ -118,7 +120,8 @@ There is no separate page for personal memory. The existing container Memory tab
 - **Phase 1 (CON-234), 2026-11-03.** Every fact version now has a `scope` column (personal or team). The
   `AddMemoryScope` migration makes versions that cite sources team and the rest personal, so no audience changes.
   Corrections keep the old scope and every old source of a team fact. Changing scope (`memory.setScope`) needs the
-  author of every version. Read-only users can remember, correct and forget personal facts. Files touched:
+  author of every version. Saving, correcting or forgetting any fact needs write access; read-only users and keys
+  only recall. Files touched:
   `MemoryModels`, `IMemoryStore`, `PostgresMemoryStore`, `MemoryService`, `MemoryOperations`, `McpTools.Memory`,
   plus the migration. Verified by unit, random-input and integration tests, including a migration test that
   compares every reader's view before and after. Next: phase 2, a required `scope` in the MCP tools and REST API.

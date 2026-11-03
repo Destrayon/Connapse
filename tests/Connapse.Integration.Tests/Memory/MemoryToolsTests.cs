@@ -434,13 +434,17 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Write_WithoutWriteAccess_IsRefused()
+    public async Task Write_WithoutWriteAccess_IsRefusedButRecallStillWorks()
     {
+        As(_writer);
+        string team = Id(await Remember("PostgreSQL 15", sources: [_upload]));
+
         As(_writer, role: "Viewer");
-        (await Remember("x")).Should().Contain("needs write access");
-        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, Guid.NewGuid().ToString())).Should().Contain("not found",
-            "read access may forget its own personal facts, so a missing fact is simply not found");
-        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().BeEmpty("reading still works");
+        (await Remember("x")).Should().Contain("needs write access", "a fact citing sources is team");
+        (await Remember("y", sources: [])).Should().Contain("needs write access", "a fact citing nothing is personal, and still needs write access");
+        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, team)).Should().Contain("needs write access");
+        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon"))
+            .Should().Equal(["PostgreSQL 15"], "read access still recalls the team facts it can see");
     }
 
     [Fact]

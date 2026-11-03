@@ -95,21 +95,29 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
                 (await db.Documents.CountAsync(d => d.ContainerId == Guid.Parse(id))).Should().Be(0);
             }
 
-            // A read-only key of the same owner recalls, and can keep a personal fact, which changes nothing anyone else sees.
+            // A read-only key of the same owner recalls but saves no memory, not even a personal fact.
             await using (var reader = await ConnectAsync(AuthzPrincipal.AgentRead))
             {
                 Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
                     .Should().Contain(Facts[0].Value);
-                string written = await CallAsync(reader, "memory_remember", new()
+                string written;
+                try
                 {
-                    ["containerId"] = id,
-                    ["subject"] = "team",
-                    ["attribute"] = "retro",
-                    ["value"] = "Thursdays",
-                });
-                written.Should().StartWith("{\"remembered\"", written);
+                    written = await CallAsync(reader, "memory_remember", new()
+                    {
+                        ["containerId"] = id,
+                        ["subject"] = "team",
+                        ["attribute"] = "retro",
+                        ["value"] = "Thursdays",
+                    });
+                }
+                catch (McpException ex)
+                {
+                    written = ex.Message; // the tool isn't offered to a key without knowledge:write
+                }
+                written.Should().NotContain("remembered", "memory_remember needs knowledge:write");
                 Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
-                    .Should().Contain("Thursdays");
+                    .Should().NotContain("Thursdays");
             }
 
             // A fact citing no documents is shown only to its owner, never to another user's agent.

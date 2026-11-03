@@ -162,30 +162,38 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Operations_ReadOnlyUser_KeepsPersonalFactsButCannotWriteTeamOnes()
+    public async Task Operations_ReadOnlyUser_SavesNoMemoryButRecallsTeamFacts()
     {
         Guid container = await ContainerAsync();
         var sp = _scope.ServiceProvider;
-        var viewer = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Viewer")], "test")), OperationSurface.Rest);
+        static OperationContext As(Guid user, string role) => new(new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, user.ToString()), new Claim(ClaimTypes.Role, role)], "test")), OperationSurface.Rest);
+        var viewer = As(Guid.NewGuid(), "Viewer");
+        var editor = As(Guid.NewGuid(), "Editor");
         var memory = sp.GetRequiredService<MemoryOperations>();
+        var shared = await memory.Remember.RunAsync(editor, container.ToString(),
+            new NewMemoryFact("Halcyon", "database", "PostgreSQL 15", null, null, [], null, MemoryScope.Team));
+        var own = await memory.Remember.RunAsync(editor, container.ToString(),
+            new NewMemoryFact("me", "editor", "vim", null, null, [], null, MemoryScope.Personal));
+        string fact = shared.Result!.Fact.Id.ToString();
 
         var personal = await memory.Remember.RunAsync(viewer, container.ToString(),
             new NewMemoryFact("me", "editor", "vim", null, null, [], null, MemoryScope.Personal));
         var team = await memory.Remember.RunAsync(viewer, container.ToString(),
             new NewMemoryFact("Halcyon", "editor", "vim", null, null, [], null, MemoryScope.Team));
-        var share = await memory.SetScope.RunAsync(viewer, container.ToString(), personal.Result!.Fact.Id.ToString(), MemoryScope.Team);
-        var corrected = await memory.Correct.RunAsync(viewer, container.ToString(), personal.Result.Fact.Id.ToString(), MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "neovim", null, null, null));
-        var forgotten = await memory.Forget.RunAsync(viewer, container.ToString(), corrected.Result!.Fact.Id.ToString());
+        var share = await memory.SetScope.RunAsync(viewer, container.ToString(), fact, MemoryScope.Personal);
+        var corrected = await memory.Correct.RunAsync(viewer, container.ToString(), fact, MemoryCorrection.Wrong,
+            new NewMemoryFact("", "", "MySQL 8", null, null, null));
+        var forgotten = await memory.Forget.RunAsync(viewer, container.ToString(), fact);
+        var recalled = await memory.Recall.RunAsync(viewer, container.ToString(), new MemoryQuery(container));
 
-        personal.Status.Should().Be(MemoryStatus.Success);
-        personal.Result.Fact.Scope.Should().Be(MemoryScope.Personal);
+        personal.Status.Should().Be(MemoryStatus.Forbidden, "read access alone saves no memory, personal or team");
         team.Status.Should().Be(MemoryStatus.Forbidden);
         share.Status.Should().Be(MemoryStatus.Forbidden);
-        corrected.Status.Should().Be(MemoryStatus.Success);
-        corrected.Result.Fact.Scope.Should().Be(MemoryScope.Personal);
-        forgotten.Status.Should().Be(MemoryStatus.Success);
-        forgotten.Result.Should().Be(2);
+        corrected.Status.Should().Be(MemoryStatus.Forbidden);
+        forgotten.Status.Should().Be(MemoryStatus.Forbidden);
+        own.Status.Should().Be(MemoryStatus.Success);
+        recalled.Status.Should().Be(MemoryStatus.Success);
+        recalled.Result!.Select(f => f.Fact.Value).Should().Equal(["PostgreSQL 15"], "a viewer recalls the team fact, not the editor's personal one");
     }
 }
