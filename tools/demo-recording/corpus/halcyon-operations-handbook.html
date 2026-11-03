@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Halcyon operations handbook</title>
+<style>body{font-family:Georgia,serif;margin:48px;line-height:1.5}h1{font-size:26px}h2{font-size:18px;margin-top:28px}</style>
+</head><body>
+<h1>Halcyon operations handbook</h1>
+<p>On-call guide for the Halcyon payments service. Version 3, October 2026.</p>
+
+<h2>1. When the card processor times out</h2>
+<p>The charge worker retries a timed-out processor call three times, waiting 200 ms, 400 ms and 800 ms.
+After the third failure it marks the charge <code>needs_review</code> and moves on. Do not replay
+<code>needs_review</code> charges by hand: the processor may have taken the money. Open the processor
+dashboard, match the charge by its idempotency key, and settle or refund it there.</p>
+
+<h2>2. When the ledger fails over</h2>
+<p>Patroni promotes the synchronous replica within 30 seconds. The charge worker pauses while the ledger is
+read-only and resumes on its own. Check that the replication lag panel returns to zero, then open a ticket
+to rebuild the old primary as the new replica.</p>
+
+<h2>3. Refunds</h2>
+<p>A refund is a new ledger row that points at the original charge; the charge row is never edited. Partial
+refunds are allowed up to the charged amount. Refunds older than 180 days go through the processor's
+dispute flow instead.</p>
+
+<h2>4. Sale days</h2>
+<p>Raise the charge worker's queue concurrency to 8 the morning of a sale and set it back to 4 the next day.
+Watch the ledger lock-wait alert (500 ms).</p>
+</body></html>

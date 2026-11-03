@@ -37,6 +37,7 @@ public class PostgresContainerStore(
             Id = Guid.NewGuid(),
             Name = name,
             Description = request.Description?.Trim(),
+            Kind = request.Kind,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -260,6 +261,7 @@ public class PostgresContainerStore(
             entity.CreatedAt,
             entity.UpdatedAt,
             documentCount,
-            overrides);
+            overrides,
+            entity.Kind);
     }
 }

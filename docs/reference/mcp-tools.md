@@ -1,5 +1,6 @@
 ﻿---
 title: MCP tools
+description: Every tool Connapse's MCP server offers, including search, files, code and agent memory tools, with parameters and required scopes.
 type: reference
 audience: developer
 ---
@@ -54,6 +55,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 |------|-----------|------|----------|-------------|
 | `container_create` | `name` | string | Yes | 2 to 128 lowercase letters, digits and hyphens |
 | | `description` | string | No | What the container holds |
+| | `kind` | string | No | `documents` (default) or `memory`, for an agent memory container. Fixed once created |
 | `container_delete`, `container_stats` | `containerId` | string | Yes | Container id or name |
 | `container_describe` | `containerId` | string | Yes | Container or source id or name |
 | `search_knowledge` | `query` | string | Yes | The search text |
@@ -121,6 +123,8 @@ The file types an upload accepts are in [File types](file-types.md).
 ## Agent memory
 
 The `memory_*` tools keep facts an agent learns, so the next session can use them. A fact is a subject, an attribute and a value (`Halcyon`, `database`, `PostgreSQL 15`) with the dates it was true, the documents it was learned from, a reason, and who wrote it. Memory lives in a container; writing needs `knowledge:write`, and a source id is refused like any other write.
+
+For facts that belong to no document set, create an **agent memory container** with `container_create(kind="memory")`. It holds only memory facts: `container_list` shows it as `[memory]`, and the document tools (`upload_file`, `list_files`, `search_knowledge` and the rest) refuse it with a `memory-container` error. Permissions work as in any container.
 
 - **Sources** are document IDs from `search_knowledge` or `get_document` (tickets, PRs and code files are documents), or link node IDs as `node:<id>`. The writer must be able to read every source it cites.
 - **Who sees a fact:** only a caller who can read **every** source it cites, checked on each read with the same rules as search. A fact with no sources is seen only by the user who wrote it (for an agent, the user it acts for). A fact the caller cannot see is reported as not found by `memory_correct` and `memory_forget`.

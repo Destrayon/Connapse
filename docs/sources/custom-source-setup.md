@@ -1,5 +1,6 @@
 ---
 title: Custom source setup
+description: Connect your own system to Connapse through a custom source server, with its own per-user permissions.
 type: how-to
 audience: admin
 ---

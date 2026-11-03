@@ -1,4 +1,5 @@
 using System.Text;
+using Connapse.Application.Containers;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -48,6 +49,9 @@ public enum FileStatus
 
     [Failure(503, "links-access-unchecked", "Access could not be checked")]
     LinksUnchecked,
+
+    [Failure(409, "memory-container", "Agent memory container")]
+    MemoryContainer,
 }
 
 /// <summary>
@@ -91,6 +95,9 @@ internal static class FileRules
     public static Attempt<T, FileStatus> ContainerNotFound<T>(Guid containerId) =>
         Fail<T>(FileStatus.ContainerNotFound, $"Container {containerId} not found");
 
+    public static Attempt<T, FileStatus> MemoryOnly<T>(Container container) =>
+        Fail<T>(FileStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
+
     public static Attempt<T, FileStatus> FileNotFound<T>(Guid containerId, string fileRef) =>
         Fail<T>(FileStatus.NotFound, $"File {fileRef} not found in container {containerId}");
 
@@ -129,8 +136,10 @@ public sealed class ListFiles(IContainerStore containers, IDocumentStore documen
             return FileRules.Fail<FileListing>(FileStatus.InvalidPage, "take must be >= 1");
         if (query.Take is > MaxTake)
             return FileRules.Fail<FileListing>(FileStatus.InvalidPage, $"take must be <= {MaxTake}");
-        if (await containers.GetAsync(containerId, ct) is null)
+        if (await containers.GetAsync(containerId, ct) is not { } container)
             return FileRules.ContainerNotFound<FileListing>(containerId);
+        if (container.Kind == ContainerKind.Memory)
+            return FileRules.MemoryOnly<FileListing>(container);
 
         string level = PathUtilities.NormalizeFolderPath(query.Path ?? "/");
         var entries = new List<FileEntry>();

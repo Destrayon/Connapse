@@ -1,5 +1,6 @@
 ---
 title: Connect an MCP client
+description: Connect Claude Code, Claude Desktop, VS Code, Cursor and other MCP clients to Connapse with an API key or OAuth, and approve deletes.
 type: how-to
 audience: user
 ---

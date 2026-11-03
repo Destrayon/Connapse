@@ -144,10 +144,10 @@ public class ContainerRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(CreateContainer))]
     public Task Create_AnyName_SavesOnlyAValidFreeNameAndAuditsIt() =>
-        Gen.Select(AnyCaller, Gen.Bool, Name, Maybe(Name), Gen.Bool, Gen.Bool)
+        Gen.Select(AnyCaller, Gen.Bool, Name, Maybe(Name), Gen.Bool, Gen.Bool, Gen.Int[-1, 3].Select(k => (ContainerKind)k))
             .SampleAsync(async t =>
             {
-                var (caller, writer, name, description, taken, raced) = t;
+                var (caller, writer, name, description, taken, raced, kind) = t;
                 var world = new World(reader: true, writer);
                 string trimmed = name.Trim();
                 world.Containers.GetByNameAsync(trimmed, Arg.Any<CancellationToken>())
@@ -155,18 +155,20 @@ public class ContainerRandomInputTests
                 world.Containers.CreateAsync(Arg.Any<CreateContainerRequest>(), Arg.Any<CancellationToken>()).Returns(c =>
                     raced
                         ? throw new InvalidOperationException("Container already exists")
-                        : new Container(Guid.NewGuid().ToString(), c.Arg<CreateContainerRequest>().Name, c.Arg<CreateContainerRequest>().Description, Epoch, Epoch));
+                        : new Container(Guid.NewGuid().ToString(), c.Arg<CreateContainerRequest>().Name, c.Arg<CreateContainerRequest>().Description, Epoch, Epoch,
+                            Kind: c.Arg<CreateContainerRequest>().Kind));
 
                 var created = await new CreateContainer(world.Containers, world.Audit, world.Authorizer)
-                    .RunAsync(caller, new CreateContainerRequest(name, description));
+                    .RunAsync(caller, new CreateContainerRequest(name, description, kind));
 
+                bool knownKind = kind is ContainerKind.Documents or ContainerKind.Memory;
                 ContainerStatus expected = !writer ? ContainerStatus.Forbidden
-                    : !IsValidName(trimmed) ? ContainerStatus.Invalid
+                    : !IsValidName(trimmed) || !knownKind ? ContainerStatus.Invalid
                     : taken || raced ? ContainerStatus.Conflict
                     : ContainerStatus.Success;
                 created.Status.Should().Be(expected);
                 if (expected is ContainerStatus.Invalid or ContainerStatus.Conflict)
-                    created.Field.Should().Be("name");
+                    created.Field.Should().Be(IsValidName(trimmed) && !knownKind ? "kind" : "name");
                 if (expected != ContainerStatus.Success)
                 {
                     world.Audit.ReceivedCalls().Should().BeEmpty();
@@ -177,8 +179,9 @@ public class ContainerRandomInputTests
                 // What is saved is trimmed, and the audit row names the saved container.
                 string? savedDescription = description?.Trim();
                 await world.Containers.Received(1).CreateAsync(
-                    Arg.Is<CreateContainerRequest>(r => r.Name == trimmed && r.Description == savedDescription), Arg.Any<CancellationToken>());
+                    Arg.Is<CreateContainerRequest>(r => r.Name == trimmed && r.Description == savedDescription && r.Kind == kind), Arg.Any<CancellationToken>());
                 created.Result!.Name.Should().Be(trimmed);
+                created.Result.Kind.Should().Be(kind);
                 await world.Audit.Received(1).LogAsync("container.created", "container", created.Result.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 2000);
 

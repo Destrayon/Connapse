@@ -1,5 +1,6 @@
 ---
 title: Index a filesystem or SFTP server
+description: Index a folder on the Connapse host or a remote machine over SFTP.
 type: how-to
 audience: admin
 ---

@@ -99,11 +99,23 @@ public record Container(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     int DocumentCount = 0,
-    ContainerSettingsOverrides? SettingsOverrides = null);
+    ContainerSettingsOverrides? SettingsOverrides = null,
+    ContainerKind Kind = ContainerKind.Documents);
+
+/// <summary>
+/// What a container holds, chosen when it is created and never changed. A memory container holds only agent memory
+/// facts, and every document operation refuses it.
+/// </summary>
+public enum ContainerKind
+{
+    Documents = 0,
+    Memory = 1,
+}
 
 public record CreateContainerRequest(
     string Name,
-    string? Description = null);
+    string? Description = null,
+    ContainerKind Kind = ContainerKind.Documents);
 
 public record Folder(string Id, string ContainerId, string Path, DateTime CreatedAt);
 

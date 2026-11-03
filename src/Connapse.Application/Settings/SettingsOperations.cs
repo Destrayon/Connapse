@@ -30,6 +30,9 @@ public enum SettingsStatus
 
     [Failure(412, "settings-changed", "Settings changed since they were read")]
     Changed,
+
+    [Failure(409, "memory-container", "Agent memory container")]
+    MemoryContainer,
 }
 
 /// <summary>

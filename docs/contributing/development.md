@@ -1,5 +1,6 @@
 ---
 title: Set up a development environment
+description: Build Connapse from source, run its unit and integration tests, and add database migrations.
 type: how-to
 audience: contributor
 ---

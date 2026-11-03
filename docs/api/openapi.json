@@ -13871,6 +13871,9 @@
                 "$ref": "#/components/schemas/ContainerSettingsOverrides"
               }
             ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ContainerKind"
           }
         }
       },
@@ -13934,6 +13937,13 @@
             }
           }
         }
+      },
+      "ContainerKind": {
+        "enum": [
+          "Documents",
+          "Memory"
+        ],
+        "default": "Documents"
       },
       "ContainerReindexRequest": {
         "type": "object",
@@ -14404,6 +14414,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ContainerKind"
+              }
             ]
           }
         }

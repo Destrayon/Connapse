@@ -1,5 +1,6 @@
 ---
 title: About ingestion
+description: How Connapse parses, chunks and embeds documents, including PDFs, Office files and code, and when it reindexes them.
 type: explanation
 audience: admin
 ---

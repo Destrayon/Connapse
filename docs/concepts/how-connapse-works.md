@@ -1,5 +1,6 @@
 ---
 title: How Connapse works
+description: The parts of a Connapse server and how a document becomes a search result, from upload or source sync to parsing, embedding and search.
 type: explanation
 audience: user
 ---

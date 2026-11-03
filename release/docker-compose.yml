@@ -12,6 +12,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      # The first start creates the database, which can take over a minute on a busy host.
+      # Failed checks in this window don't count, so `up -d` waits instead of giving up.
+      start_period: 120s
     networks:
       - backend
     deploy:
@@ -53,8 +56,10 @@ services:
       - ollamadata:/root/.ollama
     profiles:
       - with-ollama
+    # backend is internal (no internet); frontend lets `ollama pull` download models. No ports are published.
     networks:
       - backend
+      - frontend
     deploy:
       resources:
         limits:
@@ -95,8 +100,8 @@ services:
       Knowledge__Storage__MinIO__UseSSL: "false"
       Knowledge__Embedding__BaseUrl: "${Knowledge__Embedding__BaseUrl:-http://ollama:11434}"
       Knowledge__Search__CrossEncoderBaseUrl: "${Knowledge__Search__CrossEncoderBaseUrl:-http://reranker:80}"
-      CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL}
-      CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD}
+      CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL:-}
+      CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD:-}
       Identity__Jwt__Secret: ${Identity__Jwt__Secret}
     volumes:
       - appdata:/app/appdata
@@ -111,7 +116,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          # Parsing gets this limit less 1 GB for the web process and the files waiting to be parsed.
+          # From about 2.7G the PDF models run in one shared inference process (1.4 GB) beside thin
+          # parser hosts (#680); 3G runs two parses at once. Below about 1.9G, PDFs are read without
+          # the layout model rather than failing (#676).
+          memory: 3G
           cpus: "2.0"
 
 volumes:

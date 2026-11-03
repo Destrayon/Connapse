@@ -1,5 +1,6 @@
 ---
 title: Install Connapse
+description: "Install Connapse with Docker Compose: requirements, the prebuilt image or a source build, and the Ollama, reranker and GPU profiles."
 type: how-to
 audience: operator
 ---
@@ -39,7 +40,7 @@ Data lives in the named volumes `pgdata`, `miniodata`, `ollamadata`, `rerankerda
    cp .env.example .env
    ```
 
-   To run the prebuilt image instead, copy `docker-compose.yml` and `.env.example` from the repo's [`release/`](../../release/) folder into an empty folder, then run `cp .env.example .env` there. Set `CONNAPSE_VERSION` in `.env` to pin a release such as `v0.3.2`; it defaults to `latest`.
+   To run the prebuilt image instead, copy `docker-compose.yml` and `.env.example` from the repo's [`release/`](../../release/) folder into an empty folder, then run `cp .env.example .env` there. Set `CONNAPSE_VERSION` in `.env` to pin a release such as `v0.4.0`; it defaults to `latest`.
 
 2. Edit `.env`. Set `POSTGRES_PASSWORD`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. Generate each password with `openssl rand -base64 32`.
 

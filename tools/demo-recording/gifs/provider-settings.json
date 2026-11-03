@@ -1,0 +1,7 @@
+{ "out": "docs/demos/provider-settings.gif", "fps": 8,"clips": [
+  { "file": "provider-settings.webm", "from": 2.3, "to": 6.0 },
+  { "file": "provider-settings.webm", "from": 6.0, "to": 7.4, "speed": 2 },
+  { "file": "provider-settings.webm", "from": 7.4, "to": 9.5 },
+  { "file": "provider-settings.webm", "from": 9.5, "to": 11.5, "speed": 2 },
+  { "file": "provider-settings.webm", "from": 11.5, "to": 14.8 }
+] }

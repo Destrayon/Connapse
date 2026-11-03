@@ -423,3 +423,9 @@ th.col-check::before {
     padding: 1rem 1.25rem;
     border-top: 1px solid var(--bs-border-color);
 }
+
+.container-kind-line {
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--text-muted, #8b949e);
+}

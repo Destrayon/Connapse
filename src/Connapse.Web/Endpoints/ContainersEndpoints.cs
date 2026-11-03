@@ -31,7 +31,7 @@ public static class ContainersEndpoints
             HttpContext http,
             CancellationToken ct) =>
         {
-            var created = await create.RunAsync(Rest(http), new CreateContainerRequest(request.Name, request.Description), ct);
+            var created = await create.RunAsync(Rest(http), new CreateContainerRequest(request.Name, request.Description, request.Kind ?? ContainerKind.Documents), ct);
             return created.Succeeded
                 ? Results.Created($"/api/containers/{created.Result!.Id}", created.Result)
                 : OperationProblems.Result(created);
@@ -357,7 +357,8 @@ public static class ContainersEndpoints
 // Request DTOs for container endpoints
 public record CreateContainerApiRequest(
     [Required(ErrorMessage = "Container name is required")] string Name,
-    string? Description = null);
+    string? Description = null,
+    ContainerKind? Kind = null);
 
 public record ContainerReindexRequest(
     bool? Force = null,

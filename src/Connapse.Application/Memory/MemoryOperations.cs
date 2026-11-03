@@ -169,3 +169,15 @@ public sealed class RecallMemory(IContainerStore containers, IMemoryService memo
             : Attempt<IReadOnlyList<RecalledFact>, MemoryStatus>.Succeed(recall.Facts);
     }
 }
+
+/// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
+public sealed class MemoryOperations(RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall)
+{
+    public RememberFact Remember { get; } = remember;
+
+    public CorrectFact Correct { get; } = correct;
+
+    public ForgetFact Forget { get; } = forget;
+
+    public RecallMemory Recall { get; } = recall;
+}

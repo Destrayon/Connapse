@@ -1,0 +1,5 @@
+{ "out": "docs/demos/connectors.gif", "fps": 8,"clips": [
+  { "file": "connectors.webm", "from": 1.6, "to": 4.9, "speed": 1.2 },
+  { "file": "connectors.webm", "from": 4.9, "to": 8.2, "speed": 1.5 },
+  { "file": "connectors.webm", "from": 8.2, "to": 12.9 }
+] }

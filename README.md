@@ -16,9 +16,8 @@
   <a href="https://glama.ai/mcp/servers/Destrayon/Connapse"><img src="https://glama.ai/mcp/servers/Destrayon/Connapse/badges/score.svg" alt="Glama MCP server score"></a>
 </p>
 
-<!-- GIF placeholder (CON-200, shot 1, "Agent remembers"): docs/demos/agent-remembers.gif replaces the hero below. -->
 <p align="center">
-  <img src="docs/demos/hero-upload-search.gif" alt="Connapse demo: upload a PDF, run a hybrid search, and get passages with source citations" width="720" />
+  <img src="docs/demos/agent-remembers.gif" alt="Connapse demo: an agent searches the knowledge base over MCP, answers with a cited file, remembers the decision, and recalls it with its source in a new session" width="100%" />
 </p>
 
 Connapse is a self-hosted knowledge base for AI agents. Point it at your files, S3 buckets, Azure Blob containers, GitHub repositories, Confluence spaces and Jira projects, and agents reach all of it through an MCP server (the Model Context Protocol, the standard way agents call outside tools) or a REST API. It is RAG with hybrid search and reranking, agent memory that keeps dated facts with their sources, and results that can be trimmed to what each person can open in the source system. It is open source, runs on your own machine with Docker, and is built on .NET 10, PostgreSQL and pgvector.
@@ -41,7 +40,9 @@ The first start builds the web image from source, which takes several minutes. W
 
 To skip the build, the [install guide](docs/self-host/install.md) covers the prebuilt image, other embedding providers, GPUs and the optional reranker.
 
-<!-- GIF placeholder (CON-200, shot 2, "From zero to a cited result"): docs/demos/quickstart-zero-to-result.gif -->
+<p align="center">
+  <img src="docs/demos/quickstart-zero-to-result.gif" alt="Quick start: start Connapse with Docker Compose, create the owner account, upload a PDF and search it to get a cited passage" width="100%" />
+</p>
 
 ## Connect an agent
 
@@ -64,7 +65,9 @@ claude mcp add --transport http connapse http://localhost:5001/mcp --header "X-A
 | Code | `code_find_symbol`, `code_references`, `code_impact`, `code_repo_map` | Find definitions and callers in indexed C#, TypeScript and Python, and see what a change could affect |
 | Containers | `container_list`, `container_describe`, `container_stats`, `container_create`, `container_delete` | List, inspect, create and delete containers |
 
-<!-- GIF placeholder (CON-200, shot 6, "Code tools"): docs/demos/code-tools.gif -->
+<p align="center">
+  <img src="docs/demos/code-tools.gif" alt="Code tools: an agent finds a C# method with code_find_symbol, then lists what changing it would affect with code_impact" width="100%" />
+</p>
 
 Every tool and its parameters are in [MCP tools](docs/reference/mcp-tools.md).
 
@@ -78,27 +81,47 @@ Every search runs vector search and keyword search together and fuses the two ra
 
 An agent saves what it learns as a fact: a subject, an attribute and a value, with the dates it was true and the documents it came from. A later session recalls it. A correction keeps the old value in history, and forgetting deletes every version. A fact is shown only to people who can read every source it cites. See [Agent memory](docs/reference/mcp-tools.md#agent-memory).
 
-<!-- GIF placeholder (CON-200, shot 4, "Memory keeps history"): docs/demos/memory-history.gif -->
+<p align="center">
+  <img src="docs/demos/memory-history.gif" alt="Memory keeps history: an agent corrects a stored fact as a change, and the timeline shows the old value ending and the new one starting" width="100%" />
+</p>
 
 ### Connect your data
 
 Upload files, or index them where they live: local folders, SFTP, Amazon S3, Azure Blob Storage, GitHub (Markdown docs, or issues and pull requests), Confluence and Jira. Anything else can connect through a custom source server you write against an open protocol. Each container has its own files, vector index and settings. See [Connect your data](docs/sources/index.md) and [file types](docs/reference/file-types.md).
 
+<p align="center">
+  <img src="docs/demos/connect-a-folder.gif" alt="Connect a folder: add a local folder as a source, sync it, and search the files it holds" width="100%" />
+</p>
+
+The **Providers** page lists the built-in providers next to any custom source server you add.
+
+<p align="center">
+  <img src="docs/demos/connectors.gif" alt="Connectors: the Providers page, then a custom source server added with its connection checks passing" width="100%" />
+</p>
+
 ### Search trimmed to what each person can open
 
 Results from GitHub, Confluence, Jira and custom sources are checked against each reader's own access in the source system, through their linked account. S3 and Azure Blob get the same check once an admin switches on per-user permissions for that provider; until then, everyone who can search a container sees all of it. When filtering is on, a person, or an agent acting for them, never sees a passage they couldn't open in the original, and when the check can't be made the result is left out. See [Permissions](docs/concepts/permissions.md), [Amazon S3](docs/sources/aws-setup.md) and [Azure Blob Storage](docs/sources/azure-setup.md).
 
-<!-- GIF placeholder (CON-200, shot 3, "Same question, two people, different answers"): docs/demos/permission-trimmed-search.gif -->
+<p align="center">
+  <img src="docs/demos/permission-trimmed-search.gif" alt="Same search, two people: a support user gets one shared result, and a finance user, who can open more in the source, also gets a finance-only file" width="100%" />
+</p>
 
 ### Linked results
 
 Records point at each other, and Connapse stores those links: a GitHub issue with the pull request that closes it, a Jira issue with its epic, parent and the Confluence pages it mentions, and code with its definitions, imports and calls. With link search turned on (it is off by default), a search also brings back what its best results link to, checked against the same permissions. See [Following links](docs/concepts/search.md#following-links).
 
-<!-- GIF placeholder (CON-200, shot 5, "Linked results"): docs/demos/linked-results.gif. Recorded only if link search is supported in v0.4.0. -->
+<p align="center">
+  <img src="docs/demos/linked-results.gif" alt="Linked results: the same search with link search off and then on, where it also brings back the records the top results link to" width="100%" />
+</p>
 
 ### Run fully local with Ollama
 
 With the Ollama profile, embeddings are computed on your machine and nothing leaves it. OpenAI or Azure OpenAI can be swapped in from **Settings** at runtime, without a restart. See [Change the embedding model](docs/guides/change-embedding-model.md).
+
+<p align="center">
+  <img src="docs/demos/provider-settings.gif" alt="Provider settings: switch the embedding provider, run Test Connection against Ollama, then switch the LLM provider" width="100%" />
+</p>
 
 ### Built on .NET 10, PostgreSQL and pgvector
 

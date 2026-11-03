@@ -1,5 +1,6 @@
 ---
 title: Cover buckets outside the Identity Center region
+description: Let Connapse check S3 Access Grants for buckets in AWS regions other than your IAM Identity Center region.
 type: how-to
 audience: admin
 ---

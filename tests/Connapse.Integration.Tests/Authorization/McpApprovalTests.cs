@@ -427,10 +427,7 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
 
         var http = fixture.Factory.CreateClient();
         http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, key.Token);
-        return await McpClient.CreateAsync(new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true));
+        return await McpTestClient.ConnectAsync(http);
     }
 
     /// <summary>An MCP client holding an OAuth token that a newly registered client was issued for the administrator.</summary>
@@ -460,10 +457,7 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         var http = fixture.Factory.CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
             (await exchanged.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("access_token").GetString());
-        return await McpClient.CreateAsync(new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true));
+        return await McpTestClient.ConnectAsync(http);
     }
 
     /// <summary>
@@ -483,20 +477,14 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
 
         var http = fixture.Factory.CreateClient();
         http.DefaultRequestHeaders.Add("Cookie", $"{cookie.Cookie.Name}={ticket}");
-        return await McpClient.CreateAsync(new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true));
+        return await McpTestClient.ConnectAsync(http);
     }
 
     private async Task<McpClient> McpClientAsync(AuthenticationHeaderValue authorization)
     {
         var http = fixture.Factory.CreateClient();
         http.DefaultRequestHeaders.Authorization = authorization;
-        return await McpClient.CreateAsync(new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true));
+        return await McpTestClient.ConnectAsync(http);
     }
 
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
