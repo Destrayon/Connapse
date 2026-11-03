@@ -104,7 +104,7 @@ The **Providers** page lists the built-in providers next to any custom source se
 Results from GitHub, Confluence, Jira and custom sources are checked against each reader's own access in the source system, through their linked account. S3 and Azure Blob get the same check once an admin switches on per-user permissions for that provider; until then, everyone who can search a container sees all of it. When filtering is on, a person, or an agent acting for them, never sees a passage they couldn't open in the original, and when the check can't be made the result is left out. See [Permissions](docs/concepts/permissions.md), [Amazon S3](docs/sources/aws-setup.md) and [Azure Blob Storage](docs/sources/azure-setup.md).
 
 <p align="center">
-  <img src="docs/demos/permission-trimmed-search.gif" alt="Same search, two people: the second person gets fewer results because they cannot open some of the files in the source" width="720" />
+  <img src="docs/demos/permission-trimmed-search.gif" alt="Same search, two people: a support user gets one shared result, and a finance user, who can open more in the source, also gets a finance-only file" width="720" />
 </p>
 
 ### Linked results
