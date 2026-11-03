@@ -14,6 +14,7 @@ Use this when you want to move a running Connapse server to a newer release, and
 - Shell access to the Docker host, in the folder that holds `docker-compose.yml`.
 - A backup from the last hour, made with [Back up and restore Connapse](backup-and-restore.md). Rolling back means restoring it.
 - The [CHANGELOG](../../CHANGELOG.md) entries between your version and the new one, read for breaking changes and security fixes.
+- From v0.3.x, start with [From v0.3.x to v0.4.0](#from-v03x-to-v040), which uses the steps below. That upgrade removes the documents of every S3, Azure Blob and filesystem container, so save their settings first.
 
 ## Steps
 
@@ -79,23 +80,21 @@ v0.4.0 replaces a container's connector with sources and removes several old int
 
 4. Take the new `docker-compose.yml` from the release package. The `minio/minio` image the old file names is no longer published, so the old file can't start MinIO. If you keep your own compose file, change MinIO's image to `cgr.dev/chainguard/minio` and add `user: "0"` to it. Reading PDFs by their layout needs about 3 GB for `web`; with less, PDFs are read in plain text order and the log says so.
 
-5. Set `CONNAPSE_VERSION=v0.4.0` in `.env`, then pull and start as in steps 2 to 5 above. Do this and step 6 at a time when nobody else uses the server.
+5. Set `CONNAPSE_VERSION=v0.4.0` in `.env`, then pull and start as in steps 2 to 5 above.
 
-6. Delete each old S3, Azure Blob or filesystem container. The upgrade keeps their documents but drops the record of where they came from, so Connapse can no longer check them against the cloud's permissions: until you delete them, anyone who can read the container can read every document in it.
+   On first start, the upgrade removes every document and folder from each old S3, Azure Blob or filesystem container, because without the record of where they came from Connapse could no longer check them against the cloud's permissions. This removes only Connapse's copies, never the files in your bucket or folder. The containers themselves stay, empty; delete them or leave them. Search also refuses any S3, Azure Blob or Atlassian document that is missing its cloud address, so no such document is shown to everyone who can read its container.
 
-   A container that still holds documents can't be deleted, so empty it first. On the **Files** page, open the container, choose **Select all**, then delete the selection; or call `POST /api/containers/{id}/files/bulk-delete` with up to 100 file IDs at a time. This removes only Connapse's copies, never the files in your bucket or folder. Then delete the empty container, on the **Files** page or with `DELETE /api/containers/{id}`.
+6. Set each of those up again as a source in a new container, using the settings you saved in step 3. The source indexes the files afresh, with per-user permissions. [Containers, connections and sources](../sources/index.md) explains the new model.
 
-7. Set each of those up again as a source in a new container, using the settings you saved in step 3. The source indexes the files afresh, with per-user permissions. [Containers, connections and sources](../sources/index.md) explains the new model.
+7. Re-issue every personal access token and agent key that has no scopes, and check that tokens used for admin work carry the scope they need. See [Create tokens and agent keys](../guides/tokens-and-agents.md).
 
-8. Re-issue every personal access token and agent key that has no scopes, and check that tokens used for admin work carry the scope they need. See [Create tokens and agent keys](../guides/tokens-and-agents.md).
+8. Move MCP clients that use the SSE transport to Streamable HTTP at `/mcp`, as in [Connect an MCP client](../guides/mcp-clients.md). MCP clients that signed in with OAuth sign in once more.
 
-9. Move MCP clients that use the SSE transport to Streamable HTTP at `/mcp`, as in [Connect an MCP client](../guides/mcp-clients.md). MCP clients that signed in with OAuth sign in once more.
+9. The command-line tool is now separate. Install [connapse-cli](https://github.com/Destrayon/connapse-cli) and run `connapse auth login`.
 
-10. The command-line tool is now separate. Install [connapse-cli](https://github.com/Destrayon/connapse-cli) and run `connapse auth login`.
+10. Ask everyone who linked an AWS or Azure account to link it again under **Profile** → **Integrations**.
 
-11. Ask everyone who linked an AWS or Azure account to link it again under **Profile** → **Integrations**.
-
-12. Re-read the files whose parser changed, which after this upgrade is most PDF, Word, PowerPoint and text files. To see how many a container has first, with a token that has `knowledge:write`:
+11. Re-read the files whose parser changed, which after this upgrade is most PDF, Word, PowerPoint and text files. To see how many a container has first, with a token that has `knowledge:write`:
 
     ```bash
     curl -X POST -H "X-Api-Key: cnp_your_key" -H "Content-Type: application/json" \

@@ -22,10 +22,10 @@ internal static class ScopePredicate
         {
             // No grants (no principal, no access, or the resolver failed) says nothing about
             // documents the cloud has no opinion on. Only cloud-governed documents — those
-            // with a resource_uri — are excluded; everything else (uploads, SFTP, ...) still
-            // shows. This also means a resolver outage degrades to "you see the non-cloud
-            // documents", not "you see nothing".
-            whereClauses.Add("d.resource_uri IS NULL");
+            // with a resource_uri, or from a source that always reports one — are excluded;
+            // everything else (uploads, SFTP, ...) still shows. This also means a resolver
+            // outage degrades to "you see the non-cloud documents", not "you see nothing".
+            whereClauses.Add(SearchScopes.UnaddressedAdmitted);
             return;
         }
 
@@ -33,7 +33,8 @@ internal static class ScopePredicate
         // against — uploads and connectors that never report one (SFTP, filesystem,
         // MinIO) are like this by design, not by accident. Such a document falls back to
         // Connapse's own access control (container/source reachability) instead of cloud
-        // grants, so it is admitted unconditionally here. Cloud scope filtering only
+        // grants, so it is admitted here unless its source always reports a URI and this
+        // one is missing it (SearchScopes.UnaddressedAdmitted). Cloud scope filtering only
         // narrows the subset of documents that do carry a cloud address.
         var ors = new List<string>();
         foreach (GrantMatch match in scopes.Matches)
@@ -63,6 +64,6 @@ internal static class ScopePredicate
             ors.Add(predicate);
         }
 
-        whereClauses.Add($"(d.resource_uri IS NULL OR ({string.Join(" OR ", ors)}))");
+        whereClauses.Add($"({SearchScopes.UnaddressedAdmitted} OR ({string.Join(" OR ", ors)}))");
     }
 }

@@ -372,20 +372,19 @@ jobs:
         git commit -m "Update test badge"
         git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
 
-    # Last, so the measurement includes this job's own steps. Steps that only wait on a third-party service
-    # count up to an allowance a little over their usual time (CON-127); the rest is printed as a warning.
-    # On 2026-10-28 the Codecov upload took 105 s instead of 3 s and failed a PR whose tests all passed.
-    # Setup steps (checkout, restore, build, Ollama) count as their median over 30 green runs,
-    # in setup-allowances.json (CON-141): a runner slow at setup put #1023 and #1024 over with no slower tests.
-    # A step renamed or added here needs its line there, or it counts in full.
+    # Fails when the tests this change adds, slows or drops add over 45 s against main's five runs up to
+    # its base commit, read on a median runner, or the rest add over 120 s together (CON-223). The pipeline's wall time over 6 minutes depends on the runner
+    # GitHub hands out, so it is a warning with main's trend beside it, and fails nothing: wall time
+    # failed eleven runs whose tests were no slower, through four patches that each discounted one cause.
+    # Last, so the wall time includes this job's own steps.
     - name: PrPipeline_WallTimeUnder6Min
       if: success() || failure()
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        python3 .github/scripts/pipeline_wall.py --max-seconds 360 --current build-and-test \
-          --network-step "Upload coverage reports=15" --network-step "Wait for container images=15" \
-          --setup-allowances .github/setup-allowances.json
+        python3 .github/scripts/pipeline_time.py --results . --max-added-seconds 45 --max-drift-seconds 120 \
+          --max-wall-seconds 360 \
+          --current build-and-test
 
   code-quality:
     runs-on: ubuntu-latest

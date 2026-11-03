@@ -143,6 +143,21 @@ public sealed record SearchScopes
     public const char LikeEscape = '!';
 
     /// <summary>
+    /// SQL, over documents aliased <c>d</c>, for a document with no resource URI that a restricted
+    /// search may still admit: a plain upload (no source), or one from a source whose provider never
+    /// reports an address (filesystem, SFTP, a public repository, a custom source without permissions).
+    /// </summary>
+    /// <remarks>
+    /// S3, Azure Blob and Atlassian sources address every document they sync, so one of theirs with no
+    /// address is missing its permission coordinate, not free of permissions, and is refused rather than
+    /// shown to everyone who can reach the source.
+    /// </remarks>
+    public static readonly string UnaddressedAdmitted =
+        "(d.resource_uri IS NULL AND NOT EXISTS (SELECT 1 FROM sources us LEFT JOIN connections uc ON uc.id = us.connection_id"
+        + " WHERE us.id = d.source_id AND COALESCE(us.provider, uc.provider) IN ("
+        + $"{(int)ConnectionProvider.S3}, {(int)ConnectionProvider.AzureBlob}, {(int)ConnectionProvider.Atlassian})))";
+
+    /// <summary>
     /// Turns a URI prefix into a <c>LIKE</c> pattern that matches it literally.
     /// </summary>
     /// <remarks>
