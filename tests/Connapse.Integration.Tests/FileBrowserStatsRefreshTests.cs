@@ -68,6 +68,40 @@ public class FileBrowserStatsRefreshTests(SharedWebAppFixture fixture)
         }, TimeSpan.FromSeconds(10));
     }
 
+    [Fact]
+    public async Task OnStatusChanged_UploadSettlesAfterOpeningAnotherFolder_HeaderCountsIt()
+    {
+        string containerId = await CreateContainerAsync();
+        await AddDocumentAsync(containerId, "/archive/old.md", DocumentStatus.Ready);
+
+        using var ui = await Surfaces.UiAsync(fixture);
+        var page = ui.Context.Render<FileBrowser>(ps => ps.Add(x => x.ContainerId, containerId));
+        page.WaitForAssertion(() => page.Find("tr.folder-row").Should().NotBeNull(), TimeSpan.FromSeconds(10));
+
+        Guid documentId = await AddDocumentAsync(containerId, "/report.md", DocumentStatus.Queued);
+        string result = $$"""
+            {"batchId":null,"totalCount":1,"successCount":1,
+             "documents":[{"documentId":"{{documentId}}","jobId":null,"fileName":"report.md","sizeBytes":12,"path":"/report.md","error":null}]}
+            """;
+        await page.InvokeAsync(() => page.Instance.HandleDropUploadResult(result));
+        page.WaitForAssertion(() => page.Find("[data-stat=processing]").TextContent.Should().Be("1 processing"), TimeSpan.FromSeconds(10));
+
+        // Opening the folder takes the uploaded file's row off the screen before its ingestion finishes.
+        page.Find("tr.folder-row").Click();
+        page.WaitForAssertion(() => page.FindAll("tr.file-row .entry-name").Select(n => n.TextContent.Trim()).Should().Equal("old.md"),
+            TimeSpan.FromSeconds(10));
+
+        await SetStatusAsync(documentId, DocumentStatus.Ready);
+        fixture.Factory.Services.GetRequiredService<IngestionProgressNotifier>()
+            .NotifyStatusChanged(new DocumentStatusChangedEvent(documentId.ToString(), DocumentStatus.Ready));
+
+        page.WaitForAssertion(() =>
+        {
+            page.Find("[data-stat=ready]").TextContent.Should().Be("2 ready");
+            page.Find("[data-stat=processing]").TextContent.Should().Be("0 processing");
+        }, TimeSpan.FromSeconds(10));
+    }
+
     private async Task<string> CreateContainerAsync()
     {
         using var scope = fixture.Factory.Services.CreateScope();
