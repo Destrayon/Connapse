@@ -24,7 +24,8 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     }
 
     public async Task<MemoryWriteResult> CorrectAsync(
-        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author, CancellationToken ct = default)
+        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author,
+        Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> check, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
@@ -49,6 +50,8 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         MemoryFactEntity? old = chain.SingleOrDefault(f => f.Id == factId);
         if (old is null)
             return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
+        if (await check([.. chain.Select(ToFact)]) is { } refused)
+            return refused;
         if (old.SupersededAt is not null)
             return MemoryWriteResult.Failed($"Fact '{factId}' was already corrected; correct its replacement instead.");
 

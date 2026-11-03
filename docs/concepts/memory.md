@@ -35,6 +35,8 @@ When a value changes, the agent calls `memory_correct` rather than writing a sec
 - **Changed:** the old value was right until a date, and the new value is right from that date. The old fact ends on that date and stays in history, so an agent can still answer "what database did Halcyon use in March?".
 - **Wrong:** the old value was never right. It is marked as corrected and the new value takes its dates.
 
+Only a caller who can see every version of a fact can correct it; anyone else can remember a new fact instead. Forgetting deletes every version and needs the caller to see them all, so this rule keeps at least one person able to forget every fact.
+
 `memory_timeline` lists a subject's facts in date order, ended and corrected ones included, so an agent can answer "when did this change, and why?".
 
 ## Forgetting deletes

@@ -10,10 +10,12 @@ public interface IMemoryStore
 
     /// <summary>
     /// Ends or supersedes <paramref name="factId"/> and writes its replacement, in one transaction. Returns an error
-    /// when the fact is not in the container, is already superseded or ended, or the dates do not follow it.
+    /// when the fact is not in the container, is already superseded or ended, or the dates do not follow it, or the
+    /// error <paramref name="check"/> returns for the chain's versions, which it is given with the chain locked.
     /// </summary>
     Task<MemoryWriteResult> CorrectAsync(
-        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author, CancellationToken ct = default);
+        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author,
+        Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> check, CancellationToken ct = default);
 
     /// <summary>
     /// Deletes every fact of <paramref name="factId"/>'s correction chain and their sources, in one transaction with the

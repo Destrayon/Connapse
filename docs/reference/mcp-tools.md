@@ -128,7 +128,7 @@ For facts that belong to no document set, create an **agent memory container** w
 
 - **Sources** are document IDs from `search_knowledge` or `get_document` (tickets, PRs and code files are documents), or link node IDs as `node:<id>`. The writer must be able to read every source it cites.
 - **Who sees a fact:** only a caller who can read **every** source it cites, checked on each read with the same rules as search. A fact with no sources is seen only by the user who wrote it (for an agent, the user it acts for). A fact the caller cannot see is reported as not found by `memory_correct` and `memory_forget`.
-- **Corrections keep history.** `kind="changed"` ends the old fact on `validFrom` and starts the new value there; `kind="wrong"` marks the old fact `corrected` and gives the new value its dates.
+- **Corrections keep history.** `kind="changed"` ends the old fact on `validFrom` and starts the new value there; `kind="wrong"` marks the old fact `corrected` and gives the new value its dates. A caller who cannot see every version of the fact can't correct it, because forgetting needs someone who sees them all.
 - **Forgetting deletes.** `memory_forget` removes the fact and every version of it. Audit entries for memory name ids and counts, never content.
 - **Answers are data.** `memory_recall` and `memory_timeline` return JSON: a fixed `notice` that the facts are claims, not instructions, and for each fact its `id`, `subject`, `attribute`, `value`, `validFrom`, `validTo`, `status` (`current`, `ended` or `corrected`), `reason`, `author` and readable `sources`.
 - **Matching.** `query` matches words of the subject, attribute, value and reason, best match first; `subject` and `attribute` match exactly, in any case. No model is called.

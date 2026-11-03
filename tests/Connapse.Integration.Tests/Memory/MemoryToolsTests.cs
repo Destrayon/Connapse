@@ -282,7 +282,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
 
         // Ending the first version in February would leave February with no version.
         Task<MemoryWriteResult> wrong = store.CorrectAsync(_container, first.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("Halcyon", "database", "MariaDB 11", null, feb, []), author);
+            new NewMemoryFact("Halcyon", "database", "MariaDB 11", null, feb, []), author, _ => Task.FromResult<MemoryWriteResult?>(null));
         await using (KnowledgeDbContext probe = await factory.CreateDbContextAsync())
         {
             for (int i = 0; i < 100 && !wrong.IsCompleted; i++)
