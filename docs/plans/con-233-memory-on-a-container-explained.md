@@ -31,7 +31,8 @@ sees. Here is what each looks like day to day.
 
 - **The right people see it.** A fact about a private project stays with that project. Only people who can open
   the container, and every document the fact cites, see it.
-- **It stays with its evidence.** Each fact points to the documents it came from, so you can check it in one
-  click and fix or delete it on the same Memory tab where you browse those documents.
+- **It stays with its evidence.** A fact learned from documents points to them, so you can check it in one
+  click. A team rule with no document behind it has no source to check, so its author and date are what you go
+  on. Either way you fix or delete it on the same Memory tab where you browse the container's documents.
 - **It ends when the project ends.** Delete the container and its memory goes with it, rather than lingering in
   everyone's agents.

@@ -17,7 +17,7 @@ Each fact gets a **scope**, stored on each version's row and carried through cor
 
 | | Personal | Team |
 |---|---|---|
-| Who sees it | Its author, meaning the user and the agents acting for that user (an agent with no user: that agent) | Everyone who can read the container |
+| Who sees it | Its author, meaning the user and the agents acting for that user (an agent with no user: that agent) | Everyone who can read the container and every document the fact cites |
 | Cited documents | Still must all be readable by the author | Still must all be readable by each reader, so a fact never reveals what its sources hide |
 | Who can write it | Anyone who can read the container | Only people and agents with write access (`knowledge:write`) |
 | Typical facts | "I prefer short answers", "I'm rewriting the onboarding guide this week" | "Halcyon uses PostgreSQL 15", "deploys freeze on the last Friday of the quarter" |
@@ -36,7 +36,7 @@ PrivacyLens), so the design makes the choice explicit, visible and reversible ra
    not two tools, per Anthropic's and OpenAI's tool guidance.
 2. **The description gives the test Copilot uses:** "Team if it would be true and useful for anyone working in
    this container; personal if it is about you, your preferences or your own work. If you aren't sure, ask the
-   user. Team facts are seen by everyone who can read the container."
+   user. Team facts are seen by everyone who can read the container and every document the fact cites."
 3. **The answer says who will see it, in words:** "Saved for the team: everyone who can read *Halcyon docs* can
    see it" or "Saved as personal: only you see it." Agents relay this, so a wrong guess is caught at once.
 4. **Recall labels every fact** with `scope` and accepts an optional `scope` filter (`personal`, `team`, `all`,
@@ -62,7 +62,8 @@ There is no separate page for personal memory. The existing container Memory tab
   icon with "Team".
 - **The detail panel shows the scope** and offers **Share with team** on your own personal facts (needs write
   access) and **Make personal** on team facts. Each opens a confirmation that names the audience and the
-  consequence: "Everyone who can read Halcyon docs, 14 people, will see this fact and its history" or "Other
+  consequence: "Everyone who can read Halcyon docs and the documents each version cites, about 14 people, will see this fact
+  and its history" or "Other
   people and their agents will stop seeing this fact." The change applies to the whole correction chain and is
   recorded in the audit log by id, as writes are.
 - **A scope change needs you to have written every version in the chain.** A legacy chain can mix authors, for
