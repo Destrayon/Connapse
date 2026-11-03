@@ -160,7 +160,7 @@ public sealed class CreateContainer(IContainerStore containers, IAuditLogger aud
             return Fail(ContainerStatus.Conflict, ex.Message, "name");
         }
 
-        await audit.LogAsync("container.created", "container", created.Id, new { created.Name, created.Kind }, ct);
+        await audit.LogAsync("container.created", "container", created.Id, new { created.Name, Kind = created.Kind.ToString().ToLowerInvariant() }, ct);
         return Attempt<Container, ContainerStatus>.Succeed(created);
     }
 }

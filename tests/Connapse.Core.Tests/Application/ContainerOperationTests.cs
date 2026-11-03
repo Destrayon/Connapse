@@ -140,7 +140,7 @@ public class ContainerOperationTests
         created.Result.Should().Be(made);
         await _containers.Received(1).CreateAsync(new CreateContainerRequest("docs", "about docs"), Arg.Any<CancellationToken>());
         await _audit.Received(1).LogAsync("container.created", "container", made.Id,
-            Arg.Is<object>(d => d.ToString() == new { Name = "docs", Kind = ContainerKind.Documents }.ToString()), Arg.Any<CancellationToken>());
+            Arg.Is<object>(d => d.ToString() == new { Name = "docs", Kind = "documents" }.ToString()), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -154,7 +154,7 @@ public class ContainerOperationTests
         created.Result!.Kind.Should().Be(ContainerKind.Memory);
         await _containers.Received(1).CreateAsync(new CreateContainerRequest("agent-notes", null, ContainerKind.Memory), Arg.Any<CancellationToken>());
         await _audit.Received(1).LogAsync("container.created", "container", made.Id,
-            Arg.Is<object>(d => d.ToString() == new { Name = "agent-notes", Kind = ContainerKind.Memory }.ToString()), Arg.Any<CancellationToken>());
+            Arg.Is<object>(d => d.ToString() == new { Name = "agent-notes", Kind = "memory" }.ToString()), Arg.Any<CancellationToken>());
     }
 
     [Fact]
