@@ -1,0 +1,5 @@
+{ "out": "docs/demos/memory-history.gif", "width": 1120, "clips": [
+  { "file": "memory-history.webm", "from": 0.3, "to": 6.4, "speed": 2.5 },
+  { "file": "memory-history.webm", "from": 6.4, "to": 11.3, "speed": 1.2 },
+  { "file": "memory-history.webm", "from": 11.3, "to": 14.5 }
+] }

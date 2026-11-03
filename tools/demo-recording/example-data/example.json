@@ -1,0 +1,17 @@
+{
+  "name": "Halcyon wiki",
+  "token": "demo-only-example-token",
+  "page_size": 100,
+  "permissions_enabled": true,
+  "max_check_batch": 100,
+  "scopes": [
+    { "id": "payments", "name": "Payments", "description": "Payments team wiki" }
+  ],
+  "grants": {
+    "dana": ["folder:payments/shared"],
+    "sam": ["folder:payments/shared", "folder:payments/finance"]
+  },
+  "denies": {},
+  "preset_links": {},
+  "users": ["dana", "sam"]
+}
