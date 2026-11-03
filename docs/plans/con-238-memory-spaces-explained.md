@@ -38,6 +38,13 @@ next to them so you can check each one in a click.
 
 Memory on a container is always team memory. Personal notes about a project go in a personal space.
 
+## Sharing a personal note with the team
+
+If something in your personal space turns out to be useful to everyone, press **Copy to team** next to it and pick
+a team space or container. Only the note as it stands now is copied, with its dates and the documents it cites; its
+earlier versions stay private. Your personal note stays where it was, and changing one later doesn't change the
+other. Viewers can't copy, because copying is saving.
+
 ## Two rules that hold everywhere
 
 - **A fact never shows more than its documents.** If a fact cites a document, only people who can read that

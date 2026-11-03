@@ -36,8 +36,10 @@ can search team memory; personal and team must be obvious to agents; and memory 
 personal and shared spaces as different kinds that can't be converted (Loop's "My workspace" can't be shared at
 all), while ChatGPT, Claude, Notion and Basic Memory widen a project or page later by sharing it. Fixed is the
 better fit for Connapse: a space's audience is what tells an agent who will read a fact, so it shouldn't change
-under facts already saved for a different audience. A fact that should be shared is saved again in a team space. This removes the per-fact "Share with team" and "Make
-personal" actions CON-233 planned, and the hard cases they had (mixed-author chains, legacy versions).
+under facts already saved for a different audience. A personal fact that should be shared is copied into a team
+space with the **Copy to team** button (below), or an agent saves it again there. This removes the per-fact "Share
+with team" and "Make personal" actions CON-233 planned, and the hard cases they had (mixed-author chains, legacy
+versions).
 
 **Every Editor gets a personal space called `my-memory`**, made the first time they open the Memory page or an
 agent saves personal memory for them. This is Loop's "My workspace" and Notion's Private section: there is always
@@ -47,8 +49,8 @@ Viewers get none, since they can't save. Someone demoted to Viewer keeps reading
 **A team space is shared with everyone the moment it is made.** Connapse has no per-container permissions (roles
 apply to every container, `docs/concepts/permissions.md`), so a team space follows the same rule: every account can
 search it, and the role decides who can add. There is no invite step. The create dialog says this in words, with the
-number of people. A team space limited to named members would be Connapse's first per-container permission; it is
-left as an open question below, not built here.
+number of people. The user decided on 2026-11-03 that team spaces stay visible to every account: there are no
+team spaces limited to named members.
 
 **Memory on a document container is team only.** It stays in the container's Memory tab (CON-225), labelled "Team
 memory", and the Memory page lists every container that has some. It is for facts learned from that container's
@@ -74,6 +76,11 @@ A document container's Memory tab after the move: team facts only, with a pointe
 
 ![A document container's Memory tab showing team memory only](../images/memory-spaces/container-memory-tab.png)
 
+Copying a personal fact to a team space. The note says who will see the copy, that only the current version goes,
+and that the personal fact stays.
+
+![The Copy to a team space dialog over Pat's my-memory space](../images/memory-spaces/copy-to-team.png)
+
 ## Who can do what on the Memory page
 
 - **Create a space:** Editors and above. Viewers see team spaces and container memory but no **New space** button.
@@ -82,6 +89,31 @@ A document container's Memory tab after the move: team facts only, with a pointe
 - **Admins can't open someone else's personal space.** They don't see that it exists, as with personal facts today.
   When an account is deleted, its personal spaces are deleted with it.
 - **The description matters:** the dialog asks "What belongs here" and says agents read it to choose a space.
+
+## Copying a personal fact to a team space
+
+The user asked for a **Copy to team** button on 2026-11-03. It sits on each current fact in a personal space's
+view (the picture above) and opens a dialog that names the destination and who will see the copy.
+
+- **Who can use it:** the space's owner, while they have write access. Viewers, including a demoted Editor reading
+  their old personal spaces, see no button. The destination list holds only team spaces and document containers
+  the caller can add to. The facts in a mixed chain left on a document container (see the migration) have no button,
+  since they aren't in a personal space.
+- **What is copied:** the current version only, as a new fact with a new id in the destination: its subject,
+  attribute, value, the dates it was true, its reason and its citations. Earlier and corrected versions are not
+  copied, because they may hold notes the owner never meant to share, and the team fact's history starts at the
+  copy. The copier is its author.
+- **Citations are checked as for any save:** the copier must still be able to read every cited document, or the copy
+  is refused and the dialog names the document. After the copy, the trimming rule still applies, so a teammate who
+  can't read a cited document doesn't see the copy, and the dialog names those documents.
+- **The personal original stays put,** unchanged and still personal. The two are not linked: correcting or
+  forgetting one leaves the other alone, and the team fact shows nothing of the personal one.
+- **A fact already in the destination:** if the destination has a current fact with the same subject and
+  attribute, the dialog shows it and the button reads "Copy anyway"; it does not overwrite or correct it.
+- **Agents don't need it.** An agent shares a fact by calling `memory_remember` with a team `space`, so there is no
+  new MCP tool. The button calls a REST endpoint, `POST /api/memory/facts/{id}/copy` with the destination, which
+  reads the current version and saves it through CON-235's normal save path. The audit log records the copy by
+  both fact ids, never the content.
 
 ## How agents choose where to save and where to search
 
@@ -155,7 +187,8 @@ Most of it is reused as it is:
   old scope and inheriting omitted sources; refusing a team correction that drops a source; and the tests for all of
   these. Spaces build on exactly this: a space just decides which scope new facts get.
 - **Remove:** the `memory.setScope` operation, its sole-author check and their tests. A fact's scope no longer
-  changes after it is saved; to share, save again in a team space. Nothing uses it yet, so nothing breaks.
+  changes after it is saved; to share, copy it or save it again in a team space. Nothing uses it yet, so nothing
+  breaks.
 - **Remove:** the PR's edits to `docs/plans/con-233-personal-team-memory.md`, which this plan supersedes. Its
   progress notes belong in this plan's Progress section once it merges.
 - **Update the PR body:** drop the references to a Mine / Team / All filter in a container's Memory tab (CON-236 as
@@ -204,21 +237,18 @@ One ticket per PR. Each needs the one before it merged.
    spaces, and the concept page matches the tools.
 5. **New ticket: the Memory page.** The nav entry, the page, the New space dialog, a space's view (the CON-225
    fact table, with an Author column for team spaces and the Viewer notice), the "Team memory" label and pointer on
-   a container's Memory tab, and removing the "Agent memory" type from the Create Container dialog. Done when the
-   pages match the pictures above for an Editor and a Viewer.
+   a container's Memory tab, and removing the "Agent memory" type from the Create Container dialog. It also carries
+   the **Copy to team** button and its REST endpoint, which needs no storage change. Done when the pages match the
+   pictures above for an Editor and a Viewer, and tests show a copy keeps only the current version and its
+   citations, leaves the personal fact unchanged, is refused for a Viewer or a non-owner, and is not shown to a
+   teammate who can't read a cited document.
 
 CON-235 is the largest. If it passes the PR size limit, it splits into storage and rules first, then REST, and the
 split goes to the PM before coding.
-
-## Open questions for the user
-
-- **Team spaces for some people only?** This plan shares every team space with every account, the same as
-  containers. Limiting one to named members (Notion's closed teamspaces, Confluence space permissions) would be
-  Connapse's first per-container permission and its own epic. Say if you want it.
-- **Should a personal fact be copyable into a team space from the Memory page?** No product we looked at has a
-  "promote" action; the plan relies on saving again. A copy button would be small to add later.
 
 ## Progress
 
 - **CON-238, 2026-11-03.** This plan, its explainer, the research report and four mockup pictures in
   `docs/images/memory-spaces/`. No product code. Next: CON-234 (PR #1123) drops `memory.setScope` and merges.
+- **CON-238 rework, 2026-11-03.** The user answered both open questions: team spaces stay visible to every account,
+  and a Copy to team button is added (its own section, the Memory page ticket, a fifth picture). Docs only.
