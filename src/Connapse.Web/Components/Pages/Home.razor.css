@@ -85,6 +85,11 @@
     color: var(--accent);
 }
 
+.container-card-memory-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
 .container-delete-btn {
     opacity: 0;
     transition: opacity 0.15s;

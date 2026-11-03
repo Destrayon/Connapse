@@ -140,7 +140,32 @@ public class ContainerOperationTests
         created.Result.Should().Be(made);
         await _containers.Received(1).CreateAsync(new CreateContainerRequest("docs", "about docs"), Arg.Any<CancellationToken>());
         await _audit.Received(1).LogAsync("container.created", "container", made.Id,
-            Arg.Is<object>(d => d.ToString() == new { Name = "docs" }.ToString()), Arg.Any<CancellationToken>());
+            Arg.Is<object>(d => d.ToString() == new { Name = "docs", Kind = ContainerKind.Documents }.ToString()), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Create_MemoryKind_SavesTheKindAndAuditsIt()
+    {
+        var made = Named("agent-notes") with { Kind = ContainerKind.Memory };
+        _containers.CreateAsync(Arg.Any<CreateContainerRequest>(), Arg.Any<CancellationToken>()).Returns(made);
+
+        var created = await Create().RunAsync(Caller, new CreateContainerRequest("agent-notes", null, ContainerKind.Memory));
+
+        created.Result!.Kind.Should().Be(ContainerKind.Memory);
+        await _containers.Received(1).CreateAsync(new CreateContainerRequest("agent-notes", null, ContainerKind.Memory), Arg.Any<CancellationToken>());
+        await _audit.Received(1).LogAsync("container.created", "container", made.Id,
+            Arg.Is<object>(d => d.ToString() == new { Name = "agent-notes", Kind = ContainerKind.Memory }.ToString()), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Create_UndefinedKind_IsInvalidOnKindAndSavesNothing()
+    {
+        var created = await Create().RunAsync(Caller, new CreateContainerRequest("docs", null, (ContainerKind)7));
+
+        created.Status.Should().Be(ContainerStatus.Invalid);
+        created.Field.Should().Be("kind");
+        created.Detail.Should().Be("kind must be documents or memory");
+        await _containers.DidNotReceiveWithAnyArgs().CreateAsync(default!);
     }
 
     [Fact]
@@ -313,8 +338,7 @@ public class ContainerOperationTests
     [Fact]
     public async Task UpdateSettings_Valid_SavesTheOverridesAndAudits()
     {
-        var id = Guid.NewGuid();
-        _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        var id = Existing();
         var overrides = new ContainerSettingsOverrides { Search = new SearchSettings { TopK = 7 } };
         _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
             .Returns(c => c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(null));
@@ -329,8 +353,7 @@ public class ContainerOperationTests
     [Fact]
     public async Task UpdateSettings_DeletedBeforeTheSave_IsNotFoundAndAuditsNothing()
     {
-        var id = Guid.NewGuid();
-        _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        var id = Existing();
         _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
             .Returns((ContainerSettingsOverrides?)null);
 
@@ -374,6 +397,7 @@ public class ContainerOperationTests
     {
         var id = Guid.NewGuid();
         _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Container(id.ToString(), "box", null, Epoch, Epoch));
         return id;
     }
 

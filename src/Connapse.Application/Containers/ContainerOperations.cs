@@ -31,6 +31,9 @@ public enum ContainerStatus
 
     [Failure(400, "invalid-reindex", "Invalid reindex request")]
     InvalidReindex,
+
+    [Failure(409, "memory-container", "Agent memory container")]
+    MemoryContainer,
 }
 
 /// <summary>Names a container by id, or by name as REST's by-name route and MCP's tools accept.</summary>
@@ -73,6 +76,17 @@ internal static class ContainerRules
 
     public static Attempt<T, ContainerStatus> NotFound<T>(ContainerKey key) =>
         Attempt<T, ContainerStatus>.Fail(ContainerStatus.NotFound, $"Container {key} not found");
+
+    /// <summary>
+    /// What every document operation answers for an agent memory container (CON-227): it holds memory facts, never
+    /// documents, so the caller is pointed at the tools that work on it.
+    /// </summary>
+    public static string MemoryOnly(Container container) =>
+        $"'{container.Name}' is an agent memory container: it holds memory facts, not documents. "
+        + "Use the memory tools (memory_remember, memory_recall) on it instead.";
+
+    public static Attempt<T, ContainerStatus> MemoryOnly<T>(Container container) =>
+        Attempt<T, ContainerStatus>.Fail(ContainerStatus.MemoryContainer, MemoryOnly(container));
 }
 
 /// <summary>Lists containers. Open to viewers; a container has no per-item visibility.</summary>
@@ -130,13 +144,15 @@ public sealed class CreateContainer(IContainerStore containers, IAuditLogger aud
             return Fail(ContainerStatus.Invalid, "Container name is required", "name");
         if (!PathUtilities.IsValidContainerName(name))
             return Fail(ContainerStatus.Invalid, ContainerRules.NameRule, "name");
+        if (!Enum.IsDefined(request.Kind))
+            return Fail(ContainerStatus.Invalid, "kind must be documents or memory", "kind");
         if (await containers.GetByNameAsync(name, ct) is not null)
             return Fail(ContainerStatus.Conflict, $"Container '{name}' already exists", "name");
 
         Container created;
         try
         {
-            created = await containers.CreateAsync(new CreateContainerRequest(name, request.Description?.Trim()), ct);
+            created = await containers.CreateAsync(new CreateContainerRequest(name, request.Description?.Trim(), request.Kind), ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -144,7 +160,7 @@ public sealed class CreateContainer(IContainerStore containers, IAuditLogger aud
             return Fail(ContainerStatus.Conflict, ex.Message, "name");
         }
 
-        await audit.LogAsync("container.created", "container", created.Id, new { created.Name }, ct);
+        await audit.LogAsync("container.created", "container", created.Id, new { created.Name, created.Kind }, ct);
         return Attempt<Container, ContainerStatus>.Succeed(created);
     }
 }

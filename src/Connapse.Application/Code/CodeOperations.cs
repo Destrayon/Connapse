@@ -1,3 +1,4 @@
+using Connapse.Application.Containers;
 using Connapse.Application.Ports;
 using Connapse.Application.Search;
 using Connapse.Core;
@@ -19,6 +20,9 @@ public enum CodeStatus
 
     [Failure(400, "invalid-code-query", "Invalid code query")]
     Invalid,
+
+    [Failure(409, "memory-container", "Agent memory container")]
+    MemoryContainer,
 
     [Failure(503, "code-access-unchecked", "Access could not be checked")]
     Unchecked,
@@ -42,6 +46,8 @@ internal static class CodeAsker
         if (string.IsNullOrWhiteSpace(containerId)
             || await search.ResolveAsync(context, new SearchScope(containerId.Trim()), ct) is not { } found)
             return NotFound<T>(containerId);
+        if (found.Memory is { } memory)
+            return Attempt<T, CodeStatus>.Fail(CodeStatus.MemoryContainer, ContainerRules.MemoryOnly(memory));
 
         T answer = await ask(new CodeScope(found.Id, SearchPrincipal.Resolve(context.User)));
         if (denied(answer))

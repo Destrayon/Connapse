@@ -34,19 +34,37 @@
                 <button class="breadcrumb-link" @onclick="() => NavigateToPath(crumb.Path)">@crumb.Name</button>
             }
         </nav>
-        <ContainerStatsLine Stats="containerStats" />
+        @if (IsMemory)
+        {
+            <div class="container-kind-line" id="memory-container-note">
+                <span class="bi-lightbulb me-1"></span>Agent memory: facts your agents save with <code>memory_remember</code>
+            </div>
+        }
+        else
+        {
+            <ContainerStatsLine Stats="containerStats" />
+        }
     </div>
     <div class="d-flex align-items-center gap-2">
         <ul class="nav nav-tabs border-0 me-2">
-            <li class="nav-item">
-                <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
-            </li>
-            <li class="nav-item">
-                <button id="memory-tab" class="nav-link @(activeTab == "memory" ? "active" : "")" @onclick='() => activeTab = "memory"'>Memory</button>
-            </li>
-            <li class="nav-item">
-                <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
-            </li>
+            @if (IsMemory)
+            {
+                <li class="nav-item">
+                    <button id="memory-tab" class="nav-link active">Memory</button>
+                </li>
+            }
+            else
+            {
+                <li class="nav-item">
+                    <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
+                </li>
+                <li class="nav-item">
+                    <button id="memory-tab" class="nav-link @(activeTab == "memory" ? "active" : "")" @onclick='() => activeTab = "memory"'>Memory</button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
+                </li>
+            }
         </ul>
         @if (canEdit && activeTab == "files" && failedCount > 0)
         {
@@ -187,6 +205,8 @@
 }
 
 @* Upload Drop Zone — always rendered so JS event listeners survive navigation *@
+@if (!IsMemory)
+{
 <div id="fileDropZone" class="browser-content" style="@(activeTab != "files" ? "display:none;" : "")">
 
     <div class="drop-overlay">
@@ -348,6 +368,7 @@
         </table>
     }
 </div>
+}
 
 @* File Detail Panel *@
 @if (selectedFile is not null)
@@ -581,6 +602,9 @@
 
     private Container? container;
 
+    // An agent memory container holds memory facts only (CON-227): the page is the Memory tab and nothing else.
+    private bool IsMemory => container?.Kind == ContainerKind.Memory;
+
     // Container-wide, not just the folder on screen, so failures elsewhere are not hidden.
     private int failedCount;
     private ContainerStats? containerStats;
@@ -635,6 +659,8 @@
         // A container that didn't load (missing, or the caller may not see it) has no files to list.
         if (container is null)
             (errorMessage, isLoading) = (containerError, false);
+        else if (IsMemory)
+            (activeTab, isLoading) = ("memory", false);
         else
             await LoadEntries();
     }
@@ -687,7 +713,7 @@
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (canEdit && !jsInitialized && !isLoading)
+        if (canEdit && !jsInitialized && !isLoading && !IsMemory)
         {
             try
             {

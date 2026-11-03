@@ -1,3 +1,4 @@
+using Connapse.Application.Containers;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -23,6 +24,9 @@ public enum SearchStatus
 
     [Failure(503, "embeddings-unavailable", "Embedding service unavailable")]
     EmbeddingsUnavailable,
+
+    [Failure(409, "memory-container", "Agent memory container")]
+    MemoryContainer,
 }
 
 /// <summary>Which kind of scope a search may name.</summary>
@@ -86,7 +90,9 @@ public sealed class SearchKnowledge(
             return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.Invalid, detail, field);
 
         var owner = await ResolveAsync(context, scope, ct);
-        var (ownerId, discoverable) = owner ?? (Nowhere, false);
+        if (owner?.Memory is { } memory)
+            return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.MemoryContainer, ContainerRules.MemoryOnly(memory));
+        var (ownerId, discoverable, _) = owner ?? (Nowhere, false, null);
 
         var filters = request.Filters is null ? [] : new Dictionary<string, string>(request.Filters);
         if (!string.IsNullOrWhiteSpace(request.Path))
@@ -141,16 +147,17 @@ public sealed class SearchKnowledge(
     /// <summary>
     /// The id to search and whether the caller may know it exists, or null when it reads as missing.
     /// Containers are checked first, so an id both kinds somehow share resolves to the more restricted kind.
+    /// <c>Memory</c> is the container when it is an agent memory container, which holds no documents to search.
     /// </summary>
-    internal async Task<(Guid Id, bool Discoverable)?> ResolveAsync(OperationContext context, SearchScope scope, CancellationToken ct)
+    internal async Task<(Guid Id, bool Discoverable, Container? Memory)?> ResolveAsync(OperationContext context, SearchScope scope, CancellationToken ct)
     {
         bool containersAllowed = scope.Kind != SearchScopeKind.Source;
         bool sourcesAllowed = scope.Kind != SearchScopeKind.Container;
 
         if (Guid.TryParse(scope.IdOrName, out var id))
         {
-            if (containersAllowed && await containers.GetAsync(id, ct) is not null)
-                return (id, true);
+            if (containersAllowed && await containers.GetAsync(id, ct) is { } byId)
+                return (id, true, MemoryOf(byId));
             if (!sourcesAllowed)
                 return null;
             var source = await sources.FindAsync(id, ct);
@@ -159,21 +166,23 @@ public sealed class SearchKnowledge(
             if (source is null)
                 return null;
             if (canSee(source))
-                return (id, true);
+                return (id, true, null);
             // By id only: a name lookup that answered differently for a hidden source would let anyone probe for one.
-            return visibility.IsSearchableWhenHidden(source) ? (id, false) : null;
+            return visibility.IsSearchableWhenHidden(source) ? (id, false, null) : null;
         }
 
         // Names are stored lower case.
         string name = scope.IdOrName.ToLowerInvariant();
         if (containersAllowed && await containers.GetByNameAsync(name, ct) is { } container)
-            return Guid.TryParse(container.Id, out var containerId) ? (containerId, true) : null;
+            return Guid.TryParse(container.Id, out var containerId) ? (containerId, true, MemoryOf(container)) : null;
         if (!sourcesAllowed)
             return null;
         var named = await sources.FindByNameAsync(name, ct);
         var canSeeNamed = await visibility.ForAsync(context.User, ct);
-        return named is not null && canSeeNamed(named) ? (named.Id, true) : null;
+        return named is not null && canSeeNamed(named) ? (named.Id, true, null) : null;
     }
+
+    private static Container? MemoryOf(Container container) => container.Kind == ContainerKind.Memory ? container : null;
 
     private static Attempt<SearchResult, SearchStatus> NotFound(SearchScope scope) =>
         Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.NotFound, scope.Kind switch

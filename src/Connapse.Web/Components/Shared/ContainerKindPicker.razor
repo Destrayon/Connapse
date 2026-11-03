@@ -1,0 +1,46 @@
+@*
+    The create dialog's container type: documents (files you upload and search) or agent memory (facts agents
+    save and recall). The note under it says what the chosen type holds. The type is fixed once created.
+*@
+@using Connapse.Core
+
+<div class="mb-3">
+    <label class="form-label" id="container-kind-label">Type</label>
+    <div class="kind-choice" role="radiogroup" aria-labelledby="container-kind-label">
+        @foreach (var option in Options)
+        {
+            <button type="button" role="radio" id="kind-@option.Id"
+                    class="kind-option @(Kind == option.Kind ? "selected" : "")"
+                    aria-checked="@(Kind == option.Kind ? "true" : "false")"
+                    @onclick="() => KindChanged.InvokeAsync(option.Kind)">
+                <span class="@option.Icon kind-option-icon"></span>
+                <span class="kind-option-title">@option.Title</span>
+                <span class="kind-option-hint">@option.Hint</span>
+            </button>
+        }
+    </div>
+</div>
+<div class="alert alert-info py-2 small" id="container-kind-note">
+    <span class="bi-info-circle me-1"></span>
+    @if (Kind == ContainerKind.Memory)
+    {
+        <text>Holds memory facts only, with no files. Agents write to it with <code>memory_remember</code>
+        and read it with <code>memory_recall</code>. The type can't be changed later.</text>
+    }
+    else
+    {
+        <text>A container is storage Connapse owns — upload to it, organise it, delete from it.
+        To index data that lives somewhere else, add a <a href="sources">source</a> instead.</text>
+    }
+</div>
+
+@code {
+    private static readonly (string Id, ContainerKind Kind, string Icon, string Title, string Hint)[] Options =
+    [
+        ("documents", ContainerKind.Documents, "bi-folder2", "Documents", "Files you upload and search"),
+        ("memory", ContainerKind.Memory, "bi-lightbulb", "Agent memory", "Facts your agents save and recall"),
+    ];
+
+    [Parameter] public ContainerKind Kind { get; set; }
+    [Parameter] public EventCallback<ContainerKind> KindChanged { get; set; }
+}
