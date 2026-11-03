@@ -11,7 +11,8 @@ public interface IMemoryStore
     /// <summary>
     /// Ends or supersedes <paramref name="factId"/> and writes its replacement, in one transaction. Returns an error
     /// when the fact is not in the container, is already superseded or ended, or the dates do not follow it, or the
-    /// error <paramref name="check"/> returns for the chain's versions, which it is given with the chain locked.
+    /// error <paramref name="check"/> returns for the chain's versions, which it is given with the chain locked. The
+    /// replacement takes the scope the old fact has under that lock, whatever <paramref name="replacement"/> says.
     /// </summary>
     Task<MemoryWriteResult> CorrectAsync(
         Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author,
@@ -24,6 +25,15 @@ public interface IMemoryStore
     /// </summary>
     Task<int?> ForgetAsync(Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
 
+    /// <summary>
+    /// Gives every version of <paramref name="factId"/>'s correction chain <paramref name="scope"/>, in one transaction
+    /// with the chain locked as a correction locks it, unless <paramref name="check"/> returns an error for the chain's
+    /// versions. Returns <paramref name="factId"/> as it is now, or why nothing changed.
+    /// </summary>
+    Task<MemoryWriteResult> SetScopeAsync(
+        Guid containerId, Guid factId, MemoryScope scope,
+        Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> check, CancellationToken ct = default);
+
     Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default);
 
     /// <summary>One page of matching facts, best match first (newest first without text), skipping <paramref name="skip"/>.</summary>
@@ -35,19 +45,30 @@ public interface IMemoryStore
 
 /// <summary>
 /// Agent memory with its rules: the writer must be able to read every source it cites, every write is audited, and
-/// a reader sees a fact only when it can read every one of its sources (a sourceless fact only its author).
-/// Access is checked on every call; when it cannot be checked, reads return <see cref="MemoryRecall.DeniedResult"/>
-/// and writes fail.
+/// a reader sees a fact only when it can read every one of its sources and the fact is team or the reader's own.
+/// Writing a team fact needs write access, which the caller's surface checks and passes as
+/// <c>teamWriter</c>; a personal fact needs only read access. Access is checked on every call; when it cannot be
+/// checked, reads return <see cref="MemoryRecall.DeniedResult"/> and writes fail.
 /// </summary>
 public interface IMemoryService
 {
     Task<MemoryWriteResult> RememberAsync(Guid containerId, NewMemoryFact fact, MemoryCaller caller, CancellationToken ct = default);
 
     Task<MemoryWriteResult> CorrectAsync(
-        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, CancellationToken ct = default);
+        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
+        CancellationToken ct = default);
 
-    /// <summary>Deletes the fact's whole correction chain. Returns the number deleted, or an error when the caller may not see it.</summary>
-    Task<(int Deleted, string? Error)> ForgetAsync(Guid containerId, Guid factId, MemoryCaller caller, CancellationToken ct = default);
+    /// <summary>
+    /// Deletes the fact's whole correction chain. Returns the number deleted, or why not: missing when the caller may
+    /// not see every version, forbidden when a version is team and the caller is not a team writer.
+    /// </summary>
+    Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(Guid containerId, Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default);
+
+    /// <summary>
+    /// Shares a fact with the team or makes it personal, every version of its chain at once. The caller must have
+    /// written every version, so one person's change never publishes or hides another's.
+    /// </summary>
+    Task<MemoryWriteResult> SetScopeAsync(Guid containerId, Guid factId, MemoryScope scope, MemoryCaller caller, CancellationToken ct = default);
 
     Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default);
 }

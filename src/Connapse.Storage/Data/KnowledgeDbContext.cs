@@ -70,6 +70,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.AuthorUserId).HasColumnName("author_user_id");
             entity.Property(e => e.AuthorAgentId).HasColumnName("author_agent_id");
             entity.Property(e => e.AuthorName).HasColumnName("author_name").HasMaxLength(200);
+            // Personal by default, so a row written without a scope is seen by no one but its author.
+            entity.Property(e => e.Scope).HasColumnName("scope").HasDefaultValue((short)0);
             // Subject counts most, then attribute, value and the reason a writer gave (which names its ticket). Punctuation
             // becomes a space first, as in the query's words: the parser would read "HAL-17" as "hal" and the number -17.
             entity.Property(e => e.SearchVector)

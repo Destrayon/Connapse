@@ -20,6 +20,9 @@ public class MemoryFactEntity
     public Guid? AuthorUserId { get; set; }
     public Guid? AuthorAgentId { get; set; }
     public string? AuthorName { get; set; }
+
+    /// <summary>A <see cref="Connapse.Core.MemoryScope"/>: 0 personal, 1 team.</summary>
+    public short Scope { get; set; }
     public NpgsqlTsVector SearchVector { get; set; } = null!;
     public List<MemoryFactSourceEntity> Sources { get; set; } = [];
 }

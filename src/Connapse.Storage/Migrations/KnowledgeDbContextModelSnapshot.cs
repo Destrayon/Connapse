@@ -773,6 +773,12 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("replaces_id");
 
+                    b.Property<short>("Scope")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0)
+                        .HasColumnName("scope");
+
                     b.Property<NpgsqlTsVector>("SearchVector")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()

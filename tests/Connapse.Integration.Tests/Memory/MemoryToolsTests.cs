@@ -422,7 +422,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 11", "2026-01-05", sources: [_upload]));
-        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_allowedPage]);
+        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload, _allowedPage]);
 
         As(_reader);
         Values(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().Equal(["MariaDB 11"], "the reader sees the first version");
@@ -438,7 +438,8 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer, role: "Viewer");
         (await Remember("x")).Should().Contain("needs write access");
-        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, Guid.NewGuid().ToString())).Should().Contain("needs write access");
+        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, Guid.NewGuid().ToString())).Should().Contain("not found",
+            "read access may forget its own personal facts, so a missing fact is simply not found");
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().BeEmpty("reading still works");
     }
 

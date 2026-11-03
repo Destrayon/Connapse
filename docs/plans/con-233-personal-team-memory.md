@@ -112,3 +112,13 @@ There is no separate page for personal memory. The existing container Memory tab
   personal fact changes nothing anyone else sees; say no if memory should stay an editor feature.
 - Should owners see a count of other people's personal facts before deleting a container? Today the delete dialog
   says facts are deleted "including facts other people's agents saved", which would now include private ones.
+
+## Progress
+
+- **Phase 1 (CON-234), 2026-11-03.** Every fact version now has a `scope` column (personal or team). The
+  `AddMemoryScope` migration makes versions that cite sources team and the rest personal, so no audience changes.
+  Corrections keep the old scope and every old source of a team fact. Changing scope (`memory.setScope`) needs the
+  author of every version. Read-only users can remember, correct and forget personal facts. Files touched:
+  `MemoryModels`, `IMemoryStore`, `PostgresMemoryStore`, `MemoryService`, `MemoryOperations`, `McpTools.Memory`,
+  plus the migration. Verified by unit, random-input and integration tests, including a migration test that
+  compares every reader's view before and after. Next: phase 2, a required `scope` in the MCP tools and REST API.
