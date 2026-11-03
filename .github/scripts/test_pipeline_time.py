@@ -21,6 +21,7 @@ import pipeline_time as pt  # noqa: E402
 
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "pipeline-time-replays.json.gz"
 LIMIT = 45  # ci.yml's --max-added-seconds
+DRIFT_LIMIT = 120  # ci.yml's --max-drift-seconds
 T0 = datetime(2026, 11, 2, 22, 0, 0, tzinfo=timezone.utc)
 
 
@@ -56,12 +57,13 @@ def main(run: dict, baseline: list[dict], longest_job: float = 300, own: float =
     out = io.StringIO()
     with mock.patch.object(pt, "results", return_value=run), \
          mock.patch.object(pt, "baseline_runs", return_value=[(str(i), b, 340.0 + i) for i, b in enumerate(baseline)]), \
+         mock.patch.object(pt, "base_commit", return_value="b" * 40), \
          mock.patch.object(pt, "jobs", return_value=js), \
          mock.patch.object(pt, "utcnow", return_value=T0 + timedelta(seconds=longest_job + own)), \
          mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1", "GITHUB_STEP_SUMMARY": ""}), \
          contextlib.redirect_stdout(out):
-        rc = pt.main(["--results", ".", "--max-added-seconds", str(LIMIT), "--max-wall-seconds", "360",
-                      "--current", "build-and-test"])
+        rc = pt.main(["--results", ".", "--max-added-seconds", str(LIMIT), "--max-drift-seconds", str(DRIFT_LIMIT),
+                      "--max-wall-seconds", "360", "--current", "build-and-test"])
     return rc, out.getvalue()
 
 
@@ -125,6 +127,20 @@ class SyntheticSlowPr(unittest.TestCase):
         rc, out = main(run, baseline)
         self.assertEqual(rc, 0, out)
 
+    def test_main_ManyTestsEachALittleSlower_FailsOnTheirSum(self):
+        # 300 tests each 0.5 s slower on a median runner, every one inside the band: 150 s together.
+        run, baseline = replay("41535048861")
+        ref = pt.reference(baseline)
+        picked = [(job, n) for job, tests in run.items() for n in tests if 0.2 < ref.get(n, 0) < 5][:300]
+        self.assertEqual(len(picked), 300)
+        for job, n in picked:
+            run[job][n] += 0.5 * pt.factor(run[job], ref)[0]
+        more, _, _, _ = pt.added(run, baseline)
+        self.assertLess(more, LIMIT)
+        rc, out = main(run, baseline)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("a slowdown spread over many tests", out)
+
 
 class Measure(unittest.TestCase):
     def test_changed_InsideTheBand_IsNot(self):
@@ -144,6 +160,23 @@ class Measure(unittest.TestCase):
         self.assertAlmostEqual(factors["medium"], 0.7)
         self.assertEqual((more, share), (0, {}))
 
+    def test_added_WaitsOnAFastCpu_AreNotSlower(self):
+        # CPU-bound tests at 0.45x, ten-second waits unchanged: the factor would put each wait at 22 s.
+        base = {"medium": {**{f"C{i}": 1.0 for i in range(60)}, **{f"W{i}": 10.0 for i in range(4)}}}
+        run = {"medium": {**{f"C{i}": 0.45 for i in range(60)}, **{f"W{i}": 10.0 for i in range(4)}}}
+        more, _, share, _ = pt.added(run, [base] * 5)
+        self.assertEqual((more, share), (0, {}))
+
+    def test_added_JobMissingFromMainsNewestRun_IsNotCompared(self):
+        base = {"small": {f"T{i}": 1.0 for i in range(60)}}
+        run = {"small": dict(base["small"]), "small gates": {"G": 12.0}}
+        self.assertEqual(pt.added(run, [base] * 5)[0], 0)
+
+    def test_added_FileMissingFromThisRun_DropsNoTests(self):
+        base = {"small": {f"T{i}": 1.0 for i in range(60)}, "small gates": {"G": 12.0}}
+        run = {"small": dict(base["small"])}
+        self.assertEqual(pt.added(run, [base] * 5)[0], 0)
+
     def test_added_GoneTest_SavesItsUsualTime(self):
         base = {"medium": {f"T{i}": 1.0 for i in range(60)}}
         run = {"medium": {n: s for n, s in base["medium"].items() if n != "T0"}}
@@ -159,14 +192,50 @@ class Measure(unittest.TestCase):
     def test_factor_FewMatchedTests_IsOne(self):
         self.assertEqual(pt.factor({"A": 3.0}, {"A": 1.0}), (1.0, 1))
 
-    def test_results_GateFiles_AreLeftOut(self):
+    def test_results_GateFiles_AreTheirOwnJobs(self):
         trx = ('<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010"><Results>'
                '<UnitTestResult testName="{}" outcome="Passed" duration="00:00:01.5000000" /></Results></TestRun>')
         with tempfile.TemporaryDirectory() as d:
             for name, test in [("small-tests.trx", "S"), ("gate-tests.trx", "G"), ("medium-tests-shard-2.trx", "I"),
                                ("memory-gate-tests.trx", "M")]:
                 pathlib.Path(d, name).write_text(trx.format(test), encoding="utf-8")
-            self.assertEqual(pt.results(d), {"small": {"S": 1.5}, "integration (2)": {"I": 1.5}})
+            self.assertEqual(pt.results(d), {"small": {"S": 1.5}, "small gates": {"G": 1.5},
+                                             "integration (2)": {"I": 1.5}, "integration (1) gates": {"M": 1.5}})
+
+
+class Baseline(unittest.TestCase):
+    """main's runs from the base commit's back: a test merged into main after it isn't one this run dropped."""
+
+    RUNS = [{"id": 5, "head_sha": "e" * 40, "status": "completed"},   # merged after the PR's base
+            {"id": 4, "head_sha": "d" * 40, "status": "completed"},   # the base
+            {"id": 3, "head_sha": "c" * 40, "status": "completed"},
+            {"id": 2, "head_sha": "a" * 40, "status": "completed"},
+            {"id": 1, "head_sha": "9" * 40, "status": "completed"},
+            {"id": 0, "head_sha": "8" * 40, "status": "completed"},
+            {"id": -1, "head_sha": "7" * 40, "status": "completed"}]
+
+    def ids(self, base: str | None) -> tuple[list[str], str]:
+        green = [{"name": t, "conclusion": "success"} for t in pt.TEST_JOBS]
+        out = io.StringIO()
+        with mock.patch.object(pt, "main_runs", return_value=self.RUNS), \
+             mock.patch.object(pt, "jobs", return_value=green), \
+             mock.patch.object(pt, "download"), \
+             mock.patch.object(pt, "results", return_value={t: {"T": 1.0} for t in pt.TEST_JOBS}), \
+             contextlib.redirect_stdout(out):
+            return [i for i, _, _ in pt.baseline_runs(exclude="", base=base)], out.getvalue()
+
+    def test_baseline_runs_StartsAtTheBaseCommitsRun(self):
+        self.assertEqual(self.ids("d" * 40)[0], ["4", "3", "2", "1", "0"])
+
+    def test_baseline_runs_BaseNotAmongMainsRuns_StartsAtTheNewestAndSaysSo(self):
+        ids, out = self.ids("f" * 40)
+        self.assertEqual(ids, ["5", "4", "3", "2", "1"])
+        self.assertIn("::notice::", out)
+
+    def test_base_commit_ShallowCheckout_ReadsTheFirstParent(self):
+        raw = f"tree {'1' * 40}\nparent {'d' * 40}\nparent {'f' * 40}\nauthor x\n\nmerge\n"
+        with mock.patch.object(pt.subprocess, "run", return_value=mock.Mock(stdout=raw)):
+            self.assertEqual(pt.base_commit(), "d" * 40)
 
 
 class Gate(unittest.TestCase):

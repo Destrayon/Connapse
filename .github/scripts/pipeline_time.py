@@ -1,9 +1,13 @@
 """PrPipeline_WallTimeUnder6Min: the proof check for epic #783, problem P10 (#789), CON-223.
 
-It fails a PR only when its tests add time against main's last few runs: the new tests, the tests
-that got much slower or faster, and the tests that are gone, each read on a median runner. The
-pipeline's wall time against its 6-minute budget is printed as a warning, with main's recent wall
-times as its trend, and fails nothing.
+It fails a PR only when its tests add time against main's five runs up to its base commit: the new
+tests, the tests that got much slower or faster, and the tests that are gone, each read on a median
+runner; or when the other tests, each inside its usual time, add a lot together. The pipeline's wall
+time against its 6-minute budget is printed as a warning, with main's recent wall times as its trend,
+and fails nothing.
+
+What it can't see: a change that slows most of one job's tests alike, by less than MAX_FACTOR, reads
+as a slower runner. The wall-time warning and its trend are where that shows.
 
 Wall time depends on which runner GitHub hands out. The same code on two runners differed by up to 46 s
 of wall in 18 pairs of runs on the same tree (2026-10-27 to 11-03), and eleven runs failed this check on
@@ -37,14 +41,11 @@ from test_budgets import durations  # noqa: E402
 # listed here is its own job.
 JOB_OF = [
     (re.compile(r"^small-tests\.trx$"), "small"),
+    (re.compile(r"^gate-tests\.trx$"), "small gates"),
     (re.compile(r"^medium-tests\.trx$"), "medium"),
     (re.compile(r"^medium-tests-shard-(\d+)\.trx$"), r"integration (\1)"),
+    (re.compile(r"^memory-gate-tests\.trx$"), "integration (1) gates"),
 ]
-
-# The speed gates' results: each gate holds its own time limit, and main's artifacts carry these files
-# in only some runs (none before 2026-10-31, then 17 of the next 35), so their tests would read as new
-# whenever they came back. Left out.
-SKIPPED = re.compile(r"^(memory-)?gate-tests\.trx$")
 
 # A test whose median-runner duration stays inside this band around its usual one counts as unchanged:
 # a test's own duration varies with the runner by more than the factor removes. Outside it, the whole
@@ -84,8 +85,6 @@ def results(root: str) -> dict[str, dict[str, float]]:
     """Each job's passed tests and their durations, from the TRX files under root."""
     by_job: dict[str, list[str]] = {}
     for path in glob.glob(os.path.join(root, "**", "*.trx"), recursive=True):
-        if SKIPPED.match(os.path.basename(path)):
-            continue
         by_job.setdefault(job_of(path), []).append(path)
     return {job: durations(sorted(paths)) for job, paths in by_job.items()}
 
@@ -141,16 +140,41 @@ def added(run: dict[str, dict[str, float]], baseline: list[dict[str, dict[str, f
     so the sum read 30 s high on a typical run and moved by up to 47 s between reruns of the same code."""
     ref = reference(baseline)
     usual = statistics.median(total(normalized(b, ref)) for b in baseline)
-    mine = normalized(run, ref)
+    # Results of a file main's newest run didn't carry can't be compared: main's artifacts carried the
+    # speed gates' files in only some runs before 2026-11-02, and their tests read as new each time.
+    mine = {job: tests for job, tests in normalized(run, ref).items() if not baseline or job in baseline[0]}
     share: dict[str, float] = {}
     for job, tests in mine.items():
         # A job slowed past MAX_FACTOR is slowed by the code, all its tests alike, each one maybe
-        # inside the band: every test's difference counts.
+        # inside the band: every test's difference counts. Otherwise a test counts when it is outside
+        # the band both as it ran and on a median runner: a test that mostly waits takes as long on a
+        # fast CPU, and dividing it by that runner's factor alone would put it outside.
         whole = factor(run[job], ref)[0] >= MAX_FACTOR
-        share.update({n: s - ref.get(n, 0.0) for n, s in tests.items() if n not in ref or whole or changed(s, ref[n])})
+        share.update({n: s - ref.get(n, 0.0) for n, s in tests.items()
+                      if n not in ref or whole or (changed(s, ref[n]) and changed(run[job][n], ref[n]))})
     flat = {n for tests in mine.values() for n in tests}
-    share.update({n: -s for n, s in ref.items() if n not in flat})
+    # A test is gone only if its file came: a missing file is a step that didn't run, not dropped tests.
+    absent = {n for job, tests in (baseline[0] if baseline else {}).items() if job not in run for n in tests}
+    share.update({n: -s for n, s in ref.items() if n not in flat and n not in absent})
     return sum(share.values()), usual, share, {job: factor(t, ref)[0] for job, t in run.items()}
+
+
+def unbanded(run: dict[str, dict[str, float]], ref: dict[str, float]) -> float:
+    """The median-runner time the tests added() doesn't count add up to against their usual time."""
+    t = 0.0
+    for job, tests in normalized(run, ref).items():
+        if factor(run[job], ref)[0] >= MAX_FACTOR:
+            continue
+        t += sum(s - ref[n] for n, s in tests.items() if n in ref and not (changed(s, ref[n]) and changed(run[job][n], ref[n])))
+    return t
+
+
+def drift(run: dict[str, dict[str, float]], baseline: list[dict[str, dict[str, float]]]) -> float:
+    """How much the tests inside the band add together, less what main's own runs add the same way: a
+    slowdown spread over many tests, each too little to count alone. It read up to +51 s with no change
+    in 47 replayed runs and moved by up to 55 s between reruns of the same code, so its limit is wider."""
+    ref = reference(baseline)
+    return unbanded(run, ref) - statistics.median(unbanded(b, ref) for b in baseline)
 
 
 # GitHub, through the gh CLI the runners ship with. Mocked in the tests.
@@ -177,11 +201,29 @@ def download(run_id: str | int, into: str) -> None:
                     "--repo", os.environ["GITHUB_REPOSITORY"]], check=True, capture_output=True)
 
 
-def baseline_runs(exclude: str) -> list[tuple[str, dict[str, dict[str, float]], float | None]]:
-    """main's last BASELINE_RUNS runs whose test jobs all succeeded: each one's id, test results and
-    pipeline wall time."""
+def base_commit() -> str | None:
+    """The main commit this run's code is built on: the first parent of the commit checked out, the
+    merge of a PR into main or a push's commit. Read from the commit itself, which a shallow checkout
+    holds though not its parents."""
+    try:
+        raw = subprocess.run(["git", "cat-file", "-p", "HEAD"], check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    parent = re.search(r"^parent ([0-9a-f]{40})$", raw, re.M)
+    return parent.group(1) if parent else None
+
+
+def baseline_runs(exclude: str, base: str | None) -> list[tuple[str, dict[str, dict[str, float]], float | None]]:
+    """main's last BASELINE_RUNS runs whose test jobs all succeeded, from the run of `base` back: each
+    one's id, test results and pipeline wall time. Not newer ones: a test merged since would read as
+    one this run dropped, and its time as saved."""
     found = []
-    for r in main_runs():
+    runs = main_runs()
+    start = next((i for i, r in enumerate(runs) if r.get("head_sha") == base), None)
+    if start is None:
+        print(f"::notice::main's recent runs don't include the base commit {base}; the baseline is main's latest runs")
+        start = 0
+    for r in runs[start:]:
         if str(r["id"]) == exclude or r.get("status") != "completed":
             continue
         js = jobs(r["id"])
@@ -228,6 +270,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--results", required=True, help="where this run's test-results-* artifacts were downloaded")
     p.add_argument("--max-added-seconds", type=float, required=True,
                    help="the test time on a median runner a PR may add over main's")
+    p.add_argument("--max-drift-seconds", type=float, required=True,
+                   help="the time the tests inside the band may add together, over main's own")
     p.add_argument("--max-wall-seconds", type=float, required=True, help="the wall time over which to warn")
     p.add_argument("--current", required=True, help="the name of the job running this script")
     a = p.parse_args(argv)
@@ -237,13 +281,14 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"::error::no test results from {', '.join(missing)}; the test time can't be measured")
         return 1
-    baseline = baseline_runs(exclude=os.environ.get("GITHUB_RUN_ID", ""))
+    baseline = baseline_runs(exclude=os.environ.get("GITHUB_RUN_ID", ""), base=base_commit())
     if len(baseline) < BASELINE_RUNS:
         print(f"::error::only {len(baseline)} of main's recent runs have every test job's results, and the baseline"
               f" needs {BASELINE_RUNS}; the test time can't be compared")
         return 1
 
     more, usual, share, factors = added(run, [b for _, b, _ in baseline])
+    spread = drift(run, [b for _, b, _ in baseline])
     print(f"Test time on a median runner: {total(normalized(run, reference([b for _, b, _ in baseline]))):.0f} s;"
           f" main's usual {usual:.0f} s (median of runs {', '.join(i for i, _, _ in baseline)})")
     for job in sorted(factors):
@@ -264,14 +309,23 @@ def main(argv: list[str] | None = None) -> int:
         with open(summary, "a", encoding="utf-8") as f:
             f.write(f"### Pipeline time\n\n| | This run | main's usual |\n|---|---|---|\n"
                     f"| Test time the changed tests add on a median runner (s) | {more:+.0f} | limit {a.max_added_seconds:g} |\n"
+                    f"| Test time the other tests add together (s) | {spread:+.0f} | limit {a.max_drift_seconds:g} |\n"
                     f"| Wall time (s) | {'?' if mine is None else f'{mine:.0f}'} | {trend} |\n")
 
+    rc = 0
     if more > a.max_added_seconds:
         print(f"::error::PrPipeline_WallTimeUnder6Min: the changed tests add {more:.0f} s over main's on a median"
               f" runner, over the {a.max_added_seconds:g} s allowed; the tests above add the most")
-        return 1
-    print(f"PrPipeline_WallTimeUnder6Min: the tests add {more:+.0f} s of the {a.max_added_seconds:g} s allowed")
-    return 0
+        rc = 1
+    else:
+        print(f"PrPipeline_WallTimeUnder6Min: the changed tests add {more:+.0f} s of the {a.max_added_seconds:g} s allowed")
+    if spread > a.max_drift_seconds:
+        print(f"::error::PrPipeline_WallTimeUnder6Min: the tests each inside their usual time add {spread:.0f} s together"
+              f" over main's on a median runner, over the {a.max_drift_seconds:g} s allowed: a slowdown spread over many tests")
+        rc = 1
+    else:
+        print(f"PrPipeline_WallTimeUnder6Min: the other tests add {spread:+.0f} s together, of the {a.max_drift_seconds:g} s allowed")
+    return rc
 
 
 if __name__ == "__main__":

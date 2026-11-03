@@ -372,8 +372,8 @@ jobs:
         git commit -m "Update test badge"
         git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
 
-    # Fails when the tests this change adds, slows or drops add over 45 s against main's last five runs,
-    # read on a median runner (CON-223). The pipeline's wall time over 6 minutes depends on the runner
+    # Fails when the tests this change adds, slows or drops add over 45 s against main's five runs up to
+    # its base commit, read on a median runner, or the rest add over 120 s together (CON-223). The pipeline's wall time over 6 minutes depends on the runner
     # GitHub hands out, so it is a warning with main's trend beside it, and fails nothing: wall time
     # failed eleven runs whose tests were no slower, through four patches that each discounted one cause.
     # Last, so the wall time includes this job's own steps.
@@ -382,7 +382,8 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        python3 .github/scripts/pipeline_time.py --results . --max-added-seconds 45 --max-wall-seconds 360 \
+        python3 .github/scripts/pipeline_time.py --results . --max-added-seconds 45 --max-drift-seconds 120 \
+          --max-wall-seconds 360 \
           --current build-and-test
 
   code-quality:
