@@ -584,6 +584,9 @@
     // Container-wide, not just the folder on screen, so failures elsewhere are not hidden.
     private int failedCount;
     private ContainerStats? containerStats;
+    private CoalescedRefresh? _statsRefresh;
+    // Uploaded from this page and not yet settled, so the header still follows them from another folder.
+    private readonly HashSet<string> _uploadedIds = new();
     private string? containerError;
     private List<BrowseEntryDto> entries = new();
     private string currentPath = "/";
@@ -667,11 +670,19 @@
         if (_disposed) return;
         try
         {
-            await InvokeAsync(() =>
+            await InvokeAsync(async () =>
             {
                 var idx = entries.FindIndex(e => e.Id == ev.DocumentId);
-                if (idx < 0) return;
-                entries[idx] = entries[idx] with { IngestionStatus = ev.Status };
+                if (idx >= 0)
+                    entries[idx] = entries[idx] with { IngestionStatus = ev.Status };
+                else if (!_uploadedIds.Contains(ev.DocumentId))
+                    return;
+                // The header counts are container-wide; re-read them once one of these files settles.
+                if (ev.Status is DocumentStatus.Ready or DocumentStatus.FailedRetryable or DocumentStatus.FailedPermanent)
+                {
+                    _uploadedIds.Remove(ev.DocumentId);
+                    await RefreshStats();
+                }
                 StateHasChanged();
             });
         }
@@ -719,6 +730,9 @@
             // container that was already loaded; just log silently and leave state as-is.
         }
     }
+
+    // A burst of completions while one read is in flight costs one more read, not one each.
+    private Task RefreshStats() => (_statsRefresh ??= new CoalescedRefresh(LoadContainer)).RunAsync();
 
     private async Task LoadEntries()
     {
@@ -940,7 +954,10 @@
                     }
                 }
                 catch { /* best-effort */ }
+                _uploadedIds.Add(doc.DocumentId);
             }
+
+            await RefreshStats();
         }
 
         await InvokeAsync(StateHasChanged);
