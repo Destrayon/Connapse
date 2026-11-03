@@ -11,7 +11,8 @@ namespace Connapse.Web.Services;
 /// so a probe cannot learn that the document exists.
 /// <para>
 /// A document with no resource URI was uploaded rather than synced from a provider, so no verifier
-/// governs it and none is run. Any failure while checking denies rather than throwing: the caller
+/// governs it and none is run — unless its source always reports one, when the missing URI denies, as it does in
+/// search (<see cref="SearchScopes.UnaddressedAdmitted"/>). Any failure while checking denies rather than throwing: the caller
 /// then answers "not found", never a 500 that would itself say the document is there.
 /// </para>
 /// </summary>
@@ -28,7 +29,7 @@ public sealed class DocumentReadGuard(
             if (!uris.TryGetValue(document.Id, out string? uri))
                 return false; // the row went away under us
             if (uri is null)
-                return true;
+                return (await documents.GetUnaddressedAdmittedAsync([document.Id], ct)).Contains(document.Id);
 
             return (await verifier.VerifyAsync([new SearchHit("", document.Id, "", 1f, [])], userId, 1, ct)).Count == 1;
         }
@@ -56,15 +57,18 @@ public sealed class DocumentReadGuard(
         {
             IReadOnlyDictionary<string, string?> uris = await documents.GetResourceUrisAsync([.. candidates.Select(d => d.Id)], ct);
             var synced = new List<SearchHit>();
+            var unaddressed = new List<string>();
             foreach (var document in candidates)
             {
                 if (!uris.TryGetValue(document.Id, out string? uri))
                     continue; // the row went away under us
                 if (uri is null)
-                    readable.Add(document.Id);
+                    unaddressed.Add(document.Id);
                 else
                     synced.Add(new SearchHit("", document.Id, "", 1f, []));
             }
+            if (unaddressed.Count > 0)
+                readable.UnionWith(await documents.GetUnaddressedAdmittedAsync(unaddressed, ct));
             if (synced.Count == 0)
                 return readable;
 

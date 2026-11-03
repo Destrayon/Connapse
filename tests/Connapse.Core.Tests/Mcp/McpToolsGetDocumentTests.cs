@@ -31,6 +31,8 @@ public class McpToolsGetDocumentTests
         _documentStore = Substitute.For<IDocumentStore>();
         _documentStore.GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .Returns(_ => (IReadOnlyDictionary<string, string?>)_uris);
+        _documentStore.GetUnaddressedAdmittedAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(c => (IReadOnlySet<string>)c.Arg<IReadOnlyCollection<string>>().ToHashSet());
         _managedStorage = Substitute.For<IManagedStorageProvider>();
         _connector = Substitute.For<IConnector>();
 
