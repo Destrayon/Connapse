@@ -300,9 +300,11 @@ cap goes, and the delete prompt gets its number from a count query, not from the
 
 ### API and database
 
-Every list endpoint returns `items` and an opaque `nextCursor` (the last row's sort value and id, encoded), and none
-returns a total; totals come from their own endpoint so the first page never waits on them. This is the shape
-Notion, Zep and Letta use.
+Every list endpoint returns `items` and an opaque `nextCursor` (the last row's sort value and id, plus a fingerprint
+of the space, filters and sort, encoded), and none returns a total; totals come from their own endpoint so the first
+page never waits on them. This is the shape Notion, Zep and Letta use. A `cursor` whose fingerprint doesn't match the
+request's space, filters or sort gets a 400, so a page never mixes two different views; CON-235 tests reusing a
+cursor after changing `sort` and after changing `author`.
 
 | Endpoint | Parameters | Returns |
 |---|---|---|

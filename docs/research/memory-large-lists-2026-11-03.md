@@ -7,8 +7,9 @@ in this session.
 ## Executive summary
 Notion, Linear, Obsidian and the agent-memory services mem0, Zep and Letta all keep big lists usable the same way:
 show a small first batch (25 to 100 items), let people narrow it with search, filters and grouping, and fetch more
-only when asked. Their APIs page with an opaque cursor rather than a page number, cap page size at 100 to 250, and
-mostly avoid returning a total; mem0 and Zep's user list are the exceptions. Favourites and collapsible sections
+only when asked. Their APIs mostly page with an opaque cursor rather than a page number (mem0 is the exception: its
+v2 `get_all` takes `page` and `page_size`), cap page size at 100 to 250, and mostly avoid returning a total; mem0 and
+Zep's user list are the exceptions there. Favourites and collapsible sections
 keep long lists of spaces manageable. No product publishes a latency target for its list screens; the only published
 numbers are search latencies from mem0 (0.148 s median, 0.200 s at the 95th percentile) and Zep (under 200 ms at the
 95th percentile, a marketing claim). The main uncertainty is how each product's own dashboard pages, which is barely
