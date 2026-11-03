@@ -1,7 +1,8 @@
 # Plan: personal and team memory in one Memory tab (CON-233)
 
-**Status:** plan only, nothing built. Research: [personal-team-memory-2026-11-02.md](../research/personal-team-memory-2026-11-02.md).
-Plain-words examples: [con-233-memory-on-a-container-explained.md](con-233-memory-on-a-container-explained.md).
+**Status:** superseded on 2026-11-03 by [con-238-memory-spaces.md](con-238-memory-spaces.md): memory moves to spaces on
+a Memory page in the nav, and memory on a container is team only. Kept for history; don't build from it.
+Research: [personal-team-memory-2026-11-02.md](../research/personal-team-memory-2026-11-02.md).
 
 ## The problem
 
