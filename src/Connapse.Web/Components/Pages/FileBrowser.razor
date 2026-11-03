@@ -659,11 +659,14 @@
         if (_disposed) return;
         try
         {
-            await InvokeAsync(() =>
+            await InvokeAsync(async () =>
             {
                 var idx = entries.FindIndex(e => e.Id == ev.DocumentId);
                 if (idx < 0) return;
                 entries[idx] = entries[idx] with { IngestionStatus = ev.Status };
+                // The header counts are container-wide; re-read them once a listed file settles.
+                if (ev.Status is DocumentStatus.Ready or DocumentStatus.FailedRetryable or DocumentStatus.FailedPermanent)
+                    await LoadContainer();
                 StateHasChanged();
             });
         }
@@ -933,6 +936,8 @@
                 }
                 catch { /* best-effort */ }
             }
+
+            await LoadContainer();
         }
 
         await InvokeAsync(StateHasChanged);
