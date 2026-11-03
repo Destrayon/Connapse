@@ -9,6 +9,10 @@ services:
       CustomSources__AllowedHttpHosts__0: example-source
       Hangfire__IngestionWorkerCount: "1"
       Knowledge__Embedding__MaxConcurrentIngestionRequests: "1"
+      Sources__Security__AllowedFilesystemRoots__0: /data/shared
+    # The folder the filesystem source shot connects; read-only, since a source only reads.
+    volumes:
+      - ./tools/demo-recording/shared-folder:/data/shared:ro
 
   ollama:
     environment:
