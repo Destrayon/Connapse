@@ -59,7 +59,7 @@ public sealed class MemoryService(
             return refused;
 
         MemoryWriteResult result = await store.CorrectAsync(containerId, factId, kind, replacement, caller,
-            chain => WholeChainVisibleAsync(factId, chain, caller, ct), ct);
+            chain => WholeChainVisibleAsync(factId, chain, replacement.Sources, caller, ct), ct);
         if (result.Fact is { } written)
         {
             await audit.LogAsync("memory.corrected", "memory_fact", written.Id.ToString(),
@@ -130,21 +130,25 @@ public sealed class MemoryService(
     /// Null when <paramref name="caller"/> can see every version of the chain, or the error refusing the correction.
     /// Forgetting deletes a whole chain and needs every version visible, so a correction by someone who cannot see them
     /// all could leave a chain no one can forget: A's private version beside B's hidden one. A corrector always sees its
-    /// own version, so a chain built this way always has someone who sees all of it.
+    /// own version, so a chain built this way always has someone who sees all of it. The replacement's sources are
+    /// checked again here, under the chain lock: a link node can gain a document the caller cannot read after the
+    /// first check, and the new version must stay visible to whoever sees the rest.
     /// </summary>
     internal async Task<MemoryWriteResult?> WholeChainVisibleAsync(
-        Guid factId, IReadOnlyList<MemoryFact> chain, MemoryCaller caller, CancellationToken ct)
+        Guid factId, IReadOnlyList<MemoryFact> chain, IReadOnlyList<MemorySource> replacement, MemoryCaller caller, CancellationToken ct)
     {
         IReadOnlySet<MemorySource> readable;
         try
         {
-            readable = await ReadableAsync(chain.SelectMany(f => f.Sources), caller.UserId, ct);
+            readable = await ReadableAsync(chain.SelectMany(f => f.Sources).Concat(replacement), caller.UserId, ct);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Could not check memory sources; refusing the write");
             return MemoryWriteResult.Failed("Error: could not check access to the sources; nothing was written.", MemoryWriteFailure.Unchecked);
         }
+        if (!replacement.All(readable.Contains))
+            return MemoryWriteResult.Failed("Error: you can no longer read every source you cited; nothing was written.");
         return chain.All(f => Visible(f, readable, caller))
             ? null
             : MemoryWriteResult.Failed($"Error: fact '{factId}' has versions you cannot see, so you cannot correct it. Remember a new fact instead.");

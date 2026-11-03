@@ -45,7 +45,7 @@ public class MemoryServiceCorrectTests
     [Fact]
     public async Task WholeChainVisible_OwnPrivateAndReadableVersions_Allows()
     {
-        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me), Fact(Other, Shared)], Me, CancellationToken.None);
+        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me), Fact(Other, Shared)], [], Me, CancellationToken.None);
 
         result.Should().BeNull();
     }
@@ -55,7 +55,7 @@ public class MemoryServiceCorrectTests
     {
         Guid factId = Guid.NewGuid();
 
-        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(factId, [Fact(Other), Fact(Other, Shared)], Me, CancellationToken.None);
+        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(factId, [Fact(Other), Fact(Other, Shared)], [], Me, CancellationToken.None);
 
         result!.Failure.Should().Be(MemoryWriteFailure.Invalid);
         result.Error.Should().Contain(factId.ToString()).And.Contain("Remember a new fact");
@@ -64,7 +64,7 @@ public class MemoryServiceCorrectTests
     [Fact]
     public async Task WholeChainVisible_VersionCitingAnUnreadableDocument_Refuses()
     {
-        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me, Shared), Fact(Other, Shared, Restricted)], Me, CancellationToken.None);
+        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me, Shared), Fact(Other, Shared, Restricted)], [], Me, CancellationToken.None);
 
         result!.Failure.Should().Be(MemoryWriteFailure.Invalid);
     }
@@ -73,7 +73,7 @@ public class MemoryServiceCorrectTests
     public async Task WholeChainVisible_CallerWithNoUser_RefusesAPrivateVersion()
     {
         MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(new MemoryCaller(null, null, null))],
-            new MemoryCaller(null, Guid.NewGuid(), null), CancellationToken.None);
+            [], new MemoryCaller(null, Guid.NewGuid(), null), CancellationToken.None);
 
         result!.Failure.Should().Be(MemoryWriteFailure.Invalid);
     }
@@ -84,7 +84,7 @@ public class MemoryServiceCorrectTests
         _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("down"));
 
-        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me)], Me, CancellationToken.None);
+        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me)], [], Me, CancellationToken.None);
 
         result!.Failure.Should().Be(MemoryWriteFailure.Unchecked);
         result.Error.Should().Contain("nothing was written");
@@ -98,9 +98,42 @@ public class MemoryServiceCorrectTests
         _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException(cts.Token));
 
-        Func<Task> act = () => _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me)], Me, cts.Token);
+        Func<Task> act = () => _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me)], [], Me, cts.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task WholeChainVisible_ReplacementSourceNoLongerReadable_Refuses()
+    {
+        MemoryWriteResult? result = await _service.WholeChainVisibleAsync(Guid.NewGuid(), [Fact(Me)], [Restricted], Me, CancellationToken.None);
+
+        result!.Failure.Should().Be(MemoryWriteFailure.Invalid);
+        result.Error.Should().Contain("no longer read");
+    }
+
+    [Fact]
+    public async Task Correct_ReplacementSourceTurnsUnreadableBeforeTheLock_IsRefused()
+    {
+        MemoryFact current = Fact(Me, Shared);
+        IReadOnlyList<MemoryFact> chain = [current];
+        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        // Readable to the checks before the lock, not to the one under it: a node gained a document the caller cannot read.
+        int restrictedChecks = 0;
+        _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => (IReadOnlySet<string>)ci.ArgAt<IReadOnlyCollection<string>>(1)
+                .Where(d => d == Shared.Ref || (d == Restricted.Ref && ++restrictedChecks == 1)).ToHashSet());
+        _store.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Me,
+                Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>())
+            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(5)(chain)
+                ?? new MemoryWriteResult(Fact(Me, Restricted), current, null));
+
+        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+            new NewMemoryFact("", "", "y", null, null, [Restricted]), Me);
+
+        restrictedChecks.Should().Be(2, "once before the lock, once under it");
+        result.Fact.Should().BeNull();
+        result.Error.Should().Contain("no longer read");
     }
 
     [Fact]
