@@ -62,10 +62,7 @@ public class OAuthRefreshScopeTests(SharedWebAppFixture fixture)
             ["client_id"] = clientId,
         });
         using var http = Bearer(refreshed.GetProperty("access_token").GetString()!);
-        var transport = new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http);
-        await using var mcp = await McpClient.CreateAsync(transport);
+        await using var mcp = await McpTestClient.ConnectAsync(http, ownsHttpClient: false);
 
         var tools = (await mcp.ListToolsAsync()).Select(t => t.Name).ToList();
 

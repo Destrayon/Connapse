@@ -1,5 +1,6 @@
 ---
 title: File types
+description: The file formats Connapse can index, including code, their size limits and the failure codes a file can get.
 type: reference
 audience: admin
 ---

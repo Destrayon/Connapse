@@ -242,11 +242,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
         return ConnectAsync(http);
     }
 
-    private static Task<McpClient> ConnectAsync(HttpClient http) =>
-        McpClient.CreateAsync(new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
-            http,
-            ownsHttpClient: true));
+    private static Task<McpClient> ConnectAsync(HttpClient http) => McpTestClient.ConnectAsync(http);
 
     private static string Text(ModelContextProtocol.Protocol.CallToolResult result) =>
         string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));

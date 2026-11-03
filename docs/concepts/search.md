@@ -1,5 +1,6 @@
 ---
 title: About search
+description: How Connapse's hybrid search combines vector and keyword results, then fuses, reranks, cuts and optionally follows links between documents.
 type: explanation
 audience: admin
 ---

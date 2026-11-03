@@ -12,6 +12,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+      # The first start creates the database, which can take over a minute on a busy host.
+      # Failed checks in this window don't count, so `up -d` waits instead of giving up.
+      start_period: 120s
     networks:
       - backend
     deploy:

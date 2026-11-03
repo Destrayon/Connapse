@@ -1,5 +1,6 @@
 ---
 title: Run Connapse in production
+description: "Make a Connapse server safe to expose: TLS, secrets, a reverse proxy and hardening."
 type: how-to
 audience: operator
 ---

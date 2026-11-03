@@ -1,5 +1,6 @@
 ---
 title: Connapse documentation
+description: "Connapse documentation: get started, self-host, connect your data, guides, concepts and reference."
 type: landing
 audience: all
 ---
@@ -48,6 +49,7 @@ Connapse is a self-hosted knowledge platform: it indexes your documents and the 
 - [Automate Connapse with the API](guides/automate-with-the-api.md)
 - [Tune search](guides/tune-search.md)
 - [Change the embedding model](guides/change-embedding-model.md)
+- [Search code with an agent](guides/search-code.md)
 
 ## Concepts
 
@@ -57,6 +59,7 @@ Connapse is a self-hosted knowledge platform: it indexes your documents and the 
 - [About search](concepts/search.md)
 - [About ingestion](concepts/ingestion.md)
 - [About permissions](concepts/permissions.md)
+- [About agent memory](concepts/memory.md)
 
 ## Reference
 

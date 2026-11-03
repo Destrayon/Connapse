@@ -1,5 +1,6 @@
 ﻿---
 title: MCP tools
+description: Every tool Connapse's MCP server offers, including search, files, code and agent memory tools, with parameters and required scopes.
 type: reference
 audience: developer
 ---

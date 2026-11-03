@@ -1,5 +1,6 @@
 ---
 title: Upgrade Connapse
+description: Upgrade a self-hosted Connapse server, including the steps from v0.3.x to v0.4.0, and roll back if it goes wrong.
 type: how-to
 audience: operator
 ---
@@ -59,6 +60,56 @@ Use this when you want to move a running Connapse server to a newer release, and
    ```
 
    `/health` returns `200 OK`. Then sign in and run a search in a container you know.
+
+## From v0.3.x to v0.4.0
+
+v0.4.0 replaces a container's connector with sources and removes several old interfaces, so this upgrade needs more than the steps above. The [CHANGELOG](../../CHANGELOG.md) lists every breaking change. Do these in order.
+
+1. Let uploads that are still indexing finish. v0.3.x keeps queued jobs in memory, so they are lost when it stops.
+
+2. Back up, as in step 1 above.
+
+3. While v0.3.x is still running, save each S3, Azure Blob or filesystem container's settings. The upgrade deletes them, and you need them to set those containers up again:
+
+   ```bash
+   curl -H "X-Api-Key: cnp_your_key" "http://localhost:5001/api/containers?skip=0&take=200" > containers-v0.3-page1.json
+   ```
+
+   A page holds at most 200 containers. While a page ends with `"hasMore":true`, fetch the next one with `skip=200`, then `skip=400`, and so on, and check that every external container appears in the files. Each container's `connectorType` and `connectorConfig` hold its bucket, prefix or root path. Keep the files private, because a config can hold credentials.
+
+4. Take the new `docker-compose.yml` from the release package. The `minio/minio` image the old file names is no longer published, so the old file can't start MinIO. If you keep your own compose file, change MinIO's image to `cgr.dev/chainguard/minio` and add `user: "0"` to it. Reading PDFs by their layout needs about 3 GB for `web`; with less, PDFs are read in plain text order and the log says so.
+
+5. Set `CONNAPSE_VERSION=v0.4.0` in `.env`, then pull and start as in steps 2 to 5 above. Do this and step 6 at a time when nobody else uses the server.
+
+6. Delete each old S3, Azure Blob or filesystem container. The upgrade keeps their documents but drops the record of where they came from, so Connapse can no longer check them against the cloud's permissions: until you delete them, anyone who can read the container can read every document in it.
+
+   A container that still holds documents can't be deleted, so empty it first. On the **Files** page, open the container, choose **Select all**, then delete the selection; or call `POST /api/containers/{id}/files/bulk-delete` with up to 100 file IDs at a time. This removes only Connapse's copies, never the files in your bucket or folder. Then delete the empty container, on the **Files** page or with `DELETE /api/containers/{id}`.
+
+7. Set each of those up again as a source in a new container, using the settings you saved in step 3. The source indexes the files afresh, with per-user permissions. [Containers, connections and sources](../sources/index.md) explains the new model.
+
+8. Re-issue every personal access token and agent key that has no scopes, and check that tokens used for admin work carry the scope they need. See [Create tokens and agent keys](../guides/tokens-and-agents.md).
+
+9. Move MCP clients that use the SSE transport to Streamable HTTP at `/mcp`, as in [Connect an MCP client](../guides/mcp-clients.md). MCP clients that signed in with OAuth sign in once more.
+
+10. The command-line tool is now separate. Install [connapse-cli](https://github.com/Destrayon/connapse-cli) and run `connapse auth login`.
+
+11. Ask everyone who linked an AWS or Azure account to link it again under **Profile** → **Integrations**.
+
+12. Re-read the files whose parser changed, which after this upgrade is most PDF, Word, PowerPoint and text files. To see how many a container has first, with a token that has `knowledge:write`:
+
+    ```bash
+    curl -X POST -H "X-Api-Key: cnp_your_key" -H "Content-Type: application/json" \
+      -d '{"dryRun": true}' http://localhost:5001/api/containers/<container-id>/reindex
+    ```
+
+    Then start it for every container, with a token that has the `admin:settings` scope:
+
+    ```bash
+    curl -X POST -H "X-Api-Key: cnp_your_key" -H "Content-Type: application/json" \
+      -d '{}' http://localhost:5001/api/settings/reindex
+    ```
+
+    Only documents whose parser or settings changed are re-read.
 
 ## Scripts that read error codes
 

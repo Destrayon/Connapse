@@ -170,6 +170,10 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             rows = rows.Where(f => EF.Functions.ILike(f.Attribute, attribute, "\\"));
         }
 
+        bool history = query.History || query.ChainId is not null;
+        if (query.ChainId is { } chainId)
+            rows = rows.Where(f => f.ChainId == chainId);
+
         if (query.ChangedFrom is not null || query.ChangedTo is not null)
         {
             DateTimeOffset from = query.ChangedFrom ?? DateTimeOffset.MinValue;
@@ -177,7 +181,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             // Corrected facts included: a window's history shows what was believed and replaced too.
             rows = rows.Where(f => (f.ValidFrom >= from && f.ValidFrom <= to) || (f.ValidTo >= from && f.ValidTo <= to));
         }
-        else if (!query.History)
+        else if (!history)
         {
             DateTimeOffset at = query.AsOf ?? clock.GetUtcNow();
             rows = rows.Where(f => f.SupersededAt == null
@@ -189,7 +193,9 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         IQueryable<MemoryFactEntity> ordered;
         if (terms is null)
         {
-            ordered = query.ChangedFrom is not null || query.ChangedTo is not null || query.History
+            // One chain is read newest first, so a capped read drops its oldest versions, never its latest correction.
+            ordered = query.ChainId is not null ? rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id)
+                : query.ChangedFrom is not null || query.ChangedTo is not null || history
                 ? rows.OrderBy(f => f.ValidFrom).ThenBy(f => f.RecordedAt).ThenBy(f => f.Id)
                 : rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id);
         }

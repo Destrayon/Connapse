@@ -1,3 +1,10 @@
+---
+title: Confluence test site
+description: The Confluence Cloud test site used to test the Atlassian connector end to end, and the permission cases it covers.
+type: reference
+audience: contributor
+---
+
 # Confluence test site
 
 A small Confluence Cloud site for testing the Atlassian connector (#540) end to end. The content is about 200 pages from [EnterpriseRAG-Bench](https://github.com/onyx-dot-app/EnterpriseRAG-Bench) (MIT), one fictional company's internal wiki, so every test question has a known answer page. The layout covers each permission case Connapse has to get right:
