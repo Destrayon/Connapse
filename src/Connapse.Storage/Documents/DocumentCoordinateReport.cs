@@ -11,12 +11,11 @@ public sealed record UnlocatedSource(Guid SourceId, string SourceName, int Docum
 /// Reports documents that no cloud permission rule can be checked against.
 /// </summary>
 /// <remarks>
-/// A document with a null <c>resource_uri</c> is not denied by cloud permission filtering — it
-/// falls outside it entirely, governed instead by Connapse's own access control (#421). So the
-/// consequence here is not that these documents become unreachable; it is that they will not be
-/// permission-filtered by cloud grants, a permissive gap rather than a destructive one. This
-/// exists so an operator can close that gap by re-syncing the sources involved, where re-syncing
-/// can actually produce a coordinate.
+/// A document with a null <c>resource_uri</c> from a source that always reports one (S3) is
+/// refused by cloud permission filtering rather than shown to everyone (CON-226,
+/// <see cref="SearchScopes.UnaddressedAdmitted"/>). So the consequence here is that these
+/// documents are unreachable to every restricted reader. This exists so an operator can bring
+/// them back by re-syncing the sources involved, where re-syncing can actually produce a coordinate.
 /// <para>
 /// Only the S3 connector ever reports a coordinate at sync time — SFTP, filesystem,
 /// and MinIO sources never do, by design, so a null coordinate there is not a defect and re-sync
