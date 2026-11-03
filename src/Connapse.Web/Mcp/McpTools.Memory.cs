@@ -58,7 +58,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_correct", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Replace a fact and keep the old one in history. kind=\"changed\": the world changed, so the old fact ends on `validFrom` and the new value starts there (validFrom required). kind=\"wrong\": the old fact was never right, so it is marked superseded and the new value takes its dates; a date you pass replaces the old one, except one where another version of the fact starts or ends. Subject and attribute default to the old fact's.")]
+     Description("Replace a fact and keep the old one in history. kind=\"changed\": the world changed, so the old fact ends on `validFrom` and the new value starts there (validFrom required). kind=\"wrong\": the old fact was never right, so it is marked superseded and the new value takes its dates; a date you pass replaces the old one, except one where another version of the fact starts or ends. Subject and attribute default to the old fact's. A fact with versions you cannot see (another user's private ones) cannot be corrected; remember a new fact instead.")]
     public static async Task<string> MemoryCorrect(
         CorrectFact correct,
         IHttpContextAccessor http,

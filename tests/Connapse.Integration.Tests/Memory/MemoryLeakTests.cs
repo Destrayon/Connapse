@@ -47,6 +47,8 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             Task.FromResult(nodeIds.SelectMany(n => nodes.GetValueOrDefault(n, []).Select(d => (n, d))).ToLookup(p => p.n, p => p.d));
     }
 
+    private static Task<MemoryWriteResult?> AnyChain(IReadOnlyList<MemoryFact> chain) => Task.FromResult<MemoryWriteResult?>(null);
+
     [Fact]
     public async Task Recall_PastMoreHiddenFactsThanOnePage_StillFindsTheVisibleOne()
     {
@@ -205,8 +207,8 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             {
                 // A wrong correction keeps the old dates: its start may be where an earlier version ends.
                 MemoryWriteResult result = random.Next(3) == 0
-                    ? await store.CorrectAsync(container, previous.Id, MemoryCorrection.Wrong, fact with { ValidFrom = null }, author)
-                    : await store.CorrectAsync(container, previous.Id, MemoryCorrection.Changed, fact, author);
+                    ? await store.CorrectAsync(container, previous.Id, MemoryCorrection.Wrong, fact with { ValidFrom = null }, author, AnyChain)
+                    : await store.CorrectAsync(container, previous.Id, MemoryCorrection.Changed, fact, author, AnyChain);
                 result.Error.Should().BeNull();
                 written.Remove(previous);
                 written.Add(result.Replaced!);
