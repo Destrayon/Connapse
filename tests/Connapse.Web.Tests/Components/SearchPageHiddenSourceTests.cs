@@ -35,7 +35,7 @@ public class SearchPageHiddenSourceTests : IDisposable
     {
         ctx.AddAuthorization().SetAuthorized("viewer");
 
-        var containers = Substitute.For<IContainerStore>();
+        var containers = ContainerStoreFakes.Create();
         containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([]);
         var resolver = Substitute.For<ISearchScopeResolver>();
         resolver.ResolveAsync(Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).ThrowsAsync(new InvalidOperationException());

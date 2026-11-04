@@ -28,7 +28,7 @@ public class MemoryContainerPagesTests : IDisposable
     private static readonly DateTime Epoch = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private readonly BunitContext ctx = new();
-    private readonly IContainerStore containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore containers = ContainerStoreFakes.Create();
     private readonly IDocumentStore documents = Substitute.For<IDocumentStore>();
     private readonly IFolderStore folders = Substitute.For<IFolderStore>();
 

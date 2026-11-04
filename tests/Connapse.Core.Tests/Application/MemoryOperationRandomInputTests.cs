@@ -62,7 +62,7 @@ public class MemoryOperationRandomInputTests
 
     private sealed class World
     {
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
         public readonly IMemoryService Memory = Substitute.For<IMemoryService>();
         public readonly PolicyAuthorizer Authorizer;
 
@@ -79,36 +79,90 @@ public class MemoryOperationRandomInputTests
 
     // ── memory.remember ───────────────────────────────────────────────────────────────────────────
 
+    /// <summary>A signed-in caller, with a user id when <c>owns</c> (so a personal space can be theirs) or without one.</summary>
+    private static OperationContext Signed(bool owns, OperationSurface surface) =>
+        new(new ClaimsPrincipal(new ClaimsIdentity(
+            owns ? [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())] : [], "test")), surface);
+
+    /// <summary>A memory space or container of any kind and audience; only memory spaces are ever personal.</summary>
+    private static readonly Gen<Container> AnySpace = Gen.Select(AnyContainer, Gen.Bool, Gen.Bool,
+        (c, memory, personal) => c with
+        {
+            Kind = memory ? ContainerKind.Memory : ContainerKind.Documents,
+            Audience = memory && personal ? MemoryScope.Personal : MemoryScope.Team,
+        });
+
     [Fact]
     [RandomInputTestOf(typeof(RememberFact))]
-    public Task Remember_AnyCall_WritesPersonalAndTeamFactsOnlyForWritersIntoTheContainerNamed() =>
-        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool, Gen.Enum<MemoryWriteFailure>(), AnyScope)
-            .SelectMany(t => KeyFor(t.Item4).SelectMany(key => Gen.Bool.Select(cites => (t, key, cites))))
+    public Task Remember_AnyCall_SavesWhereTheSpaceOrTheOldRulesSayAndOnlyForWriters() =>
+        Gen.Select(Gen.Enum<OperationSurface>(), Gen.Bool, Gen.Bool, AnySpace, Gen.Bool, Gen.Enum<MemoryWriteFailure>(), AnyScope)
+            .SelectMany(t => KeyFor(t.Item4).SelectMany(key => Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, (cites, asSpace, myMemory) => (t, key, cites, asSpace, myMemory))))
             .SampleAsync(async s =>
             {
-                var ((caller, reader, writer, container, exists, failure, scope), key, cites) = s;
+                var ((surface, owns, writer, container, exists, failure, scope), key, cites, asSpace, myMemory) = s;
+                OperationContext caller = Signed(owns, surface);
+                string named = myMemory ? " My-Memory " : key.Key;
+                bool resolves = !myMemory && exists && key.Names;
                 NewMemoryFact fact = AFact with { Scope = scope, Sources = cites ? [new MemorySource(MemorySourceKind.Document, Guid.Empty.ToString())] : [] };
-                var world = new World(reader, writer, container, exists);
-                Guid id = Guid.Parse(container.Id);
-                world.Memory.RememberAsync(id, fact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(world.Answers(failure, id));
+                var world = new World(true, writer, container, exists);
+                Guid ensuredId = Guid.NewGuid();
+                world.Containers.EnsurePersonalSpaceAsync(Arg.Any<MemoryCaller>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                    .Returns(call => new Container(ensuredId.ToString(), call.ArgAt<string>(1), null, Epoch, Epoch, Kind: ContainerKind.Memory, Audience: MemoryScope.Personal));
+                world.Memory.RememberAsync(Arg.Any<Guid>(), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                    .Returns(call => world.Answers(failure, call.ArgAt<Guid>(0)));
 
-                var written = await new RememberFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, fact);
+                var target = asSpace ? MemoryTarget.Space(named) : MemoryTarget.Container(named);
+                var written = await new RememberFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, target, fact);
 
-                // Without a scope, a fact citing sources is team and one citing none personal.
-                MemoryScope effective = scope ?? (cites ? MemoryScope.Team : MemoryScope.Personal);
-                bool known = (int)effective <= 1;
-                // Read access alone saves nothing, whatever the scope.
-                bool allowed = writer;
-                MemoryStatus expected = !allowed ? MemoryStatus.Forbidden
-                    : !known ? MemoryStatus.Invalid
-                    : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
-                    : StatusOf(failure);
-                written.Status.Should().Be(expected);
-                if (!known || !allowed || !(exists && key.Names))
-                    world.Memory.ReceivedCalls().Should().BeEmpty();
+                // The rules, written out. A space decides the scope; an old-style container keeps sourceless facts personal.
+                (MemoryStatus Status, Guid? SavedTo, MemoryScope Scope, string? Made) Expected()
+                {
+                    if (!writer)
+                        return (MemoryStatus.Forbidden, null, default, null);
+                    if (scope is { } asked && (int)asked > 1)
+                        return (MemoryStatus.Invalid, null, default, null);
+                    Container? space = resolves ? container : null;
+                    string? made = null;
+                    if (space is null && asSpace && myMemory)
+                    {
+                        if (!owns)
+                            return (MemoryStatus.Forbidden, null, default, null);
+                        space = new Container(ensuredId.ToString(), "my-memory", null, Epoch, Epoch, Kind: ContainerKind.Memory, Audience: MemoryScope.Personal);
+                        made = "my-memory";
+                    }
+                    if (space is null)
+                        return (MemoryStatus.ContainerNotFound, null, default, null);
+                    bool personalSpace = space.Audience == MemoryScope.Personal;
+                    MemoryScope effective = asSpace ? space.Audience
+                        : scope ?? (personalSpace || !cites ? MemoryScope.Personal : MemoryScope.Team);
+                    if (scope is { } requested && requested != effective)
+                        return (MemoryStatus.Invalid, null, default, made);
+                    if (effective == MemoryScope.Team && (personalSpace || (!cites && !asSpace)))
+                        return (MemoryStatus.Invalid, null, default, made);
+                    if (effective == MemoryScope.Personal && !personalSpace)
+                    {
+                        if (!owns)
+                            return (MemoryStatus.Forbidden, null, default, made);
+                        return (StatusOf(failure), ensuredId, effective, $"{space.Name}-personal");
+                    }
+                    return (StatusOf(failure), Guid.Parse(space.Id), effective, made);
+                }
+
+                var expected = Expected();
+                written.Status.Should().Be(expected.Status);
+                if (expected.SavedTo is { } savedTo)
+                {
+                    await world.Memory.Received(1).RememberAsync(savedTo, fact with { Scope = expected.Scope }, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+                    if (written.Succeeded)
+                        written.Result!.SavedTo!.Id.Should().Be(savedTo.ToString());
+                }
                 else
-                    await world.Memory.Received(1).RememberAsync(id, fact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
-            }, iter: 1000);
+                    world.Memory.ReceivedCalls().Should().BeEmpty();
+                if (expected.Made is { } made)
+                    await world.Containers.Received(1).EnsurePersonalSpaceAsync(Arg.Any<MemoryCaller>(), made, Arg.Any<string?>(), Arg.Any<CancellationToken>());
+                else
+                    await world.Containers.DidNotReceive().EnsurePersonalSpaceAsync(Arg.Any<MemoryCaller>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            }, iter: 2000);
 
     // ── memory.correct ────────────────────────────────────────────────────────────────────────────
 
@@ -157,13 +211,13 @@ public class MemoryOperationRandomInputTests
             _ => false,
         });
 
-        Container container = AnyContainer.Single();
+        Container container = AnyContainer.Single() with { Kind = ContainerKind.Memory, Audience = scope };
         var world = new World(true, false, container, true);
         world.Memory.RememberAsync(Guid.Parse(container.Id), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
             .Returns(world.Answers(MemoryWriteFailure.None, Guid.Parse(container.Id)));
 
         var written = await new RememberFact(world.Containers, world.Memory, authorizer).RunAsync(
-            new OperationContext(new ClaimsPrincipal(), OperationSurface.Mcp), container.Id,
+            Signed(true, OperationSurface.Mcp), MemoryTarget.Space(container.Id),
             new NewMemoryFact("Halcyon", "database", "PostgreSQL", null, null, [], null, scope));
 
         written.Status.Should().Be(expected ? MemoryStatus.Success : MemoryStatus.Forbidden);

@@ -36,7 +36,7 @@ public class FolderOperationTests
 
     private sealed class World
     {
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IFolderStore Folders = Substitute.For<IFolderStore>();
         public readonly IWritableConnector Files = Substitute.For<IWritableConnector>();

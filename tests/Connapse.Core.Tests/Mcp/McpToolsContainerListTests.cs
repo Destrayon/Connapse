@@ -17,7 +17,7 @@ public class McpToolsContainerListTests
 
     public McpToolsContainerListTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
 
         // container_list now lists sources alongside containers. Configured to return none
         // so these tests keep covering container rendering; source rendering is covered in

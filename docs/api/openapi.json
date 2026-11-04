@@ -13874,6 +13874,9 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ContainerKind"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/MemoryScope"
           }
         }
       },
@@ -15934,6 +15937,13 @@
             "type": "string"
           }
         }
+      },
+      "MemoryScope": {
+        "enum": [
+          "Personal",
+          "Team"
+        ],
+        "default": "Team"
       },
       "MeResponse": {
         "required": [

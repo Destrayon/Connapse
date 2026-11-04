@@ -30,7 +30,7 @@ public class MemoryTabTests : IDisposable
     {
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.AddAuthorization().SetAuthorized("pat");
-        var containers = Substitute.For<IContainerStore>();
+        var containers = ContainerStoreFakes.Create();
         containers.GetAsync(Container, Arg.Any<CancellationToken>())
             .Returns(new Container(Container.ToString(), "halcyon", null, DateTime.UtcNow, DateTime.UtcNow));
         var authorizer = Substitute.For<IOperationAuthorizer>();

@@ -381,11 +381,16 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     public async Task Sourceless_IsSeenOnlyByItsAuthor()
     {
         As(_writer);
-        await Remember("only mine", sources: []);
-        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().Equal(["only mine"]);
+        // CON-235: it goes to the writer's own personal space for this container, which the answer names.
+        string saved = await Remember("only mine", sources: []);
+        string space = JsonDocument.Parse(saved).RootElement.GetProperty("savedTo").GetProperty("id").GetString()!;
+        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), space, subject: "Halcyon")).Should().Equal(["only mine"]);
+        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().BeEmpty();
 
         As(_reader);
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().BeEmpty();
+        (await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), space, subject: "Halcyon"))
+            .Should().ContainEquivalentOf("not found", "another user's personal space doesn't exist for them");
     }
 
     [Fact]

@@ -188,8 +188,33 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("updated_at")
                 .HasDefaultValueSql("now()");
 
+            // Who may know the container exists (CON-235). Every container made before memory spaces is team.
+            entity.Property(e => e.Audience)
+                .HasColumnName("audience")
+                .HasMaxLength(16)
+                .HasConversion(
+                    audience => audience == MemoryScope.Personal ? "personal" : "team",
+                    text => text == "personal" ? MemoryScope.Personal : MemoryScope.Team)
+                .IsRequired();
+
+            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
+            entity.Property(e => e.OwnerAgentId).HasColumnName("owner_agent_id");
+
+            // A personal space is a memory container with exactly one owner; a team container has none.
+            entity.ToTable(t => t.HasCheckConstraint("ck_containers_audience_owner",
+                "(audience = 'team' AND owner_user_id IS NULL AND owner_agent_id IS NULL) OR "
+                + "(audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))"));
+
+            // Team names are unique among team containers; a personal space's name only among its owner's spaces, so
+            // a name taken by someone's personal space never blocks, or reveals itself to, anyone else.
             entity.HasIndex(e => e.Name)
                 .HasDatabaseName("ix_containers_name")
+                .HasFilter("audience = 'team'")
+                .IsUnique();
+            entity.HasIndex(e => new { e.OwnerUserId, e.OwnerAgentId, e.Name })
+                .HasDatabaseName("ix_containers_personal_name")
+                .HasFilter("audience = 'personal'")
+                .AreNullsDistinct(false)
                 .IsUnique();
         });
     }

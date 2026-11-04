@@ -129,7 +129,8 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
         var viewer = As(Guid.NewGuid(), "Viewer");
         var editor = As(Guid.NewGuid(), "Editor");
         var memory = sp.GetRequiredService<MemoryOperations>();
-        var shared = await memory.Remember.RunAsync(editor, container.ToString(),
+        // CON-235: a team fact citing nothing names its space; the old containerId form would make it personal.
+        var shared = await memory.Remember.RunAsync(editor, MemoryTarget.Space(container.ToString()),
             new NewMemoryFact("Halcyon", "database", "PostgreSQL 15", null, null, [], null, MemoryScope.Team));
         var own = await memory.Remember.RunAsync(editor, container.ToString(),
             new NewMemoryFact("me", "editor", "vim", null, null, [], null, MemoryScope.Personal));
