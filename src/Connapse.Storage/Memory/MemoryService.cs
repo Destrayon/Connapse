@@ -237,24 +237,8 @@ public sealed class MemoryService(
     }
 
     /// <summary>The sources among <paramref name="sources"/> that <paramref name="userId"/> can read now. Throws when it cannot tell.</summary>
-    private async Task<IReadOnlySet<MemorySource>> ReadableAsync(IEnumerable<MemorySource> sources, Guid? userId, CancellationToken ct)
-    {
-        MemorySource[] all = [.. sources.Distinct()];
-        string[] nodes = [.. all.Where(s => s.Kind == MemorySourceKind.Node).Select(s => s.Ref).Distinct(StringComparer.Ordinal)];
-        ILookup<string, string> nodeDocuments = await links.DocumentsOfAsync(nodes, ct);
-
-        HashSet<string> documents = new(StringComparer.Ordinal);
-        documents.UnionWith(all.Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref));
-        foreach (string node in nodes)
-            documents.UnionWith(nodeDocuments[node]);
-
-        // Asked even when empty: a failing check must deny, not let an empty answer through.
-        IReadOnlySet<string> open = await access.ReadableAsync(userId, documents, ct);
-        return all.Where(s => s.Kind == MemorySourceKind.Document
-                ? open.Contains(s.Ref)
-                : nodeDocuments[s.Ref].Any() && nodeDocuments[s.Ref].All(open.Contains))
-            .ToHashSet();
-    }
+    private Task<IReadOnlySet<MemorySource>> ReadableAsync(IEnumerable<MemorySource> sources, Guid? userId, CancellationToken ct) =>
+        MemorySourceAccess.ReadableAsync(access, links, sources, userId, ct);
 
     private static string? Validate(NewMemoryFact fact)
     {

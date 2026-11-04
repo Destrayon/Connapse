@@ -50,6 +50,16 @@
       "risk": "destructive",
       "scope": "knowledge:write"
     },
+    "DELETE /api/memory/spaces/{spaceId:guid}": {
+      "requires": "editor",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
+    "DELETE /api/memory/spaces/{spaceId:guid}/star": {
+      "requires": "viewer",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
     "DELETE /api/sources/{sourceId:guid}": {
       "requires": "admin",
       "risk": "destructive",
@@ -231,6 +241,11 @@
       "scope": "knowledge:read"
     },
     "GET /api/containers/{containerId:guid}/stats": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/": {
       "requires": "viewer",
       "risk": "read",
       "scope": "knowledge:read"
@@ -605,6 +620,11 @@
       "risk": "read",
       "scope": null
     },
+    "PATCH /api/memory/spaces/{spaceId:guid}": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "PATCH /api/sources/{sourceId:guid}": {
       "requires": "admin",
       "risk": "write",
@@ -656,6 +676,11 @@
       "scope": "knowledge:read"
     },
     "POST /api/containers/{containerId:guid}/sync": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/memory/spaces/": {
       "requires": "editor",
       "risk": "write",
       "scope": "knowledge:write"
@@ -854,6 +879,11 @@
       "requires": "admin",
       "risk": "write",
       "scope": "admin:sources"
+    },
+    "PUT /api/memory/spaces/{spaceId:guid}/star": {
+      "requires": "viewer",
+      "risk": "write",
+      "scope": "knowledge:read"
     },
     "PUT /api/settings/{category}": {
       "requires": "admin",

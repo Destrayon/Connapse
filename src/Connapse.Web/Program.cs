@@ -508,6 +508,7 @@ api.MapCloudIdentityEndpoints();
 api.MapCustomLinkEndpoints();
 api.MapAgentEndpoints();
 api.MapContainersEndpoints();
+api.MapMemorySpacesEndpoints();
 api.MapSourcesEndpoints();
 api.MapConnectionsEndpoints();
 api.MapAuditEndpoints();

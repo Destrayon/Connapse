@@ -150,6 +150,28 @@ cited source doesn't exist or can't be read by the writer. The detail says which
 Connapse couldn't check whether the caller may read the facts' sources, so it showed or wrote nothing
 rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
 
+## memory-space-not-found
+
+No memory space or container has that id, or it is someone else's personal space, which reads the same as
+a missing one.
+
+## invalid-memory-space
+
+The memory space request was refused: the name is missing or isn't 2 to 128 characters of lowercase letters,
+digits and hyphens (not starting or ending with a hyphen), a new space's `kind` isn't `personal` or `team`, an
+edit names neither a new name nor a description, or a list's `kind` or `sort` isn't one it takes. `field` names
+the input at fault.
+
+## memory-space-conflict
+
+That name is taken. Team spaces share one namespace with documents containers; a personal space's name only
+has to differ from your other personal spaces.
+
+## memory-space-is-container
+
+The id names a documents container, not a memory space. Its facts are listed with the spaces, but it is
+renamed and deleted through `/api/containers`, since deleting it deletes its files too.
+
 ## embeddings-unavailable
 
 The search needed the query embedded, and the embedding service (Ollama by default) didn't answer, timed
@@ -183,7 +205,9 @@ when `containerId` isn't a container's id. `field` names the input at fault.
 ## invalid-page
 
 The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200. For the
-audit log, `before` must be a `nextBefore` value the endpoint returned.
+audit log, `before` must be a `nextBefore` value the endpoint returned. For the memory spaces list,
+`limit` must be between 1 and 100 and `cursor` a `nextCursor` it returned for the same `kind`, `q`, `starred`
+and `sort`.
 
 ## approval-not-signed-in
 
