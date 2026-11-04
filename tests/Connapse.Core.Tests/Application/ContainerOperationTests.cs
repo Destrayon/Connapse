@@ -307,7 +307,7 @@ public class ContainerOperationTests
     public async Task GetSettings_NoOverrides_IsAnEmptySetSoEverySettingIsGlobal()
     {
         var id = Guid.NewGuid();
-        _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Container(id.ToString(), "box", null, Epoch, Epoch));
 
         var read = await new GetContainerSettings(_containers, _authorizer).RunAsync(Caller, id);
 
@@ -368,7 +368,7 @@ public class ContainerOperationTests
     public async Task ResetSettings_Valid_SavesAnEmptySetAndAudits()
     {
         var id = Guid.NewGuid();
-        _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Container(id.ToString(), "box", null, Epoch, Epoch));
 
         var cleared = await new ResetContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, id);
 
@@ -385,6 +385,23 @@ public class ContainerOperationTests
         var cleared = await new ResetContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
 
         cleared.Status.Should().Be(ContainerStatus.NotFound);
+        await _containers.DidNotReceiveWithAnyArgs().SaveSettingsOverridesAsync(default, default!);
+    }
+
+    [Fact]
+    public async Task Settings_SomeoneElsesPersonalSpace_IsNotFoundAndResetsNothing()
+    {
+        // CON-235: the space exists, but the viewer-aware lookup hides it from this caller.
+        var id = Guid.NewGuid();
+        _containers.ExistsAsync(id, Arg.Any<CancellationToken>()).Returns(true);
+        _containers.GetAsync(id, Arg.Any<MemoryCaller?>(), Arg.Any<CancellationToken>()).Returns((Container?)null);
+
+        var read = await new GetContainerSettings(_containers, _authorizer).RunAsync(Caller, id);
+        var cleared = await new ResetContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, id);
+
+        read.Status.Should().Be(ContainerStatus.NotFound);
+        cleared.Status.Should().Be(ContainerStatus.NotFound);
+        await _containers.DidNotReceiveWithAnyArgs().GetSettingsOverridesAsync(default);
         await _containers.DidNotReceiveWithAnyArgs().SaveSettingsOverridesAsync(default, default!);
     }
 

@@ -69,6 +69,9 @@ public class MemorySpaceSurfaceTests(SharedWebAppFixture fixture)
             (await other.GetAsync($"/api/containers/{personal}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
             (await other.GetAsync($"/api/containers/by-name/{personalName}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
             (await other.GetAsync($"/api/containers/{personal}/search?q=tacos")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await other.GetAsync($"/api/containers/{personal}/settings")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await other.DeleteAsync($"/api/containers/{personal}/settings")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await ownerRest.GetAsync($"/api/containers/{personal}/settings")).StatusCode.Should().Be(HttpStatusCode.OK);
             (await ListedAsync(other)).Should().NotContain(personal).And.NotContain(personalName);
             (await ListedAsync(ownerRest)).Should().Contain(personal);
 
