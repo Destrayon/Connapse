@@ -53,8 +53,12 @@ public class MemoryOperationRandomInputTests
         MemoryWriteFailure.None => MemoryStatus.Success,
         MemoryWriteFailure.NotFound => MemoryStatus.FactNotFound,
         MemoryWriteFailure.Unchecked => MemoryStatus.Unchecked,
+        MemoryWriteFailure.Forbidden => MemoryStatus.Forbidden,
         _ => MemoryStatus.Invalid,
     };
+
+    /// <summary>A scope a call can ask for: none, personal, team, or a value that is neither.</summary>
+    private static readonly Gen<MemoryScope?> AnyScope = Gen.Int[-1, 2].Select(v => v < 0 ? (MemoryScope?)null : (MemoryScope)v);
 
     private sealed class World
     {
@@ -64,7 +68,7 @@ public class MemoryOperationRandomInputTests
 
         public World(bool reader, bool writer, Container container, bool exists)
         {
-            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.KnowledgeRead => reader, Policies.Writer => writer, _ => false });
+            Authorizer = new PolicyAuthorizer(policy => policy switch { Policies.KnowledgeRead => reader, Policies.Writer or Policies.KnowledgeWrite => writer, _ => false });
             Containers.GetAsync(Guid.Parse(container.Id), Arg.Any<CancellationToken>()).Returns(exists ? container : null);
             Containers.GetByNameAsync(container.Name, Arg.Any<CancellationToken>()).Returns(exists ? container : null);
         }
@@ -77,33 +81,40 @@ public class MemoryOperationRandomInputTests
 
     [Fact]
     [RandomInputTestOf(typeof(RememberFact))]
-    public Task Remember_AnyCall_WritesOnlyForAWriterIntoTheContainerNamed() =>
-        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, Gen.Enum<MemoryWriteFailure>())
-            .SelectMany(t => KeyFor(t.Item3).Select(key => (t.Item1, t.Item2, t.Item3, t.Item4, t.Item5, key)))
-            .SampleAsync(async t =>
+    public Task Remember_AnyCall_WritesPersonalAndTeamFactsOnlyForWritersIntoTheContainerNamed() =>
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool, Gen.Enum<MemoryWriteFailure>(), AnyScope)
+            .SelectMany(t => KeyFor(t.Item4).SelectMany(key => Gen.Bool.Select(cites => (t, key, cites))))
+            .SampleAsync(async s =>
             {
-                var (caller, writer, container, exists, failure, key) = t;
-                var world = new World(reader: true, writer, container, exists);
+                var ((caller, reader, writer, container, exists, failure, scope), key, cites) = s;
+                NewMemoryFact fact = AFact with { Scope = scope, Sources = cites ? [new MemorySource(MemorySourceKind.Document, Guid.Empty.ToString())] : [] };
+                var world = new World(reader, writer, container, exists);
                 Guid id = Guid.Parse(container.Id);
-                world.Memory.RememberAsync(id, AFact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(world.Answers(failure, id));
+                world.Memory.RememberAsync(id, fact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(world.Answers(failure, id));
 
-                var written = await new RememberFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, AFact);
+                var written = await new RememberFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, fact);
 
-                MemoryStatus expected = !writer ? MemoryStatus.Forbidden
+                // Without a scope, a fact citing sources is team and one citing none personal.
+                MemoryScope effective = scope ?? (cites ? MemoryScope.Team : MemoryScope.Personal);
+                bool known = (int)effective <= 1;
+                // Read access alone saves nothing, whatever the scope.
+                bool allowed = writer;
+                MemoryStatus expected = !allowed ? MemoryStatus.Forbidden
+                    : !known ? MemoryStatus.Invalid
                     : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
                     : StatusOf(failure);
                 written.Status.Should().Be(expected);
-                if (expected is MemoryStatus.Forbidden or MemoryStatus.ContainerNotFound)
+                if (!known || !allowed || !(exists && key.Names))
                     world.Memory.ReceivedCalls().Should().BeEmpty();
                 else
-                    await world.Memory.Received(1).RememberAsync(id, AFact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+                    await world.Memory.Received(1).RememberAsync(id, fact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
             }, iter: 1000);
 
     // ── memory.correct ────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     [RandomInputTestOf(typeof(CorrectFact))]
-    public Task Correct_AnyCall_ReachesMemoryOnlyWithAReadingWriterARealFactIdAndAKnownKind() =>
+    public Task Correct_AnyCall_ReachesMemoryOnlyWithAWriterWhoCanReadARealFactIdAndAKnownKind() =>
         Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, Gen.Enum<MemoryWriteFailure>(), FactId, Gen.Int[0, 3])
             .SelectMany(t => KeyFor(t.Item3).SelectMany(key => Gen.Bool.Select(reader => (t, key, reader))))
             .SampleAsync(async s =>
@@ -112,12 +123,12 @@ public class MemoryOperationRandomInputTests
                 var kind = (MemoryCorrection)kindValue;
                 var world = new World(reader, writer, container, exists);
                 Guid id = Guid.Parse(container.Id);
-                world.Memory.CorrectAsync(id, Arg.Any<Guid>(), kind, AFact, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                world.Memory.CorrectAsync(id, Arg.Any<Guid>(), kind, AFact, Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>())
                     .Returns(world.Answers(failure, id));
 
                 var written = await new CorrectFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text, kind, AFact);
 
-                MemoryStatus expected = !writer || !reader ? MemoryStatus.Forbidden
+                MemoryStatus expected = !(writer && reader) ? MemoryStatus.Forbidden
                     : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
                     : !factId.IsId ? MemoryStatus.FactNotFound
                     : kindValue > 1 ? MemoryStatus.Invalid
@@ -127,27 +138,62 @@ public class MemoryOperationRandomInputTests
                 world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);
             }, iter: 1000);
 
+    [Theory]
+    [InlineData(MemoryScope.Team, false, false, false)]
+    [InlineData(MemoryScope.Team, true, false, false)]
+    [InlineData(MemoryScope.Team, false, true, false)]
+    [InlineData(MemoryScope.Team, true, true, true)]
+    [InlineData(MemoryScope.Personal, false, false, false)]
+    [InlineData(MemoryScope.Personal, true, false, false)]
+    [InlineData(MemoryScope.Personal, false, true, false)]
+    [InlineData(MemoryScope.Personal, true, true, true)]
+    public async Task Remember_AnyScope_NeedsTheWriterRoleAndTheWriteScope(MemoryScope scope, bool writerRole, bool writeScope, bool expected)
+    {
+        // An Editor's knowledge:read token passes the writer role but not the scope; it must not save memory at all.
+        var authorizer = new PolicyAuthorizer(policy => policy switch
+        {
+            Policies.Writer => writerRole,
+            Policies.KnowledgeWrite => writeScope,
+            _ => false,
+        });
+
+        Container container = AnyContainer.Single();
+        var world = new World(true, false, container, true);
+        world.Memory.RememberAsync(Guid.Parse(container.Id), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(world.Answers(MemoryWriteFailure.None, Guid.Parse(container.Id)));
+
+        var written = await new RememberFact(world.Containers, world.Memory, authorizer).RunAsync(
+            new OperationContext(new ClaimsPrincipal(), OperationSurface.Mcp), container.Id,
+            new NewMemoryFact("Halcyon", "database", "PostgreSQL", null, null, [], null, scope));
+
+        written.Status.Should().Be(expected ? MemoryStatus.Success : MemoryStatus.Forbidden);
+    }
+
     // ── memory.forget ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
     [RandomInputTestOf(typeof(ForgetFact))]
     public Task Forget_AnyCall_DeletesOnlyForAWriterAndHidesWhyAFactWasNotFound() =>
-        Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, FactId, Gen.Int[0, 4], Gen.Bool)
-            .SelectMany(t => KeyFor(t.Item3).Select(key => (t, key)))
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnyContainer, Gen.Bool, FactId, Gen.Int[0, 4])
+            .SelectMany(t => KeyFor(t.Item4).SelectMany(key => Gen.OneOfConst(MemoryWriteFailure.None, MemoryWriteFailure.NotFound, MemoryWriteFailure.Forbidden, MemoryWriteFailure.Unchecked)
+                .Select(failure => (t, key, failure))))
             .SampleAsync(async s =>
             {
-                var ((caller, writer, container, exists, factId, deleted, refused), key) = s;
-                var world = new World(reader: true, writer, container, exists);
+                var ((caller, reader, writer, container, exists, factId, deleted), key, failure) = s;
+                var world = new World(reader, writer, container, exists);
                 Guid id = Guid.Parse(container.Id);
-                world.Memory.ForgetAsync(id, Arg.Any<Guid>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
-                    .Returns((refused ? 0 : deleted, refused ? "Error: hidden" : null));
+                world.Memory.ForgetAsync(id, Arg.Any<Guid>(), Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>())
+                    .Returns((failure == MemoryWriteFailure.None ? deleted : 0, failure));
 
                 var forgotten = await new ForgetFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text);
 
                 bool reached = writer && exists && key.Names && factId.IsId;
                 MemoryStatus expected = !writer ? MemoryStatus.Forbidden
                     : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
-                    : !factId.IsId || refused ? MemoryStatus.FactNotFound
+                    : !factId.IsId ? MemoryStatus.FactNotFound
+                    : failure == MemoryWriteFailure.Forbidden ? MemoryStatus.Forbidden
+                    : failure == MemoryWriteFailure.NotFound ? MemoryStatus.FactNotFound
+                    : failure == MemoryWriteFailure.Unchecked ? MemoryStatus.Unchecked
                     : MemoryStatus.Success;
                 forgotten.Status.Should().Be(expected);
                 world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);

@@ -39,7 +39,8 @@ public class MemoryServiceCorrectTests
     private static MemoryFact Fact(MemoryCaller author, params MemorySource[] sources)
     {
         Guid id = Guid.NewGuid();
-        return new MemoryFact(id, id, Container, "Halcyon", "database", "x", null, null, DateTimeOffset.UtcNow, null, null, null, author, sources);
+        return new MemoryFact(id, id, Container, "Halcyon", "database", "x", null, null, DateTimeOffset.UtcNow, null, null, null, author, sources,
+            sources.Length > 0 ? MemoryScope.Team : MemoryScope.Personal);
     }
 
     [Fact]
@@ -129,7 +130,7 @@ public class MemoryServiceCorrectTests
                 ?? new MemoryWriteResult(Fact(Me, Restricted), current, null));
 
         MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "y", null, null, [Restricted]), Me);
+            new NewMemoryFact("", "", "y", null, null, [Restricted]), Me, true);
 
         restrictedChecks.Should().Be(2, "once before the lock, once under it");
         result.Fact.Should().BeNull();
@@ -148,7 +149,7 @@ public class MemoryServiceCorrectTests
                 ?? new MemoryWriteResult(Fact(Me), current, null));
 
         MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "y", null, null, []), Me);
+            new NewMemoryFact("", "", "y", null, null, []), Me, true);
 
         result.Fact.Should().BeNull();
         result.Error.Should().Contain("versions you cannot see");
@@ -168,7 +169,7 @@ public class MemoryServiceCorrectTests
                 ?? new MemoryWriteResult(written, current, null));
 
         MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "y", null, null, []), Me);
+            new NewMemoryFact("", "", "y", null, null, null), Me, true);
 
         result.Fact.Should().Be(written);
         await _audit.Received(1).LogAsync("memory.corrected", "memory_fact", written.Id.ToString(), Arg.Any<object>(), Arg.Any<CancellationToken>());

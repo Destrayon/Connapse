@@ -422,7 +422,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 11", "2026-01-05", sources: [_upload]));
-        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_allowedPage]);
+        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload, _allowedPage]);
 
         As(_reader);
         Values(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().Equal(["MariaDB 11"], "the reader sees the first version");
@@ -434,12 +434,17 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Write_WithoutWriteAccess_IsRefused()
+    public async Task Write_WithoutWriteAccess_IsRefusedButRecallStillWorks()
     {
+        As(_writer);
+        string team = Id(await Remember("PostgreSQL 15", sources: [_upload]));
+
         As(_writer, role: "Viewer");
-        (await Remember("x")).Should().Contain("needs write access");
-        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, Guid.NewGuid().ToString())).Should().Contain("needs write access");
-        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().BeEmpty("reading still works");
+        (await Remember("x")).Should().Contain("needs write access", "a fact citing sources is team");
+        (await Remember("y", sources: [])).Should().Contain("needs write access", "a fact citing nothing is personal, and still needs write access");
+        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, team)).Should().Contain("needs write access");
+        Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon"))
+            .Should().Equal(["PostgreSQL 15"], "read access still recalls the team facts it can see");
     }
 
     [Fact]

@@ -87,7 +87,7 @@ public partial class McpTools
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
         var written = await correct.RunAsync(Mcp(http), containerId, factId, correction,
-            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, parsed, reason), ct);
+            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, sources is null ? null : parsed, reason), ct);
         return written.Succeeded
             ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), replaced = Shown(written.Result.Replaced!, null) }, MemoryJson)
             : Refused(written);

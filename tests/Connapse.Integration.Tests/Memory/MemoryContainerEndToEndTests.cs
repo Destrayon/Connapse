@@ -95,7 +95,7 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
                 (await db.Documents.CountAsync(d => d.ContainerId == Guid.Parse(id))).Should().Be(0);
             }
 
-            // Permissions as in any container: a read-only key of the same owner recalls but can't write.
+            // A read-only key of the same owner recalls but saves no memory, not even a personal fact.
             await using (var reader = await ConnectAsync(AuthzPrincipal.AgentRead))
             {
                 Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))

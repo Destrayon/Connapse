@@ -62,6 +62,14 @@ internal static class MemoryRules
     public static Attempt<T, MemoryStatus> WriteForbidden<T>() =>
         Fail<T>(MemoryStatus.Forbidden, "writing memory needs write access (knowledge:write).");
 
+    /// <summary>
+    /// Whether the caller may save memory, personal or team: write access (knowledge:write). Both checks are needed:
+    /// the writer role alone would pass an Editor's read-only token. Read-only callers only recall, since every saved
+    /// fact costs storage and embedding compute.
+    /// </summary>
+    public static async Task<bool> WriterAsync(IOperationAuthorizer authorizer, OperationContext context) =>
+        await authorizer.AllowsAsync(context.User, Policies.Writer) && await authorizer.AllowsAsync(context.User, Policies.KnowledgeWrite);
+
     public static Attempt<T, MemoryStatus> WriteContainerNotFound<T>(string? containerId) =>
         Fail<T>(MemoryStatus.ContainerNotFound, $"Container '{containerId}' not found. Memory lives in containers, not in synced sources.");
 
@@ -75,13 +83,14 @@ internal static class MemoryRules
             {
                 MemoryWriteFailure.NotFound => MemoryStatus.FactNotFound,
                 MemoryWriteFailure.Unchecked => MemoryStatus.Unchecked,
+                MemoryWriteFailure.Forbidden => MemoryStatus.Forbidden,
                 _ => MemoryStatus.Invalid,
             }, error);
 }
 
 /// <summary>
-/// Stores one fact in a container's memory. The writer must be able to read every source it cites; a fact citing none
-/// is seen only by its writer.
+/// Stores one fact in a container's memory, personal or team. The writer must be able to read every source it cites.
+/// Either scope needs write access; read-only callers can only recall.
 /// </summary>
 [Operation("memory.remember", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
 public sealed class RememberFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
@@ -89,8 +98,10 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
     public async Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
         OperationContext context, string containerId, NewMemoryFact fact, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
+        if (!await MemoryRules.WriterAsync(authorizer, context))
             return MemoryRules.WriteForbidden<MemoryWritten>();
+        if (fact.Scope is { } scope && !Enum.IsDefined(scope))
+            return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Invalid, "scope must be \"personal\" or \"team\".", "scope");
         if (await MemoryRules.ContainerAsync(containers, containerId, ct) is not { } container)
             return MemoryRules.WriteContainerNotFound<MemoryWritten>(containerId);
 
@@ -101,6 +112,7 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 /// <summary>
 /// Replaces a fact and keeps the old one in history: <see cref="MemoryCorrection.Changed"/> ends it where the new
 /// value starts, <see cref="MemoryCorrection.Wrong"/> supersedes it. A fact the caller cannot see reads as missing.
+/// The new version keeps the fact's scope. Correcting needs write access, whatever the scope.
 /// </summary>
 [Operation("memory.correct", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
 public sealed class CorrectFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
@@ -109,7 +121,7 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
         OperationContext context, string containerId, string factId, MemoryCorrection kind, NewMemoryFact replacement,
         CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
+        if (!await MemoryRules.WriterAsync(authorizer, context))
             return MemoryRules.WriteForbidden<MemoryWritten>();
         // The answer holds the replaced fact, so a correction is a read as well.
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
@@ -121,13 +133,13 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
         if (!Enum.IsDefined(kind))
             return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Invalid, "kind must be \"changed\" or \"wrong\".", "kind");
 
-        return MemoryRules.Written(await memory.CorrectAsync(container, id, kind, replacement, MemoryRules.Caller(context.User), ct));
+        return MemoryRules.Written(await memory.CorrectAsync(container, id, kind, replacement, MemoryRules.Caller(context.User), teamWriter: true, ct));
     }
 }
 
 /// <summary>
 /// Deletes a fact for good, with every version of it from corrections. A chain with any version the caller cannot see
-/// reads as missing, and nothing is deleted.
+/// reads as missing, and nothing is deleted. Forgetting needs write access, whatever the scope.
 /// </summary>
 [Operation("memory.forget", Scope = MemoryRules.WriteScope, Risk = RiskTier.Destructive)]
 public sealed class ForgetFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
@@ -135,15 +147,21 @@ public sealed class ForgetFact(IContainerStore containers, IMemoryService memory
     /// <returns>How many versions were deleted.</returns>
     public async Task<Attempt<int, MemoryStatus>> RunAsync(OperationContext context, string containerId, string factId, CancellationToken ct = default)
     {
-        if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
+        if (!await MemoryRules.WriterAsync(authorizer, context))
             return MemoryRules.WriteForbidden<int>();
         if (await MemoryRules.ContainerAsync(containers, containerId, ct) is not { } container)
             return MemoryRules.WriteContainerNotFound<int>(containerId);
         if (!Guid.TryParse(factId, out Guid id))
             return MemoryRules.FactNotFound<int>(factId);
 
-        (int deleted, string? error) = await memory.ForgetAsync(container, id, MemoryRules.Caller(context.User), ct);
-        return error is null ? Attempt<int, MemoryStatus>.Succeed(deleted) : MemoryRules.FactNotFound<int>(factId);
+        (int deleted, MemoryWriteFailure failure) = await memory.ForgetAsync(container, id, MemoryRules.Caller(context.User), teamWriter: true, ct);
+        return failure switch
+        {
+            MemoryWriteFailure.None => Attempt<int, MemoryStatus>.Succeed(deleted),
+            MemoryWriteFailure.Forbidden => MemoryRules.Fail<int>(MemoryStatus.Forbidden, "deleting a team fact needs write access (knowledge:write)."),
+            MemoryWriteFailure.Unchecked => MemoryRules.Fail<int>(MemoryStatus.Unchecked, "access to memory sources could not be checked; nothing was deleted."),
+            _ => MemoryRules.FactNotFound<int>(factId),
+        };
     }
 }
 
