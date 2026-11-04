@@ -27,7 +27,7 @@ public class McpToolsGetDocumentTests
 
     public McpToolsGetDocumentTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _documentStore = Substitute.For<IDocumentStore>();
         _documentStore.GetResourceUrisAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .Returns(_ => (IReadOnlyDictionary<string, string?>)_uris);

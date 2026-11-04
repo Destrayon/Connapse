@@ -50,7 +50,7 @@ public class SettingsPageKeysTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
         ctx.Services.AddSingleton(Substitute.For<IBackgroundReindex>());
         ctx.Services.AddSingleton(Substitute.For<IIngestionQueue>());
-        ctx.Services.AddSingleton(Substitute.For<IContainerStore>());
+        ctx.Services.AddSingleton(ContainerStoreFakes.Create());
         ctx.Services.AddSingleton<ReindexStateService>();
         ctx.Services.AddTransient<TestConnection>();
         ctx.Services.AddTransient<ListEmbeddingModels>();

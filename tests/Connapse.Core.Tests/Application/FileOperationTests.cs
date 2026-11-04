@@ -25,7 +25,7 @@ public class FileOperationTests
     private static readonly Guid Here = Guid.Parse("7b1c9e2a-0000-4000-8000-0000000000aa");
     private const string Id = "7b1c9e2a-0000-4000-8000-0000000000d1";
 
-    private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containers = ContainerStoreFakes.Create();
     private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
     private readonly IFolderStore _folders = Substitute.For<IFolderStore>();
     private readonly IDocumentAccess _access = Substitute.For<IDocumentAccess>();

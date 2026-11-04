@@ -25,7 +25,7 @@ public partial class SettingsOperationTests
         public readonly ReindexStateService Runs = new();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
         public readonly IConnectionTests Tests = Substitute.For<IConnectionTests>();
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
 
         public Actions(bool admin = true)
         {

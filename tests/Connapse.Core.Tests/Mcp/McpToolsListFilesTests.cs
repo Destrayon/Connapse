@@ -23,7 +23,7 @@ public class McpToolsListFilesTests
 
     public McpToolsListFilesTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _documentStore = Substitute.For<IDocumentStore>();
         _folderStore = Substitute.For<IFolderStore>();
 

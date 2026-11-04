@@ -265,6 +265,12 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<string>("Audience")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("audience");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -287,6 +293,14 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("name");
 
+                    b.Property<Guid?>("OwnerAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_agent_id");
+
+                    b.Property<Guid?>("OwnerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_user_id");
+
                     b.Property<JsonDocument>("SettingsOverridesJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_overrides");
@@ -301,9 +315,20 @@ namespace Connapse.Storage.Migrations
 
                     b.HasIndex("Name")
                         .IsUnique()
-                        .HasDatabaseName("ix_containers_name");
+                        .HasDatabaseName("ix_containers_name")
+                        .HasFilter("audience = 'team'");
 
-                    b.ToTable("containers", (string)null);
+                    b.HasIndex("OwnerUserId", "OwnerAgentId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_containers_personal_name")
+                        .HasFilter("audience = 'personal'");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OwnerUserId", "OwnerAgentId", "Name"), false);
+
+                    b.ToTable("containers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_containers_audience_owner", "(audience = 'team' AND owner_user_id IS NULL AND owner_agent_id IS NULL) OR (audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))");
+                        });
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.CustomLinkRemovalEntity", b =>

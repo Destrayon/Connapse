@@ -43,6 +43,9 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
     {
         string name = $"agent-memory-{Guid.NewGuid():N}"[..40];
         string id;
+        // CON-235: a fact citing no documents, saved the old way by containerId, goes to the owner's own
+        // "<container>-personal" space, and the answer says so. Recall reads it from there.
+        string? personalId = null;
 
         // Session 1: create the container, see it listed as memory, save the five facts.
         await using (var agent = await ConnectAsync(AuthzPrincipal.AgentWrite))
@@ -63,8 +66,14 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
                     ["value"] = value,
                 });
                 saved.Should().StartWith("{\"remembered\"", saved);
+                JsonElement savedTo = JsonDocument.Parse(saved).RootElement.GetProperty("savedTo");
+                savedTo.GetProperty("name").GetString().Should().Be($"{name}-personal");
+                savedTo.GetProperty("audience").GetString().Should().Be("personal");
+                personalId ??= savedTo.GetProperty("id").GetString();
+                savedTo.GetProperty("id").GetString().Should().Be(personalId, "every save lands in the same personal space");
             }
         }
+        string space = personalId!;
 
         try
         {
@@ -74,10 +83,10 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
             {
                 foreach (var (subject, attribute, value, question) in Facts)
                 {
-                    if (Values(await CallAsync(agent, "memory_recall", new() { ["containerId"] = id, ["subject"] = subject }))
+                    if (Values(await CallAsync(agent, "memory_recall", new() { ["containerId"] = space, ["subject"] = subject }))
                         .Contains(value))
                         bySubject++;
-                    if (Values(await CallAsync(agent, "memory_recall", new() { ["containerId"] = id, ["query"] = question, ["limit"] = 3 }))
+                    if (Values(await CallAsync(agent, "memory_recall", new() { ["containerId"] = space, ["query"] = question, ["limit"] = 3 }))
                         .Contains(value))
                         byQuestion++;
                 }
@@ -98,7 +107,7 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
             // A read-only key of the same owner recalls but saves no memory, not even a personal fact.
             await using (var reader = await ConnectAsync(AuthzPrincipal.AgentRead))
             {
-                Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
+                Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = space, ["subject"] = "team" }))
                     .Should().Contain(Facts[0].Value);
                 string written;
                 try
@@ -116,18 +125,26 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
                     written = ex.Message; // the tool isn't offered to a key without knowledge:write
                 }
                 written.Should().NotContain("remembered", "memory_remember needs knowledge:write");
-                Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
+                Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = space, ["subject"] = "team" }))
                     .Should().NotContain("Thursdays");
             }
 
             // A fact citing no documents is shown only to its owner, never to another user's agent.
+            // The personal space it went to doesn't exist for them at all.
             await using (var stranger = await ConnectAsync(await OtherUsersAgentKeyAsync()))
+            {
                 Values(await CallAsync(stranger, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
                     .Should().BeEmpty();
+                (await CallAsync(stranger, "memory_recall", new() { ["containerId"] = space, ["subject"] = "team" }))
+                    .Should().Contain("not found");
+                (await CallAsync(stranger, "container_list", new())).Should().NotContain($"{name}-personal");
+            }
         }
         finally
         {
             await fixture.AdminClient.DeleteAsync($"/api/containers/{id}");
+            if (personalId is not null)
+                await fixture.AdminClient.DeleteAsync($"/api/containers/{personalId}");
         }
     }
 

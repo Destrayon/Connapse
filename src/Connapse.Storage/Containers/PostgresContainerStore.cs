@@ -28,7 +28,7 @@ public class PostgresContainerStore(
 
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        var exists = await context.Containers.AnyAsync(c => c.Name == name, ct);
+        var exists = await context.Containers.AnyAsync(c => c.Name == name && c.Audience == MemoryScope.Team, ct);
         if (exists)
             throw new InvalidOperationException($"A container with the name '{name}' already exists.");
 
@@ -50,12 +50,13 @@ public class PostgresContainerStore(
         return MapToModel(entity, 0);
     }
 
-    public async Task<Container?> GetAsync(Guid id, CancellationToken ct = default)
+    public Task<Container?> GetAsync(Guid id, CancellationToken ct = default) => GetAsync(id, viewer: null, ct);
+
+    public async Task<Container?> GetAsync(Guid id, MemoryCaller? viewer, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        var result = await context.Containers
-            .AsNoTracking()
+        var result = await VisibleTo(context.Containers.AsNoTracking(), viewer)
             .Where(c => c.Id == id)
             .Select(c => new { Container = c, DocumentCount = c.Documents.Count })
             .FirstOrDefaultAsync(ct);
@@ -63,28 +64,34 @@ public class PostgresContainerStore(
         return result is null ? null : MapToModel(result.Container, result.DocumentCount);
     }
 
-    public async Task<Container?> GetByNameAsync(string name, CancellationToken ct = default)
+    public async Task<Container?> GetByNameAsync(string name, CancellationToken ct = default) =>
+        (await FindByNameAsync(name, viewer: null, ct)).FirstOrDefault();
+
+    public async Task<IReadOnlyList<Container>> FindByNameAsync(string name, MemoryCaller? viewer, CancellationToken ct = default)
     {
         var normalized = name.Trim().ToLowerInvariant();
 
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        var result = await context.Containers
-            .AsNoTracking()
+        var results = await VisibleTo(context.Containers.AsNoTracking(), viewer)
             .Where(c => c.Name == normalized)
+            .OrderBy(c => c.Audience == MemoryScope.Personal)
             .Select(c => new { Container = c, DocumentCount = c.Documents.Count })
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
 
-        return result is null ? null : MapToModel(result.Container, result.DocumentCount);
+        return results.Select(r => MapToModel(r.Container, r.DocumentCount)).ToList();
     }
 
-    public async Task<IReadOnlyList<Container>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default)
+    public Task<IReadOnlyList<Container>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default) =>
+        ListAsync(skip, take, viewer: null, ct);
+
+    public async Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        var results = await context.Containers
-            .AsNoTracking()
+        var results = await VisibleTo(context.Containers.AsNoTracking(), viewer)
             .OrderBy(c => c.Name)
+            .ThenBy(c => c.Audience == MemoryScope.Personal)
             .Skip(skip)
             .Take(take)
             .Select(c => new { Container = c, DocumentCount = c.Documents.Count })
@@ -92,6 +99,55 @@ public class PostgresContainerStore(
 
         return results.Select(r => MapToModel(r.Container, r.DocumentCount)).ToList();
     }
+
+    public async Task<Container> EnsurePersonalSpaceAsync(
+        MemoryCaller owner, string name, string? description, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        (Guid? ownerUser, Guid? ownerAgent) = OwnerOf(owner);
+        if (ownerUser is null && ownerAgent is null)
+            throw new ArgumentException("A personal space needs a user or an agent to belong to.", nameof(owner));
+
+        name = name.Trim();
+        if (!PathUtilities.IsValidContainerName(name))
+            throw new ArgumentException($"'{name}' is not a valid space name.", nameof(name));
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+
+        // Insert-or-nothing, so two first saves racing make one space between them, not a unique-index failure.
+        DateTime now = DateTime.UtcNow;
+        await context.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO containers (id, name, description, kind, audience, owner_user_id, owner_agent_id, created_at, updated_at)
+            VALUES ({Guid.NewGuid()}, {name}, {description?.Trim()}, 'memory', 'personal', {ownerUser}, {ownerAgent}, {now}, {now})
+            ON CONFLICT (owner_user_id, owner_agent_id, name) WHERE audience = 'personal' DO NOTHING
+            """, ct);
+
+        var entity = await context.Containers.AsNoTracking()
+            .FirstAsync(c => c.Audience == MemoryScope.Personal && c.Name == name
+                && c.OwnerUserId == ownerUser && c.OwnerAgentId == ownerAgent, ct);
+        return MapToModel(entity, 0);
+    }
+
+    /// <summary>
+    /// Only the containers <paramref name="viewer"/> may know exist: every team container, and the personal spaces the
+    /// viewer owns. With no viewer, team containers only, so a lookup that forgets to say who is asking fails closed.
+    /// </summary>
+    private static IQueryable<ContainerEntity> VisibleTo(IQueryable<ContainerEntity> containers, MemoryCaller? viewer)
+    {
+        if (viewer is null)
+            return containers.Where(c => c.Audience == MemoryScope.Team);
+        (Guid? ownerUser, Guid? ownerAgent) = OwnerOf(viewer);
+        if (ownerUser is { } user)
+            return containers.Where(c => c.Audience == MemoryScope.Team || c.OwnerUserId == user);
+        if (ownerAgent is { } agent)
+            return containers.Where(c => c.Audience == MemoryScope.Team || (c.OwnerUserId == null && c.OwnerAgentId == agent));
+        return containers.Where(c => c.Audience == MemoryScope.Team);
+    }
+
+    /// <summary>The owner a personal space made for <paramref name="caller"/> has: its user, or its agent when it acts for no user.</summary>
+    private static (Guid? User, Guid? Agent) OwnerOf(MemoryCaller caller) =>
+        caller.UserId is { } user ? (user, null) : (null, caller.AgentId);
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken ct = default)
     {
@@ -131,7 +187,9 @@ public class PostgresContainerStore(
             name = name.Trim();
             if (!PathUtilities.IsValidContainerName(name))
                 throw new InvalidOperationException($"'{name}' is not a valid container name.");
-            if (name != entity.Name && await context.Containers.AnyAsync(c => c.Name == name && c.Id != id, ct))
+            if (name != entity.Name && await context.Containers.AnyAsync(
+                    c => c.Name == name && c.Id != id && c.Audience == entity.Audience
+                        && c.OwnerUserId == entity.OwnerUserId && c.OwnerAgentId == entity.OwnerAgentId, ct))
                 throw new InvalidOperationException($"Container '{name}' already exists");
             entity.Name = name;
         }
@@ -141,7 +199,8 @@ public class PostgresContainerStore(
         await context.SaveChangesAsync(ct);
 
         logger.LogInformation("Updated container {ContainerId} ({Name})", id, Sanitize(entity.Name));
-        return await GetAsync(id, ct);
+        int documentCount = await context.Documents.CountAsync(d => d.ContainerId == id, ct);
+        return MapToModel(entity, documentCount);
     }
 
     public async Task<bool> ExistsAsync(Guid id, CancellationToken ct = default)
@@ -262,6 +321,11 @@ public class PostgresContainerStore(
             entity.UpdatedAt,
             documentCount,
             overrides,
-            entity.Kind);
+            entity.Kind,
+            entity.Audience)
+        {
+            OwnerUserId = entity.OwnerUserId,
+            OwnerAgentId = entity.OwnerAgentId,
+        };
     }
 }

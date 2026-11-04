@@ -32,7 +32,7 @@ public class MemoryContainerRefusalTests
         "'agent-notes' is an agent memory container: it holds memory facts, not documents. "
         + "Use the memory tools (memory_remember, memory_recall) on it instead.";
 
-    private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containers = ContainerStoreFakes.Create();
     private readonly IOperationAuthorizer _authorizer = new PolicyAuthorizer(_ => true);
     private readonly IAuditLogger _audit = Substitute.For<IAuditLogger>();
 

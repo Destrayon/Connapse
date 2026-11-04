@@ -24,7 +24,7 @@ public class McpToolsSearchKnowledgeTests
 
     public McpToolsSearchKnowledgeTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _searchService = Substitute.For<IKnowledgeSearch>();
         _searchSettings = Substitute.For<IOptionsMonitor<SearchSettings>>();
         _searchSettings.CurrentValue.Returns(new SearchSettings());

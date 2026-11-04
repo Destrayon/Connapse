@@ -21,7 +21,7 @@ public class ContainerOperationTests
     private static readonly OperationContext Caller = new(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Rest);
     private static readonly DateTime Epoch = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containers = ContainerStoreFakes.Create();
     private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
     private readonly IAuditLogger _audit = Substitute.For<IAuditLogger>();
     private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();

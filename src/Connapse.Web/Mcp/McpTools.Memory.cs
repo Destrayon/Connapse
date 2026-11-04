@@ -30,7 +30,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_remember", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Store one fact in a container's memory: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them, and a fact citing none only to you. When a value you stored before has changed, call `memory_correct` instead.")]
+     Description("Store one fact in a container's memory: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them, and a fact citing none only to you, saved in your own `<container>-personal` space (the answer names it). When a value you stored before has changed, call `memory_correct` instead.")]
     public static async Task<string> MemoryRemember(
         RememberFact remember,
         IHttpContextAccessor http,
@@ -52,9 +52,20 @@ public partial class McpTools
         var written = await remember.RunAsync(Mcp(http), containerId,
             new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), ct);
         return written.Succeeded
-            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null) }, MemoryJson)
+            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson)
             : Refused(written);
     }
+
+    /// <summary>Where a fact went and who sees it, so a save redirected to a personal space says so.</summary>
+    internal static object? SavedTo(Connapse.Core.Container? space) => space is null ? null : new
+    {
+        id = space.Id,
+        name = space.Name,
+        audience = space.Audience,
+        note = space.Audience == MemoryScope.Personal
+            ? $"Saved to your personal space '{space.Name}': only you can see it. Recall it from '{space.Name}'."
+            : $"Saved to '{space.Name}'.",
+    };
 
     [McpServerTool(Name = "memory_correct", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
