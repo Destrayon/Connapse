@@ -56,7 +56,7 @@
     "IsEmpty": false
   },
   "Memory/MemoryTab.razor": {
-    "CodeLines": 238,
+    "CodeLines": 241,
     "Injects": 2,
     "Complexity": 85,
     "MarkupLogic": 56,

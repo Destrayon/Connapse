@@ -1,6 +1,7 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Connapse.Application.Ports;
 using Connapse.Core;
@@ -26,9 +27,12 @@ public sealed record MemoryFactListing(MemoryFactFilter Filter, MemoryFactSort S
 /// </summary>
 internal static class MemoryCursor
 {
-    private const int MaxLength = 2048;
+    // A 200-character subject and attribute of control characters, escaped, still encode well under this; it is also
+    // Kestrel's request-line limit, so no longer cursor could arrive.
+    private const int MaxLength = 8192;
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    // Text stays raw UTF-8 (the cursor is base64url, never markup), so a CJK subject costs 3 bytes a character, not 6.
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private sealed record Envelope<T>(string F, T K);
 

@@ -50,7 +50,7 @@ public class MemoryPagingRandomInputTests
     private static readonly Gen<string?> AnyCursor = Gen.OneOf(
         Gen.Const((string?)null),
         Gen.Const((string?)"not a cursor!"),
-        Gen.Const((string?)new string('A', 3000)),
+        Gen.Const((string?)new string('A', 9000)),
         Gen.Guid.Select(g => (string?)Base64Url.EncodeToString(Encoding.UTF8.GetBytes($"{{\"f\":\"other\",\"k\":{{\"id\":\"{g}\"}}}}"))));
 
     /// <summary>A fact id: a real one, or text that isn't an id.</summary>
@@ -154,6 +154,30 @@ public class MemoryPagingRandomInputTests
                 moved.Status.Should().Be(MemoryStatus.Invalid);
                 moved.Field.Should().Be("cursor");
             }, iter: 1000);
+
+    [Theory]
+    [InlineData('語')]
+    [InlineData('\u0001')]
+    [InlineData('"')]
+    public async Task List_LongestSubjectKey_CursorBringsTheNextPageBack(char fill)
+    {
+        var container = new Container(Guid.NewGuid().ToString(), "notes", null, Epoch, Epoch);
+        var world = new World(reader: true, container, exists: true);
+        Guid id = Guid.Parse(container.Id);
+        var next = new MemoryFactKey(Guid.NewGuid(), Subject: new string(fill, 200), Attribute: new string(fill, 200));
+        world.Memory.ListAsync(Arg.Any<Guid>(), Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(),
+                Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryFactPage([new(Stored(id), [])], next));
+        var operation = new ListMemoryFacts(world.Containers, world.Memory, world.Authorizer);
+        var filter = new MemoryFactFilter();
+        var caller = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), default);
+
+        var first = await operation.RunAsync(caller, container.Id, new MemoryFactListing(filter, MemoryFactSort.Subject));
+        var second = await operation.RunAsync(caller, container.Id, new MemoryFactListing(filter, MemoryFactSort.Subject, first.Result!.NextCursor));
+
+        second.Status.Should().Be(MemoryStatus.Success);
+        await world.Memory.Received(1).ListAsync(id, filter, MemoryFactSort.Subject, next, 50, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+    }
 
     // ── memory.count ──────────────────────────────────────────────────────────────────────────────
 

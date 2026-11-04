@@ -373,6 +373,8 @@
     private List<RecalledFact>? history;
     private long historyTotal;
     private string? historyNext;
+    // The fact id historyNext was made for; a cursor is refused for any other version's id.
+    private string historyFact = "";
     private bool loadingOlder;
     private int historyRequest;
 
@@ -445,13 +447,14 @@
     {
         if (selected is null) return;
         int request = ++historyRequest;
+        string factId = selected.Fact.Id.ToString();
         var read = await MemoryOps.History.BackToAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
-            selected.Fact.Id.ToString(), showId, PageSize);
+            factId, showId, PageSize);
         if (request != historyRequest) return;
         var chain = read.ResultOr<MemoryVersionsListed, MemoryStatus>(failed => errorMessage = failed, null!);
         if (chain?.Versions.FirstOrDefault(f => f.Fact.Id == showId) is { } shown)
             // Kept oldest first, as recorded order is correction order: a correction is recorded after the fact it replaces.
-            (selected, history, historyTotal, historyNext) = (shown, [.. chain.Versions.Reverse()], chain.Total, chain.NextCursor);
+            (selected, history, historyTotal, historyNext, historyFact) = (shown, [.. chain.Versions.Reverse()], chain.Total, chain.NextCursor, factId);
         else
             ClearDetail();
     }
@@ -462,7 +465,7 @@
         int request = historyRequest;
         loadingOlder = true;
         var read = await MemoryOps.History.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
-            selected.Fact.Id.ToString(), historyNext, PageSize);
+            historyFact, historyNext, PageSize);
         loadingOlder = false;
         if (request != historyRequest || read.ResultOr<MemoryVersionsListed, MemoryStatus>(failed => errorMessage = failed, null!) is not { } page) return;
         history.InsertRange(0, page.Versions.Reverse());

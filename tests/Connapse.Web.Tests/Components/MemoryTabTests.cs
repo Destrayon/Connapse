@@ -289,6 +289,25 @@ public class MemoryTabTests : IDisposable
         cut.Find("#memory-delete-body").TextContent.Should().Contain("its 120 earlier versions");
     }
 
+    [Fact]
+    public void ShowOlderVersions_AfterOpeningAnotherVersion_PagesTheChainItWasAskedFor()
+    {
+        var latest = memory.Add("Halcyon", "build", "v0");
+        for (int i = 1; i < 120; i++)
+            latest = memory.Correct(latest, MemoryCorrection.Wrong, $"v{i}");
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(1));
+        cut.Find(".memory-row").Click();
+        cut.WaitForAssertion(() => cut.FindAll("#memory-history .history-item").Should().HaveCount(100));
+        cut.FindAll(".history-open")[^1].Click();
+        cut.Find(".fact-hero-value").TextContent.Should().NotBe("v119");
+
+        cut.Find("#memory-history-older").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("#memory-history .history-item").Should().HaveCount(120));
+        cut.FindAll(".alert-danger").Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData(30, "just now")]
     [InlineData(60 * 5, "5 minutes ago")]

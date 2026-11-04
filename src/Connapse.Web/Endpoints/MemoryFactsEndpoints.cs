@@ -49,7 +49,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
-        .WithName("ListMemoryFacts")
+        .WithName("memory.list")
         .WithDescription("One page of the facts in a memory space the caller can see, filtered and sorted, with the cursor for the next page");
 
         // GET /api/memory/spaces/{id}/facts/count - How many facts match
@@ -78,7 +78,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
-        .WithName("CountMemoryFacts")
+        .WithName("memory.count")
         .WithDescription("How many facts in a memory space the caller can see, with the same filters as listing; capped when counting stopped early");
 
         // GET /api/memory/spaces/{id}/subjects - One page of a space's subjects
@@ -102,7 +102,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
-        .WithName("ListMemorySubjects")
+        .WithName("memory.subjects")
         .WithDescription("One page of a memory space's subjects, A to Z, each with how many facts the caller can see under it");
 
         // GET /api/memory/facts/{id}/history - One page of a fact's versions
@@ -121,7 +121,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
-        .WithName("ListMemoryFactHistory")
+        .WithName("memory.history")
         .WithDescription("One page of a fact's versions the caller can see, newest first, with how many there are in all");
 
         return app;
