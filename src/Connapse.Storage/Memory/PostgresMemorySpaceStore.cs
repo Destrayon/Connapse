@@ -12,7 +12,8 @@ namespace Connapse.Storage.Memory;
 /// <summary>
 /// Spaces as the Memory page lists them. Fact counts follow the same rule as reading a fact: a current fact counts for
 /// a viewer only when it is team or theirs and they can read every source it cites, checked once per list for every
-/// source in play and passed into one grouped query.
+/// source in play and passed into one grouped query. A delete's impact counts by the same rule, so it never reveals
+/// facts the viewer can't read.
 /// </summary>
 public sealed class PostgresMemorySpaceStore(
     IDbContextFactory<KnowledgeDbContext> factory,
@@ -42,41 +43,16 @@ public sealed class PostgresMemorySpaceStore(
         DateTimeOffset now = clock.GetUtcNow();
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
 
-        List<SourceRow> cited = await context.Database.SqlQueryRaw<SourceRow>(
-            $"""
-            SELECT DISTINCT s.kind AS "Kind", s.ref AS "Ref"
-            FROM memory_fact_sources s
-            JOIN memory_facts f ON f.id = s.fact_id
-            JOIN containers c ON c.id = f.container_id
-            WHERE {FactCurrent} AND {ContainerVisible} AND {FactScopeVisible}
-            """,
-            Viewer(viewer, now)).ToListAsync(ct);
-
-        IReadOnlySet<MemorySource> readable;
-        try
-        {
-            readable = await MemorySourceAccess.ReadableAsync(
-                access, links, cited.Select(r => new MemorySource((MemorySourceKind)r.Kind, r.Ref)), viewer.UserId, ct);
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            logger.LogWarning(ex, "Could not check memory sources; listing no spaces");
+        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, null, "listing no spaces", ct);
+        if (readable is null)
             return null;
-        }
 
         string? pattern = string.IsNullOrWhiteSpace(text) ? null : "%" + EscapeLike(text.Trim()) + "%";
         (Guid? starUser, Guid? starAgent) = OwnerOf(viewer);
         List<NpgsqlParameter> parameters =
         [
             .. Viewer(viewer, now),
-            new("documents", NpgsqlDbType.Array | NpgsqlDbType.Text)
-            {
-                Value = readable.Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref).ToArray(),
-            },
-            new("nodes", NpgsqlDbType.Array | NpgsqlDbType.Text)
-            {
-                Value = readable.Where(s => s.Kind == MemorySourceKind.Node).Select(s => s.Ref).ToArray(),
-            },
+            .. Readable(readable),
             new("pattern", NpgsqlDbType.Text) { Value = (object?)pattern ?? DBNull.Value },
             new("star_user", NpgsqlDbType.Uuid) { Value = (object?)starUser ?? DBNull.Value },
             new("star_agent", NpgsqlDbType.Uuid) { Value = (object?)starAgent ?? DBNull.Value },
@@ -97,11 +73,7 @@ public sealed class PostgresMemorySpaceStore(
             LEFT JOIN (
                 SELECT f.container_id, count(*) AS facts, max(f.recorded_at) AS newest
                 FROM memory_facts f
-                WHERE {FactCurrent} AND {FactScopeVisible}
-                  AND NOT EXISTS (
-                      SELECT 1 FROM memory_fact_sources s
-                      WHERE s.fact_id = f.id
-                        AND NOT ((s.kind = 0 AND s.ref = ANY(@documents)) OR (s.kind = 1 AND s.ref = ANY(@nodes))))
+                WHERE {FactCurrent} AND {FactScopeVisible} AND {SourcesReadable}
                 GROUP BY f.container_id
             ) a ON a.container_id = c.id
             WHERE {ContainerVisible}
@@ -156,16 +128,51 @@ public sealed class PostgresMemorySpaceStore(
         };
     }
 
-    public async Task<MemorySpaceImpact> ImpactAsync(Guid containerId, CancellationToken ct = default)
+    public async Task<MemorySpaceImpact?> ImpactAsync(Guid containerId, MemoryCaller viewer, CancellationToken ct = default)
     {
+        ArgumentNullException.ThrowIfNull(viewer);
+        DateTimeOffset now = clock.GetUtcNow();
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
-        ImpactRow row = await context.Database.SqlQuery<ImpactRow>(
+        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, containerId, "reporting no delete impact", ct);
+        if (readable is null)
+            return null;
+
+        // Every version, current or not, of the facts the viewer may read: the same rows the space's history shows them.
+        ImpactRow row = await context.Database.SqlQueryRaw<ImpactRow>(
             $"""
-            SELECT count(DISTINCT chain_id) AS "Facts", count(*) AS "Versions",
-                   count(DISTINCT COALESCE(author_user_id, author_agent_id)) AS "Authors"
-            FROM memory_facts WHERE container_id = {containerId}
-            """).SingleAsync(ct);
+            SELECT count(DISTINCT f.chain_id) AS "Facts", count(*) AS "Versions",
+                   count(DISTINCT COALESCE(f.author_user_id, f.author_agent_id)) AS "Authors"
+            FROM memory_facts f
+            WHERE f.container_id = @container AND {FactScopeVisible} AND {SourcesReadable}
+            """,
+            [.. Viewer(viewer, now), new NpgsqlParameter("container", NpgsqlDbType.Uuid) { Value = containerId }, .. Readable(readable)])
+            .SingleAsync(ct);
         return new MemorySpaceImpact((int)row.Facts, (int)row.Versions, (int)row.Authors);
+    }
+
+    /// <summary>
+    /// Which sources the viewer may read among those cited by facts in scope for them: every fact in one space when
+    /// <paramref name="containerId"/> is given, else the current facts in every space they may see. Null when access
+    /// could not be checked.
+    /// </summary>
+    private async Task<IReadOnlySet<MemorySource>?> ReadableAsync(
+        KnowledgeDbContext context, MemoryCaller viewer, DateTimeOffset now, Guid? containerId, string onFailure,
+        CancellationToken ct)
+    {
+        List<SourceRow> cited = await context.Database.SqlQueryRaw<SourceRow>(
+            containerId is null ? CitedInVisibleSpaces : CitedInSpace,
+            [.. Viewer(viewer, now), new NpgsqlParameter("container", NpgsqlDbType.Uuid) { Value = containerId ?? Guid.Empty }])
+            .ToListAsync(ct);
+        try
+        {
+            return await MemorySourceAccess.ReadableAsync(
+                access, links, cited.Select(r => new MemorySource((MemorySourceKind)r.Kind, r.Ref)), viewer.UserId, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check memory sources; {Outcome}", onFailure);
+            return null;
+        }
     }
 
     public async Task StarAsync(Guid containerId, MemoryCaller caller, CancellationToken ct = default)
@@ -188,6 +195,34 @@ public sealed class PostgresMemorySpaceStore(
             .Where(s => s.ContainerId == containerId && s.UserId == user && s.AgentId == agent)
             .ExecuteDeleteAsync(ct);
     }
+
+    private const string CitedSources = """
+        SELECT DISTINCT s.kind AS "Kind", s.ref AS "Ref"
+        FROM memory_fact_sources s
+        JOIN memory_facts f ON f.id = s.fact_id
+        JOIN containers c ON c.id = f.container_id
+        """;
+
+    private const string CitedInVisibleSpaces = $"{CitedSources} WHERE {FactCurrent} AND {ContainerVisible} AND {FactScopeVisible}";
+
+    private const string CitedInSpace = $"{CitedSources} WHERE f.container_id = @container AND {FactScopeVisible}";
+
+    // Every source the fact cites is one the viewer may read (@documents and @nodes, from ReadableAsync).
+    private const string SourcesReadable =
+        "NOT EXISTS (SELECT 1 FROM memory_fact_sources s WHERE s.fact_id = f.id "
+        + "AND NOT ((s.kind = 0 AND s.ref = ANY(@documents)) OR (s.kind = 1 AND s.ref = ANY(@nodes))))";
+
+    private static NpgsqlParameter[] Readable(IReadOnlySet<MemorySource> readable) =>
+    [
+        new("documents", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = readable.Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref).ToArray(),
+        },
+        new("nodes", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = readable.Where(s => s.Kind == MemorySourceKind.Node).Select(s => s.Ref).ToArray(),
+        },
+    ];
 
     private static NpgsqlParameter[] Viewer(MemoryCaller viewer, DateTimeOffset now) =>
     [

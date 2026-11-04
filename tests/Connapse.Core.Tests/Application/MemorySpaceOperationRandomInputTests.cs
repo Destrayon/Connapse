@@ -205,23 +205,25 @@ public class MemorySpaceOperationRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(DeleteMemorySpace))]
     public Task Delete_AnyCall_DeletesOnlyVisibleMemorySpacesForWritersAndNeverOnADryRun() =>
-        Gen.Select(Gen.Bool, AnySpace, Gen.Bool, Gen.Bool, Gen.Int[0, 5], Gen.Int[0, 3])
+        Gen.Select(Gen.Bool, Gen.Bool, AnySpace, Gen.Bool, Gen.Bool, Gen.Int[0, 5], Gen.Int[0, 3], Gen.Bool)
             .SampleAsync(async s =>
             {
-                var (writer, space, exists, dryRun, facts, authors) = s;
+                var (reader, writer, space, exists, dryRun, facts, authors, checkedSources) = s;
                 Guid id = Guid.Parse(space.Id);
                 IContainerStore containers = ContainerStoreFakes.Create();
                 IMemorySpaceStore spaces = Substitute.For<IMemorySpaceStore>();
                 containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(exists ? space : null);
                 containers.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(true);
-                spaces.ImpactAsync(id, Arg.Any<CancellationToken>()).Returns(new MemorySpaceImpact(facts, facts * 2, authors));
+                spaces.ImpactAsync(id, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                    .Returns(checkedSources ? new MemorySpaceImpact(facts, facts * 2, authors) : null);
 
-                var result = await new DeleteMemorySpace(containers, spaces, NoAudit.Instance, Authorizer(true, writer))
+                var result = await new DeleteMemorySpace(containers, spaces, NoAudit.Instance, Authorizer(reader, writer))
                     .RunAsync(Signed(true, OperationSurface.Rest), id, dryRun);
 
-                MemorySpaceStatus expected = !writer ? MemorySpaceStatus.Forbidden
+                MemorySpaceStatus expected = !writer || !reader ? MemorySpaceStatus.Forbidden
                     : !exists ? MemorySpaceStatus.NotFound
                     : space.Kind == ContainerKind.Documents ? MemorySpaceStatus.DocumentContainer
+                    : !checkedSources ? MemorySpaceStatus.Unchecked
                     : MemorySpaceStatus.Success;
                 result.Status.Should().Be(expected);
                 await containers.Received(expected == MemorySpaceStatus.Success && !dryRun ? 1 : 0).DeleteAsync(id, Arg.Any<CancellationToken>());

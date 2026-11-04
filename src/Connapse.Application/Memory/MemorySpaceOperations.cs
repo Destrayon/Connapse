@@ -346,7 +346,7 @@ public sealed class UpdateMemorySpace(IContainerStore containers, IAuditLogger a
 
 /// <summary>
 /// Deletes a memory space and every fact in it, whoever wrote them. Write access; a personal space only by its owner.
-/// A dry run reports what would go without deleting.
+/// The report counts only the facts the caller may read; a dry run reports without deleting.
 /// </summary>
 [Operation("memorySpaces.delete", Scope = MemoryRules.WriteScope, Risk = RiskTier.Destructive)]
 public sealed class DeleteMemorySpace(IContainerStore containers, IMemorySpaceStore spaces, IAuditLogger audit, IOperationAuthorizer authorizer)
@@ -354,15 +354,20 @@ public sealed class DeleteMemorySpace(IContainerStore containers, IMemorySpaceSt
     public async Task<Attempt<MemorySpaceDeletion, MemorySpaceStatus>> RunAsync(
         OperationContext context, Guid spaceId, bool dryRun, CancellationToken ct = default)
     {
-        if (!await MemoryRules.WriterAsync(authorizer, context))
-            return MemorySpaceRules.Fail<MemorySpaceDeletion>(MemorySpaceStatus.Forbidden, "Deleting a memory space needs write access (knowledge:write).");
+        // The report counts facts, so it needs read access as well as write.
+        if (!await MemoryRules.WriterAsync(authorizer, context) || !await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
+            return MemorySpaceRules.Fail<MemorySpaceDeletion>(MemorySpaceStatus.Forbidden,
+                "Deleting a memory space needs write and read access (knowledge:write and knowledge:read).");
 
+        MemoryCaller viewer = MemoryRules.Caller(context.User);
         (Container? space, Attempt<MemorySpaceDeletion, MemorySpaceStatus>? refused) =
-            await MemorySpaceRules.MemorySpaceAsync<MemorySpaceDeletion>(containers, spaceId, MemoryRules.Caller(context.User), ct);
+            await MemorySpaceRules.MemorySpaceAsync<MemorySpaceDeletion>(containers, spaceId, viewer, ct);
         if (refused is not null)
             return refused;
 
-        MemorySpaceImpact impact = await spaces.ImpactAsync(spaceId, ct);
+        if (await spaces.ImpactAsync(spaceId, viewer, ct) is not { } impact)
+            return MemorySpaceRules.Fail<MemorySpaceDeletion>(MemorySpaceStatus.Unchecked,
+                "access to memory sources could not be checked, so nothing was deleted.");
         MemorySpaceDeletion deletion = new(space!.Id, space.Name, MemorySpaceRules.KindOf(space), impact.Facts, impact.Versions, impact.Authors, false);
         if (dryRun)
             return Attempt<MemorySpaceDeletion, MemorySpaceStatus>.Succeed(deletion);

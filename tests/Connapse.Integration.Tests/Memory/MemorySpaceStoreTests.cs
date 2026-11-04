@@ -15,7 +15,7 @@ namespace Connapse.Integration.Tests.Memory;
 /// <summary>
 /// The space store against real tables (CON-240): each listed space counts only the current facts the viewer may see,
 /// a document container is listed only once it holds one, personal spaces stay with their owner, stars are per person,
-/// and a delete's impact counts every fact.
+/// and a delete's impact counts only the facts the viewer may read.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
@@ -138,10 +138,34 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         corrected.Fact.Should().NotBeNull(corrected.Error);
 
         IReadOnlyList<MemorySpaceSummary> seen = (await Store(access).ListAsync(userA, tag))!;
-        MemorySpaceImpact impact = await Store(access).ImpactAsync(team);
+        MemorySpaceImpact? impact = await Store(access).ImpactAsync(team, userA);
 
         seen.Single().Facts.Should().Be(1);
         impact.Should().Be(new MemorySpaceImpact(Facts: 1, Versions: 2, Authors: 1));
+    }
+
+    [Fact]
+    public async Task Impact_CountsOnlyFactsTheViewerMayRead()
+    {
+        string tag = $"spaces-{Guid.NewGuid():N}";
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        string restricted = Guid.NewGuid().ToString();
+        FakeAccess access = new(new() { [a] = [restricted] });
+        MemoryService memory = Memory(access);
+        MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
+        Guid team = await ContainerAsync($"{tag}-team", ContainerKind.Memory);
+        await memory.RememberAsync(team, Fact("open", MemoryScope.Team), userA);
+        await memory.RememberAsync(team, Fact("hidden", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, restricted)), userA);
+        await memory.RememberAsync(team, Fact("mine", MemoryScope.Personal), userA);
+
+        MemorySpaceImpact? seenByA = await Store(access).ImpactAsync(team, userA);
+        MemorySpaceImpact? seenByB = await Store(access).ImpactAsync(team, userB);
+        MemorySpaceImpact? unchecked_ = await Store(new FailingAccess()).ImpactAsync(team, userA);
+
+        seenByA.Should().Be(new MemorySpaceImpact(Facts: 3, Versions: 3, Authors: 1));
+        seenByB.Should().Be(new MemorySpaceImpact(Facts: 1, Versions: 1, Authors: 1),
+            "B can't read the restricted source and A's personal fact is A's, so a dry run mustn't reveal them");
+        unchecked_.Should().BeNull();
     }
 
     [Fact]

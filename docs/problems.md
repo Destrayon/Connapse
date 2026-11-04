@@ -147,8 +147,8 @@ cited source doesn't exist or can't be read by the writer. The detail says which
 
 ## memory-access-unchecked
 
-Connapse couldn't check whether the caller may read the facts' sources, so it showed or wrote nothing
-rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
+Connapse couldn't check whether the caller may read the facts' sources, so it showed, wrote or deleted
+nothing rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
 
 ## memory-space-not-found
 

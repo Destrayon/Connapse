@@ -3927,7 +3927,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "Delete a memory space and every fact in it, whoever wrote them, and report how many facts, versions and authors went. ?dryRun=true reports the same counts without deleting.",
+        "description": "Delete a memory space and every fact in it, whoever wrote them, and report how many of the facts you may read went, with their versions and authors. Needs knowledge:read as well as knowledge:write. ?dryRun=true reports the same counts without deleting.",
         "operationId": "memorySpaces.delete",
         "parameters": [
           {
@@ -3990,6 +3990,16 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {

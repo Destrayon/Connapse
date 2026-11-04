@@ -95,9 +95,10 @@ public static class MemorySpacesEndpoints
         .Produces<MemorySpaceDeletion>()
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memorySpaces.delete")
-        .WithDescription("Delete a memory space and every fact in it, whoever wrote them, and report how many facts, versions and authors went. "
-            + "?dryRun=true reports the same counts without deleting.")
+        .WithDescription("Delete a memory space and every fact in it, whoever wrote them, and report how many of the facts you may read went, "
+            + "with their versions and authors. Needs knowledge:read as well as knowledge:write. ?dryRun=true reports the same counts without deleting.")
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         // PUT /api/memory/spaces/{spaceId}/star - Star a space for yourself

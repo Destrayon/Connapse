@@ -16,8 +16,12 @@ public interface IMemorySpaceStore
     /// </summary>
     Task<Container?> CreatePersonalAsync(MemoryCaller owner, string name, string? description, CancellationToken ct = default);
 
-    /// <summary>What deleting the space would remove, counting every fact in it whoever can see them.</summary>
-    Task<MemorySpaceImpact> ImpactAsync(Guid containerId, CancellationToken ct = default);
+    /// <summary>
+    /// What deleting the space removes that <paramref name="viewer"/> may read: the facts, every version of them, and
+    /// their authors. Facts the viewer can't read are deleted too but not counted, so the report reveals nothing about
+    /// them. Null when access to the facts' sources could not be checked.
+    /// </summary>
+    Task<MemorySpaceImpact?> ImpactAsync(Guid containerId, MemoryCaller viewer, CancellationToken ct = default);
 
     /// <summary>Stars the space for <paramref name="caller"/> alone. Starring twice is the same as once.</summary>
     Task StarAsync(Guid containerId, MemoryCaller caller, CancellationToken ct = default);
