@@ -38,6 +38,17 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         }
     }
 
+    private sealed class RecordingAccess : IDocumentAccess
+    {
+        public HashSet<string> Asked { get; } = new(StringComparer.Ordinal);
+
+        public Task<IReadOnlySet<string>> ReadableAsync(Guid? userId, IReadOnlyCollection<string> documentIds, CancellationToken ct = default)
+        {
+            Asked.UnionWith(documentIds);
+            return Task.FromResult<IReadOnlySet<string>>(documentIds.ToHashSet(StringComparer.Ordinal));
+        }
+    }
+
     private sealed class FailingAccess : IDocumentAccess
     {
         public Task<IReadOnlySet<string>> ReadableAsync(Guid? userId, IReadOnlyCollection<string> documentIds, CancellationToken ct = default) =>
@@ -178,6 +189,26 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         IReadOnlyList<MemorySpaceSummary> seen = (await Store(new FakeAccess([])).ListAsync(new MemoryCaller(Guid.NewGuid(), null, null), $"{tag}-a%b"))!;
 
         seen.Select(s => s.Container.Name).Should().Equal($"{tag}-a%b");
+    }
+
+    [Fact]
+    public async Task List_WithText_ChecksOnlyTheMatchingSpacesSources()
+    {
+        string tag = $"spaces-{Guid.NewGuid():N}";
+        string wanted = Guid.NewGuid().ToString(), unrelated = Guid.NewGuid().ToString();
+        MemoryCaller user = new(Guid.NewGuid(), null, null);
+        MemoryService memory = Memory(new FakeAccess(new() { [user.UserId!.Value] = [wanted, unrelated] }));
+        Guid match = await ContainerAsync($"{tag}-match", ContainerKind.Memory);
+        Guid other = await ContainerAsync($"{tag}-other", ContainerKind.Memory);
+        await memory.RememberAsync(match, Fact("wanted", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, wanted)), user);
+        await memory.RememberAsync(other, Fact("unrelated", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, unrelated)), user);
+        RecordingAccess access = new();
+
+        IReadOnlyList<MemorySpaceSummary> seen = (await Store(access).ListAsync(user, $"{tag}-match"))!;
+
+        seen.Single().Facts.Should().Be(1);
+        access.Asked.Should().Contain(wanted).And.NotContain(unrelated,
+            "a narrow search mustn't spend live permission checks on spaces it won't list");
     }
 
     [Fact]

@@ -43,11 +43,12 @@ public sealed class PostgresMemorySpaceStore(
         DateTimeOffset now = clock.GetUtcNow();
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
 
-        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, null, "listing no spaces", ct);
+        string? pattern = string.IsNullOrWhiteSpace(text) ? null : "%" + EscapeLike(text.Trim()) + "%";
+        // Only the spaces the text matches have their sources checked, so a narrow search stays cheap.
+        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, null, pattern, "listing no spaces", ct);
         if (readable is null)
             return null;
 
-        string? pattern = string.IsNullOrWhiteSpace(text) ? null : "%" + EscapeLike(text.Trim()) + "%";
         (Guid? starUser, Guid? starAgent) = OwnerOf(viewer);
         List<NpgsqlParameter> parameters =
         [
@@ -78,7 +79,7 @@ public sealed class PostgresMemorySpaceStore(
             ) a ON a.container_id = c.id
             WHERE {ContainerVisible}
               AND (c.kind = 'memory' OR COALESCE(a.facts, 0) > 0)
-              AND (@pattern IS NULL OR c.name ILIKE @pattern OR c.description ILIKE @pattern)
+              AND {SpaceMatches}
             """,
             [.. parameters]).ToListAsync(ct);
 
@@ -133,7 +134,7 @@ public sealed class PostgresMemorySpaceStore(
         ArgumentNullException.ThrowIfNull(viewer);
         DateTimeOffset now = clock.GetUtcNow();
         await using KnowledgeDbContext context = await factory.CreateDbContextAsync(ct);
-        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, containerId, "reporting no delete impact", ct);
+        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, containerId, null, "reporting no delete impact", ct);
         if (readable is null)
             return null;
 
@@ -153,15 +154,19 @@ public sealed class PostgresMemorySpaceStore(
     /// <summary>
     /// Which sources the viewer may read among those cited by facts in scope for them: every fact in one space when
     /// <paramref name="containerId"/> is given, else the current facts in every space they may see. Null when access
-    /// could not be checked.
+    /// could not be checked. A <paramref name="pattern"/> narrows the spaces to those whose name or description match.
     /// </summary>
     private async Task<IReadOnlySet<MemorySource>?> ReadableAsync(
-        KnowledgeDbContext context, MemoryCaller viewer, DateTimeOffset now, Guid? containerId, string onFailure,
-        CancellationToken ct)
+        KnowledgeDbContext context, MemoryCaller viewer, DateTimeOffset now, Guid? containerId, string? pattern,
+        string onFailure, CancellationToken ct)
     {
         List<SourceRow> cited = await context.Database.SqlQueryRaw<SourceRow>(
             containerId is null ? CitedInVisibleSpaces : CitedInSpace,
-            [.. Viewer(viewer, now), new NpgsqlParameter("container", NpgsqlDbType.Uuid) { Value = containerId ?? Guid.Empty }])
+            [
+                .. Viewer(viewer, now),
+                new NpgsqlParameter("container", NpgsqlDbType.Uuid) { Value = containerId ?? Guid.Empty },
+                new NpgsqlParameter("pattern", NpgsqlDbType.Text) { Value = (object?)pattern ?? DBNull.Value },
+            ])
             .ToListAsync(ct);
         try
         {
@@ -203,7 +208,11 @@ public sealed class PostgresMemorySpaceStore(
         JOIN containers c ON c.id = f.container_id
         """;
 
-    private const string CitedInVisibleSpaces = $"{CitedSources} WHERE {FactCurrent} AND {ContainerVisible} AND {FactScopeVisible}";
+    // The space's name or description contains @pattern (already LIKE-escaped), or there is no pattern.
+    private const string SpaceMatches = "(@pattern IS NULL OR c.name ILIKE @pattern OR c.description ILIKE @pattern)";
+
+    private const string CitedInVisibleSpaces =
+        $"{CitedSources} WHERE {FactCurrent} AND {ContainerVisible} AND {SpaceMatches} AND {FactScopeVisible}";
 
     private const string CitedInSpace = $"{CitedSources} WHERE f.container_id = @container AND {FactScopeVisible}";
 
