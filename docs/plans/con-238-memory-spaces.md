@@ -402,3 +402,7 @@ split goes to the PM before coding.
 - **CON-238 scaling rework, 2026-11-03.** Measured today's queries at 50,000 facts, added the Scaling section with
   targets and a load test, a research report on large lists, four more pictures, and folded the work into CON-235,
   CON-236, CON-237 and the Memory page ticket. Docs only. Next: unchanged, CON-234 (PR #1123) merges.
+- **CON-236, 2026-11-04.** Migration `MoveMemoryIntoSpaces` moves each all-personal, single-author chain on a team
+  container into its author's `<container>-personal` space in committed batches of 1,000; team and mixed chains stay.
+  Correct and forget now find a fact by id anywhere, so old container ids still work. Verified: before/after views for
+  six readers are identical, and 50,000 facts move in 1.1 s on a 2 CPU / 4 GB database. Next: CON-237.

@@ -43,11 +43,11 @@ public sealed class MemoryService(
     }
 
     public async Task<MemoryWriteResult> CorrectAsync(
-        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
+        Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
         CancellationToken ct = default)
     {
         // A fact the caller cannot see is reported as missing, so a correction cannot probe for one.
-        if (await VisibleFactAsync(containerId, factId, caller, ct) is not { } old)
+        if (await VisibleFactAsync(factId, caller, ct) is not { } old)
             return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
         if (ScopeChangeError(old, replacement.Scope) is { } scopeChange)
             return scopeChange;
@@ -66,21 +66,22 @@ public sealed class MemoryService(
         if (await UnreadableSourcesAsync(sources, caller, ct) is { } refused)
             return refused;
 
-        MemoryWriteResult result = await store.CorrectAsync(containerId, factId, kind, replacement, caller,
+        MemoryWriteResult result = await store.CorrectAsync(factId, kind, replacement, caller,
             async chain => await WholeChainVisibleAsync(factId, chain, sources, caller, ct)
                 ?? TeamCorrectionError(chain.Single(f => f.Id == factId), sources, teamWriter), ct);
         if (result.Fact is { } written)
         {
             await audit.LogAsync("memory.corrected", "memory_fact", written.Id.ToString(),
-                new { ContainerId = containerId, Replaced = factId, Kind = kind.ToString(), caller.UserId, caller.AgentId }, ct);
+                new { written.ContainerId, Replaced = factId, Kind = kind.ToString(), caller.UserId, caller.AgentId }, ct);
         }
         return result;
     }
 
     public async Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(
-        Guid containerId, Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default)
+        Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default)
     {
         bool forbidden = false, sourcesUnchecked = false;
+        Guid containerId = Guid.Empty;
 
         // Every version must be visible: corrections can cite other sources, and forgetting deletes them all. A chain
         // with any hidden version is reported as missing, so the answer does not reveal that it exists.
@@ -93,6 +94,7 @@ public sealed class MemoryService(
                     return false;
                 // Deleting a team version changes what everyone sees, so it needs write access; one's own personal ones don't.
                 forbidden = !teamWriter && chain.Any(f => f.Scope == MemoryScope.Team);
+                containerId = chain[0].ContainerId;
                 return !forbidden;
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -103,7 +105,7 @@ public sealed class MemoryService(
             }
         }
 
-        if (await store.ForgetAsync(containerId, factId, AllVisible, ct) is not { } deleted)
+        if (await store.ForgetAsync(factId, AllVisible, ct) is not { } deleted)
             return (0, sourcesUnchecked ? MemoryWriteFailure.Unchecked : forbidden ? MemoryWriteFailure.Forbidden : MemoryWriteFailure.NotFound);
 
         await audit.LogAsync("memory.forgotten", "memory_fact", factId.ToString(),
@@ -202,9 +204,9 @@ public sealed class MemoryService(
         fact.Sources.All(readable.Contains) && (fact.Scope == MemoryScope.Team || caller.IsAuthorOf(fact.Author));
 
     /// <summary>The fact, when it exists and the caller may see it; otherwise null.</summary>
-    private async Task<MemoryFact?> VisibleFactAsync(Guid containerId, Guid factId, MemoryCaller caller, CancellationToken ct)
+    private async Task<MemoryFact?> VisibleFactAsync(Guid factId, MemoryCaller caller, CancellationToken ct)
     {
-        if (await store.GetAsync(containerId, factId, ct) is not { } fact)
+        if (await store.GetAsync(factId, ct) is not { } fact)
             return null;
         try
         {

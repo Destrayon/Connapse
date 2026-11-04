@@ -116,7 +116,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
                 // Each correction replaces the fact the previous one wrote, so all three timed calls are real corrections.
                 (TimeSpan correct, string corrected) = await BestOfThreeAsync(async () =>
                 {
-                    string result = await McpTools.MemoryCorrect(sp.GetRequiredService<CorrectFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container, id, "PostgreSQL 15", kind: "wrong", sources: [source]);
+                    string result = await McpTools.MemoryCorrect(sp.GetRequiredService<CorrectFact>(), sp.GetRequiredService<IHttpContextAccessor>(), id, "PostgreSQL 15", kind: "wrong", sources: [source]);
                     id = Id(result);
                     return result;
                 });
@@ -130,7 +130,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
             }
 
             (TimeSpan forget, string forgot) = await BestOfThreeAsync(async () =>
-                await McpTools.MemoryForget(sp.GetRequiredService<ForgetFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container,
+                await McpTools.MemoryForget(sp.GetRequiredService<ForgetFact>(), sp.GetRequiredService<IHttpContextAccessor>(),
                     Id(await McpTools.MemoryRemember(sp.GetRequiredService<RememberFact>(), sp.GetRequiredService<IHttpContextAccessor>(), container, "gone", "database", "x", sources: [source]))));
             forgot.Should().StartWith("Forgot");
 
