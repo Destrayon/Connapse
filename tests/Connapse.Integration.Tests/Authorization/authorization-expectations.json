@@ -245,7 +245,27 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/memory/facts/{id}/history": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/memory/spaces/": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/{id}/facts": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/{id}/facts/count": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/{id}/subjects": {
       "requires": "viewer",
       "risk": "read",
       "scope": "knowledge:read"

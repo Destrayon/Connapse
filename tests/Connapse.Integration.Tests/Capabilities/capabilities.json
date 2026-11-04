@@ -1152,6 +1152,38 @@
       ],
       "mcp": null,
       "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+    },
+    {
+      "id": "memory.list",
+      "capability": "Page through a memory space's facts",
+      "routes": [
+        "GET /api/memory/spaces/{id}/facts"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.count",
+      "capability": "Count a memory space's facts",
+      "routes": [
+        "GET /api/memory/spaces/{id}/facts/count"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.subjects",
+      "capability": "Page through a memory space's subjects",
+      "routes": [
+        "GET /api/memory/spaces/{id}/subjects"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.history",
+      "capability": "Page through every version of a fact",
+      "routes": [
+        "GET /api/memory/facts/{id}/history"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
     }
   ],
   "plumbing": {
