@@ -111,7 +111,7 @@ public class MemoryTabTests : IDisposable
         cut.Find(".memory-row").Click();
 
         cut.WaitForAssertion(() => cut.FindAll("#memory-history .history-item").Should().HaveCount(3));
-        memory.Queries[^1].ChainId.Should().Be(first.ChainId);
+        memory.HistoryReads[^1].Should().NotBe(first.Id, "the history is read from the version the row shows");
         var items = cut.FindAll("#memory-history .history-item");
         items[0].TextContent.Should().Contain("PostgreSQL 15").And.Contain("Replaced “PostgreSQL 14”, which had ended");
         items[1].TextContent.Should().Contain("Replaced “MySQL”, which was wrong: MySQL was only the prototype");
@@ -262,7 +262,7 @@ public class MemoryTabTests : IDisposable
     }
 
     [Fact]
-    public void Correct_ChainLongerThanOnePage_ShowsTheNewCorrectionAndSaysHistoryIsCut()
+    public void Correct_ChainLongerThanOnePage_PagesBackToEveryVersionAndCountsThemAll()
     {
         var latest = memory.Add("Halcyon", "build", "v0");
         for (int i = 1; i < 120; i++)
@@ -270,7 +270,14 @@ public class MemoryTabTests : IDisposable
         var cut = Render();
         cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(1));
         cut.Find(".memory-row").Click();
-        cut.WaitForAssertion(() => cut.Find("#memory-history-capped"));
+        cut.WaitForAssertion(() => cut.FindAll("#memory-history .history-item").Should().HaveCount(100));
+        cut.Find("#memory-history-older").TextContent.Should().Contain("20 more");
+
+        cut.Find("#memory-history-older").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("#memory-history .history-item").Should().HaveCount(120));
+        cut.FindAll("#memory-history-older").Should().BeEmpty();
+        cut.FindAll("#memory-history .history-item")[^1].TextContent.Should().Contain("v0");
 
         cut.Find("#memory-correct").Click();
         cut.Find("#memory-edit-value").Input("v120");
@@ -279,7 +286,7 @@ public class MemoryTabTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find(".fact-hero-value").TextContent.Should().Be("v120"));
         cut.Find("#memory-delete").Click();
-        cut.Find("#memory-delete-body").TextContent.Should().Contain("every earlier version");
+        cut.Find("#memory-delete-body").TextContent.Should().Contain("its 120 earlier versions");
     }
 
     [Theory]
@@ -386,6 +393,49 @@ public class MemoryTabTests : IDisposable
                 found = found.Where(f => f.Value.Contains(text, StringComparison.OrdinalIgnoreCase));
             return new MemoryRecall([.. found.Take(query.Limit).Select(f => new RecalledFact(f,
                 [.. f.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, s == Runbook ? "Ops runbook" : null))]))]);
+        }
+
+        public Task<MemoryFactPage> ListAsync(
+            Guid containerId, MemoryFactFilter filter, MemoryFactSort sort, MemoryFactKey? after, int limit, MemoryCaller caller,
+            CancellationToken ct = default) =>
+            throw new NotSupportedException("The Memory tab lists facts through recall.");
+
+        public Task<MemoryFactCount> CountAsync(Guid containerId, MemoryFactFilter filter, MemoryCaller caller, CancellationToken ct = default) =>
+            throw new NotSupportedException("The Memory tab doesn't count facts.");
+
+        public Task<MemorySubjectPage> SubjectsAsync(
+            Guid containerId, string? text, MemoryFactStatus status, string? after, int limit, MemoryCaller caller,
+            CancellationToken ct = default) =>
+            throw new NotSupportedException("The Memory tab doesn't list subjects.");
+
+        public Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default) =>
+            Task.FromResult(facts.Any(f => f.Id == factId) ? Container : (Guid?)null);
+
+        /// <summary>The fact each history read asked about.</summary>
+        public List<Guid> HistoryReads { get; } = [];
+
+        public async Task<MemoryHistoryPage> HistoryAsync(
+            Guid containerId, Guid factId, MemoryVersionKey? after, int limit, MemoryCaller caller, CancellationToken ct = default)
+        {
+            HistoryReads.Add(factId);
+            if (facts.FirstOrDefault(f => f.Id == factId) is not { } of)
+                return MemoryHistoryPage.Missing;
+            if (of.ChainId == HeldChain)
+                await held.Task;
+            if (DenyReads)
+                return MemoryHistoryPage.DeniedResult;
+            if (Hidden.Contains(factId))
+                return MemoryHistoryPage.Missing;
+            // Newest first, as the store reads a chain.
+            List<MemoryFact> chain = [.. facts.Where(f => f.ChainId == of.ChainId && !Hidden.Contains(f.Id))
+                .OrderByDescending(f => f.RecordedAt).ThenByDescending(f => f.Id)];
+            List<MemoryFact> rest = after is null
+                ? chain
+                : [.. chain.SkipWhile(f => f.RecordedAt > after.Recorded || (f.RecordedAt == after.Recorded && f.Id.CompareTo(after.Id) >= 0))];
+            List<MemoryFact> page = [.. rest.Take(limit)];
+            MemoryVersionKey? next = rest.Count > limit ? new MemoryVersionKey(page[^1].RecordedAt, page[^1].Id) : null;
+            return new MemoryHistoryPage([.. page.Select(f => new RecalledFact(f,
+                [.. f.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, s == Runbook ? "Ops runbook" : null))]))], chain.Count, next);
         }
     }
 }

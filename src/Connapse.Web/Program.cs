@@ -516,6 +516,7 @@ api.MapOAuthClientEndpoints();
 api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
+api.MapMemoryFactsEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
 api.MapProvidersEndpoints();

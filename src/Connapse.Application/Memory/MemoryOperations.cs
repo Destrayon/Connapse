@@ -307,8 +307,10 @@ public sealed class RecallMemory(IContainerStore containers, IMemoryService memo
 }
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
-public sealed class MemoryOperations(RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall)
+public sealed class MemoryOperations(RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall, ListMemoryHistory history)
 {
+    public ListMemoryHistory History { get; } = history;
+
     public RememberFact Remember { get; } = remember;
 
     public CorrectFact Correct { get; } = correct;

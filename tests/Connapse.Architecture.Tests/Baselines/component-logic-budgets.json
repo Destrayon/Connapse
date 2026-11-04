@@ -56,10 +56,10 @@
     "IsEmpty": false
   },
   "Memory/MemoryTab.razor": {
-    "CodeLines": 228,
+    "CodeLines": 238,
     "Injects": 2,
-    "Complexity": 81,
-    "MarkupLogic": 57,
+    "Complexity": 85,
+    "MarkupLogic": 56,
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
