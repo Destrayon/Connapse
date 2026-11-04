@@ -287,6 +287,62 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
     }
 
     [Fact]
+    public async Task Migrate_CorrectionHoldingTheChainLock_ItsNewVersionMovesWithTheChain()
+    {
+        await MigrateAsync(BeforeMove);
+        Guid halcyon = await ContainerAsync("halcyon");
+        Guid[] alices = await ChainAsync(halcyon, (_alice, null, Personal, null));
+
+        // A correction from an instance still serving during the deploy: it holds the chain's lock, as
+        // PostgresMemoryStore.CorrectAsync does, and writes its new version to the container it read.
+        await using var correction = new NpgsqlConnection(_postgres.GetConnectionString());
+        await correction.OpenAsync();
+        await using NpgsqlTransaction transaction = await correction.BeginTransactionAsync();
+        await using (var lockRoot = new NpgsqlCommand("SELECT id FROM memory_facts WHERE id = @id FOR UPDATE", correction, transaction))
+        {
+            lockRoot.Parameters.AddWithValue("id", alices[0]);
+            await lockRoot.ExecuteScalarAsync();
+        }
+
+        Task migration = MigrateAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        await using (var watch = new NpgsqlConnection(_postgres.GetConnectionString()))
+        {
+            await watch.OpenAsync();
+            await using var blocked = new NpgsqlCommand(
+                "SELECT count(*) FROM pg_locks l JOIN pg_locks h ON h.transactionid = l.transactionid AND h.granted "
+                + "WHERE NOT l.granted AND h.pid = @holder", watch);
+            blocked.Parameters.AddWithValue("holder", correction.ProcessID);
+            while ((long)(await blocked.ExecuteScalarAsync(deadline.Token))! == 0)
+            {
+                migration.IsCompleted.Should().BeFalse("the migration must wait for the correction's lock");
+                await Task.Yield();
+            }
+        }
+
+        Guid replacement = Guid.NewGuid();
+        await using (var write = new NpgsqlCommand(
+            """
+            UPDATE memory_facts SET superseded_at = now() WHERE id = @old;
+            INSERT INTO memory_facts (id, chain_id, container_id, subject, attribute, value, recorded_at, replaces_id, author_user_id, scope)
+            VALUES (@new, @old, @container, 'Halcyon', 'database', 'corrected', now(), @old, @alice, 0);
+            """, correction, transaction))
+        {
+            write.Parameters.AddWithValue("old", alices[0]);
+            write.Parameters.AddWithValue("new", replacement);
+            write.Parameters.AddWithValue("container", halcyon);
+            write.Parameters.AddWithValue("alice", _alice);
+            await write.ExecuteNonQueryAsync();
+        }
+        await transaction.CommitAsync();
+        await migration;
+
+        Dictionary<Guid, Guid> where = await FactContainersAsync();
+        where[alices[0]].Should().NotBe(halcyon);
+        where[replacement].Should().Be(where[alices[0]], "a chain never spans two containers");
+    }
+
+    [Fact]
     public async Task Migrate_FiftyThousandFacts_MovesInUnderTwoMinutes()
     {
         await MigrateAsync(BeforeMove);

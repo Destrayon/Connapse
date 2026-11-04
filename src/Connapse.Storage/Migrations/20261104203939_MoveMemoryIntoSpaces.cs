@@ -15,7 +15,9 @@ namespace Connapse.Storage.Migrations
     /// </summary>
     /// <remarks>
     /// The move runs in batches of 1,000 chains, each committed on its own, so a 50,000-fact container never sits in one
-    /// long transaction. That needs the DO block to run outside the migration's transaction. Running it again moves
+    /// long transaction. That needs the DO block to run outside the migration's transaction. Each batch first locks its
+    /// chains the way a correction does, so a correction from an instance still serving during the deploy never leaves
+    /// a new version behind in the old container. Running it again moves
     /// nothing new: moved chains are in personal spaces, which this never reads from.
     /// </remarks>
     public partial class MoveMemoryIntoSpaces : Migration
@@ -83,6 +85,15 @@ namespace Connapse.Storage.Migrations
                     COMMIT;
 
                     WHILE done < total LOOP
+                        -- Lock each chain's first fact as a correction does, so a correction running now finishes first
+                        -- and later ones wait. The move is a statement of its own, so it sees the versions they added.
+                        PERFORM 1
+                        FROM memory_facts f
+                        JOIN memory_space_moves m ON f.id = m.chain_id
+                        WHERE m.n > done AND m.n <= done + batch_size
+                        ORDER BY f.id
+                        FOR UPDATE OF f;
+
                         UPDATE memory_facts f
                         SET container_id = m.space_id
                         FROM memory_space_moves m
