@@ -32,6 +32,7 @@ before any of these features or their results existed. A change merges only when
 | **AI link extraction** (opt-in) | `links-v1` test MRR@10 at least +0.05 over links-only | All suites | Reported: tokens per passage, index time; no default-on without a new bar |
 | **Container memory for search** (suite `memory-search-v1`, CON-244; see below) | Correct-document score on the memory tasks at least +0.15 over the same agent without memory | Control and stale tasks non-inferior within 0.10 | Reported: search calls, tool calls and tokens per task |
 | **Learned container memory** (suite `memory-learned-v1`, CON-244; see below) | Same rule, session-2 memory tasks, memory written by session-1 agents | Same rule, session-2 control and stale tasks | Reported: session-1 scores and facts written |
+| **Container memory saves only what is new** (CON-245; see below) | Sorting: at least 80% of restating notes held, at least 90% of new facts kept; planted gain on M at least +0.30 | Realistic arm non-inferior to memory off within 0.10 on M; H as before | Reported: held saves, saves retried with a reason, check latency |
 
 ## Container memory for search (CON-244)
 
@@ -93,6 +94,52 @@ keep-or-drop decision for container memory rests on it.**
   how many cite documents).
 - **Budget:** one full run (228 session-1 and 624 session-2 runs) must use at most about 5% of the seven-day
   subscription window, on the subscription only.
+
+## Container memory saves only what is new (CON-245)
+
+Written on 2026-11-05, before the check, the `memory-novelty` command or any run with the check on existed. A save
+into a document container's memory is held when it looks close to a passage in that container; the agent may save
+again with a reason saying what is new. Three bars, all of which must pass.
+
+- **Sorting (offline, no agent).** Each labelled note is checked against its corpus exactly as the product checks a
+  save: the note's subject, attribute and value as one query, the container's top 10 Hybrid passages, and a
+  closeness score computed from them.
+  - **Restating notes**, which should be held: in `memory-search`, the documented alias, current and location
+    remembers, every correction remember (it states the old policy's value), the stale remembers, and the 24 team-lead
+    and chat-channel remembers (they restate the charters); and every `memory_remember` that session-1 agents saved
+    in CON-244's realistic run (`memory-learned-test.runs.jsonl`, 229 notes), checked against the corpus without the
+    late documents.
+  - **New facts**, which should be kept: the undocumented alias, current and location remembers (8 dev, 32 test).
+  - `memory_correct` operations are outside the check and outside this bar.
+  - **Split.** `memory-search` ops follow their task's split; the 24 unrelated ops and the learned notes go to dev
+    when the first byte of SHA-256 of the op id (learned notes: the task family) is even, else to test.
+  - **Tuning on dev only.** Candidate scores: the highest share of the note's content words found in one passage,
+    the same share over the top 3 passages together, and the top passage's semantic cosine. The rule picked is the
+    score and cutoff that hold the most dev restating notes while keeping at least 90% of dev new facts; ties go to
+    the higher cutoff. The test split is scored once with that rule.
+  - **Bar (test):** at least 80% of restating notes held (pooled; each source also reported) and at least 90% of the
+    32 new facts kept.
+- **Planted arm with the check on.** CON-244's planted run, with replay going through the check:
+  - a held remember is retried once with a reason only when its task labels it undocumented; otherwise it is
+    dropped;
+  - a `correct` whose target was dropped becomes a remember of the new value under the target's subject and
+    attribute, checked the same way.
+  - Only the memory-on arm is rerun (112 test tasks, 3 repetitions). The off arm does not read memory, so CON-244's
+    off runs in `eval/agent-search/con-244/memory-search-test.runs.jsonl` are the comparison, paired by task. Model,
+    effort, limits, search lock, score and statistics are as in CON-244.
+  - **Bar:** on M the mean difference is at least +0.30 and its 95% BCa interval lies above 0; on H the lower end of
+    the 90% interval is above −0.10.
+- **Realistic arm with the check on.** CON-244's realistic run with the check on, and one change: the session-1
+  prompt tells the agent to save into the container's memory (`space` = the container ID) instead of leaving the
+  space to the agent, because in CON-244 every save went to the personal space, which the check does not cover. The
+  agent sees the held reply and decides for itself whether to save again with a reason. Session-2 memory-on is
+  rerun; session-2 memory-off reuses CON-244's off runs (M 0.703), paired by task.
+  - **Bar:** on M the lower end of the 95% BCa interval of the difference is above −0.10; on H the lower end of the
+    90% interval is above −0.10.
+- **Reported, not gated:** per-source sorting numbers, held saves and retries per arm, what retried saves gave as
+  reasons, kinds as in CON-244, and the check's added latency per save.
+- **Budget.** The two agent arms are about 900 runs. They run only while the seven-day subscription meter is below
+  42%, and stop if it passes 42%; an arm stopped early is reported as not run, never scored on part of its tasks.
 
 ## Baselines
 
