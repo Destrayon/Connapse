@@ -16,6 +16,12 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
+# MSBuild reads this as a property, so every build in this workflow, the ones outside the shared build
+# action included (code-quality, mcp-conformance), copies only linux-x64's native libraries (CON-246,
+# Directory.Build.targets).
+env:
+  RuntimeAssetsFor: linux-x64
+
 jobs:
   # Tests run in three size tiers (epic #783, #788), split into parallel jobs (#789). Small is
   # Category=Unit with no Size trait: no Docker, no models, no child processes. Medium is the slower
