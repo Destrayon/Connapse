@@ -700,6 +700,11 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "POST /api/memory/facts/{id}/copy": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "POST /api/memory/spaces/": {
       "requires": "editor",
       "risk": "write",

@@ -124,6 +124,36 @@ public static class MemoryFactsEndpoints
         .WithName("memory.history")
         .WithDescription("One page of a fact's versions the caller can see, newest first, with how many there are in all");
 
+        // Writes declare their own policy, so they don't also carry the reads' RequireViewer.
+        var writes = app.MapGroup("/api/memory").WithTags("Memory")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        // POST /api/memory/facts/{id}/copy - Copy a personal fact to a team space
+        writes.MapPost("/facts/{id}/copy", async (
+            HttpContext http,
+            string id,
+            [FromBody] CopyMemoryFactRequest request,
+            [FromServices] CopyMemoryFact copy,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Destination))
+                return ApiProblem.BadRequest("destination is required: a team space or document container, by id or name.", field: "destination");
+
+            var copied = await copy.RunAsync(Rest(http), id, request.Destination, request.Anyway, ct);
+            return copied.Succeeded
+                ? Results.Ok(new MemoryCopyResponse(copied.Result!.Copy, copied.Result.CopiedFrom, copied.Result.SavedTo.Id))
+                : OperationProblems.Result(copied);
+        })
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
+        .Produces<MemoryCopyResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("memory.copy")
+        .WithDescription("Copies the current version of a fact in your own personal space to a team space or document container, as a new fact you wrote; the personal fact is unchanged");
+
         return app;
     }
 
@@ -188,6 +218,15 @@ public static class MemoryFactsEndpoints
         return true;
     }
 }
+
+/// <summary>
+/// Where to copy a fact: a team space or document container by id or name. <paramref name="Anyway"/>: copy even when
+/// the destination already has a current fact with the same subject and attribute.
+/// </summary>
+public sealed record CopyMemoryFactRequest(string? Destination, bool Anyway = false);
+
+/// <summary>The new team fact, the personal version it was copied from, and the space or container it is in.</summary>
+public sealed record MemoryCopyResponse(MemoryFact Fact, Guid CopiedFrom, string SpaceId);
 
 /// <summary>How many facts the caller can see; <paramref name="Capped"/>: counting stopped early, so there are at least this many.</summary>
 public sealed record MemoryFactCountResponse(long Count, bool Capped);

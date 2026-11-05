@@ -1183,6 +1183,14 @@
         "GET /api/memory/facts/{id}/history"
       ],
       "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.copy",
+      "capability": "Copy a fact from my personal space to a team space or container",
+      "routes": [
+        "POST /api/memory/facts/{id}/copy"
+      ],
+      "mcpOff": "Agents share a fact by saving it again with memory_remember and a team space; the copy button is for people on the Memory page."
     }
   ],
   "plumbing": {

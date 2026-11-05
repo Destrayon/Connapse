@@ -26,6 +26,9 @@ public enum MemoryStatus
 
     [Failure(503, "memory-access-unchecked", "Access could not be checked")]
     Unchecked,
+
+    [Failure(409, "memory-fact-exists", "A current fact already says this")]
+    Exists,
 }
 
 /// <summary>
