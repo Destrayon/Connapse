@@ -56,10 +56,10 @@
             else
             {
                 <li class="nav-item">
-                    <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
+                    <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => SetTab("files")'>Files</button>
                 </li>
                 <li class="nav-item">
-                    <button id="memory-tab" class="nav-link @(activeTab == "memory" ? "active" : "")" @onclick='() => activeTab = "memory"'>Memory</button>
+                    <button id="memory-tab" class="nav-link @(activeTab == "memory" ? "active" : "")" @onclick='() => SetTab("memory")'>Memory</button>
                 </li>
                 <li class="nav-item">
                     <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
@@ -201,7 +201,7 @@
 
 @if (activeTab == "memory" && container is not null)
 {
-    <Connapse.Web.Components.Memory.MemoryTab ContainerId="@ContainerId" CanEdit="canEdit" />
+    <Connapse.Web.Components.Memory.MemoryFactList Space="@ContainerId" CanEdit="canEdit" />
 }
 
 @* Upload Drop Zone — always rendered so JS event listeners survive navigation *@
@@ -566,6 +566,9 @@
 
     private string activeTab = "files";
 
+    /// <summary>The tab a link asks for; only "memory" is kept in the address.</summary>
+    [SupplyParameterFromQuery(Name = "tab")] public string? Tab { get; set; }
+
     // Settings tab state
     private bool settingsLoading;
     private bool settingsSaving;
@@ -665,7 +668,20 @@
         else if (IsMemory)
             (activeTab, isLoading) = ("memory", false);
         else
+        {
+            // A link to the Memory tab (with its list's view) opens on it.
+            if (Tab == "memory")
+                activeTab = "memory";
             await LoadEntries();
+        }
+    }
+
+    /// <summary>Shows a tab, and keeps a document container's Memory tab in the address so a link or reload reopens it.</summary>
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+        if (!IsMemory)
+            Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("tab", tab == "memory" ? tab : null), replace: true);
     }
 
     private async Task RetryIngestion(BrowseEntryDto entry)

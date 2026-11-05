@@ -2,24 +2,14 @@
 @using Connapse.Core
 @inject MemoryOperations MemoryOps
 @inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@implements IDisposable
 
-@* The container's memory: the facts agents wrote here, read and changed through the same operations as the MCP
-   memory tools, so a person sees and changes only what an agent acting for them could. *@
+@* A space's memory, a page at a time: the facts agents wrote there, read and changed through the same operations as
+   the MCP memory tools, so a person sees and changes only what an agent acting for them could. The view lives in the
+   page address, so a link or Back reopens it. *@
 <div class="memory-tab browser-content">
-    <div class="memory-toolbar">
-        <form class="memory-search" @onsubmit="Search" role="search">
-            <span class="bi-search memory-search-icon" aria-hidden="true"></span>
-            <input id="memory-search" type="search" class="form-control form-control-sm" placeholder="Search facts"
-                   aria-label="Search facts" @bind="searchText" />
-        </form>
-        <div class="btn-group btn-group-sm" role="group" aria-label="Which facts">
-            <button id="memory-filter-current" type="button" class="btn @(showAll ? "btn-outline-secondary" : "btn-secondary")"
-                    aria-pressed="@(!showAll)" @onclick="() => SetShowAll(false)">Current</button>
-            <button id="memory-filter-all" type="button" class="btn @(showAll ? "btn-secondary" : "btn-outline-secondary")"
-                    aria-pressed="@showAll" title="Also show facts that ended or were corrected"
-                    @onclick="() => SetShowAll(true)">All versions</button>
-        </div>
-    </div>
+    <MemoryFactFilters View="view" Space="@Space" Authors="Authors()" Me="me" OnChange="Go" />
 
     @if (errorMessage is not null)
     {
@@ -42,20 +32,20 @@
             <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Loading facts</span></div>
         </div>
     }
-    else if (facts.Count == 0 && searchedFor is not null)
+    else if (facts.Count == 0 && view.Narrowed)
     {
         <div id="memory-no-matches" class="memory-empty">
             <span class="bi-search memory-empty-icon" aria-hidden="true"></span>
-            <p class="memory-empty-title">No facts match “@searchedFor”</p>
-            <p>Try other words, or include facts that ended or were corrected.</p>
-            <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="ClearSearch">Clear search</button>
+            <p class="memory-empty-title">@(view.Text is { } text ? $"No facts match “{text}”" : "No facts match these filters")</p>
+            <p>Try other words or fewer filters, or include facts that ended or were corrected.</p>
+            <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="() => Go(new MemoryListView(All: view.All))">Clear search and filters</button>
         </div>
     }
     else if (facts.Count == 0)
     {
         <div id="memory-empty" class="memory-empty">
             <span class="bi-lightbulb memory-empty-icon" aria-hidden="true"></span>
-            <p class="memory-empty-title">@(showAll ? "No facts in this container's memory" : "No current facts")</p>
+            <p class="memory-empty-title">@(view.All ? "No facts in this memory" : "No current facts")</p>
             <p>
                 Agents add facts here with the memory tools while they work in this container, and cite the
                 documents they learned them from. You'll only see facts whose sources you can read.
@@ -69,6 +59,7 @@
                 <tr>
                     <th>Fact</th>
                     <th class="col-sources">Sources</th>
+                    <th class="col-author">Author</th>
                     <th class="col-true">True from</th>
                     <th class="col-recorded">Recorded</th>
                 </tr>
@@ -91,9 +82,7 @@
                         <td class="col-sources">
                             @if (recalled.Sources.Count == 0)
                             {
-                                <span class="only-you" title="This fact cites no sources, so only the person who wrote it sees it">
-                                    <span class="bi-lock me-1" aria-hidden="true"></span>Only you
-                                </span>
+                                <span class="no-sources">No sources</span>
                             }
                             else
                             {
@@ -106,6 +95,7 @@
                                 }
                             }
                         </td>
+                        <td class="col-author"><MemoryAuthor Caller="fact.Author" /></td>
                         <td class="col-true">@ValidityShort(fact)</td>
                         <td class="col-recorded" title="@Absolute(fact.RecordedAt)">@Relative(fact.RecordedAt)</td>
                     </tr>
@@ -113,7 +103,15 @@
             </tbody>
         </table>
         <div class="memory-count">
-            @facts.Count @(facts.Count == 1 ? "fact" : "facts")@(facts.Count >= PageSize ? $" shown, the first {PageSize}. Search to narrow them down." : "")
+            <span id="memory-range">@view.Range(facts.Count, count) · @MemoryListView.PageSize per page</span>
+            <span class="memory-pager">
+                <button id="memory-prev" class="btn btn-sm btn-outline-secondary" disabled="@(view.Page <= 1)" @onclick="Previous">
+                    <span class="bi-chevron-left me-1" aria-hidden="true"></span>Previous
+                </button>
+                <button id="memory-next" class="btn btn-sm btn-outline-secondary" disabled="@(nextCursor is null)" @onclick="Next">
+                    Next<span class="bi-chevron-right ms-1" aria-hidden="true"></span>
+                </button>
+            </span>
         </div>
     }
 </div>
@@ -351,23 +349,33 @@
 }
 
 @code {
-    /// <summary>The container whose memory is shown.</summary>
-    [Parameter, EditorRequired] public string ContainerId { get; set; } = "";
+    /// <summary>The memory space (or container) shown, by id or name.</summary>
+    [Parameter, EditorRequired] public string Space { get; set; } = "";
 
     /// <summary>Whether the caller may correct and delete; viewers only read.</summary>
     [Parameter] public bool CanEdit { get; set; }
 
-    private const int PageSize = 100;
+    private const int HistoryPageSize = 100;
 
     private enum FactStatus { Current, Ended, Corrected }
 
+    private MemoryListView view = new();
     private List<RecalledFact> facts = [];
+    private string? nextCursor;
+    // Each page's cursor in the view on screen, so Previous can go back to it; page 1 has none.
+    private readonly Dictionary<int, string> pageCursors = [];
+    private MemoryFactCount? count;
+    // The space and filter whose count is loading or loaded.
+    private (string Space, MemoryFactFilter Filter)? counting;
+    // Bumped by every count started or forgotten, so only the latest count's reply is kept.
+    private int countRequest;
+    private string? loadedSpace;
+    private int loadRequest;
+    private Guid? me;
+    private bool disposed;
     private bool isLoading = true;
     private string? errorMessage;
     private string? notice;
-    private string searchText = "";
-    private string? searchedFor;
-    private bool showAll;
 
     private RecalledFact? selected;
     private List<RecalledFact>? history;
@@ -391,17 +399,81 @@
     private string? deleteError;
     private bool isDeleting;
 
-    protected override Task OnInitializedAsync() => LoadAsync();
-
-    private async Task LoadAsync()
+    protected override async Task OnInitializedAsync()
     {
-        isLoading = true;
-        string? text = string.IsNullOrWhiteSpace(searchText) ? null : searchText.Trim();
-        var read = await MemoryOps.Recall.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
-            new MemoryQuery(Guid.Empty, Text: text, History: showAll, Limit: PageSize));
-        facts = [.. read.ResultOr(failed => errorMessage = failed, [])];
-        searchedFor = text;
-        isLoading = false;
+        Navigation.LocationChanged += OnLocationChanged;
+        var user = (await AuthStateProvider.GetAuthenticationStateAsync()).User;
+        me = Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out Guid id) ? id : null;
+    }
+
+    protected override Task OnParametersSetAsync() =>
+        Space == loadedSpace ? Task.CompletedTask : LoadAsync(MemoryListView.Parse(Navigation.Uri), fresh: true);
+
+    public void Dispose()
+    {
+        disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(async () =>
+    {
+        MemoryListView next = MemoryListView.Parse(e.Location);
+        if (disposed || next == view) return;
+        await LoadAsync(next);
+        StateHasChanged();
+    });
+
+    /// <summary>Puts <paramref name="next"/> in the address; the address change loads it.</summary>
+    private void Go(MemoryListView next) => Go(next, replace: false);
+
+    private void Go(MemoryListView next, bool replace) =>
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(next.Query()), replace: replace);
+
+    private void Next()
+    {
+        if (nextCursor is not null)
+            Go(view with { Cursor = nextCursor, Page = view.Page + 1 });
+    }
+
+    private void Previous() => Go(Before(view));
+
+    // A page reached by a link has no earlier cursors here, so the page before it is the first.
+    private MemoryListView Before(MemoryListView page) =>
+        page.Page > 2 && pageCursors.TryGetValue(page.Page - 1, out string? cursor) ? page with { Cursor = cursor, Page = page.Page - 1 } : page.FirstPage;
+
+    /// <summary>
+    /// Loads the page <paramref name="next"/> names, and then, in the background, its count. A new filter or sort forgets
+    /// the earlier pages' cursors, and a new filter the count; <paramref name="fresh"/> forgets both, after a change.
+    /// A reply for an earlier view is dropped.
+    /// </summary>
+    private async Task LoadAsync(MemoryListView next, bool fresh = false)
+    {
+        int request = ++loadRequest;
+        if (fresh || next.FirstPage != view.FirstPage)
+            pageCursors.Clear();
+        if (fresh || next.Filter != view.Filter || Space != loadedSpace)
+            (count, counting, countRequest) = (null, null, countRequest + 1);
+        (view, loadedSpace, isLoading) = (next, Space, true);
+        var read = await MemoryOps.List.RunAsync(await AuthStateProvider.OperationContextAsync(), Space, next.Listing);
+        if (request != loadRequest) return;
+        if (read.Field == "cursor" && next.Cursor is not null)
+        {
+            // A link to a page of another view, or one that's gone stale: start the same view from its first page.
+            Go(next.FirstPage, replace: true);
+            return;
+        }
+        var page = read.ResultOr<MemoryFactsListed, MemoryStatus>(failed => errorMessage = failed, null!);
+        if (page is { Facts.Count: 0 } && next.Cursor is not null)
+        {
+            // A later page emptied by deletes, or reopened from an old link: step back to a page that has facts.
+            Go(Before(next), replace: true);
+            return;
+        }
+        (facts, nextCursor, isLoading) = ([.. page?.Facts ?? []], page?.NextCursor, false);
+        if (next.Cursor is not null)
+            pageCursors[next.Page] = next.Cursor;
+        if (read.Succeeded && count is null && counting != (Space, next.Filter))
+            _ = CountAsync(Space, next.Filter);
         // The open fact was read before this refresh; show it only if it can still be read now.
         if (!read.Succeeded)
             ClearDetail();
@@ -409,20 +481,21 @@
             await LoadHistoryAsync(selected.Fact.Id);
     }
 
-    private Task Search() => LoadAsync();
-
-    private async Task ClearSearch()
+    /// <summary>Counts the view's facts after its page has shown, since a count can take up to two seconds.</summary>
+    private async Task CountAsync(string space, MemoryFactFilter filter)
     {
-        searchText = "";
-        await LoadAsync();
+        int request = ++countRequest;
+        counting = (space, filter);
+        var counted = await MemoryOps.Count.RunAsync(await AuthStateProvider.OperationContextAsync(), space, filter);
+        // Kept only while the same space and filter are on screen, whichever page of them it is.
+        if (disposed || request != countRequest || !counted.Succeeded) return;
+        count = counted.Result;
+        await InvokeAsync(StateHasChanged);
     }
 
-    private async Task SetShowAll(bool all)
-    {
-        if (showAll == all) return;
-        showAll = all;
-        await LoadAsync();
-    }
+    /// <summary>The authors on the page, once each, for the author filter.</summary>
+    private IReadOnlyList<MemoryCaller> Authors() =>
+        [.. facts.Select(f => f.Fact.Author).DistinctBy(a => a.UserId ?? a.AgentId)];
 
     private async Task OnRowKey(KeyboardEventArgs e, RecalledFact fact)
     {
@@ -448,8 +521,8 @@
         if (selected is null) return;
         int request = ++historyRequest;
         string factId = selected.Fact.Id.ToString();
-        var read = await MemoryOps.History.BackToAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
-            factId, showId, PageSize);
+        var read = await MemoryOps.History.BackToAsync(await AuthStateProvider.OperationContextAsync(), Space,
+            factId, showId, HistoryPageSize);
         if (request != historyRequest) return;
         var chain = read.ResultOr<MemoryVersionsListed, MemoryStatus>(failed => errorMessage = failed, null!);
         if (chain?.Versions.FirstOrDefault(f => f.Fact.Id == showId) is { } shown)
@@ -464,8 +537,8 @@
         if (selected is null || history is null || historyNext is null) return;
         int request = historyRequest;
         loadingOlder = true;
-        var read = await MemoryOps.History.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
-            historyFact, historyNext, PageSize);
+        var read = await MemoryOps.History.RunAsync(await AuthStateProvider.OperationContextAsync(), Space,
+            historyFact, historyNext, HistoryPageSize);
         loadingOlder = false;
         if (request != historyRequest || read.ResultOr<MemoryVersionsListed, MemoryStatus>(failed => errorMessage = failed, null!) is not { } page) return;
         history.InsertRange(0, page.Versions.Reverse());
@@ -518,7 +591,7 @@
         isSaving = true;
         editError = null;
         // The old fact's sources carry over, so the correction is seen by the same people, not only its writer.
-        var corrected = await MemoryOps.Correct.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId, old.Id.ToString(),
+        var corrected = await MemoryOps.Correct.RunAsync(await AuthStateProvider.OperationContextAsync(), Space, old.Id.ToString(),
             editKind, new NewMemoryFact(old.Subject, old.Attribute, editValue.Trim(), validFrom, null, old.Sources,
                 string.IsNullOrWhiteSpace(editReason) ? null : editReason.Trim()));
         isSaving = false;
@@ -529,7 +602,7 @@
         }
 
         editing = false;
-        await LoadAsync();
+        await LoadAsync(view, fresh: true);
         // The correction is in the same chain, and the newest version is always in its first page.
         await LoadHistoryAsync(corrected.Result!.Fact.Id);
         notice = "Fact corrected. The old value is kept in its history.";
@@ -554,7 +627,7 @@
     {
         if (toDelete is null) return;
         isDeleting = true;
-        var forgotten = await MemoryOps.Forget.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId, toDelete.Id.ToString());
+        var forgotten = await MemoryOps.Forget.RunAsync(await AuthStateProvider.OperationContextAsync(), Space, toDelete.Id.ToString());
         isDeleting = false;
         if (!forgotten.Succeeded)
         {
@@ -564,7 +637,7 @@
 
         int deleted = forgotten.Result;
         (toDelete, selected, history, editing) = (null, null, null, false);
-        await LoadAsync();
+        await LoadAsync(view, fresh: true);
         notice = deleted == 1 ? "Fact deleted." : $"Fact deleted, with all {deleted} versions.";
     }
 
