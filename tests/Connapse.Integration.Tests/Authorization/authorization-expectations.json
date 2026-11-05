@@ -585,6 +585,11 @@
       "risk": "read",
       "scope": null
     },
+    "GET,POST /memory": {
+      "requires": "user",
+      "risk": "write",
+      "scope": null
+    },
     "GET,POST /not-found": {
       "requires": "anonymous",
       "risk": "read",

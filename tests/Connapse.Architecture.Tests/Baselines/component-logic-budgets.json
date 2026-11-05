@@ -69,6 +69,13 @@
     "MarkupLogic": 52,
     "IsEmpty": false
   },
+  "Memory/NewMemorySpaceDialog.razor": {
+    "CodeLines": 32,
+    "Injects": 2,
+    "Complexity": 9,
+    "MarkupLogic": 17,
+    "IsEmpty": false
+  },
   "Pages/Admin/AgentManagement.razor": {
     "CodeLines": 211,
     "Injects": 4,
@@ -143,7 +150,7 @@
     "CodeLines": 757,
     "Injects": 8,
     "Complexity": 173,
-    "MarkupLogic": 87,
+    "MarkupLogic": 88,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
@@ -151,6 +158,13 @@
     "Injects": 3,
     "Complexity": 18,
     "MarkupLogic": 24,
+    "IsEmpty": false
+  },
+  "Pages/MemoryPage.razor": {
+    "CodeLines": 222,
+    "Injects": 3,
+    "Complexity": 83,
+    "MarkupLogic": 39,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
