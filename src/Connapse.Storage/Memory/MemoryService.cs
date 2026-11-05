@@ -195,7 +195,8 @@ public sealed class MemoryService(
         Guid containerId, Guid factId, MemoryVersionKey? after, int limit, MemoryCaller caller, CancellationToken ct = default)
     {
         limit = Math.Clamp(limit, 1, MaxPage);
-        if (await store.GetAsync(containerId, factId, ct) is not { } fact)
+        // The space was the one authorized, so a fact held anywhere else is reported as missing.
+        if (await store.GetAsync(factId, ct) is not { } fact || fact.ContainerId != containerId)
             return MemoryHistoryPage.Missing;
         try
         {

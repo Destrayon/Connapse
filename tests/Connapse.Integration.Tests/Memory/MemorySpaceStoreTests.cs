@@ -145,7 +145,7 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         Guid team = await ContainerAsync($"{tag}-team", ContainerKind.Memory);
         MemoryFact first = (await memory.RememberAsync(team, Fact("v1", MemoryScope.Team), userA)).Fact!;
         MemoryWriteResult corrected = await memory.CorrectAsync(
-            team, first.Id, MemoryCorrection.Changed, new NewMemoryFact("", "", "v2", DateTimeOffset.UtcNow.AddMinutes(-1), null, null), userA, true);
+            first.Id, MemoryCorrection.Changed, new NewMemoryFact("", "", "v2", DateTimeOffset.UtcNow.AddMinutes(-1), null, null), userA, true);
         corrected.Fact.Should().NotBeNull(corrected.Error);
 
         IReadOnlyList<MemorySpaceSummary> seen = (await Store(access).ListAsync(userA, tag))!;

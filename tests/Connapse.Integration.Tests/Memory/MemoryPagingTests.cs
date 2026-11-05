@@ -107,7 +107,7 @@ public sealed class MemoryPagingTests(SharedWebAppFixture fixture) : IDisposable
                 && w.ValidTo is null && w.SupersededAt is null && w.ValidFrom is { } from && validFrom > from);
             if (previous is not null && random.Next(2) == 0)
             {
-                MemoryWriteResult result = await store.CorrectAsync(container, previous.Id,
+                MemoryWriteResult result = await store.CorrectAsync(previous.Id,
                     random.Next(2) == 0 ? MemoryCorrection.Wrong : MemoryCorrection.Changed, fact, author, AnyChain);
                 result.Error.Should().BeNull();
             }
@@ -280,7 +280,7 @@ public sealed class MemoryPagingTests(SharedWebAppFixture fixture) : IDisposable
             // Pairs share a recorded time, so pages break inside a tie.
             if (i % 2 == 0)
                 clock.Now = clock.Now.AddSeconds(1);
-            latest = (await store.CorrectAsync(container, latest.Id, MemoryCorrection.Wrong,
+            latest = (await store.CorrectAsync(latest.Id, MemoryCorrection.Wrong,
                 new NewMemoryFact("", "", $"v{i}", null, null, []), me, AnyChain)).Fact!;
             versions.Add(latest.Id);
         }

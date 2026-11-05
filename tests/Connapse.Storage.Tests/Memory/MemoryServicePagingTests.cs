@@ -181,7 +181,7 @@ public class MemoryServicePagingTests
     {
         MemoryFact current = Fact(9);
         List<MemoryFact> versions = [current, Fact(8, current.ChainId), Fact(7, current.ChainId)];
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
         _store.HistoryAsync(Container, current.ChainId, null, 3, Arg.Any<MemoryViewer>(), Arg.Any<CancellationToken>()).Returns(versions);
         _store.HistoryCountAsync(Container, current.ChainId, Arg.Any<MemoryViewer>(), Arg.Any<CancellationToken>()).Returns(140L);
 
@@ -197,7 +197,7 @@ public class MemoryServicePagingTests
     public async Task HistoryAsync_LastPage_HasNoNext()
     {
         MemoryFact current = Fact(9);
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
         _store.HistoryAsync(default, default, null, default, null!).ReturnsForAnyArgs([current]);
         _store.HistoryCountAsync(default, default, null!).ReturnsForAnyArgs(1L);
 
@@ -216,10 +216,20 @@ public class MemoryServicePagingTests
     }
 
     [Fact]
+    public async Task HistoryAsync_FactInAnotherSpace_IsMissing()
+    {
+        MemoryFact elsewhere = Fact(9) with { ContainerId = Guid.NewGuid() };
+        _store.GetAsync(elsewhere.Id, Arg.Any<CancellationToken>()).Returns(elsewhere);
+
+        (await _service.HistoryAsync(Container, elsewhere.Id, null, 10, Me)).Should().Be(MemoryHistoryPage.Missing);
+        await _store.DidNotReceiveWithAnyArgs().HistoryAsync(default, default, null, default, null!);
+    }
+
+    [Fact]
     public async Task HistoryAsync_FactTheCallerCantSee_IsMissingSoItsHistoryCantBeProbed()
     {
         MemoryFact hidden = Fact(9, null, Restricted);
-        _store.GetAsync(Container, hidden.Id, Arg.Any<CancellationToken>()).Returns(hidden);
+        _store.GetAsync(hidden.Id, Arg.Any<CancellationToken>()).Returns(hidden);
 
         (await _service.HistoryAsync(Container, hidden.Id, null, 10, Me)).Should().Be(MemoryHistoryPage.Missing);
         await _store.DidNotReceiveWithAnyArgs().HistoryAsync(default, default, null, default, null!);
@@ -230,7 +240,7 @@ public class MemoryServicePagingTests
     public async Task HistoryAsync_AccessCantBeChecked_ShowsNothing()
     {
         MemoryFact current = Fact(9);
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
         AccessCantBeChecked();
 
         (await _service.HistoryAsync(Container, current.Id, null, 10, Me)).Should().Be(MemoryHistoryPage.DeniedResult);
