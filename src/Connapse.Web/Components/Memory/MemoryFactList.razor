@@ -367,6 +367,8 @@
     private MemoryFactCount? count;
     // The space and filter whose count is loading or loaded.
     private (string Space, MemoryFactFilter Filter)? counting;
+    // Bumped by every count started or forgotten, so only the latest count's reply is kept.
+    private int countRequest;
     private string? loadedSpace;
     private int loadRequest;
     private Guid? me;
@@ -433,9 +435,11 @@
             Go(view with { Cursor = nextCursor, Page = view.Page + 1 });
     }
 
-    private void Previous() =>
-        // A page reached by a link has no earlier cursors here, so Previous goes back to the start.
-        Go(view.Page > 2 && pageCursors.TryGetValue(view.Page - 1, out string? cursor) ? view with { Cursor = cursor, Page = view.Page - 1 } : view.FirstPage);
+    private void Previous() => Go(Before(view));
+
+    // A page reached by a link has no earlier cursors here, so the page before it is the first.
+    private MemoryListView Before(MemoryListView page) =>
+        page.Page > 2 && pageCursors.TryGetValue(page.Page - 1, out string? cursor) ? page with { Cursor = cursor, Page = page.Page - 1 } : page.FirstPage;
 
     /// <summary>
     /// Loads the page <paramref name="next"/> names, and then, in the background, its count. A new filter or sort forgets
@@ -448,7 +452,7 @@
         if (fresh || next.FirstPage != view.FirstPage)
             pageCursors.Clear();
         if (fresh || next.Filter != view.Filter || Space != loadedSpace)
-            (count, counting) = (null, null);
+            (count, counting, countRequest) = (null, null, countRequest + 1);
         (view, loadedSpace, isLoading) = (next, Space, true);
         var read = await MemoryOps.List.RunAsync(await AuthStateProvider.OperationContextAsync(), Space, next.Listing);
         if (request != loadRequest) return;
@@ -459,6 +463,12 @@
             return;
         }
         var page = read.ResultOr<MemoryFactsListed, MemoryStatus>(failed => errorMessage = failed, null!);
+        if (page is { Facts.Count: 0 } && next.Cursor is not null)
+        {
+            // A later page emptied by deletes, or reopened from an old link: step back to a page that has facts.
+            Go(Before(next), replace: true);
+            return;
+        }
         (facts, nextCursor, isLoading) = ([.. page?.Facts ?? []], page?.NextCursor, false);
         if (next.Cursor is not null)
             pageCursors[next.Page] = next.Cursor;
@@ -474,10 +484,11 @@
     /// <summary>Counts the view's facts after its page has shown, since a count can take up to two seconds.</summary>
     private async Task CountAsync(string space, MemoryFactFilter filter)
     {
+        int request = ++countRequest;
         counting = (space, filter);
         var counted = await MemoryOps.Count.RunAsync(await AuthStateProvider.OperationContextAsync(), space, filter);
         // Kept only while the same space and filter are on screen, whichever page of them it is.
-        if (disposed || counting != (space, filter) || !counted.Succeeded) return;
+        if (disposed || request != countRequest || !counted.Succeeded) return;
         count = counted.Result;
         await InvokeAsync(StateHasChanged);
     }

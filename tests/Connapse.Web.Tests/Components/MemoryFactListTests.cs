@@ -324,6 +324,71 @@ public class MemoryFactListTests : IDisposable
     }
 
     [Fact]
+    public void Delete_OnlyFactOfALaterPage_StepsBackToAPageWithFacts()
+    {
+        AddMany(51);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Contain("1–50 of 51"));
+        cut.Find("#memory-next").Click();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(1));
+        cut.Find(".memory-row").Click();
+        cut.WaitForAssertion(() => cut.Find("#memory-delete"));
+
+        cut.Find("#memory-delete").Click();
+        cut.Find("#memory-delete-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Contain("1–50 of 50"));
+        Navigation.Uri.Should().NotContain("after=").And.NotContain("page=");
+        cut.FindAll("#memory-empty").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Count_FromBeforeADelete_DoesNotReplaceTheNewerCount()
+    {
+        memory.Add("Halcyon", "database", "PostgreSQL 15");
+        memory.Add("Atlas", "database", "MySQL");
+        memory.HoldCounts();
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(2));
+        cut.Find(".memory-row").Click();
+        cut.WaitForAssertion(() => cut.Find("#memory-delete"));
+        cut.Find("#memory-delete").Click();
+        cut.Find("#memory-delete-confirm").Click();
+        cut.WaitForAssertion(() => memory.Counts.Should().HaveCount(2));
+
+        memory.ReleaseCount(1);
+        cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Contain("of 1 fact"));
+        memory.ReleaseCount(0);
+        cut.WaitForAssertion(() => memory.CountsAnswered.Should().Be(2));
+
+        cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Contain("of 1 fact"));
+        cut.Find("#memory-range").TextContent.Should().NotContain("of 2");
+    }
+
+    [Fact]
+    public void Count_OfAFilterLeftAndReturnedTo_KeepsOnlyTheLatest()
+    {
+        memory.Add("Halcyon", "database", "PostgreSQL 15");
+        memory.HoldCounts();
+        var cut = Render();
+        cut.WaitForAssertion(() => memory.Counts.Should().HaveCount(1));
+        memory.Add("Atlas", "database", "MySQL");
+
+        Navigation.NavigateTo("http://localhost/containers/x?tab=memory&status=all");
+        cut.WaitForAssertion(() => memory.Counts.Should().HaveCount(2));
+        Navigation.NavigateTo("http://localhost/containers/x?tab=memory");
+        cut.WaitForAssertion(() => memory.Counts.Should().HaveCount(3));
+
+        memory.ReleaseCount(2);
+        cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Contain("of 2 facts"));
+        memory.ReleaseCount(0);
+        cut.WaitForAssertion(() => memory.CountsAnswered.Should().Be(2));
+
+        cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Contain("of 2 facts"));
+        memory.ReleaseCounts();
+    }
+
+    [Fact]
     public void Viewer_SeesFactsButNoWayToChangeThem()
     {
         memory.Add("Halcyon", "database", "PostgreSQL 15");
@@ -484,12 +549,26 @@ public class MemoryFactListTests : IDisposable
 
         public string? RefuseCorrections { get; set; }
 
-        private TaskCompletionSource? heldCounts;
+        private int countsAnswered;
 
-        /// <summary>Counts wait until <see cref="ReleaseCounts"/>.</summary>
-        public void HoldCounts() => heldCounts = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>How many counts have answered.</summary>
+        public int CountsAnswered => Volatile.Read(ref countsAnswered);
 
-        public void ReleaseCounts() => heldCounts?.SetResult();
+        private bool holdingCounts;
+        private readonly List<TaskCompletionSource> countGates = [];
+
+        /// <summary>Counts wait until released, each answering with the total when it started.</summary>
+        public void HoldCounts() => holdingCounts = true;
+
+        public void ReleaseCounts()
+        {
+            holdingCounts = false;
+            foreach (var gate in countGates)
+                gate.TrySetResult();
+        }
+
+        /// <summary>Releases the count started <paramref name="index"/>th, from 0.</summary>
+        public void ReleaseCount(int index) => countGates[index].SetResult();
 
         public MemoryFact Add(
             string subject, string attribute, string value, DateTimeOffset? from = null, IReadOnlyList<MemorySource>? sources = null,
@@ -593,9 +672,14 @@ public class MemoryFactListTests : IDisposable
         public async Task<MemoryFactCount> CountAsync(Guid containerId, MemoryFactFilter filter, MemoryCaller caller, CancellationToken ct = default)
         {
             Counts.Add(filter);
-            if (heldCounts is { } hold)
-                await hold.Task;
-            return new MemoryFactCount(Matching(filter).Count(), false);
+            int total = Matching(filter).Count();
+            TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            countGates.Add(gate);
+            if (!holdingCounts)
+                gate.SetResult();
+            await gate.Task;
+            Interlocked.Increment(ref countsAnswered);
+            return new MemoryFactCount(total, false);
         }
 
         public Task<MemorySubjectPage> SubjectsAsync(

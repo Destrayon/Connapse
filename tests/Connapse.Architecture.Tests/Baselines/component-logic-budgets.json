@@ -63,9 +63,9 @@
     "IsEmpty": false
   },
   "Memory/MemoryFactList.razor": {
-    "CodeLines": 298,
+    "CodeLines": 308,
     "Injects": 3,
-    "Complexity": 116,
+    "Complexity": 119,
     "MarkupLogic": 52,
     "IsEmpty": false
   },
