@@ -42,8 +42,9 @@ no better or worse.
   `search_knowledge` and `get_document`, as an agent searches today. **On** adds only `memory_recall`. Nothing tells
   the agent to use memory. The tool descriptions are the MCP server's own.
 - **Fixed before the run:**
-  - **Model:** `claude-sonnet-5-5` at temperature 0. If ClaudePM's go names another model, the change is committed
-    here before the run.
+  - **Model:** `claude-sonnet-5-5` with adaptive thinking at effort `medium` and no temperature (amended before any
+    run: the model rejects a temperature, so runs are not deterministic and the 3 repetitions carry the variance).
+    If ClaudePM's go names another model, the change is committed here before the run.
   - **Repetitions:** 3 per task and arm, averaged per task before any test.
   - **Limits:** at most 12 tool calls per run. `search_knowledge` returns its default 10 results in Hybrid mode.
   - **Split:** the 112 `test` tasks, scored once. The `dev` tasks are for building and checking the command only.

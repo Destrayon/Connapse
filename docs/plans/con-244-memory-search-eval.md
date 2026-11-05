@@ -48,3 +48,8 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
   - Files: `eval/tools/build_memory_search.py`, `eval/datasets/memory-search/*`, `eval/MANIFEST.json`, `eval/pass-bars.md`.
   - Verified: the generator's leak checks pass (no undocumented alias or codename in any document).
   - Next: the `memory-search` command and its adapter.
+- **Phase 3:**
+  - Added the `memory-search` command: a Claude tool loop over the real `McpTools` methods (Off: search_knowledge and get_document; On: adds memory_recall), scoring, the paired report and the KEEP/DROP gate. The model rejects a temperature, so pass-bars.md now says the 3 repetitions carry the variance (amended before any run).
+  - Files: `tests/Connapse.Eval/Runs/MemorySearch/*`, `Runs/MemorySearchEval.cs`, `Datasets/MemorySearchAdapter.cs`, `Program.cs`, `Cli/CliArgs.cs`, `Statistics/PairedStats.cs`, the csproj (Anthropic 13.5.0), README, `eval/tools/run_light.sh`.
+  - Verified: 34 new unit tests; all 3,167 eval unit tests pass.
+  - Next: Release build, format, Codex review, PR.

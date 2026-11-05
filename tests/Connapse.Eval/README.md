@@ -116,6 +116,22 @@ from the GitHub and Jira APIs. Built locally (needs `gh` signed in; about 15 min
 
 - Scores break down by `kind:` and by `hops:1` / `hops:2`. Questions and how they were made: `eval/datasets/links-*/card.md`.
 
+## Memory and search
+
+`memory-search` asks whether container memory makes an agent's search better (CON-244). The same Claude agent
+answers each question twice with the real MCP tools: once with `search_knowledge` and `get_document`, once with
+`memory_recall` added. A run scores 1 when the agent cites the current document and no superseded one. The bar,
+set before any run, is in `eval/pass-bars.md`; the report ends with KEEP or DROP and the command exits 3 on DROP.
+It calls the Anthropic API, so it needs `ANTHROPIC_API_KEY` and costs money (about $40–75 for the test split at
+3 repetitions on Sonnet 5.5; try `--split dev --repetitions 1` first):
+
+    dotnet run --project tests/Connapse.Eval -- memory-search --split test --out eval/runs/memory-search.json
+    MEMORY_SEARCH_SPLIT=dev eval/tools/run_light.sh memory-search
+
+- Options: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`), `--repetitions` (default 3),
+  `--workers` (default 2), `--limit-tasks`. Every agent run, with its tool calls, lands in `<out>.runs.jsonl`.
+- Tasks, corpus and memory writes, and how they were made: `eval/datasets/memory-search/card.md`.
+
 ## Files and reports
 
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.

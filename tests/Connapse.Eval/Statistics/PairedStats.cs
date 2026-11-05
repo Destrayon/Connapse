@@ -37,7 +37,8 @@ public static class PairedStats
         IReadOnlyList<double> baseline,
         IReadOnlyList<double> candidate,
         int resamples = DefaultResamples,
-        int seed = DefaultSeed)
+        int seed = DefaultSeed,
+        double confidenceLevel = 0.95)
     {
         if (baseline.Count != candidate.Count)
             throw new ArgumentException("Paired samples must have the same length.");
@@ -62,7 +63,7 @@ public static class PairedStats
 
         double t = mean / (sd / Math.Sqrt(n));
         double tTestP = 2 * (1 - StudentT.CDF(0, 1, n - 1, Math.Abs(t)));
-        (double low, double high) = BcaInterval(d, BootstrapResamples(n, resamples, new Random(seed)), 0.95);
+        (double low, double high) = BcaInterval(d, BootstrapResamples(n, resamples, new Random(seed)), confidenceLevel);
 
         return new PairedComparison(n, mean, low, high, tTestP, permutationP, mean / sd, mde);
     }
