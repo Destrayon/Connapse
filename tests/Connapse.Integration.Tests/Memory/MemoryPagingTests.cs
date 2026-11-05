@@ -183,7 +183,8 @@ public sealed class MemoryPagingTests(SharedWebAppFixture fixture) : IDisposable
                     Guid[] expected = [.. world.Facts.Where(f => world.Allowed(f, viewer) && Matches(f, filter, world.Clock.Now)).Select(f => f.Id)];
                     foreach (MemoryFactSort sort in new[] { MemoryFactSort.Recorded, MemoryFactSort.Subject, MemoryFactSort.ValidFrom })
                     {
-                        List<RecalledFact> paged = await PageAllAsync(world.Service, world.Container, filter, sort, viewer, 7);
+                        // Not a multiple of the four facts that share a recorded time, so pages break inside a tie.
+                        List<RecalledFact> paged = await PageAllAsync(world.Service, world.Container, filter, sort, viewer, 11);
                         paged.Select(f => f.Fact.Id).Should().OnlyHaveUniqueItems($"{sort} {filter} for {viewer}")
                             .And.BeEquivalentTo(expected, $"{sort} {filter} for {viewer}");
                     }

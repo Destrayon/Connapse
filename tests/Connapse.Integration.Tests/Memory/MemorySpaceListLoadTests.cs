@@ -23,8 +23,8 @@ namespace Connapse.Integration.Tests.Memory;
 /// <summary>
 /// CON-243: the Memory page's unfiltered spaces list at 200 spaces and 50,000 memories. Its own database, so nothing
 /// another test made is listed. A typical reader may read every source; the worst case is a reader who may read none,
-/// so every documents container's witness is denied and the whole container is checked. Each timed call is the best of
-/// three after a warm-up.
+/// so every documents container's witness is denied and the whole container is checked. Each call is timed once, after a
+/// warm-up.
 /// </summary>
 [Trait("Category", "Gate")]
 public class MemorySpaceListLoadTests(ITestOutputHelper output) : IAsyncLifetime
@@ -126,7 +126,7 @@ public class MemorySpaceListLoadTests(ITestOutputHelper output) : IAsyncLifetime
         authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
 
         (TimeSpan Best, int Asked, MemorySpacePage Page) best = (TimeSpan.MaxValue, 0, null!);
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 2; i++)
         {
             CountingAccess access = new(readsAll);
             ListMemorySpaces list = new(
