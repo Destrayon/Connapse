@@ -7,6 +7,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
+from xml.sax.saxutils import quoteattr
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import test_budgets as b  # noqa: E402
@@ -17,7 +18,7 @@ REFERENCE = {f"T.Test{i}": 0.05 + 0.01 * (i % 7) for i in range(200)}
 
 def trx(durations: dict[str, float]) -> str:
     rows = "".join(
-        f'<UnitTestResult testName="{name}" outcome="Passed" duration="00:00:{seconds:09.6f}" />'
+        f'<UnitTestResult testName={quoteattr(name)} outcome="Passed" duration="00:00:{seconds:09.6f}" />'
         for name, seconds in durations.items())
     return ('<?xml version="1.0" encoding="utf-8"?>'
             '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
@@ -34,7 +35,7 @@ def tier(durations: dict[str, float], reference: dict[str, float] | None = REFER
             pathlib.Path("tests/P").mkdir(parents=True)
             pathlib.Path("tests/P/P.csproj").write_text('<PackageReference Include="Microsoft.NET.Test.Sdk" />')
             pathlib.Path("tests/P/TestResults").mkdir()
-            pathlib.Path("tests/P/TestResults/small-tests.trx").write_text(trx(durations))
+            pathlib.Path("tests/P/TestResults/small-tests.trx").write_text(trx(durations), encoding="utf-8")
             pathlib.Path("Connapse.slnx").write_text('<Project Path="tests/P/P.csproj" />')
             if reference is not None:
                 pathlib.Path("reference.json").write_text(json.dumps(reference))
@@ -126,6 +127,101 @@ class SmallWall(unittest.TestCase):
         with tier(scaled(2.0), reference=None):
             code, out = run("--wall-seconds", "31", "--max-wall-seconds", "30")
         self.assertEqual(code, 1, out)
+
+
+class SlowRunnerRun41957977547(unittest.TestCase):
+    """#1133's run 41957977547 failed at 30.8 s with no slower test, and its rerun passed (CON-250).
+
+    The fixture is that run's durations of the reference's tests. GitHub replaced the failing attempt's
+    artifact with the rerun's, so these are the rerun's (same commit) scaled to the failing attempt's
+    factor of 1.01 against the old reference; their sum, 154 s, is within 2% of its 151.5 s."""
+
+    SCRIPTS = pathlib.Path(__file__).resolve().parent
+    RUN = json.loads((SCRIPTS / "testdata" / "run-41957977547-small.json").read_text(encoding="utf-8"))
+    CHECKED_IN = json.loads((SCRIPTS.parent / "test-timings" / "small-reference.json").read_text(encoding="utf-8"))
+
+    def check(self, durations: dict[str, float], wall: float) -> tuple[int, str]:
+        with tier(durations, self.CHECKED_IN):
+            return run("--wall-seconds", f"{wall:g}", "--max-wall-seconds", "30", "--reference", "reference.json")
+
+    def test_its_31_s_on_a_slow_runner_passes(self):
+        code, out = self.check(self.RUN, 31)
+        self.assertEqual(code, 0, out)
+        self.assertIn("22.8 s on a median runner", out)
+
+    def test_its_31_s_failed_against_a_reference_that_reads_typical_runners_at_080(self):
+        # The cause, kept: against a reference 1.35x slower than main's tests, as the one written on
+        # 2026-10-25 had become, that runner reads 1.01, as it did, and gets 1% of the relief it needs.
+        stale = {name: seconds * 1.35 for name, seconds in self.CHECKED_IN.items()}
+        with tier(self.RUN, stale):
+            code, out = run("--wall-seconds", "31", "--max-wall-seconds", "30", "--reference", "reference.json")
+        self.assertEqual(code, 1, out)
+
+    def test_a_new_slow_class_on_that_runner_still_fails(self):
+        # A PR adds a class whose three 4 s tests run one after another, after the rest: the wall grows
+        # by 12 s, about 9 s on a median runner, and the factor doesn't move.
+        new = {f"New.SlowClass.Test{i}": 4.0 for i in range(3)}
+        code, out = self.check(self.RUN | new, 31 + 12)
+        self.assertEqual(code, 1, out)
+        self.assertIn("Small tier took 31.6 s on a median runner", out)
+
+    def test_every_test_60_percent_slower_on_that_runner_still_fails(self):
+        # A slowdown of every test alike reads as a slower runner until the factor reaches MAX_FACTOR.
+        code, out = self.check({name: seconds * 1.6 for name, seconds in self.RUN.items()}, 31 * 1.6)
+        self.assertEqual(code, 1, out)
+        self.assertIn("capped at 1.5", out)
+
+
+class CheckReference(unittest.TestCase):
+    """The nightly's check that the reference still describes main's median runner (CON-250)."""
+
+    @staticmethod
+    def runs(root: str, factors: list[float], tests: int = len(REFERENCE)) -> list[str]:
+        dirs = []
+        for i, factor in enumerate(factors):
+            d = pathlib.Path(root, f"run{i}", "tests", "P", "TestResults")
+            d.mkdir(parents=True)
+            (d / "small-tests.trx").write_text(trx(dict(list(scaled(factor).items())[:tests])))
+            dirs.append(str(pathlib.Path(root, f"run{i}")))
+        return dirs
+
+    def check(self, factors: list[float], tests: int = len(REFERENCE)) -> tuple[int, str]:
+        with tempfile.TemporaryDirectory() as root:
+            pathlib.Path(root, "reference.json").write_text(json.dumps(REFERENCE))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = b.main(["--trx", "small-tests.trx", "--check-reference", str(pathlib.Path(root, "reference.json")),
+                               *self.runs(root, factors, tests)])
+            return code, out.getvalue()
+
+    # main's two kinds of runner: about 0.7x and 1.2x a median one.
+    FLEET = [0.65, 1.2, 0.7, 1.25, 1.05, 0.7, 1.15, 1.2, 0.75, 1.1, 1.0, 1.2, 0.65, 1.3, 1.05]
+
+    def test_a_fresh_reference_passes_on_a_mixed_fleet(self):
+        code, out = self.check(self.FLEET)
+        self.assertEqual(code, 0, out)
+        self.assertIn("median runner factor of 1.05", out)
+
+    def test_a_reference_main_has_outrun_fails_and_says_to_refresh(self):
+        # The reference CON-250 found: main's runs read 0.80 against it, tests faster, runners not.
+        code, out = self.check([f * 0.73 for f in self.FLEET])
+        self.assertEqual(code, 1, out)
+        self.assertIn("refresh", out)
+
+    def test_a_reference_main_has_slowed_past_fails(self):
+        code, out = self.check([f * 1.3 for f in self.FLEET])
+        self.assertEqual(code, 1, out)
+
+    def test_too_few_runs_fail(self):
+        code, out = self.check(self.FLEET[:9])
+        self.assertEqual(code, 1, out)
+        self.assertIn("needs 10", out)
+
+    def test_runs_that_timed_too_few_of_the_reference_tests_are_left_out(self):
+        # 150 of the 200: a drifted test list, not a runner's speed.
+        code, out = self.check(self.FLEET, tests=150)
+        self.assertEqual(code, 1, out)
+        self.assertIn("reads 0 of 15 runs", out)
 
 
 class WriteReference(unittest.TestCase):
