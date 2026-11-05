@@ -82,18 +82,18 @@ public class MemoryChainOwnerTests(SharedWebAppFixture fixture) : IAsyncLifetime
         var (container, service, factory) = await ArrangeAsync(new() { [a] = [shared], [b] = [shared] });
         MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
 
-        // A writes privately, then corrects it to cite a document both can read: B now sees the current version only.
+        // A writes privately, then corrects it to cite a document both can read: the correction stays personal, so B sees none of it.
         MemoryFact own = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "database", "MySQL", Jan, null, []), userA)).Fact!;
-        MemoryFact cited = (await service.CorrectAsync(container, own.Id, MemoryCorrection.Changed,
-            new NewMemoryFact("", "", "PostgreSQL", Jan.AddMonths(1), null, [new(MemorySourceKind.Document, shared)]), userA)).Fact!;
+        MemoryFact cited = (await service.CorrectAsync(own.Id, MemoryCorrection.Changed,
+            new NewMemoryFact("", "", "PostgreSQL", Jan.AddMonths(1), null, [new(MemorySourceKind.Document, shared)]), userA, true)).Fact!;
 
-        MemoryWriteResult privateCorrection = await service.CorrectAsync(container, cited.Id, kind,
-            new NewMemoryFact("", "", "PostgreSQL 16", kind == MemoryCorrection.Changed ? Jan.AddMonths(2) : null, null, []), userB);
+        MemoryWriteResult privateCorrection = await service.CorrectAsync(cited.Id, kind,
+            new NewMemoryFact("", "", "PostgreSQL 16", kind == MemoryCorrection.Changed ? Jan.AddMonths(2) : null, null, []), userB, true);
 
-        privateCorrection.Error.Should().NotBeNull("B cannot see A's private version, so B's private one would lock the chain");
-        privateCorrection.Failure.Should().Be(MemoryWriteFailure.Invalid);
+        privateCorrection.Error.Should().NotBeNull("B cannot see A's personal fact, so B cannot correct it");
+        privateCorrection.Failure.Should().Be(MemoryWriteFailure.NotFound);
         (await FactsInAsync(factory, container)).Should().Be(2, "a refused correction writes nothing");
-        (await service.ForgetAsync(container, cited.Id, userA)).Should().Be((2, (string?)null), "A sees every version, so A can forget");
+        (await service.ForgetAsync(cited.Id, userA, true)).Should().Be((2, MemoryWriteFailure.None), "A sees every version, so A can forget");
         (await FactsInAsync(factory, container)).Should().Be(0, "with its owner's versions forgotten the container holds no memory and can be deleted");
     }
 
@@ -106,15 +106,15 @@ public class MemoryChainOwnerTests(SharedWebAppFixture fixture) : IAsyncLifetime
         var (container, service, factory) = await ArrangeAsync(new() { [a] = [shared], [b] = [shared, onlyB] });
         MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
         MemoryFact own = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "lead", "Ana", Jan, null, []), userA)).Fact!;
-        MemoryFact cited = (await service.CorrectAsync(container, own.Id, MemoryCorrection.Changed,
-            new NewMemoryFact("", "", "Bo", Jan.AddMonths(1), null, [new(MemorySourceKind.Document, shared)]), userA)).Fact!;
+        MemoryFact cited = (await service.CorrectAsync(own.Id, MemoryCorrection.Changed,
+            new NewMemoryFact("", "", "Bo", Jan.AddMonths(1), null, [new(MemorySourceKind.Document, shared)]), userA, true)).Fact!;
 
-        MemoryWriteResult result = await service.CorrectAsync(container, cited.Id, MemoryCorrection.Changed,
-            new NewMemoryFact("", "", "Cy", Jan.AddMonths(2), null, [new(MemorySourceKind.Document, onlyB)]), userB);
+        MemoryWriteResult result = await service.CorrectAsync(cited.Id, MemoryCorrection.Changed,
+            new NewMemoryFact("", "", "Cy", Jan.AddMonths(2), null, [new(MemorySourceKind.Document, onlyB)]), userB, true);
 
         result.Error.Should().NotBeNull();
         (await FactsInAsync(factory, container)).Should().Be(2);
-        (await service.ForgetAsync(container, own.Id, userA)).Deleted.Should().Be(2);
+        (await service.ForgetAsync(own.Id, userA, true)).Deleted.Should().Be(2);
     }
 
     [Fact]
@@ -127,14 +127,14 @@ public class MemoryChainOwnerTests(SharedWebAppFixture fixture) : IAsyncLifetime
         MemorySource source = new(MemorySourceKind.Document, shared);
         MemoryFact first = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "region", "eu-west", Jan, null, [source]), userA)).Fact!;
 
-        MemoryWriteResult byB = await service.CorrectAsync(container, first.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "eu-north", null, null, [source]), userB);
-        MemoryWriteResult byA = await service.CorrectAsync(container, byB.Fact!.Id, MemoryCorrection.Changed,
-            new NewMemoryFact("", "", "us-east", Jan.AddMonths(3), null, [source]), userA);
+        MemoryWriteResult byB = await service.CorrectAsync(first.Id, MemoryCorrection.Wrong,
+            new NewMemoryFact("", "", "eu-north", null, null, [source]), userB, true);
+        MemoryWriteResult byA = await service.CorrectAsync(byB.Fact!.Id, MemoryCorrection.Changed,
+            new NewMemoryFact("", "", "us-east", Jan.AddMonths(3), null, [source]), userA, true);
 
         byB.Error.Should().BeNull("B sees every version of a chain that cites only what B can read");
         byA.Error.Should().BeNull();
-        (await service.ForgetAsync(container, first.Id, userB)).Deleted.Should().Be(3);
+        (await service.ForgetAsync(first.Id, userB, true)).Deleted.Should().Be(3);
         (await FactsInAsync(factory, container)).Should().Be(0);
     }
 
@@ -146,13 +146,13 @@ public class MemoryChainOwnerTests(SharedWebAppFixture fixture) : IAsyncLifetime
         MemoryCaller userA = new(a, null, null);
         MemoryFact first = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "owner", "Ana", Jan, null, []), userA)).Fact!;
 
-        MemoryWriteResult wrong = await service.CorrectAsync(container, first.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "Ann", null, null, []), userA);
-        MemoryWriteResult changed = await service.CorrectAsync(container, wrong.Fact!.Id, MemoryCorrection.Changed,
-            new NewMemoryFact("", "", "Bo", Jan.AddMonths(1), null, []), userA);
+        MemoryWriteResult wrong = await service.CorrectAsync(first.Id, MemoryCorrection.Wrong,
+            new NewMemoryFact("", "", "Ann", null, null, []), userA, true);
+        MemoryWriteResult changed = await service.CorrectAsync(wrong.Fact!.Id, MemoryCorrection.Changed,
+            new NewMemoryFact("", "", "Bo", Jan.AddMonths(1), null, []), userA, true);
 
         wrong.Error.Should().BeNull();
         changed.Error.Should().BeNull();
-        (await service.ForgetAsync(container, first.Id, userA)).Deleted.Should().Be(3);
+        (await service.ForgetAsync(first.Id, userA, true)).Deleted.Should().Be(3);
     }
 }

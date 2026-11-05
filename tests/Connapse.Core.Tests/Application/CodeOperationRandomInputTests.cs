@@ -37,7 +37,7 @@ public class CodeOperationRandomInputTests
 
     private sealed class World
     {
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
         public readonly ISourceStore Sources = Substitute.For<ISourceStore>();
         public readonly FixedVisibility Visibility = new();
         public readonly ICodeTools Code = Substitute.For<ICodeTools>();

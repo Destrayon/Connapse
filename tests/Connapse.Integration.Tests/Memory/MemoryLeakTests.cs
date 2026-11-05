@@ -141,10 +141,10 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
         DateTimeOffset jan = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
         MemoryFact first = (await service.RememberAsync(container, new NewMemoryFact("Halcyon", "database", "MySQL", jan, null, []), me)).Fact!;
-        MemoryFact wrong = (await service.CorrectAsync(container, first.Id, MemoryCorrection.Wrong,
-            new NewMemoryFact("", "", "PostgreSQL 14", null, null, []), me)).Fact!;
-        MemoryFact changed = (await service.CorrectAsync(container, wrong.Id, MemoryCorrection.Changed,
-            new NewMemoryFact("", "", "PostgreSQL 15", jan.AddMonths(3), null, []), me)).Fact!;
+        MemoryFact wrong = (await service.CorrectAsync(first.Id, MemoryCorrection.Wrong,
+            new NewMemoryFact("", "", "PostgreSQL 14", null, null, []), me, true)).Fact!;
+        MemoryFact changed = (await service.CorrectAsync(wrong.Id, MemoryCorrection.Changed,
+            new NewMemoryFact("", "", "PostgreSQL 15", jan.AddMonths(3), null, []), me, true)).Fact!;
         await service.RememberAsync(container, new NewMemoryFact("Halcyon", "region", "eu-west", jan, null, []), me);
 
         MemoryRecall history = await service.RecallAsync(new MemoryQuery(container, ChainId: first.ChainId, Limit: 100), me);
@@ -207,8 +207,8 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             {
                 // A wrong correction keeps the old dates: its start may be where an earlier version ends.
                 MemoryWriteResult result = random.Next(3) == 0
-                    ? await store.CorrectAsync(container, previous.Id, MemoryCorrection.Wrong, fact with { ValidFrom = null }, author, AnyChain)
-                    : await store.CorrectAsync(container, previous.Id, MemoryCorrection.Changed, fact, author, AnyChain);
+                    ? await store.CorrectAsync(previous.Id, MemoryCorrection.Wrong, fact with { ValidFrom = null }, author, AnyChain)
+                    : await store.CorrectAsync(previous.Id, MemoryCorrection.Changed, fact, author, AnyChain);
                 result.Error.Should().BeNull();
                 written.Remove(previous);
                 written.Add(result.Replaced!);
@@ -230,9 +230,8 @@ public class MemoryLeakTests(SharedWebAppFixture fixture)
             then.Select(f => f.ChainId).Should().BeEquivalentTo(started, $"every started chain shows on {at:d}");
         }
 
-        bool Allowed(MemoryFact f, Guid user) => f.Sources.Count == 0
-            ? f.Author.UserId == user
-            : f.Sources.All(s => s.Kind == MemorySourceKind.Document
+        bool Allowed(MemoryFact f, Guid user) => (f.Scope == MemoryScope.Team || f.Author.UserId == user)
+            && f.Sources.All(s => s.Kind == MemorySourceKind.Document
                 ? readable[user].Contains(s.Ref)
                 : nodes[s.Ref].Length > 0 && nodes[s.Ref].All(readable[user].Contains));
 

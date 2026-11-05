@@ -58,6 +58,17 @@ The harness's own spec checks have unit tests that need no Docker:
 `E2E_PROJECT` sets the Compose project name (default `connapse-e2e`). The exit code is 0 only when
 every item passed and every spec operation was called.
 
+## Memory list at 50,000 facts
+
+`memory_scale.py` times the paged memory list (CON-247). It starts its own Postgres and MinIO, each capped at 2 CPUs
+and 4 GB, publishes and runs the web app from this checkout, seeds one team memory space with 50,000 current facts
+(about 66,000 versions), and checks in headless Chromium that the first page, page 2 and a search each show within
+1 second. Timings go to `<work>/report.md` and screenshots to `<work>/shots`; it removes everything it started.
+
+```bash
+python scripts/e2e/memory_scale.py --work E:/tmp/memory-scale
+```
+
 ## What it can't run locally
 
 S3, Azure Blob, GitHub App and Atlassian sources and the cloud sign-in links need real cloud accounts.

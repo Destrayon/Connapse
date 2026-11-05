@@ -1,0 +1,144 @@
+/* The New memory space dialog, as in the plan's create-space picture. */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--shadow-overlay);
+    z-index: 1040;
+}
+
+.space-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1050;
+    width: 100%;
+    max-width: 540px;
+    padding: 1rem;
+}
+
+.space-modal-content {
+    background: var(--surface-elevated);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.space-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.4rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.space-modal-header h4 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.space-modal-body {
+    padding: 1.1rem 1.4rem;
+}
+
+.space-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    padding: 0.9rem 1.4rem;
+    border-top: 1px solid var(--bs-border-color);
+}
+
+.space-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0.9rem 0 0.4rem;
+}
+
+fieldset .space-label {
+    margin-top: 0;
+}
+
+.space-hint {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 0.35rem;
+}
+
+.audience-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+.audience-option {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 8px;
+    background: var(--surface);
+    cursor: pointer;
+}
+
+.audience-option:hover {
+    border-color: var(--text-muted);
+}
+
+.audience-option:focus-within {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.audience-option.chosen {
+    border-color: #2dd4bf;
+    background: color-mix(in srgb, #2dd4bf 8%, var(--surface));
+}
+
+.audience-icon {
+    font-size: 1rem;
+}
+
+.kind-personal { color: #f59e0b; }
+.kind-team { color: #2dd4bf; }
+
+.audience-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.audience-text {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.audience-note {
+    margin-top: 0.9rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.83rem;
+    line-height: 1.5;
+    border: 1px solid var(--bs-border-color);
+    color: var(--text-muted);
+}
+
+.audience-note-team {
+    border-color: color-mix(in srgb, #2dd4bf 60%, transparent);
+    background: color-mix(in srgb, #2dd4bf 10%, transparent);
+    color: #5eead4;
+}
+
+.audience-note-team strong {
+    color: #99f6e4;
+}
+
+@media (max-width: 576px) {
+    .audience-options {
+        grid-template-columns: 1fr;
+    }
+}

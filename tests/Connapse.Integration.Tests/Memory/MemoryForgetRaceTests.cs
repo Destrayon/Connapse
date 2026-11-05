@@ -71,15 +71,15 @@ public class MemoryForgetRaceTests(SharedWebAppFixture fixture)
         });
         await correction.SaveChangesAsync();
 
-        Task<(int Deleted, string? Error)> forget = service.ForgetAsync(container, first.Id, new MemoryCaller(alice, null, null));
+        Task<(int Deleted, MemoryWriteFailure Failure)> forget = service.ForgetAsync(first.Id, new MemoryCaller(alice, null, null), true);
         await WaitUntilBlockedOnLockAsync(factory);
         await transaction.CommitAsync();
-        (int deleted, string? error) = await forget.WaitAsync(TimeSpan.FromSeconds(30));
+        (int deleted, MemoryWriteFailure failure) = await forget.WaitAsync(TimeSpan.FromSeconds(30));
 
         await using var check = await factory.CreateDbContextAsync();
         (await check.MemoryFacts.AnyAsync(f => f.Id == replacement)).Should().BeTrue("Alice cannot read the correction's source");
         deleted.Should().Be(0);
-        error.Should().Contain("not found");
+        failure.Should().Be(MemoryWriteFailure.NotFound);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class MemoryForgetRaceTests(SharedWebAppFixture fixture)
         await correction.SaveChangesAsync();
 
         List<int> chainSizes = [];
-        Task<int?> forget = store.ForgetAsync(container, first.Id, chain =>
+        Task<int?> forget = store.ForgetAsync(first.Id, chain =>
         {
             chainSizes.Add(chain.Count);
             return Task.FromResult(true);

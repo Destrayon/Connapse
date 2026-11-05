@@ -48,13 +48,13 @@
 - {Id: CA1070, Title: Do not declare event fields as virtual, Category: Design, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1200, Title: Avoid using cref tags with a prefix, Category: Documentation, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1303, Title: Do not pass literals as localized parameters, Category: Globalization, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
-- {Id: CA1304, Title: Specify CultureInfo, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
+- {Id: CA1304, Title: Specify CultureInfo, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: true}
 - {Id: CA1305, Title: Specify IFormatProvider, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
 - {Id: CA1307, Title: Specify StringComparison for clarity, Category: Globalization, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
 - {Id: CA1308, Title: Normalize strings to uppercase, Category: Globalization, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
-- {Id: CA1309, Title: Use ordinal string comparison, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
+- {Id: CA1309, Title: Use ordinal string comparison, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: true}
 - {Id: CA1310, Title: Specify StringComparison for correctness, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
-- {Id: CA1311, Title: Specify a culture or use an invariant version, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
+- {Id: CA1311, Title: Specify a culture or use an invariant version, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: true}
 - {Id: CA1401, Title: P/Invokes should not be visible, Category: Interoperability, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1416, Title: Validate platform compatibility, Category: Interoperability, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1417, Title: Do not use 'OutAttribute' on string parameters for P/Invokes, Category: Interoperability, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
@@ -351,6 +351,7 @@
 - {Id: IDE0034, Title: Simplify 'default' expression, Category: Style, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: IDE0035, Title: Unreachable code detected, Category: Style, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: IDE0036, Title: Order modifiers, Category: Style, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
+- {Id: IDE0037, Title: Use inferred member name, Category: Style, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: IDE0037, Title: Use inferred member name, Category: Style, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: IDE0039, Title: Use local function, Category: Style, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: IDE0040, Title: Add accessibility modifiers, Category: Style, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}

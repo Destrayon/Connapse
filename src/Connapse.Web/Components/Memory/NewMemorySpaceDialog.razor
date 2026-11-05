@@ -1,0 +1,122 @@
+@using Connapse.Application.Memory
+@inject MemorySpaceOperations Spaces
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* Making a memory space. Who it is for comes first, and the note says in words who will see it, since a team space is
+   shared with every account the moment it is made and a space can't switch between personal and team later. *@
+<div class="modal-backdrop" @onclick="Close"></div>
+<div class="space-modal" role="dialog" aria-modal="true" aria-labelledby="new-space-title">
+    <div class="space-modal-content">
+        <div class="space-modal-header">
+            <h4 id="new-space-title">New memory space</h4>
+            <button type="button" class="btn-close btn-close-white" aria-label="Close" @onclick="Close"></button>
+        </div>
+        <div class="space-modal-body">
+            <fieldset>
+                <legend class="space-label">Who is it for?</legend>
+                <div class="audience-options">
+                    <label class="audience-option @(kind == MemorySpaceKind.Personal ? "chosen" : "")">
+                        <input id="new-space-personal" type="radio" class="visually-hidden" name="new-space-kind"
+                               checked="@(kind == MemorySpaceKind.Personal)" @onchange="() => Choose(MemorySpaceKind.Personal)" />
+                        <span class="bi-lock audience-icon kind-personal" aria-hidden="true"></span>
+                        <span class="audience-title">Personal</span>
+                        <span class="audience-text">Only you and the agents acting for you see it.</span>
+                    </label>
+                    <label class="audience-option @(kind == MemorySpaceKind.Team ? "chosen" : "")">
+                        <input id="new-space-team" type="radio" class="visually-hidden" name="new-space-kind"
+                               checked="@(kind == MemorySpaceKind.Team)" @onchange="() => Choose(MemorySpaceKind.Team)" />
+                        <span class="bi-people audience-icon kind-team" aria-hidden="true"></span>
+                        <span class="audience-title">Team</span>
+                        <span class="audience-text">Everyone in this Connapse can search it. Editors and admins can add to it.</span>
+                    </label>
+                </div>
+            </fieldset>
+
+            <div id="new-space-note" class="audience-note @(kind == MemorySpaceKind.Team ? "audience-note-team" : "")" role="note">
+                <span class="bi-info-circle me-1" aria-hidden="true"></span>
+                @if (kind == MemorySpaceKind.Team)
+                {
+                    @if (Accounts is { } accounts)
+                    {
+                        <text>Shared as soon as you create it with @(accounts == 1 ? "the" : "all") <strong>@accounts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) @(accounts == 1 ? "person" : "people")</strong> @(accounts == 1 ? "who has" : "who have") an account here.</text>
+                    }
+                    else
+                    {
+                        <text>Shared as soon as you create it with <strong>everyone</strong> who has an account here.</text>
+                    }
+                    <text> Viewers can search it but can't add to it.</text>
+                }
+                else
+                {
+                    <text>No one else sees it, admins included, and facts saved here never reach a team space unless you copy them.</text>
+                }
+                <text> You can't switch a space between personal and team later.</text>
+            </div>
+
+            <label for="new-space-name" class="space-label">Name</label>
+            <input id="new-space-name" class="form-control @(errorField == "name" ? "is-invalid" : "")" maxlength="128" autocomplete="off"
+                   placeholder="@(kind == MemorySpaceKind.Team ? "on-call" : "project-notes")" @bind="name" @bind:event="oninput" />
+            <div class="space-hint">Lowercase letters, numbers, and hyphens only.</div>
+
+            <label for="new-space-description" class="space-label">What belongs here</label>
+            <input id="new-space-description" class="form-control" maxlength="1000" autocomplete="off"
+                   placeholder="@(kind == MemorySpaceKind.Team ? "Who to page, escalation rules, known noisy alerts." : "How I like to work, what I'm in the middle of.")"
+                   @bind="description" @bind:event="oninput" />
+            <div class="space-hint">Agents read this to decide which space a fact goes in, so say what belongs here.</div>
+
+            @if (error is not null)
+            {
+                <div id="new-space-error" class="alert alert-danger py-2 small mt-3 mb-0" role="alert">@error</div>
+            }
+        </div>
+        <div class="space-modal-footer">
+            <button type="button" class="btn btn-outline-secondary" @onclick="Close" disabled="@isSaving">Cancel</button>
+            <button id="new-space-create" type="button" class="btn btn-primary" @onclick="Create" disabled="@(isSaving || string.IsNullOrWhiteSpace(name))">
+                @if (isSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                }
+                @(kind == MemorySpaceKind.Team ? "Create team space" : "Create personal space")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>How many accounts a team space is shared with; null when that can't be counted.</summary>
+    [Parameter] public int? Accounts { get; set; }
+
+    [Parameter] public EventCallback<MemorySpaceView> OnCreated { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private MemorySpaceKind kind = MemorySpaceKind.Personal;
+    private string name = "";
+    private string description = "";
+    private string? error;
+    private string? errorField;
+    private bool isSaving;
+
+    private void Choose(MemorySpaceKind chosen) => kind = chosen;
+
+    private async Task Close()
+    {
+        if (!isSaving)
+            await OnClose.InvokeAsync();
+    }
+
+    private async Task Create()
+    {
+        if (isSaving || string.IsNullOrWhiteSpace(name)) return;
+        (isSaving, error, errorField) = (true, null, null);
+        var made = await Spaces.Create.RunAsync(await AuthStateProvider.OperationContextAsync(),
+            new NewMemorySpace(name.Trim(), string.IsNullOrWhiteSpace(description) ? null : description.Trim(), kind));
+        isSaving = false;
+        if (!made.Succeeded)
+        {
+            (error, errorField) = (made.Detail ?? "The space wasn't made.", made.Field);
+            return;
+        }
+        await OnCreated.InvokeAsync(made.Result!);
+    }
+}

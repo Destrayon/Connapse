@@ -135,20 +135,50 @@ folders, search, reindexing, syncing and document settings don't apply to it. Us
 
 ## memory-fact-not-found
 
-No fact in that container's memory has that id, or the caller can't see it. A fact is visible only
-when the caller can read every source it cites (one citing none, only to the user who wrote it), so
-a hidden fact and a missing one read the same.
+No fact in any space the caller can see has that id, or the caller can't see it. A fact is visible only
+to its space's audience (a personal space's owner, or everyone for a team space or container), and of them
+only to callers who can read every source it cites, so a hidden fact and a missing one read the same.
 
 ## invalid-memory
 
 The memory write was refused: `subject`, `attribute` or `value` is missing or too long, `validTo` isn't
-after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, or a
-cited source doesn't exist or can't be read by the writer. The detail says which.
+after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, a
+cited source doesn't exist or can't be read by the writer, or the `space` named is ambiguous. A name used by
+one of your personal spaces and by a team space or container is ambiguous; pass the id instead. The detail
+says which.
+
+## memory-fact-exists
+
+The team space or container you're copying to already has a current fact with the same subject and attribute,
+so the copy was refused rather than leave two that may disagree. The detail names the fact already there.
+Nothing in the destination was changed. Send the copy again with `anyway: true` to copy it as well.
 
 ## memory-access-unchecked
 
-Connapse couldn't check whether the caller may read the facts' sources, so it showed or wrote nothing
-rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
+Connapse couldn't check whether the caller may read the facts' sources, so it showed, wrote or deleted
+nothing rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
+
+## memory-space-not-found
+
+No memory space or container has that id or name, or it is someone else's personal space, which reads the
+same as a missing one. Over MCP, `memory_spaces` lists the spaces you can use.
+
+## invalid-memory-space
+
+The memory space request was refused: the name is missing or isn't 2 to 128 characters of lowercase letters,
+digits and hyphens (not starting or ending with a hyphen), a new space's `kind` isn't `personal` or `team`, an
+edit names neither a new name nor a description, or a list's `kind` or `sort` isn't one it takes. `field` names
+the input at fault.
+
+## memory-space-conflict
+
+That name is taken. Team spaces share one namespace with documents containers; a personal space's name only
+has to differ from your other personal spaces.
+
+## memory-space-is-container
+
+The id names a documents container, not a memory space. Its facts are listed with the spaces, but it is
+renamed and deleted through `/api/containers`, since deleting it deletes its files too.
 
 ## embeddings-unavailable
 
@@ -183,7 +213,10 @@ when `containerId` isn't a container's id. `field` names the input at fault.
 ## invalid-page
 
 The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200. For the
-audit log, `before` must be a `nextBefore` value the endpoint returned.
+audit log, `before` must be a `nextBefore` value the endpoint returned. For the memory spaces list,
+`limit` must be between 1 and 100 and `cursor` a `nextCursor` it returned for the same `kind`, `q`, `starred`
+and `sort`. For `memory_recall` and `memory_timeline`, `cursor` must be a `nextCursor` the same tool returned
+for the same `space` and filters.
 
 ## approval-not-signed-in
 

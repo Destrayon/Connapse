@@ -69,10 +69,17 @@ internal static class ContainerRules
 {
     public const string NameRule = "Container name must be 2-128 characters, lowercase alphanumeric and hyphens, cannot start or end with a hyphen";
 
-    public static async Task<Container?> FindAsync(IContainerStore containers, ContainerKey key, CancellationToken ct) =>
-        key.Id is Guid id ? await containers.GetAsync(id, ct)
+    /// <summary>
+    /// The container <paramref name="key"/> names, as <paramref name="viewer"/> may see it: someone else's personal
+    /// memory space reads as missing. By name, a team container wins over the viewer's personal space of the same name.
+    /// </summary>
+    public static async Task<Container?> FindAsync(IContainerStore containers, ContainerKey key, MemoryCaller? viewer, CancellationToken ct) =>
+        key.Id is Guid id ? await containers.GetAsync(id, viewer, ct)
         : string.IsNullOrWhiteSpace(key.Name) ? null
-        : await containers.GetByNameAsync(key.Name.Trim().ToLowerInvariant(), ct);
+        : (await containers.FindByNameAsync(key.Name.Trim().ToLowerInvariant(), viewer, ct)).FirstOrDefault();
+
+    /// <summary>Who is asking, for deciding which personal memory spaces they may know exist.</summary>
+    public static MemoryCaller Viewer(OperationContext context) => Memory.MemoryRules.Caller(context.User);
 
     public static Attempt<T, ContainerStatus> NotFound<T>(ContainerKey key) =>
         Attempt<T, ContainerStatus>.Fail(ContainerStatus.NotFound, $"Container {key} not found");
@@ -107,7 +114,7 @@ public sealed class ListContainers(IContainerStore containers, IOperationAuthori
             return Attempt<ContainerList, ContainerStatus>.Fail(ContainerStatus.InvalidPage, $"take must be <= {MaxTake}");
 
         // One more than the page, to know whether another follows.
-        var listed = await containers.ListAsync(query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ct);
+        var listed = await containers.ListAsync(query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ContainerRules.Viewer(context), ct);
         bool hasMore = query.Take is int size && listed.Count > size;
         return Attempt<ContainerList, ContainerStatus>.Succeed(new ContainerList(hasMore ? listed.Take(query.Take!.Value).ToList() : listed, hasMore));
     }
@@ -122,7 +129,7 @@ public sealed class GetContainer(IContainerStore containers, IOperationAuthorize
         if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
             return Attempt<Container, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to view containers.");
 
-        return await ContainerRules.FindAsync(containers, key, ct) is { } container
+        return await ContainerRules.FindAsync(containers, key, ContainerRules.Viewer(context), ct) is { } container
             ? Attempt<Container, ContainerStatus>.Succeed(container)
             : ContainerRules.NotFound<Container>(key);
     }
@@ -186,10 +193,13 @@ public sealed class RenameContainer(IContainerStore containers, IAuditLogger aud
         if (name is not null && !PathUtilities.IsValidContainerName(name))
             return Fail(ContainerStatus.Invalid, name.Length == 0 ? "Container name is required" : ContainerRules.NameRule, "name");
 
-        var current = await containers.GetAsync(containerId, ct);
+        MemoryCaller viewer = ContainerRules.Viewer(context);
+        var current = await containers.GetAsync(containerId, viewer, ct);
         if (current is null)
             return ContainerRules.NotFound<Container>(ContainerKey.ById(containerId));
-        if (name is not null && name != current.Name && await containers.GetByNameAsync(name, ct) is not null)
+        // A name is taken only among containers of the same audience: team ones, or the owner's own personal spaces.
+        if (name is not null && name != current.Name
+            && (await containers.FindByNameAsync(name, viewer, ct)).Any(c => c.Audience == current.Audience))
             return Fail(ContainerStatus.Conflict, $"Container '{name}' already exists", "name");
 
         Container? updated;
@@ -218,7 +228,7 @@ public sealed class DeleteContainer(IContainerStore containers, IAuditLogger aud
         if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Attempt<Container, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to delete containers.");
 
-        var container = await ContainerRules.FindAsync(containers, key, ct);
+        var container = await ContainerRules.FindAsync(containers, key, ContainerRules.Viewer(context), ct);
         if (container is null || !Guid.TryParse(container.Id, out var id))
             return ContainerRules.NotFound<Container>(key);
 
@@ -247,7 +257,7 @@ public sealed class GetContainerStats(IContainerStore containers, IDocumentStore
         if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
             return Attempt<ContainerStatsView, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to view containers.");
 
-        var container = await ContainerRules.FindAsync(containers, key, ct);
+        var container = await ContainerRules.FindAsync(containers, key, ContainerRules.Viewer(context), ct);
         if (container is null || !Guid.TryParse(container.Id, out var id))
             return ContainerRules.NotFound<ContainerStatsView>(key);
 

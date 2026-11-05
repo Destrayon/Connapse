@@ -28,33 +28,162 @@ public partial class McpTools
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
+    /// <summary>The test an agent applies to pick where a fact goes, in the save tool's description and its missing-space error.</summary>
+    internal const string SaveTest =
+        "Save to a personal space if it is about the user, their preferences or their own work; to a team space if it "
+        + "would be true and useful for others; to a document container if you learned it from that container's "
+        + "documents. If unsure, ask.";
+
+    /// <summary>How many spaces the missing-space error names before pointing at memory_spaces for the rest.</summary>
+    internal const int SpacesNamedInError = 20;
+
+    [McpServerTool(Name = "memory_spaces", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
+     Description("List the memory spaces you can use: your personal spaces (only you see them), team spaces (everyone in this Connapse sees them) and document containers that hold memory. Each comes with its id, name, kind, description, whether you can add to it, and who sees it. Call this before saving to pick a `space` for memory_remember. At most 100 are returned; pass `name` to find others.")]
+    public static async Task<string> MemorySpaces(
+        ListMemorySpaces spaces,
+        IHttpContextAccessor http,
+        [Description("Only spaces whose name or description contains this text")] string? name = null,
+        [Description("Only this kind: \"personal\", \"team\" or \"container\"")] string? kind = null,
+        CancellationToken ct = default)
+    {
+        MemorySpaceKind? only = null;
+        if (!string.IsNullOrWhiteSpace(kind))
+        {
+            if (!Enum.TryParse(kind.Trim(), ignoreCase: true, out MemorySpaceKind parsed) || !Enum.IsDefined(parsed)
+                || int.TryParse(kind.Trim(), out _))
+                return "Error: kind must be \"personal\", \"team\" or \"container\".";
+            only = parsed;
+        }
+
+        OperationContext context = Mcp(http);
+        var listed = await spaces.RunAsync(context,
+            new MemorySpaceQuery(only, string.IsNullOrWhiteSpace(name) ? null : name.Trim(), Limit: ListMemorySpaces.MaxLimit), ct);
+        if (!listed.Succeeded)
+            return Refused(listed);
+        MemorySpaceAudience audience = await spaces.AudienceAsync(context, ct);
+        MemorySpacePage page = listed.Result!;
+        return JsonSerializer.Serialize(new
+        {
+            spaces = page.Items.Select(s => new
+            {
+                id = s.Id,
+                name = s.Name,
+                kind = s.Kind,
+                description = s.Description,
+                canAdd = audience.CanAdd,
+                whoSees = WhoSees(s.Kind, audience.Accounts),
+                facts = s.Facts,
+                starred = s.Starred,
+            }),
+            total = page.Total,
+            note = page.Total > page.Items.Count
+                ? $"Showing {page.Items.Count} of {page.Total}. Pass `name` to find the others."
+                : null,
+            canAddNote = audience.CanAdd ? null : "You can read these spaces but not add to them: saving memory needs write access.",
+        }, MemoryJson);
+    }
+
+    /// <summary>Who reads a space's facts, in words.</summary>
+    internal static string WhoSees(MemorySpaceKind kind, int? accounts) => kind switch
+    {
+        MemorySpaceKind.Personal => "only you",
+        _ => accounts is { } n
+            ? $"everyone in this Connapse, {n} {(n == 1 ? "person" : "people")}"
+            : "everyone in this Connapse",
+    };
+
     [McpServerTool(Name = "memory_remember", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Store one fact in a container's memory: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them, and a fact citing none only to you. When a value you stored before has changed, call `memory_correct` instead.")]
+     Description("Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name the `space` (memory_spaces lists yours; \"my-memory\" is your own and is made on first use). "
+        + SaveTest
+        + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead.")]
     public static async Task<string> MemoryRemember(
         RememberFact remember,
+        ListMemorySpaces spaces,
         IHttpContextAccessor http,
-        [Description("Container ID or name the memory lives in")] string containerId,
         [Description("What the fact is about, e.g. a project, person or service")] string subject,
         [Description("Which property of the subject, e.g. \"database\" or \"tech lead\"")] string attribute,
         [Description("The value")] string value,
+        [Description("Space ID or name to save to (required). memory_spaces lists yours; \"my-memory\" is your personal one")] string? space = null,
         [Description("Date it became true (YYYY-MM-DD or ISO 8601). Omit if unknown.")] string? validFrom = null,
         [Description("Date it stopped being true, if it already has")] string? validTo = null,
         [Description("Sources: document IDs, or link node IDs as \"node:<id>\"")] string[]? sources = null,
         [Description("Why or how it was learned, e.g. the ticket that made the change")] string? reason = null,
+        [Description("Older name for a container to save to; use `space` instead. A fact citing no sources saved this way goes to your own `<container>-personal` space")] string? containerId = null,
         CancellationToken ct = default)
     {
+        MemoryTarget target;
+        if (!string.IsNullOrWhiteSpace(space))
+            target = MemoryTarget.Space(space);
+        else if (!string.IsNullOrWhiteSpace(containerId))
+            target = MemoryTarget.Container(containerId);
+        else
+            return await NoSpaceNamedAsync(spaces, Mcp(http), ct);
+
         if (ParseDates(validFrom, validTo) is not { } dates)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
         if (ParseSources(sources) is not { } parsed)
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
-        var written = await remember.RunAsync(Mcp(http), containerId,
+        var written = await remember.RunAsync(Mcp(http), target,
             new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), ct);
         return written.Succeeded
-            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null) }, MemoryJson)
+            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson)
             : Refused(written);
     }
+
+    /// <summary>
+    /// The refusal for a save that names no space: how to choose, and the caller's spaces to choose from, so the agent
+    /// can retry without another call. If the spaces can't be listed it says to call memory_spaces.
+    /// </summary>
+    internal static async Task<string> NoSpaceNamedAsync(ListMemorySpaces spaces, OperationContext context, CancellationToken ct)
+    {
+        const string head = "Error: name the `space` to save to. ";
+        var listed = await spaces.RunAsync(context, new MemorySpaceQuery(Limit: ListMemorySpaces.MaxLimit), ct);
+        if (!listed.Succeeded)
+            return head + SaveTest + " Call memory_spaces to see your spaces, or save to \"my-memory\", your personal space.";
+
+        IReadOnlyList<MemorySpaceView> items = listed.Result!.Items;
+        System.Text.StringBuilder text = new(head);
+        text.Append(SaveTest);
+        if (items.Count == 0)
+        {
+            text.Append(" You have no spaces yet; save to \"my-memory\" to make your personal one.");
+            return text.ToString();
+        }
+        text.Append(" Your spaces:");
+        foreach (MemorySpaceView s in items.Take(SpacesNamedInError))
+            text.Append(CultureInfo.InvariantCulture, $"\n- {s.Name} ({SpaceLabel(s.Kind)}, id {s.Id})");
+        int more = listed.Result.Total - Math.Min(items.Count, SpacesNamedInError);
+        if (more > 0)
+            text.Append(CultureInfo.InvariantCulture, $"\n...and {more} more (memory_spaces lists them).");
+        if (!items.Any(s => s.Kind == MemorySpaceKind.Personal))
+            text.Append("\nYou have no personal space yet; save to \"my-memory\" to make one.");
+        return text.ToString();
+    }
+
+    private static string SpaceKind(Connapse.Core.Container space) =>
+        space.Kind == ContainerKind.Documents ? "container" : space.Audience == MemoryScope.Personal ? "personal" : "team";
+
+    private static string SpaceLabel(MemorySpaceKind kind) => kind switch
+    {
+        MemorySpaceKind.Personal => "personal: only you see it",
+        MemorySpaceKind.Team => "team: everyone in this Connapse sees it",
+        _ => "document container: everyone in this Connapse sees its memory",
+    };
+
+    /// <summary>Where a fact went and who sees it, in plain words, so a save redirected to a personal space says so.</summary>
+    internal static object? SavedTo(Connapse.Core.Container? space) => space is null ? null : new
+    {
+        id = space.Id,
+        name = space.Name,
+        audience = space.Audience,
+        note = space.Audience == MemoryScope.Personal
+            ? $"Saved to '{space.Name}': only you see it. Recall it from '{space.Name}'."
+            : $"Saved to '{space.Name}', {(space.Kind == ContainerKind.Documents ? "a document container" : "a team space")}: "
+                + "everyone in this Connapse can see it, except that a fact citing documents is shown only to people who can read all of them.",
+    };
 
     [McpServerTool(Name = "memory_correct", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
@@ -62,9 +191,9 @@ public partial class McpTools
     public static async Task<string> MemoryCorrect(
         CorrectFact correct,
         IHttpContextAccessor http,
-        [Description("Container ID or name")] string containerId,
         [Description("ID of the fact to replace (from memory_recall)")] string factId,
         [Description("The new value")] string value,
+        [Description("Optional and not needed: the fact is found by its id in every space and container you can see, and the correction stays where the fact is")] string? containerId = null,
         [Description("\"changed\" (default) or \"wrong\"")] string? kind = null,
         [Description("Date the new value took effect (required for changed)")] string? validFrom = null,
         [Description("Date the new value stopped being true, if it has")] string? validTo = null,
@@ -87,7 +216,7 @@ public partial class McpTools
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
         var written = await correct.RunAsync(Mcp(http), containerId, factId, correction,
-            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, parsed, reason), ct);
+            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, sources is null ? null : parsed, reason), ct);
         return written.Succeeded
             ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), replaced = Shown(written.Result.Replaced!, null) }, MemoryJson)
             : Refused(written);
@@ -99,8 +228,8 @@ public partial class McpTools
     public static async Task<string> MemoryForget(
         ForgetFact forget,
         IHttpContextAccessor http,
-        [Description("Container ID or name")] string containerId,
         [Description("ID of the fact to delete")] string factId,
+        [Description("Optional and not needed: the fact is found by its id in every space and container you can see")] string? containerId = null,
         CancellationToken ct = default)
     {
         var forgotten = await forget.RunAsync(Mcp(http), containerId, factId, ct);
@@ -109,66 +238,102 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_recall", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Read facts from a container's memory: what is true now, or on a past date with `asOf`. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\").")]
+     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, or leave it out to read every space you can see. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its space, whether it is personal (only you see it) or team, its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\"). Reading one named space without `asOf` or `attribute` returns `nextCursor` when there are more facts: pass it back as `cursor` for the next page.")]
     public static async Task<string> MemoryRecall(
         RecallMemory recall,
         IHttpContextAccessor http,
-        [Description("Container ID or name")] string containerId,
+        [Description("Space ID or name to read. Omit to read every space you can see")] string? space = null,
         [Description("Words to match against subject, attribute, value and reason")] string? query = null,
         [Description("Only this subject (exact, any case)")] string? subject = null,
         [Description("Only this attribute (exact, any case)")] string? attribute = null,
         [Description("Facts true on this date (YYYY-MM-DD or ISO 8601). Default: now")] string? asOf = null,
         [Description("Also return ended and corrected facts")] bool includeHistory = false,
         [Description("At most this many facts (1-100). Default 10")] int limit = 10,
+        [Description("Older name for `space`")] string? containerId = null,
+        [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
         CancellationToken ct = default)
     {
         if (ParseDates(asOf, null) is not { } at)
             return "Error: asOf must be YYYY-MM-DD or ISO 8601.";
 
-        return RecallJson(await recall.RunAsync(Mcp(http), containerId,
+        string? named = NamedSpace(space, containerId);
+        bool pageable = !string.IsNullOrWhiteSpace(named) && string.IsNullOrWhiteSpace(asOf) && string.IsNullOrWhiteSpace(attribute);
+        if (pageable)
+        {
+            MemoryFactFilter filter = new(Text: query, Subject: subject, Status: includeHistory ? MemoryFactStatus.All : MemoryFactStatus.Current);
+            MemoryFactSort sort = string.IsNullOrWhiteSpace(query) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
+            return RecallJson(await recall.PageAsync(Mcp(http), named!, new MemoryFactListing(filter, sort, cursor, Math.Clamp(limit, 1, 100)), ct));
+        }
+        if (!string.IsNullOrWhiteSpace(cursor))
+            return "Error: cursor works only when you name a `space` and leave out `asOf` and `attribute`.";
+
+        return RecallJson(await recall.SpacesAsync(Mcp(http), named,
             new MemoryQuery(Guid.Empty, query, subject, attribute, at.From, includeHistory, Limit: limit), ct));
     }
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\").")]
+     Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. Name a `space` to read one space, or leave it out to read every space you can see; each fact says which space it is in. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\"). Reading one named space without `from`, `to` or `attribute` returns the newest facts first a page at a time, each page in date order, with `nextCursor` when older facts remain: pass it back as `cursor`.")]
     public static async Task<string> MemoryTimeline(
         RecallMemory recall,
         IHttpContextAccessor http,
-        [Description("Container ID or name")] string containerId,
+        [Description("Space ID or name to read. Omit to read every space you can see")] string? space = null,
         [Description("Only this subject (exact, any case)")] string? subject = null,
         [Description("Words to match, when the subject is not known exactly")] string? query = null,
         [Description("Only this attribute")] string? attribute = null,
         [Description("Window start (YYYY-MM-DD or ISO 8601)")] string? from = null,
         [Description("Window end")] string? to = null,
         [Description("At most this many facts (1-100). Default 50")] int limit = 50,
+        [Description("Older name for `space`")] string? containerId = null,
+        [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
         CancellationToken ct = default)
     {
         if (ParseDates(from, to) is not { } window)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
 
         bool windowed = window.From is not null || window.To is not null;
-        return RecallJson(await recall.RunAsync(Mcp(http), containerId, new MemoryQuery(Guid.Empty, query, subject, attribute,
+        string? named = NamedSpace(space, containerId);
+        if (!string.IsNullOrWhiteSpace(named) && !windowed && string.IsNullOrWhiteSpace(attribute))
+        {
+            MemoryFactFilter filter = new(Text: query, Subject: subject, Status: MemoryFactStatus.All);
+            return RecallJson(await recall.PageAsync(Mcp(http), named, new MemoryFactListing(filter, MemoryFactSort.ValidFrom, cursor,
+                Math.Clamp(limit, 1, 100)), ct), inDateOrder: true);
+        }
+        if (!string.IsNullOrWhiteSpace(cursor))
+            return "Error: cursor works only when you name a `space` and leave out `from`, `to` and `attribute`.";
+
+        return RecallJson(await recall.SpacesAsync(Mcp(http), named, new MemoryQuery(Guid.Empty, query, subject, attribute,
             History: !windowed, ChangedFrom: window.From, ChangedTo: window.To, Limit: limit), ct), inDateOrder: true);
     }
 
-    private static string RecallJson(Attempt<IReadOnlyList<RecalledFact>, MemoryStatus> recalled, bool inDateOrder = false)
+    /// <summary>The space a read names: <c>space</c>, or the older <c>containerId</c> when only that is given.</summary>
+    private static string? NamedSpace(string? space, string? containerId) =>
+        string.IsNullOrWhiteSpace(space) ? containerId : space;
+
+    private static string RecallJson(Attempt<SpacedRecall, MemoryStatus> recalled, bool inDateOrder = false)
     {
         if (!recalled.Succeeded)
             return Refused(recalled);
+        SpacedRecall result = recalled.Result!;
         IEnumerable<RecalledFact> facts = inDateOrder
-            ? recalled.Result!.OrderBy(f => f.Fact.ValidFrom ?? DateTimeOffset.MinValue).ThenBy(f => f.Fact.RecordedAt)
-            : recalled.Result!;
+            ? result.Facts.OrderBy(f => f.Fact.ValidFrom ?? DateTimeOffset.MinValue).ThenBy(f => f.Fact.RecordedAt)
+            : result.Facts;
         return JsonSerializer.Serialize(new
         {
             notice = MemoryNotice,
-            facts = facts.Select(f => Shown(f.Fact, f.Sources)),
+            facts = facts.Select(f => Shown(f.Fact, f.Sources, result.Spaces.GetValueOrDefault(f.Fact.ContainerId))),
+            note = result.SkippedSpaces > 0
+                ? $"Read the {RecallMemory.MaxSpaces} most recently changed spaces; {result.SkippedSpaces} more were not read. Name a `space` to read one of them."
+                : null,
+            nextCursor = result.NextCursor,
         }, MemoryJson);
     }
 
-    private static object Shown(MemoryFact fact, IReadOnlyList<ShownMemorySource>? sources) => new
+    private static object Shown(MemoryFact fact, IReadOnlyList<ShownMemorySource>? sources, Connapse.Core.Container? space = null) => new
     {
         id = fact.Id,
+        space = space is null ? null : new { id = space.Id, name = space.Name, kind = SpaceKind(space) },
+        scope = fact.Scope == MemoryScope.Personal ? "personal" : "team",
         fact.Subject,
         fact.Attribute,
         fact.Value,

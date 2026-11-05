@@ -24,38 +24,22 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     }
 
     public async Task<MemoryWriteResult> CorrectAsync(
-        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author,
+        Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author,
         Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> check, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-        // Every correction of a chain first locks its first fact (whose id is the chain's), so they run one at a time. A
-        // wrong correction is checked against the other versions, so they are read only once that lock is held, in a
-        // statement of their own: under read committed, a locking read that waited sees the rows it locked as updated
-        // but not versions the other correction inserted.
-        List<Guid> locked = await context.Database.SqlQuery<Guid>($"""
-            SELECT id AS "Value" FROM memory_facts
-            WHERE container_id = {containerId}
-              AND id = (SELECT chain_id FROM memory_facts WHERE id = {factId} AND container_id = {containerId})
-            FOR UPDATE
-            """).ToListAsync(ct);
-        if (locked.Count == 0)
+        if (await LockedChainAsync(context, factId, ct) is not { } chain)
             return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
-        Guid chainId = locked[0];
-        List<MemoryFactEntity> chain = await context.MemoryFacts
-            .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chainId} AND container_id = {containerId} FOR UPDATE")
-            .Include(f => f.Sources)
-            .ToListAsync(ct);
-        MemoryFactEntity? old = chain.SingleOrDefault(f => f.Id == factId);
-        if (old is null)
-            return MemoryWriteResult.Failed($"Fact '{factId}' not found.", MemoryWriteFailure.NotFound);
+        MemoryFactEntity old = chain.Single(f => f.Id == factId);
         if (await check([.. chain.Select(ToFact)]) is { } refused)
             return refused;
         if (old.SupersededAt is not null)
             return MemoryWriteResult.Failed($"Fact '{factId}' was already corrected; correct its replacement instead.");
 
-        NewMemoryFact next = replacement;
+        // A correction keeps the scope the fact has now, under the lock a scope change also takes.
+        NewMemoryFact next = replacement with { Scope = (MemoryScope)old.Scope };
         if (kind == MemoryCorrection.Changed)
         {
             if (old.ValidTo is not null)
@@ -68,7 +52,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         }
         else
         {
-            next = replacement with
+            next = next with
             {
                 ValidFrom = replacement.ValidFrom ?? old.ValidFrom,
                 ValidTo = replacement.ValidTo ?? old.ValidTo,
@@ -78,11 +62,38 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             old.SupersededAt = clock.GetUtcNow();
         }
 
-        MemoryFactEntity row = NewRow(containerId, next, author, old.ChainId, old.Id);
+        // The new version joins the chain where it is: a chain never spans two containers.
+        MemoryFactEntity row = NewRow(old.ContainerId, next, author, old.ChainId, old.Id);
         context.MemoryFacts.Add(row);
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return new MemoryWriteResult(ToFact(row), ToFact(old), null);
+    }
+
+    /// <summary>
+    /// Every version of <paramref name="factId"/>'s chain, locked, or null when there is no such fact. Every
+    /// write to a chain first locks its first fact (whose id is the chain's), so they run one at a time. A write is
+    /// checked against the other versions, so they are read only once that lock is held, in a statement of their own:
+    /// under read committed, a locking read that waited sees the rows it locked as updated but not versions the other
+    /// correction inserted.
+    /// </summary>
+    private static async Task<List<MemoryFactEntity>?> LockedChainAsync(
+        KnowledgeDbContext context, Guid factId, CancellationToken ct)
+    {
+        List<Guid> locked = await context.Database.SqlQuery<Guid>($"""
+            SELECT id AS "Value" FROM memory_facts
+            WHERE id = (SELECT chain_id FROM memory_facts WHERE id = {factId})
+            FOR UPDATE
+            """).ToListAsync(ct);
+        if (locked.Count == 0)
+            return null;
+        Guid chainId = locked[0];
+        List<MemoryFactEntity> chain = await context.MemoryFacts
+            .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chainId} FOR UPDATE")
+            .Include(f => f.Sources)
+            .ToListAsync(ct);
+        // Forgotten after the first lookup: the chain's rows went with it.
+        return chain.Any(f => f.Id == factId) ? chain : null;
     }
 
     /// <summary>
@@ -106,14 +117,14 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     }
 
     public async Task<int?> ForgetAsync(
-        Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default)
+        Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default)
     {
         for (int attempt = 1; ; attempt++)
         {
             await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
             await using var transaction = await context.Database.BeginTransactionAsync(ct);
             Guid? chain = await context.MemoryFacts
-                .Where(f => f.Id == factId && f.ContainerId == containerId)
+                .Where(f => f.Id == factId)
                 .Select(f => (Guid?)f.ChainId)
                 .SingleOrDefaultAsync(ct);
             if (chain is null)
@@ -121,7 +132,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
 
             // Locked, so a correction cannot add a version between the check and the delete.
             List<MemoryFactEntity> rows = await context.MemoryFacts
-                .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chain.Value} AND container_id = {containerId} FOR UPDATE")
+                .FromSql($"SELECT * FROM memory_facts WHERE chain_id = {chain.Value} FOR UPDATE")
                 .AsNoTracking()
                 .Include(f => f.Sources)
                 .ToListAsync(ct);
@@ -135,7 +146,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             int deleted = await context.MemoryFacts.Where(f => checkedIds.Contains(f.Id)).ExecuteDeleteAsync(ct);
 
             // A version left over was never checked: undo and start again, so it is. Past the last attempt, refuse.
-            if (!await context.MemoryFacts.AnyAsync(f => f.ChainId == chain && f.ContainerId == containerId, ct))
+            if (!await context.MemoryFacts.AnyAsync(f => f.ChainId == chain, ct))
             {
                 await transaction.CommitAsync(ct);
                 return deleted;
@@ -149,18 +160,26 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     /// <summary>How many times a forget starts again when the chain grew under it, before it refuses.</summary>
     private const int MaxForgetAttempts = 3;
 
-    public async Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default)
+    public async Task<MemoryFact?> GetAsync(Guid factId, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         MemoryFactEntity? row = await context.MemoryFacts.AsNoTracking().Include(f => f.Sources)
-            .SingleOrDefaultAsync(f => f.Id == factId && f.ContainerId == containerId, ct);
+            .SingleOrDefaultAsync(f => f.Id == factId, ct);
         return row is null ? null : ToFact(row);
     }
 
-    public async Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, int skip, int take, CancellationToken ct = default)
+    public Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, int skip, int take, CancellationToken ct = default) =>
+        QueryAsync(query, null, skip, take, ct);
+
+    public Task<IReadOnlyList<MemoryFact>> VisibleAsync(MemoryQuery query, MemoryViewer viewer, int take, CancellationToken ct = default) =>
+        QueryAsync(query, viewer, 0, take, ct);
+
+    private async Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, MemoryViewer? viewer, int skip, int take, CancellationToken ct)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         IQueryable<MemoryFactEntity> rows = context.MemoryFacts.AsNoTracking().Where(f => f.ContainerId == query.ContainerId);
+        if (viewer is not null)
+            rows = VisibleTo(rows, viewer);
 
         if (!string.IsNullOrWhiteSpace(query.Subject))
         {
@@ -303,7 +322,8 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             AuthorUserId = author.UserId,
             AuthorAgentId = author.AgentId,
             AuthorName = author.Name,
-            Sources = [.. fact.Sources.Select((s, i) => new MemoryFactSourceEntity { FactId = id, Ordinal = i, Kind = (short)s.Kind, Ref = s.Ref })],
+            Scope = (short)fact.ScopeOrDefault,
+            Sources = [.. (fact.Sources ?? []).Select((s, i) => new MemoryFactSourceEntity { FactId = id, Ordinal = i, Kind = (short)s.Kind, Ref = s.Ref })],
         };
     }
 
@@ -311,5 +331,6 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         row.Id, row.ChainId, row.ContainerId, row.Subject, row.Attribute, row.Value,
         row.ValidFrom, row.ValidTo, row.RecordedAt, row.SupersededAt, row.ReplacesId, row.Reason,
         new MemoryCaller(row.AuthorUserId, row.AuthorAgentId, row.AuthorName),
-        [.. row.Sources.OrderBy(s => s.Ordinal).Select(s => new MemorySource((MemorySourceKind)s.Kind, s.Ref))]);
+        [.. row.Sources.OrderBy(s => s.Ordinal).Select(s => new MemorySource((MemorySourceKind)s.Kind, s.Ref))],
+        (MemoryScope)row.Scope);
 }

@@ -20,10 +20,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="Connapse.Tests.Support" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeMiddleMan.cs" Link="Fakes\FakeMiddleMan.cs" />
+    <Compile Include="..\Connapse.Core.Tests\Support\ContainerStoreFakes.cs" Link="Fakes\ContainerStoreFakes.cs" />
   </ItemGroup>
 
   <ItemGroup>

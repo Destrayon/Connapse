@@ -156,7 +156,7 @@ public sealed class SearchKnowledge(
 
         if (Guid.TryParse(scope.IdOrName, out var id))
         {
-            if (containersAllowed && await containers.GetAsync(id, ct) is { } byId)
+            if (containersAllowed && await containers.GetAsync(id, ContainerRules.Viewer(context), ct) is { } byId)
                 return (id, true, MemoryOf(byId));
             if (!sourcesAllowed)
                 return null;
@@ -173,7 +173,7 @@ public sealed class SearchKnowledge(
 
         // Names are stored lower case.
         string name = scope.IdOrName.ToLowerInvariant();
-        if (containersAllowed && await containers.GetByNameAsync(name, ct) is { } container)
+        if (containersAllowed && (await containers.FindByNameAsync(name, ContainerRules.Viewer(context), ct)).FirstOrDefault() is { } container)
             return Guid.TryParse(container.Id, out var containerId) ? (containerId, true, MemoryOf(container)) : null;
         if (!sourcesAllowed)
             return null;

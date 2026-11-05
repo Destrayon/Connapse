@@ -32,7 +32,7 @@ public class SearchPageSourceBadgeTests : IDisposable
     {
         ctx.AddAuthorization().SetAuthorized("viewer");
 
-        var containers = Substitute.For<IContainerStore>();
+        var containers = ContainerStoreFakes.Create();
         var docs = new Container(ContainerId.ToString(), "docs", null, DateTime.UtcNow, DateTime.UtcNow);
         containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([docs]);
         containers.GetAsync(ContainerId, Arg.Any<CancellationToken>()).Returns(docs);

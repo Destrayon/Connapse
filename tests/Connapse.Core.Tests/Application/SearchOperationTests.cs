@@ -23,7 +23,7 @@ public class SearchOperationTests
     /// <summary>The stores, ports and search one test or one sample calls.</summary>
     private sealed class World
     {
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
         public readonly ISourceStore Sources = Substitute.For<ISourceStore>();
         public readonly ISourceVisibility Visibility = Substitute.For<ISourceVisibility>();
         public readonly IKnowledgeSearch Search = Substitute.For<IKnowledgeSearch>();

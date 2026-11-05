@@ -15,7 +15,7 @@ public class McpToolsContainerKindTests
 {
     private static readonly DateTime Epoch = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containers = ContainerStoreFakes.Create();
 
     private CreateContainer Create() => new(_containers, Substitute.For<IAuditLogger>(), McpCaller.Allowed);
 

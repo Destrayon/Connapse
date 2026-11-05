@@ -33,7 +33,7 @@ public class McpToolsCodeTests
 
     public McpToolsCodeTests()
     {
-        var containers = Substitute.For<IContainerStore>();
+        var containers = ContainerStoreFakes.Create();
         containers.GetAsync(ContainerId, Arg.Any<CancellationToken>())
             .Returns(new Container(ContainerId.ToString(), "repo", null, DateTime.UtcNow, DateTime.UtcNow));
 

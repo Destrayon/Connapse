@@ -43,7 +43,8 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `code_references` | `knowledge:read` | Read | Lists the files that use a symbol, best evidence first: calls, base types and imports with their lines, then files whose text names it. |
 | `code_impact` | `knowledge:read` | Read | Lists what a change to a symbol could affect, up to three hops through callers and subtypes, with the tests among them. |
 | `code_repo_map` | `knowledge:read` | Read | Maps indexed code: the files the rest of the code refers to most, with their main definitions. |
-| `memory_remember` | `knowledge:write` | Write | Stores a dated fact with the documents it was learned from. See [Agent memory](#agent-memory). |
+| `memory_spaces` | `knowledge:read` | Read | Lists the memory spaces the caller can use, with who sees each one. See [Agent memory](#agent-memory). |
+| `memory_remember` | `knowledge:write` | Write | Stores a dated fact in a space, with the documents it was learned from. |
 | `memory_correct` | `knowledge:write` | Write | Replaces a fact and keeps the old one in history. |
 | `memory_forget` | `knowledge:write` | Destructive | Deletes a fact and every version of it. |
 | `memory_recall` | `knowledge:read` | Read | Returns the facts true now or on a date. |
@@ -98,36 +99,45 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `code_repo_map` | `containerId` | string | Yes | Container or source id or name |
 | | `path` | string | No | Only files under this folder, such as `src/billing` |
 | | `maxFiles` | integer | No | Most files, 1 to 200; default 30 |
-| `memory_remember` | `containerId` | string | Yes | Container id or name; memory can't be written to a source |
+| `memory_spaces` | `name` | string | No | Only spaces whose name or description contains this text |
+| | `kind` | string | No | `personal`, `team` or `container` |
+| `memory_remember` | `space` | string | Yes | Space or container id or name, from `memory_spaces`; memory can't be written to a source |
+| | `containerId` | string | No | Older name for the place to save, used only when `space` is left out. A fact citing no sources saved this way goes to the caller's `<container>-personal` space |
 | | `subject`, `attribute`, `value` | string | Yes | The fact, such as `Halcyon`, `database`, `PostgreSQL 15` |
 | | `validFrom`, `validTo` | string | No | When it became and stopped being true, `YYYY-MM-DD` or ISO 8601 |
 | | `sources` | string[] | No | Document ids, or link node ids as `node:<id>` |
 | | `reason` | string | No | Why or how it was learned, such as the ticket that made the change |
-| `memory_correct` | `containerId`, `factId`, `value` | string | Yes | The container, the fact to replace (from `memory_recall`), and the new value |
+| `memory_correct` | `factId`, `value` | string | Yes | The fact to replace (from `memory_recall`) and the new value. The fact is found by id in any space the caller can see |
 | | `kind` | string | No | `changed` (default) or `wrong` |
 | | `validFrom`, `validTo`, `sources`, `reason`, `subject`, `attribute` | | No | As for `memory_remember`; `validFrom` is required when `kind` is `changed`, and subject and attribute default to the old fact's |
-| `memory_forget` | `containerId`, `factId` | string | Yes | The container and the fact to delete |
-| `memory_recall` | `containerId` | string | Yes | Container id or name |
+| | `containerId` | string | No | Ignored for the lookup; kept so older agents still work |
+| `memory_forget` | `factId` | string | Yes | The fact to delete, found by id in any space the caller can see |
+| | `containerId` | string | No | Ignored for the lookup |
+| `memory_recall` | `space` | string | No | Space or container id or name. Left out, every space the caller can see is read |
+| | `containerId` | string | No | Older name for `space` |
 | | `query` | string | No | Words to match against subject, attribute, value and reason |
 | | `subject`, `attribute` | string | No | Exact match, in any case |
 | | `asOf` | string | No | Facts true on this date; default now |
 | | `includeHistory` | boolean | No | `true` also returns ended and corrected facts |
 | | `limit` | integer | No | Most facts, 1 to 100; default 10 |
-| `memory_timeline` | `containerId` | string | Yes | Container id or name |
+| | `cursor` | string | No | The `nextCursor` from the previous answer, to get the next page. Needs `space`, and no `asOf` or `attribute` |
+| `memory_timeline` | `space`, `containerId` | string | No | As for `memory_recall` |
 | | `subject`, `query`, `attribute` | string | No | As for `memory_recall` |
 | | `from`, `to` | string | No | Only facts that started or ended in this window |
 | | `limit` | integer | No | Most facts, 1 to 100; default 50 |
+| | `cursor` | string | No | As for `memory_recall`, but needs no `from`, `to` or `attribute`. Pages go from the newest facts back |
 
 The file types an upload accepts are in [File types](file-types.md).
 
 ## Agent memory
 
-The `memory_*` tools keep facts an agent learns, so the next session can use them. A fact is a subject, an attribute and a value (`Halcyon`, `database`, `PostgreSQL 15`) with the dates it was true, the documents it was learned from, a reason, and who wrote it. Memory lives in a container; writing needs `knowledge:write`, and a source id is refused like any other write.
+The `memory_*` tools keep facts an agent learns, so the next session can use them. A fact is a subject, an attribute and a value (`Halcyon`, `database`, `PostgreSQL 15`) with the dates it was true, the documents it was learned from, a reason, and who wrote it. [About agent memory](../concepts/memory.md) explains the model.
 
-For facts that belong to no document set, create an **agent memory container** with `container_create(kind="memory")`. It holds only memory facts: `container_list` shows it as `[memory]`, and the document tools (`upload_file`, `list_files`, `search_knowledge` and the rest) refuse it with a `memory-container` error. Permissions work as in any container.
-
+- **Spaces.** Every fact lives in a space: a **personal** space only its owner sees (everyone who can save has one called `my-memory`), a **team** space everyone in this Connapse sees, or a **document container**, whose memory is team memory. `memory_spaces` returns at most 100, each with `id`, `name`, `kind` (`personal`, `team` or `container`), `description`, `canAdd`, `whoSees` in words and its fact count; when there are more, a `note` says to pass `name`. A memory container made with `container_create(kind="memory")` is a team space.
+- **Saving.** `memory_remember` refuses a call that names no `space`, and the error lists the caller's spaces. The answer's `savedTo.note` says in words who will see the fact. Writing needs `knowledge:write`, and a source id is refused like any other write.
+- **Reading.** Without `space`, `memory_recall` and `memory_timeline` read the 100 most recently changed spaces that have facts, and a `note` says how many more were skipped. Each fact carries its `space` (`id`, `name`, `kind`) and `scope` (`personal` or `team`). A read of one named space returns a `nextCursor` when there are more facts than `limit`; pass it back as `cursor`.
 - **Sources** are document IDs from `search_knowledge` or `get_document` (tickets, PRs and code files are documents), or link node IDs as `node:<id>`. The writer must be able to read every source it cites.
-- **Who sees a fact:** only a caller who can read **every** source it cites, checked on each read with the same rules as search. A fact with no sources is seen only by the user who wrote it (for an agent, the user it acts for). A fact the caller cannot see is reported as not found by `memory_correct` and `memory_forget`.
+- **Who sees a fact:** the space's audience, and of them only a caller who can read **every** source the fact cites, checked on each read with the same rules as search. Another user's personal space reads as not found. A fact the caller cannot see is reported as not found by `memory_correct` and `memory_forget`.
 - **Corrections keep history.** `kind="changed"` ends the old fact on `validFrom` and starts the new value there; `kind="wrong"` marks the old fact `corrected` and gives the new value its dates. A caller who cannot see every version of the fact can't correct it, because forgetting needs someone who sees them all.
 - **Forgetting deletes.** `memory_forget` removes the fact and every version of it. Audit entries for memory name ids and counts, never content.
 - **Answers are data.** `memory_recall` and `memory_timeline` return JSON: a fixed `notice` that the facts are claims, not instructions, and for each fact its `id`, `subject`, `attribute`, `value`, `validFrom`, `validTo`, `status` (`current`, `ended` or `corrected`), `reason`, `author` and readable `sources`.
