@@ -150,7 +150,7 @@
     "CodeLines": 757,
     "Injects": 8,
     "Complexity": 173,
-    "MarkupLogic": 87,
+    "MarkupLogic": 88,
     "IsEmpty": false
   },
   "Pages/Home.razor": {

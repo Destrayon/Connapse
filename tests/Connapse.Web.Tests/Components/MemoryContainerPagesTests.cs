@@ -152,4 +152,28 @@ public class MemoryContainerPagesTests : IDisposable
         cut.Find("#fileUploadInput");
         cut.FindAll("#memory-container-note").Should().BeEmpty();
     }
+
+    [Fact]
+    public void ContainerPage_DocumentsContainerMemoryTab_IsLabelledTeamMemory()
+    {
+        var docs = Seed("docs", ContainerKind.Documents);
+        var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, docs.Id));
+        cut.WaitForAssertion(() => cut.Find("#memory-tab"));
+
+        cut.Find("#memory-tab").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#memory-team-note").TextContent.Should().Contain("Team memory")
+            .And.Contain("every document a fact cites"));
+    }
+
+    [Fact]
+    public void ContainerPage_MemoryContainer_HasNoTeamMemoryLabel()
+    {
+        var memory = Seed("agent-notes", ContainerKind.Memory);
+
+        var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, memory.Id));
+
+        cut.WaitForAssertion(() => cut.Find("#memory-empty"));
+        cut.FindAll("#memory-team-note").Should().BeEmpty();
+    }
 }

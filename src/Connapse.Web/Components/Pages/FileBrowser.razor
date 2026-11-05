@@ -201,6 +201,14 @@
 
 @if (activeTab == "memory" && container is not null)
 {
+    @* A document container holds team memory only; personal memory lives in personal spaces (CON-238). *@
+    @if (!IsMemory)
+    {
+        <div id="memory-team-note" class="memory-team-note">
+            <span class="memory-team-badge"><span class="bi-people-fill" aria-hidden="true"></span> Team memory</span>
+            <span>Shown to people who can read this container and every document a fact cites.</span>
+        </div>
+    }
     <Connapse.Web.Components.Memory.MemoryFactList Space="@ContainerId" CanEdit="canEdit" />
 }
 
