@@ -73,3 +73,5 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
   - Files: `eval/agent-search/con-244/{results.md,memory-search-test.json,memory-search-test.runs.jsonl}`. The progress line in `Runs/MemorySearchEval.cs` now shows the subscription window.
   - Verified: the run exited 0 (a conforming run that passed the gate), and no containers were left running.
   - Next: merge once CI is green.
+
+**Codex review of the final diff (2026-11-04):** 3 real findings, fixed in d372685f — search mode/topK not pinned (deviation recorded in results.md: off 171 non-Hybrid / 78 topK>10 searches, on 38 / 8), cloud-provider selectors inherited plus no subscription check, conformance ignoring model/effort/config. Release build clean, format clean, 3,207 Eval tests pass. Next: user marks #1130 ready (`gh pr ready` was denied to this session); ClaudePM decides on a pinned rerun.
