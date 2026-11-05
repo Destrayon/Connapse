@@ -1,6 +1,13 @@
 namespace Connapse.Core;
 
 /// <summary>
+/// One place memory lives, as the Memory page lists it: <paramref name="Facts"/> counts only the current facts the
+/// viewer may see, and <paramref name="UpdatedAt"/> is the later of the container's own change and the newest of those
+/// facts, so a hidden fact never shows through either number.
+/// </summary>
+public sealed record MemorySpaceSummary(Container Container, int Facts, DateTimeOffset UpdatedAt, bool Starred);
+
+/// <summary>
 /// A space the viewer may see, with what is known before any source is checked. A current fact in the viewer's scope
 /// that cites no source is always readable, so it sets the lower bounds; every current fact in their scope sets the
 /// upper ones. The exact <see cref="MemorySpaceTally"/> lies between them. A documents container is a candidate only when it holds a current fact in the viewer's scope; it is
