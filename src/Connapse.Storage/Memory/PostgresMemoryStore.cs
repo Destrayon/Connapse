@@ -224,7 +224,8 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         if (terms is null)
         {
             // One chain is read newest first, so a capped read drops its oldest versions, never its latest correction.
-            ordered = query.ChainId is not null ? rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id)
+            // So is a read across several containers: a capped history of many spaces keeps each one's latest changes.
+            ordered = query.ChainId is not null || containers.Length > 1 ? rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id)
                 : query.ChangedFrom is not null || query.ChangedTo is not null || history
                 ? rows.OrderBy(f => f.ValidFrom).ThenBy(f => f.RecordedAt).ThenBy(f => f.Id)
                 : rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id);
