@@ -1,6 +1,6 @@
 @page "/memory"
 @rendermode InteractiveServer
-@attribute [Authorize]
+@attribute [Authorize(Policy = "RequirePerson")]
 @using Connapse.Application.Memory
 @using Connapse.Web.Components.Memory
 @inject MemorySpaceOperations Spaces
