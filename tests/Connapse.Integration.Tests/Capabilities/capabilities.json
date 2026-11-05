@@ -1105,8 +1105,7 @@
       "routes": [
         "GET /api/memory/spaces/"
       ],
-      "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcp": "memory_spaces"
     },
     {
       "id": "memorySpaces.create",
@@ -1115,7 +1114,7 @@
         "POST /api/memory/spaces/"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.update",
@@ -1124,7 +1123,7 @@
         "PATCH /api/memory/spaces/{spaceId:guid}"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.delete",
@@ -1133,7 +1132,7 @@
         "DELETE /api/memory/spaces/{spaceId:guid}"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.star",
@@ -1142,7 +1141,7 @@
         "PUT /api/memory/spaces/{spaceId:guid}/star"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.unstar",
@@ -1151,7 +1150,7 @@
         "DELETE /api/memory/spaces/{spaceId:guid}/star"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memory.list",

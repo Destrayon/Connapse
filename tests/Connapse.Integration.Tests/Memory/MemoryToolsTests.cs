@@ -142,7 +142,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     private static IEnumerable<string?> Values(string json) => Facts(json).Select(f => f.GetProperty("value").GetString());
 
     private Task<string> Remember(string value, string? from = null, string[]? sources = null, string subject = "Halcyon", string attribute = "database") =>
-        McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject, attribute, value, from, sources: sources ?? [_upload]);
+        McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(), Sp.GetRequiredService<IHttpContextAccessor>(), subject, attribute, value, validFrom: from, sources: sources ?? [_upload], containerId: C);
 
     [Fact]
     public async Task Correct_Changed_EndsTheOldFactAndRecallFollowsTheDate()
@@ -202,7 +202,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     public async Task Correct_WrongWithOnlyAStartAfterItsOwnEnd_IsRefused()
     {
         As(_writer);
-        string first = Id(await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, "Halcyon", "database", "MariaDB 10", "2026-01-05", "2026-03-01", [_upload]));
+        string first = Id(await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(), Sp.GetRequiredService<IHttpContextAccessor>(), "Halcyon", "database", "MariaDB 10", validFrom: "2026-01-05", validTo: "2026-03-01", sources: [_upload], containerId: C));
 
         (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
             .Should().StartWith("Error:");
@@ -474,7 +474,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         var source = await Sp.GetRequiredService<ISourceStore>().CreateAsync(new CreateSourceRequest(
             $"conf-{Guid.NewGuid():N}"[..20], connection.Id, """{"kind":"confluence-space","spaceKey":"ENG"}"""));
 
-        (await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), source.Id.ToString(), "Halcyon", "database", "x", sources: [_upload]))
+        (await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(), Sp.GetRequiredService<IHttpContextAccessor>(), "Halcyon", "database", "x", sources: [_upload], containerId: source.Id.ToString()))
             .Should().Contain("Memory lives in containers");
     }
 

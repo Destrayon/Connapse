@@ -1,13 +1,13 @@
 ---
 title: About agent memory
-description: How Connapse stores the facts an AI agent learns, who can see each fact, how corrections keep history, and why forgetting really deletes.
+description: How Connapse stores the facts an AI agent learns in personal and team memory spaces, who can see each fact, how corrections keep history, and why forgetting really deletes.
 type: explanation
 audience: user
 ---
 
 # About agent memory
 
-An AI agent forgets everything when its session ends. Agent memory gives it somewhere to keep what it learned, such as which database a service uses or who leads a project, so the next session can start from it. The agent reads and writes memory through five MCP tools, `memory_remember`, `memory_recall`, `memory_correct`, `memory_forget` and `memory_timeline`. Memory has no page in the web UI and no REST endpoint.
+An AI agent forgets everything when its session ends. Agent memory gives it somewhere to keep what it learned, such as which database a service uses or who leads a project, so the next session can start from it. Agents use six MCP tools: `memory_spaces`, `memory_remember`, `memory_recall`, `memory_correct`, `memory_forget` and `memory_timeline`. People manage spaces over the REST API at `/api/memory/spaces`, and see a document container's memory on its **Memory** tab.
 
 ## What a fact is
 
@@ -18,19 +18,51 @@ A fact is one statement in three parts: a subject, an attribute and a value, suc
 - **A reason**, such as the ticket that made the change.
 - **Its author**, the user or the agent that wrote it.
 
-Memory lives in a container, next to that container's documents. A source can't hold memory, because Connapse doesn't write into the systems sources read from.
+## Where memory lives: spaces
+
+Every fact is saved in a **space**, and the space decides who will see it. There are three kinds:
+
+| | Personal space | Team space | Document container |
+|---|---|---|---|
+| What belongs there | Facts about the user, their preferences or their own work | Facts that are true and useful for others | Facts learned from that container's documents |
+| Who sees it | Only its owner, and the agents acting for them | Everyone in this Connapse | Everyone in this Connapse |
+| Its facts are | Personal | Team | Team |
+
+Everyone who can save memory has a personal space called `my-memory`, made the first time they or their agent save to it. A space's kind is fixed when it is made, because its audience is what tells an agent who will read a fact. To share a personal fact, save it again in a team space.
+
+A source can't hold memory, because Connapse doesn't write into the systems sources read from.
+
+## How an agent chooses a space
+
+An agent calls `memory_spaces` once per session. It lists each space the caller can see with its kind, its description, whether the caller can add to it, and who sees it in words, such as "only you" or "everyone in this Connapse, 14 people". The description is what the agent reads to decide what belongs in a space, so write it as "what belongs here".
+
+`memory_remember` requires a `space`. The tool's description gives the agent this test:
+
+> Save to a personal space if it is about the user, their preferences or their own work; to a team space if it would be true and useful for others; to a document container if you learned it from that container's documents. If unsure, ask.
+
+A save that names no space is refused, and the error lists the caller's spaces so the agent can pick one or ask. A successful save says in plain words who will see the fact, for example "Saved to 'on-call', a team space: everyone in this Connapse can see it". Agents relay this to the user, so a wrong choice is caught at once.
+
+Older agents name a container with `containerId` instead of `space`. That still works, with one safeguard: a fact saved that way that cites no sources goes to the caller's own `<container>-personal` space, so an old client never shares a fact by accident. Sharing a fact with no sources always needs an explicit team `space`.
+
+## How an agent reads memory
+
+`memory_recall` and `memory_timeline` take an optional `space`. Left out, they read every space the caller can see and label each fact with its space and with `personal` or `team`. When a personal fact and a team fact disagree, both come back: the team fact is the shared record, and the personal one is this user's own note.
+
+A recall across spaces reads the 100 most recently changed spaces that have facts; the answer says how many more it skipped, and the agent can name one to read it. Answers return a `nextCursor` when there are more facts than the `limit`, and the agent passes it back as `cursor` to get the next page, however large the space.
 
 ## Who sees a fact
 
-A fact is shown only to someone who can read **every** document it cites. Connapse checks this on each read, with the same per-object rules as search, so a fact never tells a reader something its sources would hide from them. If someone loses access to one of the sources, the fact disappears for them too.
+On top of the space's audience, a fact is shown only to someone who can read **every** document it cites. Connapse checks this on each read, with the same per-object rules as search, so a fact never tells a reader something its sources would hide from them. If someone loses access to one of the sources, the fact disappears for them too.
 
 The same rule applies when writing: an agent can cite only documents it can read, so it can't attach a private document to a fact to make it look supported.
 
-A fact that cites no sources is seen only by the user who wrote it. For an agent, that is the user the agent acts for. If Connapse can't check access, for example because a cloud provider doesn't answer, reads show nothing and writes are refused rather than guessing.
+Nobody else can see that a personal space exists. Asking for one by id or name gets the same "not found" as a space that doesn't exist, and admins can't open it either. If Connapse can't check access, for example because a cloud provider doesn't answer, reads show nothing and writes are refused rather than guessing.
+
+Anyone with read access, Viewers included, can recall team memory. Saving, correcting and forgetting need write access: the Editor role or above, and over MCP a token or agent key with `knowledge:write`.
 
 ## How corrections keep history
 
-When a value changes, the agent calls `memory_correct` rather than writing a second fact. It says which kind of change it is:
+When a value changes, the agent calls `memory_correct` rather than writing a second fact. It finds the fact by its id in any space the caller can see, and the correction stays in that space. It says which kind of change it is:
 
 - **Changed:** the old value was right until a date, and the new value is right from that date. The old fact ends on that date and stays in history, so an agent can still answer "what database did Halcyon use in March?".
 - **Wrong:** the old value was never right. It is marked as corrected and the new value takes its dates.
@@ -45,7 +77,7 @@ Only a caller who can see every version of a fact can correct it; anyone else ca
 
 ## Facts are claims, not instructions
 
-`memory_recall` and `memory_timeline` return the facts as data, with a fixed notice that they are claims to weigh against their sources. An agent should treat a recalled fact the way it treats a search result, as evidence rather than an order. Anyone with `knowledge:write` on a container can write facts there.
+`memory_recall` and `memory_timeline` return the facts as data, with a fixed notice that they are claims to weigh against their sources. An agent should treat a recalled fact the way it treats a search result, as evidence rather than an order. Anyone with write access can add facts to a team space.
 
 ## Related
 

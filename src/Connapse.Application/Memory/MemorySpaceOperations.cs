@@ -85,6 +85,9 @@ public sealed record MemorySpaceCounts(int All, int Starred, int Personal, int T
 /// <summary>A page of spaces, the cursor to the next one (null on the last), and how many match the filters.</summary>
 public sealed record MemorySpacePage(IReadOnlyList<MemorySpaceView> Items, string? NextCursor, int Total, MemorySpaceCounts Counts);
 
+/// <summary>Whether the caller may add to the spaces listed, and how many accounts everyone-visible memory reaches.</summary>
+public sealed record MemorySpaceAudience(bool CanAdd, int? Accounts);
+
 /// <summary>A new space: a name, an optional description, and whether it is personal or team.</summary>
 public sealed record NewMemorySpace(string? Name, string? Description, MemorySpaceKind? Kind);
 
@@ -139,10 +142,22 @@ internal static class MemorySpaceRules
 /// holding a current fact they may see, with per-space counts. Starred spaces come first.
 /// </summary>
 [Operation("memorySpaces.list", Scope = MemoryRules.ReadScope, Risk = RiskTier.Read)]
-public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthorizer authorizer)
+public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthorizer authorizer, IUserDirectory? people = null)
 {
     public const int DefaultLimit = 50;
     public const int MaxLimit = 100;
+
+    /// <summary>
+    /// Who a listed space's facts reach, for telling an agent in words: whether the caller may add to the spaces it
+    /// sees (every save needs write access, and the personal spaces listed are the caller's own), and how many accounts
+    /// a team space or documents container is shared with (null when that can't be counted).
+    /// </summary>
+    public async Task<MemorySpaceAudience> AudienceAsync(OperationContext context, CancellationToken ct = default)
+    {
+        bool canAdd = await MemoryRules.WriterAsync(authorizer, context);
+        int? accounts = people is null ? null : (await people.ListAsync(0, 0, ct)).TotalCount;
+        return new MemorySpaceAudience(canAdd, accounts);
+    }
 
     public async Task<Attempt<MemorySpacePage, MemorySpaceStatus>> RunAsync(OperationContext context, MemorySpaceQuery query, CancellationToken ct = default)
     {
