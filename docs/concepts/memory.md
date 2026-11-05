@@ -48,7 +48,7 @@ Older agents name a container with `containerId` instead of `space`. That still 
 
 `memory_recall` and `memory_timeline` take an optional `space`. Left out, they read every space the caller can see and label each fact with its space and with `personal` or `team`. When a personal fact and a team fact disagree, both come back: the team fact is the shared record, and the personal one is this user's own note.
 
-A recall across spaces reads the 100 most recently changed spaces that have facts; the answer says how many more it skipped, and the agent can name one to read it. Answers return a `nextCursor` when there are more facts than the `limit`, and the agent passes it back as `cursor` to get the next page, however large the space.
+A recall across spaces reads the 100 most recently changed spaces that have facts; the answer says how many more it skipped, and the agent can name one to read it. To read a whole space, however large, the agent names it: then answers return a `nextCursor` when there are more facts than the `limit`, and the agent passes it back as `cursor` for the next page. A recall pages this way unless it asks about a past date (`asOf`) or one attribute; a timeline unless it gives a `from`/`to` window or an attribute, and it pages from the newest facts back, each page in date order.
 
 ## Who sees a fact
 

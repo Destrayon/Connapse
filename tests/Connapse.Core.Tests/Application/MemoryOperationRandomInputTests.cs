@@ -299,6 +299,50 @@ public class MemoryOperationRandomInputTests
 
     [Fact]
     [RandomInputTestOf(typeof(RecallMemory))]
+    public Task PageAsync_AnyListing_RefusesWhatItMustAndOtherwiseReadsOnePageWithACursorOnlyWhenMoreRemain() =>
+        Gen.Select(Gen.Select(AnyCaller, Gen.Bool, AnyContainer, Gen.Bool, Gen.Int[-1, 102]),
+                Gen.Int[0, 4], Gen.Int[0, 2], Gen.Bool, Gen.Bool, Gen.Bool, (t, sort, status, text, denied, more) => (t, sort, status, text, denied, more))
+            .SampleAsync(async sample =>
+            {
+                var ((caller, reader, space, exists, limit), sortValue, statusValue, text, denied, more) = sample;
+                var world = new World(reader, writer: false, space, exists);
+                Guid id = Guid.Parse(space.Id);
+                MemoryFactSort sort = (MemoryFactSort)sortValue;
+                MemoryFactFilter filter = new(Text: text ? "db" : null, Status: (MemoryFactStatus)statusValue);
+                world.Memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                    .Returns(new MemoryFactPage([new RecalledFact(Stored(id), [])], more ? new MemoryFactKey(Guid.NewGuid(), Recorded: DateTimeOffset.UnixEpoch) : null, denied));
+
+                var paged = await new RecallMemory(world.Containers, world.Memory, world.Authorizer)
+                    .PageAsync(caller, space.Name, new MemoryFactListing(filter, sort, Limit: limit));
+
+                (MemoryStatus Status, string? Field) expected =
+                    !reader ? (MemoryStatus.Forbidden, (string?)null)
+                    : !exists ? (MemoryStatus.ContainerNotFound, (string?)null)
+                    : statusValue > 1 ? (MemoryStatus.Invalid, (string?)"status")
+                    : sortValue > 3 ? (MemoryStatus.Invalid, (string?)"sort")
+                    : limit is < 1 or > 100 ? (MemoryStatus.Invalid, (string?)"limit")
+                    : denied ? (MemoryStatus.Unchecked, (string?)null)
+                    : (MemoryStatus.Success, (string?)null);
+                paged.Status.Should().Be(expected.Status);
+                if (expected.Field is not null)
+                    paged.Field.Should().Be(expected.Field);
+                if (expected.Status is not (MemoryStatus.Success or MemoryStatus.Unchecked))
+                {
+                    world.Memory.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+
+                MemoryFactSort read = sort == MemoryFactSort.Relevance && !text ? MemoryFactSort.Recorded : sort;
+                await world.Memory.Received(1).ListAsync(id, filter, read, null, limit, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+                if (denied)
+                    return;
+                paged.Result!.Facts.Should().ContainSingle();
+                paged.Result.Spaces.Keys.Should().Equal(id);
+                (paged.Result.NextCursor is not null).Should().Be(more);
+            });
+
+    [Fact]
+    [RandomInputTestOf(typeof(RecallMemory))]
     public Task SpacesAsync_NoSpaceNamed_ReadsEverySpaceWithFactsAndMergesTheirAnswers() =>
         Gen.Select(Gen.Select(AnyCaller, Gen.Bool, AnyListedSpace.List[0, 6], Gen.Bool, Gen.Int[0, 4], Gen.Int[0, 8]),
                 Gen.Bool, Gen.Bool, Gen.Bool, (t, history, ranked, deniedAny) => (t, history, ranked, deniedAny))

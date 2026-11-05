@@ -491,4 +491,35 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         source.GetProperty("id").GetString().Should().Be(_upload);
         source.GetProperty("title").GetString().Should().Be("/upload.md");
     }
+
+    [Fact]
+    public async Task RecallAndTimeline_NamedSpace_PageThroughEveryFactOnceWithTheCursor()
+    {
+        As(_writer);
+        for (int i = 0; i < 230; i++)
+            await Remember($"value {i}", $"2026-01-01T00:{i / 60:00}:{i % 60:00}Z", subject: $"Service {i:000}");
+
+        async Task<List<string>> PagesAsync(Func<string?, Task<string>> read)
+        {
+            List<string> ids = [];
+            string? cursor = null;
+            int pages = 0;
+            do
+            {
+                JsonElement root = JsonDocument.Parse(await read(cursor)).RootElement;
+                ids.AddRange(root.GetProperty("facts").EnumerateArray().Select(f => f.GetProperty("id").GetString()!));
+                cursor = root.TryGetProperty("nextCursor", out JsonElement next) ? next.GetString() : null;
+                pages++;
+            }
+            while (cursor is not null && pages < 10);
+            pages.Should().Be(3);
+            return ids;
+        }
+
+        List<string> recalled = await PagesAsync(cursor => McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, limit: 100, cursor: cursor));
+        List<string> timeline = await PagesAsync(cursor => McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, limit: 100, cursor: cursor));
+
+        recalled.Should().HaveCount(230).And.OnlyHaveUniqueItems();
+        timeline.Should().BeEquivalentTo(recalled);
+    }
 }

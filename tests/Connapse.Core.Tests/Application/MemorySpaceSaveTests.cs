@@ -181,8 +181,8 @@ public class MemorySpaceSaveTests
         static string Note(Container space) =>
             JsonSerializer.SerializeToElement(McpTools.SavedTo(space)).GetProperty("note").GetString()!;
 
-        Note(Space("handbook-personal", MemoryScope.Personal)).Should().Contain("only you can see it").And.Contain("handbook-personal");
-        Note(Space("team-notes", MemoryScope.Team)).Should().Be("Saved to 'team-notes'.");
+        Note(Space("handbook-personal", MemoryScope.Personal)).Should().Contain("only you see it").And.Contain("handbook-personal");
+        Note(Space("team-notes", MemoryScope.Team)).Should().StartWith("Saved to 'team-notes', a team space: everyone in this Connapse can see it");
         McpTools.SavedTo(null).Should().BeNull();
     }
 }

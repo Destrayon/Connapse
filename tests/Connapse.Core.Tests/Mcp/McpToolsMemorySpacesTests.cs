@@ -251,19 +251,174 @@ public class McpToolsMemorySpacesTests
     }
 
     [Fact]
-    public async Task MemoryTimeline_ContainerIdAlone_ReadsThatSpace()
+    public async Task MemoryTimeline_ContainerIdAlone_PagesThatSpaceNewestFirstAndShowsEachPageInDateOrder()
     {
         Container docs = Space("handbook", MemorySpaceKind.Container);
         _containers.GetByNameAsync("handbook", Arg.Any<CancellationToken>()).Returns(docs);
-        _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
-            .Returns(new MemoryRecall([new RecalledFact(Fact(Guid.Parse(docs.Id), MemoryScope.Team), [])]));
+        Guid id = Guid.Parse(docs.Id);
+        _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryFactPage([new RecalledFact(Fact(id, MemoryScope.Team, minute: 9), []), new RecalledFact(Fact(id, MemoryScope.Team, minute: 1), [])], null));
 
         JsonElement root = JsonDocument.Parse(await McpTools.MemoryTimeline(Recall(), Signed, subject: "Halcyon", containerId: "handbook")).RootElement;
 
         root.GetProperty("facts")[0].GetProperty("space").GetProperty("kind").GetString().Should().Be("container");
-        await _memory.Received(1).RecallAsync(Arg.Is<MemoryQuery>(q => q.ContainerId == Guid.Parse(docs.Id) && q.History),
-            Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+        root.GetProperty("facts").EnumerateArray().Select(f => f.GetProperty("recordedAt").GetDateTimeOffset().Minute).Should().Equal(1, 9);
+        root.TryGetProperty("nextCursor", out _).Should().BeFalse();
+        await _memory.Received(1).ListAsync(id, Arg.Is<MemoryFactFilter>(f => f.Subject == "Halcyon" && f.Status == MemoryFactStatus.All),
+            MemoryFactSort.ValidFrom, null, 50, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
         _spaces.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MemoryTimeline_Window_ReadsTheWindowUnpaged()
+    {
+        Container team = Space("on-call", MemorySpaceKind.Team);
+        _containers.GetByNameAsync("on-call", Arg.Any<CancellationToken>()).Returns(team);
+        _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(new MemoryRecall([]));
+
+        await McpTools.MemoryTimeline(Recall(), Signed, space: "on-call", from: "2026-01-01");
+
+        await _memory.Received(1).RecallAsync(Arg.Is<MemoryQuery>(q => q.ChangedFrom != null && !q.History), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(null, "2026-01-01", null)]
+    [InlineData("on-call", "2026-01-01", null)]
+    [InlineData("on-call", null, "database")]
+    public async Task MemoryTimeline_CursorWhenItCannotPage_IsRefusedAndReadsNothing(string? space, string? from, string? attribute)
+    {
+        string result = await McpTools.MemoryTimeline(Recall(), Signed, space: space, from: from, attribute: attribute, cursor: "abc");
+
+        result.Should().Be("Error: cursor works only when you name a `space` and leave out `from`, `to` and `attribute`.");
+        _memory.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null, null, null)]
+    [InlineData("on-call", "2026-01-01", null)]
+    [InlineData("on-call", null, "database")]
+    public async Task MemoryRecall_CursorWhenItCannotPage_IsRefusedAndReadsNothing(string? space, string? asOf, string? attribute)
+    {
+        string result = await McpTools.MemoryRecall(Recall(), Signed, space: space, asOf: asOf, attribute: attribute, cursor: "abc");
+
+        result.Should().Be("Error: cursor works only when you name a `space` and leave out `asOf` and `attribute`.");
+        _memory.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null, false, MemoryFactSort.Recorded, MemoryFactStatus.Current)]
+    [InlineData("postgres", true, MemoryFactSort.Relevance, MemoryFactStatus.All)]
+    public async Task MemoryRecall_NamedSpace_PagesItAndHandsBackTheCursor(string? query, bool history, MemoryFactSort sort, MemoryFactStatus status)
+    {
+        Guid id = Named("on-call");
+        _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new MemoryFactPage([new RecalledFact(Fact(id, MemoryScope.Team), [])], new MemoryFactKey(Guid.NewGuid(), Recorded: DateTimeOffset.UnixEpoch)));
+
+        JsonElement first = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed, space: "on-call", query: query, includeHistory: history, limit: 500)).RootElement;
+        string cursor = first.GetProperty("nextCursor").GetString()!;
+        JsonElement second = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed, space: "on-call", query: query, includeHistory: history, limit: 500, cursor: cursor)).RootElement;
+
+        second.GetProperty("facts").GetArrayLength().Should().Be(1);
+        await _memory.Received(1).ListAsync(id, Arg.Is<MemoryFactFilter>(f => f.Text == query && f.Status == status), sort, null, 100, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+        await _memory.Received(1).ListAsync(id, Arg.Any<MemoryFactFilter>(), sort, Arg.Is<MemoryFactKey?>(k => k != null), 100, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── RecallMemory.PageAsync ────────────────────────────────────────────────────────────────────
+
+    private Task<Attempt<SpacedRecall, MemoryStatus>> Page(string space, MemoryFactListing listing, RecallMemory? recall = null) =>
+        (recall ?? Recall()).PageAsync(McpContext(), space, listing);
+
+    private Guid Named(string name)
+    {
+        Container team = Space(name, MemorySpaceKind.Team);
+        _containers.GetByNameAsync(name, Arg.Any<CancellationToken>()).Returns(team);
+        return Guid.Parse(team.Id);
+    }
+
+    [Fact]
+    public async Task PageAsync_NoReadAccess_IsForbiddenAndReadsNothing()
+    {
+        var paged = await Page("on-call", new MemoryFactListing(new MemoryFactFilter()), new RecallMemory(_containers, _memory, new PolicyAuthorizer(_ => false)));
+
+        paged.Status.Should().Be(MemoryStatus.Forbidden);
+        _memory.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PageAsync_UnknownSpace_IsNotFound()
+    {
+        var paged = await Page("nowhere", new MemoryFactListing(new MemoryFactFilter()));
+
+        paged.Status.Should().Be(MemoryStatus.ContainerNotFound);
+        paged.Detail.Should().Be("Space 'nowhere' not found. memory_spaces lists the ones you can use.");
+    }
+
+    [Fact]
+    public async Task PageAsync_AmbiguousName_IsRefusedForTheSpaceField()
+    {
+        _containers.FindByNameAsync("notes", Arg.Any<MemoryCaller?>(), Arg.Any<CancellationToken>())
+            .Returns([Space("notes", MemorySpaceKind.Team), Space("notes", MemorySpaceKind.Personal)]);
+
+        var paged = await Page("notes", new MemoryFactListing(new MemoryFactFilter()));
+
+        paged.Status.Should().Be(MemoryStatus.Invalid);
+        paged.Field.Should().Be("space");
+    }
+
+    [Theory]
+    [InlineData(99, MemoryFactSort.Recorded, 10, "status")]
+    [InlineData(0, (MemoryFactSort)42, 10, "sort")]
+    [InlineData(0, MemoryFactSort.Recorded, 101, "limit")]
+    [InlineData(0, MemoryFactSort.Recorded, 0, "limit")]
+    public async Task PageAsync_BadListing_IsRefusedForItsFieldAndReadsNothing(int status, MemoryFactSort sort, int limit, string field)
+    {
+        Named("on-call");
+
+        var paged = await Page("on-call", new MemoryFactListing(new MemoryFactFilter(Status: (MemoryFactStatus)status), sort, Limit: limit));
+
+        paged.Status.Should().Be(MemoryStatus.Invalid);
+        paged.Field.Should().Be(field);
+        _memory.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PageAsync_CursorFromAnotherFilter_IsRefused()
+    {
+        Guid id = Named("on-call");
+        _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryFactPage([], new MemoryFactKey(Guid.NewGuid(), Recorded: DateTimeOffset.UnixEpoch)));
+        string cursor = (await Page("on-call", new MemoryFactListing(new MemoryFactFilter(Subject: "Halcyon")))).Result!.NextCursor!;
+        _memory.ClearReceivedCalls();
+
+        var paged = await Page("on-call", new MemoryFactListing(new MemoryFactFilter(Subject: "Orion"), Cursor: cursor));
+
+        paged.Status.Should().Be(MemoryStatus.Invalid);
+        paged.Field.Should().Be("cursor");
+        _memory.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task PageAsync_RelevanceWithoutText_ListsByRecordedAndEndsWithNoCursor()
+    {
+        Guid id = Named("on-call");
+        _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryFactPage([], null));
+
+        var paged = await Page("on-call", new MemoryFactListing(new MemoryFactFilter(Text: "  "), MemoryFactSort.Relevance));
+
+        paged.Result!.NextCursor.Should().BeNull();
+        paged.Result.Spaces.Keys.Should().Equal(id);
+        await _memory.Received(1).ListAsync(id, Arg.Any<MemoryFactFilter>(), MemoryFactSort.Recorded, null, 50, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PageAsync_Denied_ShowsNothing()
+    {
+        Guid id = Named("on-call");
+        _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(new MemoryFactPage([], null, Denied: true));
+
+        (await Page("on-call", new MemoryFactListing(new MemoryFactFilter()))).Status.Should().Be(MemoryStatus.Unchecked);
     }
 
     // ── RecallMemory.SpacesAsync, the branches the random-input test doesn't reach ────────────────

@@ -345,6 +345,43 @@ public sealed class RecallMemory(
             new SpacedRecall(SpacedRecall.Merge(found, !string.IsNullOrWhiteSpace(query.Text), query.Limit), labels, skipped));
     }
 
+    /// <summary>
+    /// A page of one named space's facts the caller can see, with a cursor for the next page, however deep. Each page
+    /// is one keyset read, so the thousandth page costs what the first does. A cursor from another space, filter or
+    /// sort is refused.
+    /// </summary>
+    public async Task<Attempt<SpacedRecall, MemoryStatus>> PageAsync(
+        OperationContext context, string space, MemoryFactListing listing, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Forbidden, "reading memory needs knowledge:read.");
+        MemoryCaller caller = MemoryRules.Caller(context.User);
+        (Container? named, string? ambiguous) = await MemoryRules.SpaceAsync(containers, space, caller, ct);
+        if (ambiguous is not null)
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, ambiguous, "space");
+        if (named is null || !Guid.TryParse(named.Id, out Guid id))
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.ContainerNotFound, $"Space '{space}' not found. memory_spaces lists the ones you can use.");
+        if (MemoryPaging.Refusal(listing.Filter) is { } refusal)
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, refusal.Detail, refusal.Field);
+        if (!Enum.IsDefined(listing.Sort))
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, "sort is not one this read takes.", "sort");
+        if (MemoryPaging.Limit(listing.Limit, MemoryPaging.DefaultLimit) is not { } limit)
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, $"limit must be 1 to {MemoryPaging.MaxLimit}.", "limit");
+        MemoryFactSort sort = listing.Sort == MemoryFactSort.Relevance && string.IsNullOrWhiteSpace(listing.Filter.Text)
+            ? MemoryFactSort.Recorded
+            : listing.Sort;
+
+        string fingerprint = MemoryCursor.Fingerprint([.. MemoryPaging.Parts(id, listing.Filter), sort]);
+        if (!MemoryCursor.TryDecode(listing.Cursor, fingerprint, out MemoryFactKey? after))
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, MemoryPaging.BadCursor, "cursor");
+
+        MemoryFactPage page = await memory.ListAsync(id, listing.Filter, sort, after, limit, caller, ct);
+        return page.Denied
+            ? Unchecked()
+            : Attempt<SpacedRecall, MemoryStatus>.Succeed(new SpacedRecall(page.Facts, new Dictionary<Guid, Container> { [id] = named }, 0,
+                page.Next is { } next ? MemoryCursor.Encode(next, fingerprint) : null));
+    }
+
     private static Attempt<SpacedRecall, MemoryStatus> Unchecked() =>
         MemoryRules.Fail<SpacedRecall>(MemoryStatus.Unchecked, "access to memory sources could not be checked; nothing is shown.");
 
@@ -370,9 +407,11 @@ public sealed class RecallMemory(
 
 /// <summary>
 /// Facts read from one or more spaces, with the spaces they came from for labelling, and how many spaces an unnamed
-/// read left out for being past <see cref="RecallMemory.MaxSpaces"/>.
+/// read left out for being past <see cref="RecallMemory.MaxSpaces"/>. <paramref name="NextCursor"/> continues a paged
+/// read of one space, and is null on its last page and for every other read.
 /// </summary>
-public sealed record SpacedRecall(IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces)
+public sealed record SpacedRecall(
+    IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null)
 {
     /// <summary>
     /// One list from several spaces' answers, at most <paramref name="limit"/> long. Ranked answers interleave by

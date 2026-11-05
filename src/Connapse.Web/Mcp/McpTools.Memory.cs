@@ -238,7 +238,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_recall", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, or leave it out to read every space you can see. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its space, whether it is personal (only you see it) or team, its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\").")]
+     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, or leave it out to read every space you can see. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its space, whether it is personal (only you see it) or team, its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\"). Reading one named space without `asOf` or `attribute` returns `nextCursor` when there are more facts: pass it back as `cursor` for the next page.")]
     public static async Task<string> MemoryRecall(
         RecallMemory recall,
         IHttpContextAccessor http,
@@ -250,18 +250,30 @@ public partial class McpTools
         [Description("Also return ended and corrected facts")] bool includeHistory = false,
         [Description("At most this many facts (1-100). Default 10")] int limit = 10,
         [Description("Older name for `space`")] string? containerId = null,
+        [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
         CancellationToken ct = default)
     {
         if (ParseDates(asOf, null) is not { } at)
             return "Error: asOf must be YYYY-MM-DD or ISO 8601.";
 
-        return RecallJson(await recall.SpacesAsync(Mcp(http), NamedSpace(space, containerId),
+        string? named = NamedSpace(space, containerId);
+        bool pageable = !string.IsNullOrWhiteSpace(named) && string.IsNullOrWhiteSpace(asOf) && string.IsNullOrWhiteSpace(attribute);
+        if (pageable)
+        {
+            MemoryFactFilter filter = new(Text: query, Subject: subject, Status: includeHistory ? MemoryFactStatus.All : MemoryFactStatus.Current);
+            MemoryFactSort sort = string.IsNullOrWhiteSpace(query) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
+            return RecallJson(await recall.PageAsync(Mcp(http), named!, new MemoryFactListing(filter, sort, cursor, Math.Clamp(limit, 1, 100)), ct));
+        }
+        if (!string.IsNullOrWhiteSpace(cursor))
+            return "Error: cursor works only when you name a `space` and leave out `asOf` and `attribute`.";
+
+        return RecallJson(await recall.SpacesAsync(Mcp(http), named,
             new MemoryQuery(Guid.Empty, query, subject, attribute, at.From, includeHistory, Limit: limit), ct));
     }
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. Name a `space` to read one space, or leave it out to read every space you can see; each fact says which space it is in. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\").")]
+     Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. Name a `space` to read one space, or leave it out to read every space you can see; each fact says which space it is in. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\"). Reading one named space without `from`, `to` or `attribute` returns the newest facts first a page at a time, each page in date order, with `nextCursor` when older facts remain: pass it back as `cursor`.")]
     public static async Task<string> MemoryTimeline(
         RecallMemory recall,
         IHttpContextAccessor http,
@@ -273,13 +285,24 @@ public partial class McpTools
         [Description("Window end")] string? to = null,
         [Description("At most this many facts (1-100). Default 50")] int limit = 50,
         [Description("Older name for `space`")] string? containerId = null,
+        [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
         CancellationToken ct = default)
     {
         if (ParseDates(from, to) is not { } window)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
 
         bool windowed = window.From is not null || window.To is not null;
-        return RecallJson(await recall.SpacesAsync(Mcp(http), NamedSpace(space, containerId), new MemoryQuery(Guid.Empty, query, subject, attribute,
+        string? named = NamedSpace(space, containerId);
+        if (!string.IsNullOrWhiteSpace(named) && !windowed && string.IsNullOrWhiteSpace(attribute))
+        {
+            MemoryFactFilter filter = new(Text: query, Subject: subject, Status: MemoryFactStatus.All);
+            return RecallJson(await recall.PageAsync(Mcp(http), named, new MemoryFactListing(filter, MemoryFactSort.ValidFrom, cursor,
+                Math.Clamp(limit, 1, 100)), ct), inDateOrder: true);
+        }
+        if (!string.IsNullOrWhiteSpace(cursor))
+            return "Error: cursor works only when you name a `space` and leave out `from`, `to` and `attribute`.";
+
+        return RecallJson(await recall.SpacesAsync(Mcp(http), named, new MemoryQuery(Guid.Empty, query, subject, attribute,
             History: !windowed, ChangedFrom: window.From, ChangedTo: window.To, Limit: limit), ct), inDateOrder: true);
     }
 
@@ -302,6 +325,7 @@ public partial class McpTools
             note = result.SkippedSpaces > 0
                 ? $"Read the {RecallMemory.MaxSpaces} most recently changed spaces; {result.SkippedSpaces} more were not read. Name a `space` to read one of them."
                 : null,
+            nextCursor = result.NextCursor,
         }, MemoryJson);
     }
 

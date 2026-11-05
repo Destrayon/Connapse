@@ -120,12 +120,12 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `asOf` | string | No | Facts true on this date; default now |
 | | `includeHistory` | boolean | No | `true` also returns ended and corrected facts |
 | | `limit` | integer | No | Most facts, 1 to 100; default 10 |
-| | `cursor` | string | No | The `nextCursor` from the previous answer, to get the next page |
+| | `cursor` | string | No | The `nextCursor` from the previous answer, to get the next page. Needs `space`, and no `asOf` or `attribute` |
 | `memory_timeline` | `space`, `containerId` | string | No | As for `memory_recall` |
 | | `subject`, `query`, `attribute` | string | No | As for `memory_recall` |
 | | `from`, `to` | string | No | Only facts that started or ended in this window |
 | | `limit` | integer | No | Most facts, 1 to 100; default 50 |
-| | `cursor` | string | No | As for `memory_recall` |
+| | `cursor` | string | No | As for `memory_recall`, but needs no `from`, `to` or `attribute`. Pages go from the newest facts back |
 
 The file types an upload accepts are in [File types](file-types.md).
 
@@ -135,7 +135,7 @@ The `memory_*` tools keep facts an agent learns, so the next session can use the
 
 - **Spaces.** Every fact lives in a space: a **personal** space only its owner sees (everyone who can save has one called `my-memory`), a **team** space everyone in this Connapse sees, or a **document container**, whose memory is team memory. `memory_spaces` returns at most 100, each with `id`, `name`, `kind` (`personal`, `team` or `container`), `description`, `canAdd`, `whoSees` in words and its fact count; when there are more, a `note` says to pass `name`. A memory container made with `container_create(kind="memory")` is a team space.
 - **Saving.** `memory_remember` refuses a call that names no `space`, and the error lists the caller's spaces. The answer's `savedTo.note` says in words who will see the fact. Writing needs `knowledge:write`, and a source id is refused like any other write.
-- **Reading.** Without `space`, `memory_recall` and `memory_timeline` read the 100 most recently changed spaces that have facts, and a `note` says how many more were skipped. Each fact carries its `space` (`id`, `name`, `kind`) and `scope` (`personal` or `team`). When there are more facts than `limit`, the answer has a `nextCursor` to pass back as `cursor`.
+- **Reading.** Without `space`, `memory_recall` and `memory_timeline` read the 100 most recently changed spaces that have facts, and a `note` says how many more were skipped. Each fact carries its `space` (`id`, `name`, `kind`) and `scope` (`personal` or `team`). A read of one named space returns a `nextCursor` when there are more facts than `limit`; pass it back as `cursor`.
 - **Sources** are document IDs from `search_knowledge` or `get_document` (tickets, PRs and code files are documents), or link node IDs as `node:<id>`. The writer must be able to read every source it cites.
 - **Who sees a fact:** the space's audience, and of them only a caller who can read **every** source the fact cites, checked on each read with the same rules as search. Another user's personal space reads as not found. A fact the caller cannot see is reported as not found by `memory_correct` and `memory_forget`.
 - **Corrections keep history.** `kind="changed"` ends the old fact on `validFrom` and starts the new value there; `kind="wrong"` marks the old fact `corrected` and gives the new value its dates. A caller who cannot see every version of the fact can't correct it, because forgetting needs someone who sees them all.
