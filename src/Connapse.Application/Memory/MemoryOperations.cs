@@ -451,8 +451,16 @@ public sealed record SpacedRecall(
 }
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
-public sealed class MemoryOperations(RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall, ListMemoryHistory history)
+public sealed class MemoryOperations(
+    RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall, ListMemoryHistory history,
+    ListMemoryFacts list, CountMemoryFacts count, ListMemorySubjects subjects)
 {
+    public ListMemoryFacts List { get; } = list;
+
+    public CountMemoryFacts Count { get; } = count;
+
+    public ListMemorySubjects Subjects { get; } = subjects;
+
     public ListMemoryHistory History { get; } = history;
 
     public RememberFact Remember { get; } = remember;

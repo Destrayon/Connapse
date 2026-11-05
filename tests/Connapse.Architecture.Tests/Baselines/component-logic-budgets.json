@@ -55,11 +55,18 @@
     "MarkupLogic": 4,
     "IsEmpty": false
   },
-  "Memory/MemoryTab.razor": {
-    "CodeLines": 241,
+  "Memory/MemoryFactFilters.razor": {
+    "CodeLines": 94,
     "Injects": 2,
-    "Complexity": 85,
-    "MarkupLogic": 56,
+    "Complexity": 31,
+    "MarkupLogic": 38,
+    "IsEmpty": false
+  },
+  "Memory/MemoryFactList.razor": {
+    "CodeLines": 298,
+    "Injects": 3,
+    "Complexity": 116,
+    "MarkupLogic": 52,
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
@@ -133,9 +140,9 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 743,
+    "CodeLines": 757,
     "Injects": 8,
-    "Complexity": 169,
+    "Complexity": 173,
     "MarkupLogic": 87,
     "IsEmpty": false
   },

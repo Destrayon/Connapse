@@ -40,6 +40,8 @@ public class MemoryContainerPagesTests : IDisposable
         authorizer.AllowsAsync(default!, default!).ReturnsForAnyArgs(true);
         var memory = Substitute.For<IMemoryService>();
         memory.RecallAsync(default!, default!).ReturnsForAnyArgs(new MemoryRecall([]));
+        memory.ListAsync(default, default!, default, default, default, default!).ReturnsForAnyArgs(new MemoryFactPage([], null));
+        memory.CountAsync(default, default!, default!).ReturnsForAnyArgs(new MemoryFactCount(0, false));
         var models = Substitute.For<VectorModelDiscovery>(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance);
         models.GetModelsAsync(default, default).ReturnsForAnyArgs(new List<EmbeddingModelInfo>());
