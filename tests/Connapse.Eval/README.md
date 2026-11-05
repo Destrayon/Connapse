@@ -116,6 +116,31 @@ from the GitHub and Jira APIs. Built locally (needs `gh` signed in; about 15 min
 
 - Scores break down by `kind:` and by `hops:1` / `hops:2`. Questions and how they were made: `eval/datasets/links-*/card.md`.
 
+## Memory and search
+
+`memory-search` asks whether container memory makes an agent's search better (CON-244). The same Claude agent
+answers each question twice with the real MCP tools: once with `search_knowledge` and `get_document`, once with
+`memory_recall` added. A run scores 1 when the agent cites the current document and no superseded one. The bar,
+set before any run, is in `eval/pass-bars.md`; the report ends with KEEP or DROP and the command exits 3 on DROP.
+Only the pre-registered run (all 112 test tasks, 3 repetitions per arm) can pass; any other run reports its
+verdict as diagnostic only. The run stops before any agent starts if a document fails to index.
+
+Each agent is a headless Claude Code session (`claude -p`) signed in with your Claude subscription, so `claude`
+must be on the PATH and logged in. The eval serves its tools to the session as a loopback MCP server and starts
+Claude Code with no built-in tools, no settings, CLAUDE.md, skills or plugins, and with `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` removed, so usage comes out of the subscription. The report's
+`subscription` section shows the rate-limit windows at the first and last run, and `tokens.*.apiListPriceUsd` is
+what the same tokens would cost at API list price. If the subscription limit is reached, the run stops. Try
+`--split dev --repetitions 1` first:
+
+    dotnet run --project tests/Connapse.Eval -- memory-search --split test --out eval/runs/memory-search.json
+    MEMORY_SEARCH_SPLIT=dev eval/tools/run_light.sh memory-search
+
+- Options: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`), `--repetitions` (default 3),
+  `--workers` (default 1), `--limit-tasks`, `--agent-dir` (the empty folder Claude Code runs in; default under the
+  temp folder). Every agent run, with its tool calls, lands in `<out>.runs.jsonl`.
+- Tasks, corpus and memory writes, and how they were made: `eval/datasets/memory-search/card.md`.
+
 ## Files and reports
 
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.
