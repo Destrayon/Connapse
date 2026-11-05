@@ -45,6 +45,10 @@ internal static class EvalEntryPoint
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
+                "memory-learned" => await new MemoryLearnedEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
+                    cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
+                    cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
                 "code" => await new CodeEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "code", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
@@ -262,6 +266,7 @@ internal static class Commands
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
               memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent with and without memory_recall; runs `claude -p` on your Claude subscription)
+              memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: session-1 agents write memory, session-2 agents answer related questions with and without it)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
 }

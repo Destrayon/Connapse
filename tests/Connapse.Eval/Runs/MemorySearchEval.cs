@@ -168,7 +168,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     }
 
     /// <summary>Why a run is diagnostic only: anything short of the pre-registered run. Empty when it conforms.</summary>
-    public static List<string> Nonconforming(Options options, IReadOnlyList<TaskResult> results)
+    public static List<string> Nonconforming(Options options, IReadOnlyList<TaskResult> results, int registeredTasks = RegisteredTasks)
     {
         List<string> reasons = [];
         if (options.Split != "test")
@@ -181,8 +181,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             reasons.Add($"effort is {options.Effort}, not {RegisteredEffort}");
         if (options.LimitTasks is not null)
             reasons.Add("--limit-tasks was set");
-        if (results.Count != RegisteredTasks)
-            reasons.Add($"{results.Count} tasks, not {RegisteredTasks}");
+        if (results.Count != registeredTasks)
+            reasons.Add($"{results.Count} tasks, not {registeredTasks}");
         if (options.Repetitions != RegisteredRepetitions)
             reasons.Add($"{options.Repetitions} repetitions, not {RegisteredRepetitions}");
         int incomplete = results.Count(r => r.Off.Count != options.Repetitions || r.On.Count != options.Repetitions);
@@ -191,9 +191,9 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         return reasons;
     }
 
-    public static JsonObject Report(Options options, IReadOnlyList<TaskResult> results)
+    public static JsonObject Report(Options options, IReadOnlyList<TaskResult> results, int registeredTasks = RegisteredTasks)
     {
-        List<string> nonconforming = Nonconforming(options, results);
+        List<string> nonconforming = Nonconforming(options, results, registeredTasks);
         List<TaskResult> m = [.. results.Where(r => r.Task.InMemorySet)];
         List<TaskResult> h = [.. results.Where(r => !r.Task.InMemorySet)];
         PairedComparison? mCompare = Compare(m, s => s.Score);
@@ -298,7 +298,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     }
 
     /// <summary>Token totals, and what they would cost at API list price; the run itself is billed to the subscription.</summary>
-    private static JsonObject Tokens(IEnumerable<(AgentRun Run, RunScore Score)> runs)
+    internal static JsonObject Tokens(IEnumerable<(AgentRun Run, RunScore Score)> runs)
     {
         List<TokenUsage> usage = [.. runs.Select(r => r.Run.Usage)];
         TokenUsage total = usage.Aggregate(TokenUsage.Zero, (a, b) => a.Add(b));

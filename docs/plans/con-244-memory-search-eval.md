@@ -96,3 +96,7 @@ decides container memory.
     findings fixed. Done when the trial ran clean and the fixes are pushed.
 11. **Scored run.** Goal: the pre-registered test run within about 5% of the seven-day window. Done when the PR
     has both scores, the interval, examples and a KEEP/DROP verdict for this arm, and CI is green.
+
+**Phase 8 log.** `build_memory_learned.py` (seed 244) writes 387 documents, 14 late documents and 212 tasks (test: 76 session-1, 104 session-2); deterministic and leak-checked. Manifest entry, card and the "Learned container memory" bar in `eval/pass-bars.md` committed in e3bad7ef, before any run. Next: the `memory-learned` command.
+
+**Phase 9 log.** `memory-learned` command (`MemoryLearnedEval.cs`): per repetition a fresh container and user, session 1 with the write tools, late documents uploaded into the same container (`IndexAsync(..., into:)`), session 2 off and on; reuses the memory-search report at 104 registered tasks and adds a session-1 summary. Adapter, CLI options, usage and 7 unit tests added; Release build clean, 3211 eval unit tests pass, format clean. Next: dev trial.

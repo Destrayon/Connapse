@@ -233,7 +233,11 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     /// extract runs, where a document that never settles is a finding: it is recorded as stalled
     /// instead of aborting the run.
     /// </summary>
-    public async Task<IndexReport> IndexAsync(EvalDataset dataset, IngestionWait wait, CancellationToken ct)
+    /// <summary>
+    /// Uploads <paramref name="dataset"/>'s corpus into a new container, or into <paramref name="into"/> when given, so
+    /// documents can arrive in a container that already holds others.
+    /// </summary>
+    public async Task<IndexReport> IndexAsync(EvalDataset dataset, IngestionWait wait, CancellationToken ct, Guid? into = null)
     {
         if (dataset.Corpus.Any(d => d.Kind == DocumentKind.Image))
             throw new NotSupportedException($"{dataset.Name} contains image documents; ConnapseSearchSystem indexes text only.");
@@ -243,8 +247,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
         IUploadService upload = scope.ServiceProvider.GetRequiredService<IUploadService>();
         IDocumentStore documents = scope.ServiceProvider.GetRequiredService<IDocumentStore>();
 
-        Container container = await containers.CreateAsync(new CreateContainerRequest($"eval-{dataset.Name}"), ct);
-        Guid containerId = Guid.Parse(container.Id);
+        Guid containerId = into ?? Guid.Parse((await containers.CreateAsync(new CreateContainerRequest($"eval-{dataset.Name}"), ct)).Id);
         Dictionary<string, string> docMap = new(StringComparer.Ordinal);
         Dictionary<string, string> uploadErrors = new(StringComparer.Ordinal);
 
