@@ -177,19 +177,20 @@ public class MemoryOperationRandomInputTests
                 var kind = (MemoryCorrection)kindValue;
                 var world = new World(reader, writer, container, exists);
                 Guid id = Guid.Parse(container.Id);
-                world.Memory.CorrectAsync(id, Arg.Any<Guid>(), kind, AFact, Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>())
+                world.Memory.CorrectAsync(Arg.Any<Guid>(), kind, AFact, Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>())
                     .Returns(world.Answers(failure, id));
 
-                var written = await new CorrectFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text, kind, AFact);
+                // The container key is ignored: a fact is found by id wherever it lives, even after it moved into a space.
+                var written = await new CorrectFact(world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text, kind, AFact);
 
                 MemoryStatus expected = !(writer && reader) ? MemoryStatus.Forbidden
-                    : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
                     : !factId.IsId ? MemoryStatus.FactNotFound
                     : kindValue > 1 ? MemoryStatus.Invalid
                     : StatusOf(failure);
                 written.Status.Should().Be(expected);
-                bool reached = writer && reader && exists && key.Names && factId.IsId && kindValue <= 1;
+                bool reached = writer && reader && factId.IsId && kindValue <= 1;
                 world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);
+                world.Containers.ReceivedCalls().Should().BeEmpty();
             }, iter: 1000);
 
     [Theory]
@@ -236,14 +237,14 @@ public class MemoryOperationRandomInputTests
                 var ((caller, reader, writer, container, exists, factId, deleted), key, failure) = s;
                 var world = new World(reader, writer, container, exists);
                 Guid id = Guid.Parse(container.Id);
-                world.Memory.ForgetAsync(id, Arg.Any<Guid>(), Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>())
+                world.Memory.ForgetAsync(Arg.Any<Guid>(), Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>())
                     .Returns((failure == MemoryWriteFailure.None ? deleted : 0, failure));
 
-                var forgotten = await new ForgetFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text);
+                // The container key is ignored: a fact is found by id wherever it lives, even after it moved into a space.
+                var forgotten = await new ForgetFact(world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text);
 
-                bool reached = writer && exists && key.Names && factId.IsId;
+                bool reached = writer && factId.IsId;
                 MemoryStatus expected = !writer ? MemoryStatus.Forbidden
-                    : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
                     : !factId.IsId ? MemoryStatus.FactNotFound
                     : failure == MemoryWriteFailure.Forbidden ? MemoryStatus.Forbidden
                     : failure == MemoryWriteFailure.NotFound ? MemoryStatus.FactNotFound
@@ -251,6 +252,7 @@ public class MemoryOperationRandomInputTests
                     : MemoryStatus.Success;
                 forgotten.Status.Should().Be(expected);
                 world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);
+                world.Containers.ReceivedCalls().Should().BeEmpty();
                 if (expected == MemoryStatus.Success)
                     forgotten.Result.Should().Be(deleted);
             }, iter: 1000);

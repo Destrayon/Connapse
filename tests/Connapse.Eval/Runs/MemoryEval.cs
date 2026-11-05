@@ -100,7 +100,7 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
                 var timer = Stopwatch.StartNew();
                 MemoryWriteResult result = op.Verb == "remember"
                     ? await memory.RememberAsync(container, fact, caller, ct)
-                    : await memory.CorrectAsync(container, factOf[op.Target!],
+                    : await memory.CorrectAsync(factOf[op.Target!],
                         op.Kind == "wrong" ? MemoryCorrection.Wrong : MemoryCorrection.Changed, fact, caller, true, ct);
                 writeMs.Add(timer.Elapsed.TotalMilliseconds);
                 if (result.Fact is null)

@@ -340,7 +340,7 @@ public class MemoryTabTests : IDisposable
             throw new NotSupportedException("The Memory tab doesn't write new facts.");
 
         public Task<MemoryWriteResult> CorrectAsync(
-            Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
+            Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
             CancellationToken ct = default)
         {
             Corrections.Add((factId, kind, replacement));
@@ -352,7 +352,7 @@ public class MemoryTabTests : IDisposable
         }
 
         public Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(
-            Guid containerId, Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default)
+            Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default)
         {
             Forgotten.Add(factId);
             Guid chain = facts.Single(f => f.Id == factId).ChainId;

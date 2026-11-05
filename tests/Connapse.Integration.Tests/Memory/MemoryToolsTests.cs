@@ -149,7 +149,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 11", "2026-01-05"));
-        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload], reason: "HAL-21 done");
+        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload], reason: "HAL-21 done");
 
         JsonDocument.Parse(corrected).RootElement.GetProperty("replaced").GetProperty("status").GetString().Should().Be("ended");
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, "What is Halcyon's database now?")).Should().Equal("PostgreSQL 15");
@@ -167,7 +167,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 10", "2026-01-05"));
-        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "MariaDB 11", kind: "wrong", sources: [_upload]);
+        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "MariaDB 11", kind: "wrong", sources: [_upload]);
 
         Facts(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Single().GetProperty("validFrom").GetDateTimeOffset()
             .Should().Be(new DateTimeOffset(2026, 1, 5, 0, 0, 0, TimeSpan.Zero), "the replacement takes the wrong fact's dates");
@@ -176,7 +176,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         Facts(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon", from: "2026-01-01", to: "2026-01-31"))
             .Select(f => f.GetProperty("status").GetString()).Should().BeEquivalentTo(["corrected", "current"],
                 "a window's history includes what was corrected");
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "x", kind: "wrong", sources: [_upload])).Should().StartWith("Error:");
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "x", kind: "wrong", sources: [_upload])).Should().StartWith("Error:");
     }
 
     /// <summary>The one value recall gives for Halcyon's database on <paramref name="asOf"/>; fails on none or several.</summary>
@@ -188,10 +188,10 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 10", "2026-01-05"));
-        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
 
         // Inheriting the old end (03-01) would give the replacement [04-01, 03-01), true at no moment.
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
             .Should().StartWith("Error:");
 
         (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 10");
@@ -204,7 +204,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         As(_writer);
         string first = Id(await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, "Halcyon", "database", "MariaDB 10", "2026-01-05", "2026-03-01", [_upload]));
 
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "MariaDB 11", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
             .Should().StartWith("Error:");
         (await OnlyValueAsync("2026-02-01")).Should().Be("MariaDB 10");
     }
@@ -214,9 +214,9 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 10", "2026-01-05"));
-        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
 
-        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "MariaDB 11", kind: "wrong", validFrom: "2026-01-10", sources: [_upload]);
+        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "MariaDB 11", kind: "wrong", validFrom: "2026-01-10", sources: [_upload]);
 
         JsonElement remembered = JsonDocument.Parse(corrected).RootElement.GetProperty("remembered");
         remembered.GetProperty("validTo").GetDateTimeOffset().Should().Be(new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero));
@@ -230,21 +230,21 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 10", "2026-01-05"));
-        string second = Id(await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]));
+        string second = Id(await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]));
 
         // Moving the second version's start would leave [03-01, 04-01) with no version; moving it earlier, two.
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-04-01", sources: [_upload]))
             .Should().StartWith("Error:");
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-02-01", sources: [_upload]))
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), second, "PostgreSQL 16", kind: "wrong", validFrom: "2026-02-01", sources: [_upload]))
             .Should().StartWith("Error:");
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "MariaDB 11", kind: "wrong", validTo: "2026-02-01", sources: [_upload]))
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "MariaDB 11", kind: "wrong", validTo: "2026-02-01", sources: [_upload]))
             .Should().StartWith("Error:");
 
         (await OnlyValueAsync("2026-02-15")).Should().Be("MariaDB 10");
         (await OnlyValueAsync("2026-03-15")).Should().Be("PostgreSQL 15");
 
         // Keeping the shared date is fine.
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, second, "PostgreSQL 16", kind: "wrong", sources: [_upload])).Should().NotStartWith("Error:");
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), second, "PostgreSQL 16", kind: "wrong", sources: [_upload])).Should().NotStartWith("Error:");
         (await OnlyValueAsync("2026-02-15")).Should().Be("MariaDB 10");
         (await OnlyValueAsync("2026-03-15")).Should().Be("PostgreSQL 16");
     }
@@ -281,7 +281,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         await change.SaveChangesAsync();
 
         // Ending the first version in February would leave February with no version.
-        Task<MemoryWriteResult> wrong = store.CorrectAsync(_container, first.Id, MemoryCorrection.Wrong,
+        Task<MemoryWriteResult> wrong = store.CorrectAsync(first.Id, MemoryCorrection.Wrong,
             new NewMemoryFact("Halcyon", "database", "MariaDB 11", null, feb, []), author, _ => Task.FromResult<MemoryWriteResult?>(null));
         await using (KnowledgeDbContext probe = await factory.CreateDbContextAsync())
         {
@@ -307,9 +307,9 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("SecretDB 1", "2026-01-05"));
-        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "SecretDB 2", validFrom: "2026-02-01", sources: [_upload]);
+        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "SecretDB 2", validFrom: "2026-02-01", sources: [_upload]);
 
-        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first)).Should().Contain("2 version(s)");
+        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first)).Should().Contain("2 version(s)");
 
         Values(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().BeEmpty();
         await using var db = await Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
@@ -414,9 +414,9 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
 
         As(_reader);
         string missing = Guid.NewGuid().ToString();
-        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, hidden)).Should().Be((await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, missing)).Replace(missing, hidden));
-        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, hidden, "x", validFrom: "2026-05-01", sources: [_upload])).Should()
-            .Be((await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, missing, "x", validFrom: "2026-05-01", sources: [_upload])).Replace(missing, hidden));
+        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), hidden)).Should().Be((await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), missing)).Replace(missing, hidden));
+        (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), hidden, "x", validFrom: "2026-05-01", sources: [_upload])).Should()
+            .Be((await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), missing, "x", validFrom: "2026-05-01", sources: [_upload])).Replace(missing, hidden));
 
         As(_writer);
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().Equal(["from the page"]);
@@ -427,12 +427,12 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     {
         As(_writer);
         string first = Id(await Remember("MariaDB 11", "2026-01-05", sources: [_upload]));
-        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload, _allowedPage]);
+        await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload, _allowedPage]);
 
         As(_reader);
         Values(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().Equal(["MariaDB 11"], "the reader sees the first version");
         string missing = Guid.NewGuid().ToString();
-        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first)).Should().Be((await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, missing)).Replace(missing, first));
+        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first)).Should().Be((await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), missing)).Replace(missing, first));
 
         As(_writer);
         Values(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon")).Should().Equal("MariaDB 11", "PostgreSQL 15");
@@ -447,7 +447,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         As(_writer, role: "Viewer");
         (await Remember("x")).Should().Contain("needs write access", "a fact citing sources is team");
         (await Remember("y", sources: [])).Should().Contain("needs write access", "a fact citing nothing is personal, and still needs write access");
-        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, team)).Should().Contain("needs write access");
+        (await McpTools.MemoryForget(Sp.GetRequiredService<ForgetFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), team)).Should().Contain("needs write access");
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon"))
             .Should().Equal(["PostgreSQL 15"], "read access still recalls the team facts it can see");
     }
@@ -459,7 +459,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         string first = Id(await Remember("SecretDB 9", "2026-01-05"));
 
         As(_writer, canRead: false);
-        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
+        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "PostgreSQL 15", validFrom: "2026-03-01", sources: [_upload]);
 
         corrected.Should().Contain("knowledge:read").And.NotContain("SecretDB", "a correction answers with the old fact, which is a read");
         As(_writer);

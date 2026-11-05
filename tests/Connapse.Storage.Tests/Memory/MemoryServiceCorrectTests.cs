@@ -118,18 +118,18 @@ public class MemoryServiceCorrectTests
     {
         MemoryFact current = Fact(Me, Shared);
         IReadOnlyList<MemoryFact> chain = [current];
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
         // Readable to the checks before the lock, not to the one under it: a node gained a document the caller cannot read.
         int restrictedChecks = 0;
         _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .Returns(ci => (IReadOnlySet<string>)ci.ArgAt<IReadOnlyCollection<string>>(1)
                 .Where(d => d == Shared.Ref || (d == Restricted.Ref && ++restrictedChecks == 1)).ToHashSet());
-        _store.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Me,
+        _store.CorrectAsync(current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Me,
                 Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>())
-            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(5)(chain)
+            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(4)(chain)
                 ?? new MemoryWriteResult(Fact(Me, Restricted), current, null));
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong,
             new NewMemoryFact("", "", "y", null, null, [Restricted]), Me, true);
 
         restrictedChecks.Should().Be(2, "once before the lock, once under it");
@@ -142,13 +142,13 @@ public class MemoryServiceCorrectTests
     {
         MemoryFact current = Fact(Other, Shared);
         IReadOnlyList<MemoryFact> chain = [Fact(Other), current];
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
-        _store.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Me,
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.CorrectAsync(current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Me,
                 Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>())
-            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(5)(chain)
+            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(4)(chain)
                 ?? new MemoryWriteResult(Fact(Me), current, null));
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong,
             new NewMemoryFact("", "", "y", null, null, []), Me, true);
 
         result.Fact.Should().BeNull();
@@ -162,13 +162,13 @@ public class MemoryServiceCorrectTests
         MemoryFact current = Fact(Other, Shared);
         MemoryFact written = Fact(Me);
         IReadOnlyList<MemoryFact> chain = [Fact(Me), current];
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
-        _store.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Me,
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.CorrectAsync(current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Me,
                 Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>())
-            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(5)(chain)
+            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(4)(chain)
                 ?? new MemoryWriteResult(written, current, null));
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong,
             new NewMemoryFact("", "", "y", null, null, null), Me, true);
 
         result.Fact.Should().Be(written);

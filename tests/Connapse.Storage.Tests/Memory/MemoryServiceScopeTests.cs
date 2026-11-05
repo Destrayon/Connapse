@@ -49,10 +49,10 @@ public class MemoryServiceScopeTests
     /// <summary>Makes the store run the check it is given against <paramref name="chain"/>, then answer <paramref name="written"/>.</summary>
     private void CorrectionRunsCheck(MemoryFact current, IReadOnlyList<MemoryFact> chain, MemoryFact written)
     {
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
-        _store.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(),
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.CorrectAsync(current.Id, MemoryCorrection.Wrong, Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(),
                 Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>())
-            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(5)(chain)
+            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(4)(chain)
                 ?? new MemoryWriteResult(written, current, null));
     }
 
@@ -169,13 +169,13 @@ public class MemoryServiceScopeTests
     public async Task Correct_AskingForAnotherScope_IsRefusedBeforeTheStore()
     {
         MemoryFact current = Fact(Me, MemoryScope.Personal);
-        _store.GetAsync(Container, current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong,
             Replacement([], MemoryScope.Team), Me, teamWriter: true);
 
         result.Error.Should().Contain("keeps the fact's scope");
-        await _store.DidNotReceiveWithAnyArgs().CorrectAsync(default, default, default, default!, default!, default!, default);
+        await _store.DidNotReceiveWithAnyArgs().CorrectAsync(default, default, default!, default!, default!, default);
     }
 
     [Fact]
@@ -185,7 +185,7 @@ public class MemoryServiceScopeTests
         MemoryFact written = Fact(Me, MemoryScope.Personal);
         CorrectionRunsCheck(current, [current], written);
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong,
             Replacement([], MemoryScope.Personal), Me, teamWriter: false);
 
         result.Fact.Should().Be(written);
@@ -197,10 +197,10 @@ public class MemoryServiceScopeTests
         MemoryFact current = Fact(Other, MemoryScope.Team, Shared, AlsoShared);
         CorrectionRunsCheck(current, [current], Fact(Me, MemoryScope.Team, Shared, AlsoShared));
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Replacement(null), Me, teamWriter: true);
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong, Replacement(null), Me, teamWriter: true);
 
         result.Error.Should().BeNull();
-        await _store.Received(1).CorrectAsync(Container, current.Id, MemoryCorrection.Wrong,
+        await _store.Received(1).CorrectAsync(current.Id, MemoryCorrection.Wrong,
             Arg.Is<NewMemoryFact>(f => f.Sources!.SequenceEqual(new[] { Shared, AlsoShared })), Me,
             Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>>>(), Arg.Any<CancellationToken>());
     }
@@ -211,7 +211,7 @@ public class MemoryServiceScopeTests
         MemoryFact current = Fact(Other, MemoryScope.Team, Shared);
         CorrectionRunsCheck(current, [current], Fact(Me, MemoryScope.Team, Shared));
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Replacement(null), Me, teamWriter: false);
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong, Replacement(null), Me, teamWriter: false);
 
         result.Failure.Should().Be(MemoryWriteFailure.Forbidden);
         await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
@@ -224,7 +224,7 @@ public class MemoryServiceScopeTests
         MemoryFact current = Fact(Me, MemoryScope.Team, Shared, AlsoShared);
         CorrectionRunsCheck(current, [current], Fact(Me, MemoryScope.Team, Shared));
 
-        MemoryWriteResult result = await _service.CorrectAsync(Container, current.Id, MemoryCorrection.Wrong, Replacement([Shared]), Me, teamWriter: true);
+        MemoryWriteResult result = await _service.CorrectAsync(current.Id, MemoryCorrection.Wrong, Replacement([Shared]), Me, teamWriter: true);
 
         result.Failure.Should().Be(MemoryWriteFailure.Invalid);
         result.Error.Should().Contain(AlsoShared.Ref);
@@ -233,8 +233,8 @@ public class MemoryServiceScopeTests
     // ── forgetting ────────────────────────────────────────────────────────────────────────────────
 
     private void ForgetRunsAllow(IReadOnlyList<MemoryFact> chain) =>
-        _store.ForgetAsync(Container, chain[0].Id, Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<bool>>>(), Arg.Any<CancellationToken>())
-            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<bool>>>(2)(chain) ? chain.Count : (int?)null);
+        _store.ForgetAsync(chain[0].Id, Arg.Any<Func<IReadOnlyList<MemoryFact>, Task<bool>>>(), Arg.Any<CancellationToken>())
+            .Returns(async ci => await ci.ArgAt<Func<IReadOnlyList<MemoryFact>, Task<bool>>>(1)(chain) ? chain.Count : (int?)null);
 
     [Fact]
     public async Task Forget_OwnPersonalChainWithoutWriteAccess_Deletes()
@@ -242,7 +242,7 @@ public class MemoryServiceScopeTests
         MemoryFact first = Fact(Me, MemoryScope.Personal);
         ForgetRunsAllow([first, Fact(Me, MemoryScope.Personal)]);
 
-        (await _service.ForgetAsync(Container, first.Id, Me, teamWriter: false)).Should().Be((2, MemoryWriteFailure.None));
+        (await _service.ForgetAsync(first.Id, Me, teamWriter: false)).Should().Be((2, MemoryWriteFailure.None));
     }
 
     [Fact]
@@ -251,7 +251,7 @@ public class MemoryServiceScopeTests
         MemoryFact first = Fact(Me, MemoryScope.Team, Shared);
         ForgetRunsAllow([first]);
 
-        (await _service.ForgetAsync(Container, first.Id, Me, teamWriter: false)).Should().Be((0, MemoryWriteFailure.Forbidden));
+        (await _service.ForgetAsync(first.Id, Me, teamWriter: false)).Should().Be((0, MemoryWriteFailure.Forbidden));
         await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
     }
 
@@ -261,7 +261,7 @@ public class MemoryServiceScopeTests
         MemoryFact first = Fact(Other, MemoryScope.Team, Shared);
         ForgetRunsAllow([first]);
 
-        (await _service.ForgetAsync(Container, first.Id, Me, teamWriter: true)).Should().Be((1, MemoryWriteFailure.None));
+        (await _service.ForgetAsync(first.Id, Me, teamWriter: true)).Should().Be((1, MemoryWriteFailure.None));
     }
 
     [Fact]
@@ -271,7 +271,7 @@ public class MemoryServiceScopeTests
         MemoryFact first = Fact(Me, MemoryScope.Team, Shared);
         ForgetRunsAllow([first, Fact(Other, MemoryScope.Team, Restricted)]);
 
-        (await _service.ForgetAsync(Container, first.Id, Me, teamWriter: false)).Should().Be((0, MemoryWriteFailure.NotFound));
+        (await _service.ForgetAsync(first.Id, Me, teamWriter: false)).Should().Be((0, MemoryWriteFailure.NotFound));
     }
 
     [Fact]
@@ -282,7 +282,7 @@ public class MemoryServiceScopeTests
         _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("down"));
 
-        (await _service.ForgetAsync(Container, first.Id, Me, teamWriter: true)).Should().Be((0, MemoryWriteFailure.Unchecked));
+        (await _service.ForgetAsync(first.Id, Me, teamWriter: true)).Should().Be((0, MemoryWriteFailure.Unchecked));
         await _audit.DidNotReceiveWithAnyArgs().LogAsync(default!, default!, default!, default!, default);
     }
 

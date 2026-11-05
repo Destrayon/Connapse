@@ -9,13 +9,14 @@ public interface IMemoryStore
     Task<MemoryFact> AddAsync(Guid containerId, NewMemoryFact fact, MemoryCaller author, CancellationToken ct = default);
 
     /// <summary>
-    /// Ends or supersedes <paramref name="factId"/> and writes its replacement, in one transaction. Returns an error
-    /// when the fact is not in the container, is already superseded or ended, or the dates do not follow it, or the
+    /// Ends or supersedes <paramref name="factId"/> and writes its replacement in the same container, in one
+    /// transaction. Facts are found by id wherever they are, since moving memory into spaces changes a fact's container
+    /// but never its id. Returns an error when there is no such fact, it is already superseded or ended, or the dates do not follow it, or the
     /// error <paramref name="check"/> returns for the chain's versions, which it is given with the chain locked. The
     /// replacement takes the scope the old fact has under that lock, whatever <paramref name="replacement"/> says.
     /// </summary>
     Task<MemoryWriteResult> CorrectAsync(
-        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author,
+        Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller author,
         Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> check, CancellationToken ct = default);
 
     /// <summary>
@@ -23,9 +24,9 @@ public interface IMemoryStore
     /// chain locked, but only when <paramref name="allow"/> approves the whole chain. Returns how many facts went, or
     /// null when the fact is not there or the chain was refused.
     /// </summary>
-    Task<int?> ForgetAsync(Guid containerId, Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
+    Task<int?> ForgetAsync(Guid factId, Func<IReadOnlyList<MemoryFact>, Task<bool>> allow, CancellationToken ct = default);
 
-    Task<MemoryFact?> GetAsync(Guid containerId, Guid factId, CancellationToken ct = default);
+    Task<MemoryFact?> GetAsync(Guid factId, CancellationToken ct = default);
 
     /// <summary>One page of matching facts, best match first (newest first without text), skipping <paramref name="skip"/>.</summary>
     Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, int skip, int take, CancellationToken ct = default);
@@ -45,15 +46,19 @@ public interface IMemoryService
 {
     Task<MemoryWriteResult> RememberAsync(Guid containerId, NewMemoryFact fact, MemoryCaller caller, CancellationToken ct = default);
 
+    /// <summary>
+    /// Corrects the fact with this id in whichever space or container holds it. A fact the caller cannot see is reported
+    /// as missing.
+    /// </summary>
     Task<MemoryWriteResult> CorrectAsync(
-        Guid containerId, Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
+        Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
         CancellationToken ct = default);
 
     /// <summary>
-    /// Deletes the fact's whole correction chain. Returns the number deleted, or why not: missing when the caller may
+    /// Deletes the fact's whole correction chain, in whichever space or container holds it. Returns the number deleted, or why not: missing when the caller may
     /// not see every version, forbidden when a version is team and the caller is not a team writer.
     /// </summary>
-    Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(Guid containerId, Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default);
+    Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default);
 
     Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default);
 }

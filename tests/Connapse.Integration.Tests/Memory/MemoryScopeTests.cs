@@ -106,9 +106,9 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
         first.Scope.Should().Be(MemoryScope.Team);
 
         // Naming no sources keeps the old ones; naming only the shared one would show the new value to B, so it is refused.
-        MemoryWriteResult kept = await service.CorrectAsync(container, first.Id, MemoryCorrection.Changed,
+        MemoryWriteResult kept = await service.CorrectAsync(first.Id, MemoryCorrection.Changed,
             new NewMemoryFact("", "", "$2M", Jan.AddMonths(1), null, null), userA, true);
-        MemoryWriteResult widened = await service.CorrectAsync(container, kept.Fact!.Id, MemoryCorrection.Changed,
+        MemoryWriteResult widened = await service.CorrectAsync(kept.Fact!.Id, MemoryCorrection.Changed,
             new NewMemoryFact("", "", "$3M", Jan.AddMonths(2), null, [sharedSource]), userA, true);
 
         kept.Fact.Scope.Should().Be(MemoryScope.Team);

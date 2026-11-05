@@ -73,9 +73,9 @@ public partial class McpTools
     public static async Task<string> MemoryCorrect(
         CorrectFact correct,
         IHttpContextAccessor http,
-        [Description("Container ID or name")] string containerId,
         [Description("ID of the fact to replace (from memory_recall)")] string factId,
         [Description("The new value")] string value,
+        [Description("Optional and not needed: the fact is found by its id in every space and container you can see, and the correction stays where the fact is")] string? containerId = null,
         [Description("\"changed\" (default) or \"wrong\"")] string? kind = null,
         [Description("Date the new value took effect (required for changed)")] string? validFrom = null,
         [Description("Date the new value stopped being true, if it has")] string? validTo = null,
@@ -110,8 +110,8 @@ public partial class McpTools
     public static async Task<string> MemoryForget(
         ForgetFact forget,
         IHttpContextAccessor http,
-        [Description("Container ID or name")] string containerId,
         [Description("ID of the fact to delete")] string factId,
+        [Description("Optional and not needed: the fact is found by its id in every space and container you can see")] string? containerId = null,
         CancellationToken ct = default)
     {
         var forgotten = await forget.RunAsync(Mcp(http), containerId, factId, ct);

@@ -220,13 +220,17 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 /// <summary>
 /// Replaces a fact and keeps the old one in history: <see cref="MemoryCorrection.Changed"/> ends it where the new
 /// value starts, <see cref="MemoryCorrection.Wrong"/> supersedes it. A fact the caller cannot see reads as missing.
-/// The new version keeps the fact's scope. Correcting needs write access, whatever the scope.
+/// The new version keeps the fact's scope and stays in the fact's space. Correcting needs write access, whatever the scope.
 /// </summary>
 [Operation("memory.correct", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class CorrectFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class CorrectFact(IMemoryService memory, IOperationAuthorizer authorizer)
 {
+    /// <param name="containerId">
+    /// Ignored: the fact is found by id in every space and container the caller can see, so a fact moved into a space
+    /// (CON-236) is still reached through the container it used to be in.
+    /// </param>
     public async Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
-        OperationContext context, string containerId, string factId, MemoryCorrection kind, NewMemoryFact replacement,
+        OperationContext context, string? containerId, string factId, MemoryCorrection kind, NewMemoryFact replacement,
         CancellationToken ct = default)
     {
         if (!await MemoryRules.WriterAsync(authorizer, context))
@@ -235,17 +239,12 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
             return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Forbidden, "correcting memory also needs knowledge:read: the answer shows the old fact.");
         MemoryCaller caller = MemoryRules.Caller(context.User);
-        (Guid? found, string? ambiguous) = await MemoryRules.ContainerAsync(containers, containerId, caller, ct);
-        if (ambiguous is not null)
-            return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Invalid, ambiguous, "containerId");
-        if (found is not { } container)
-            return MemoryRules.WriteContainerNotFound<MemoryWritten>(containerId);
         if (!Guid.TryParse(factId, out Guid id))
             return MemoryRules.FactNotFound<MemoryWritten>(factId);
         if (!Enum.IsDefined(kind))
             return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Invalid, "kind must be \"changed\" or \"wrong\".", "kind");
 
-        return MemoryRules.Written(await memory.CorrectAsync(container, id, kind, replacement, caller, teamWriter: true, ct));
+        return MemoryRules.Written(await memory.CorrectAsync(id, kind, replacement, caller, teamWriter: true, ct));
     }
 }
 
@@ -254,23 +253,22 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
 /// reads as missing, and nothing is deleted. Forgetting needs write access, whatever the scope.
 /// </summary>
 [Operation("memory.forget", Scope = MemoryRules.WriteScope, Risk = RiskTier.Destructive)]
-public sealed class ForgetFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer authorizer)
 {
+    /// <param name="containerId">
+    /// Ignored: the fact is found by id in every space and container the caller can see, so a fact moved into a space
+    /// (CON-236) is still reached through the container it used to be in.
+    /// </param>
     /// <returns>How many versions were deleted.</returns>
-    public async Task<Attempt<int, MemoryStatus>> RunAsync(OperationContext context, string containerId, string factId, CancellationToken ct = default)
+    public async Task<Attempt<int, MemoryStatus>> RunAsync(OperationContext context, string? containerId, string factId, CancellationToken ct = default)
     {
         if (!await MemoryRules.WriterAsync(authorizer, context))
             return MemoryRules.WriteForbidden<int>();
         MemoryCaller caller = MemoryRules.Caller(context.User);
-        (Guid? found, string? ambiguous) = await MemoryRules.ContainerAsync(containers, containerId, caller, ct);
-        if (ambiguous is not null)
-            return MemoryRules.Fail<int>(MemoryStatus.Invalid, ambiguous, "containerId");
-        if (found is not { } container)
-            return MemoryRules.WriteContainerNotFound<int>(containerId);
         if (!Guid.TryParse(factId, out Guid id))
             return MemoryRules.FactNotFound<int>(factId);
 
-        (int deleted, MemoryWriteFailure failure) = await memory.ForgetAsync(container, id, caller, teamWriter: true, ct);
+        (int deleted, MemoryWriteFailure failure) = await memory.ForgetAsync(id, caller, teamWriter: true, ct);
         return failure switch
         {
             MemoryWriteFailure.None => Attempt<int, MemoryStatus>.Succeed(deleted),
