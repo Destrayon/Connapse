@@ -109,22 +109,27 @@ later agent answering a related question uses those memories.
   4. Session-2 agents answer with memory on and with memory off. The session-2 prompt doesn't mention memory, the same as in the planted arm.
 - **Size:** 3 repetitions, so 228 session-1 runs and 624 session-2 runs. Only session 2 is scored.
 - **Setup:** the same agent, search lock, metric and thresholds as the planted arm.
-- **When:** 2026-11-05, 07:43–10:28 UTC.
+- **When:** 2026-11-05, 10:51–13:40 UTC.
 - **Exit code:** 3, a conforming run that failed the gate.
-- **Usage:** the subscription's seven-day window went from 37% to 39%. At API list price the run would have cost $26.36.
+- **Usage:** the subscription's seven-day window went from 39% to 41%. At API list price the run would have cost $27.81.
 - **Files:** `memory-learned-test.json` is the report, and `memory-learned-test.runs.jsonl` holds every run, including session 1.
 
-Every session-1 run called a memory write tool at least once, and every call cited source documents. This run's
-traces don't record whether each call was saved. Session-1 agents scored 0.706 on their own questions. That is a
-citation score, so it doesn't say how many of the saved memories were wrong.
+Every session-1 run saved at least one memory: 229 saved writes in 228 runs, and every one cited source documents.
+Session-1 agents scored 0.689 on their own questions. That is a citation score, so it doesn't say how many of the
+saved memories were wrong.
+
+This is the second run of this arm. In the first, three of the late updates were dated after the run (2026-11-24,
+-27 and 12-17), so agents doubted them and cited the old policy too, which cost both arms on stale tasks (0.83 and
+0.78). The generator now dates every document before the run, with the same random draws, and stale tasks score 1.00
+and 0.97. The verdict was WORSE in both runs.
 
 ### Main metric
 
 | Set | Tasks | Memory off | Memory on | Difference | Interval | p | MDE |
 |---|---|---|---|---|---|---|---|
-| M: memory should help | 64 | 0.708 | 0.599 | **−0.109** | 95% [−0.203, −0.047] | 0.009 | 0.110 |
-| H: memory must not hurt | 40 | 0.950 | 0.933 | −0.017 | 90% [−0.042, 0] | 0.49 | 0.033 |
-| All tasks | 104 | 0.801 | 0.728 | −0.074 | 95% [−0.135, −0.032] | 0.003 | 0.070 |
+| M: memory should help | 64 | 0.703 | 0.609 | **−0.094** | 95% [−0.182, −0.021] | 0.035 | 0.113 |
+| H: memory must not hurt | 40 | 1.000 | 0.992 | −0.008 | 90% [−0.033, 0] | 1.00 | 0.023 |
+| All tasks | 104 | 0.817 | 0.756 | −0.061 | 95% [−0.119, −0.016] | 0.023 | 0.071 |
 
 H passes its no-harm bound, but M is significantly worse, so the verdict is WORSE.
 
@@ -132,21 +137,21 @@ H passes its no-harm bound, but M is significantly worse, so the verdict is WORS
 |---|---|---|
 | alias | 1.00 | 1.00 |
 | location | 1.00 | 1.00 |
-| current | 0.27 | 0.25 |
-| correction | 0.56 | 0.15 |
+| current | 0.25 | 0.33 |
+| correction | 0.56 | 0.10 |
 | control | 1.00 | 1.00 |
-| stale | 0.83 | 0.78 |
+| stale | 1.00 | 0.97 |
 
 ### Why memory made things worse
 
 Almost all of the loss is on correction tasks, where a renamed standard replaced a 2023 policy.
 - **What session 1 saved:** a fact that gave the new value and cited both the new standard and the old policy, to record what had changed.
-- **What session 2 did:** the agent with memory recalled that fact and cited its sources. 41 of the 48 correction runs with memory cited the replaced policy, against 21 of 48 without memory.
+- **What session 2 did:** the agent with memory recalled that fact and cited its sources. 43 of the 48 correction runs with memory cited the replaced policy, against 21 of 48 without memory.
 - **How it scored:** the answers were usually right, but the pre-registered rule scores any stale citation as 0.
 
-In test-correction-07, for example, both arms answered "$242,500" in all 3 repetitions. Only the arm with memory cited the old policy.
+In test-correction-01, for example, both arms answered "$35 per day" in all 3 repetitions. Only the arm with memory cited the old policy.
 
-Stale citations rose by 0.074 per task (95% [0.035, 0.135]). Answer accuracy didn't change significantly (−0.016, 95% [−0.042, 0]).
+Stale citations rose by 0.061 per task (95% [0.016, 0.119]). Answer accuracy didn't change significantly (−0.029, 95% [−0.067, 0.003]).
 
 On current tasks, the right answer is the revision the policy register names, which is not always the newest. Memory
 helped only when the session-1 agent had found the register. In test-current-07 and -16, memory turned a wrong

@@ -7,65 +7,65 @@
   "tasks": 104,
   "all": {
     "tasks": 104,
-    "offScore": 0.8013,
-    "onScore": 0.7276,
-    "offSearches": 1.2821,
-    "onSearches": 1.2468
+    "offScore": 0.8173,
+    "onScore": 0.7564,
+    "offSearches": 1.2724,
+    "onSearches": 1.2885
   },
   "memorySet": {
     "tasks": 64,
-    "offScore": 0.7083,
-    "onScore": 0.599,
-    "offSearches": 1.4531,
-    "onSearches": 1.2656
+    "offScore": 0.7031,
+    "onScore": 0.6094,
+    "offSearches": 1.4375,
+    "onSearches": 1.276
   },
   "holdoutSet": {
     "tasks": 40,
-    "offScore": 0.95,
-    "onScore": 0.9333,
+    "offScore": 1,
+    "onScore": 0.9917,
     "offSearches": 1.0083,
-    "onSearches": 1.2167
+    "onSearches": 1.3083
   },
   "kinds": {
     "alias": {
       "tasks": 16,
       "offScore": 1,
       "onScore": 1,
-      "offSearches": 1.9167,
-      "onSearches": 1.6875
+      "offSearches": 1.8542,
+      "onSearches": 1.7917
     },
     "control": {
       "tasks": 28,
       "offScore": 1,
       "onScore": 1,
       "offSearches": 1.0119,
-      "onSearches": 1.3095
+      "onSearches": 1.4405
     },
     "correction": {
       "tasks": 16,
       "offScore": 0.5625,
-      "onScore": 0.1458,
-      "offSearches": 1.25,
+      "onScore": 0.1042,
+      "offSearches": 1.2708,
       "onSearches": 1
     },
     "current": {
       "tasks": 16,
-      "offScore": 0.2708,
-      "onScore": 0.25,
-      "offSearches": 1.0208,
-      "onSearches": 1.1875
+      "offScore": 0.25,
+      "onScore": 0.3333,
+      "offSearches": 1,
+      "onSearches": 1.2917
     },
     "location": {
       "tasks": 16,
       "offScore": 1,
       "onScore": 1,
       "offSearches": 1.625,
-      "onSearches": 1.1875
+      "onSearches": 1.0208
     },
     "stale": {
       "tasks": 12,
-      "offScore": 0.8333,
-      "onScore": 0.7778,
+      "offScore": 1,
+      "onScore": 0.9722,
       "offSearches": 1,
       "onSearches": 1
     }
@@ -73,10 +73,10 @@
   "memorySetHalves": {
     "documented": {
       "tasks": 64,
-      "offScore": 0.7083,
-      "onScore": 0.599,
-      "offSearches": 1.4531,
-      "onSearches": 1.2656
+      "offScore": 0.7031,
+      "onScore": 0.6094,
+      "offSearches": 1.4375,
+      "onSearches": 1.276
     },
     "undocumented": {
       "tasks": 0,
@@ -89,53 +89,53 @@
   "comparisons": {
     "memorySetScore95": {
       "tasks": 64,
-      "meanDifference": -0.1094,
+      "meanDifference": -0.0938,
       "ci": [
-        -0.2031,
-        -0.0469
+        -0.1823,
+        -0.0208
       ],
-      "permutationP": 0.0091990800919908,
-      "minimumDetectableEffect": 0.1102
+      "permutationP": 0.03519648035196481,
+      "minimumDetectableEffect": 0.1129
     },
     "holdoutSetScore90": {
       "tasks": 40,
-      "meanDifference": -0.0167,
+      "meanDifference": -0.0083,
       "ci": [
-        -0.0417,
+        -0.0333,
         0
       ],
-      "permutationP": 0.49275072492750727,
-      "minimumDetectableEffect": 0.0326
+      "permutationP": 0.9975002499750025,
+      "minimumDetectableEffect": 0.0233
     },
     "allScore95": {
       "tasks": 104,
-      "meanDifference": -0.0737,
+      "meanDifference": -0.0609,
       "ci": [
-        -0.1346,
-        -0.0321
+        -0.1186,
+        -0.016
       ],
-      "permutationP": 0.0027997200279972004,
-      "minimumDetectableEffect": 0.0698
+      "permutationP": 0.022797720227977204,
+      "minimumDetectableEffect": 0.0708
     },
     "answerAccuracy": {
       "tasks": 104,
-      "meanDifference": -0.016,
+      "meanDifference": -0.0288,
       "ci": [
-        -0.0417,
-        -0
+        -0.0673,
+        0.0032
       ],
-      "permutationP": 0.24337566243375663,
-      "minimumDetectableEffect": 0.0296
+      "permutationP": 0.16518348165183483,
+      "minimumDetectableEffect": 0.0512
     },
     "staleCitations": {
       "tasks": 104,
-      "meanDifference": 0.0737,
+      "meanDifference": 0.0609,
       "ci": [
-        0.0353,
-        0.1346
+        0.016,
+        0.1186
       ],
-      "permutationP": 0.0027997200279972004,
-      "minimumDetectableEffect": 0.0698
+      "permutationP": 0.022797720227977204,
+      "minimumDetectableEffect": 0.0708
     },
     "runRecall": {
       "tasks": 104,
@@ -144,38 +144,38 @@
         0.0032,
         0.0609
       ],
-      "permutationP": 0.24777522247775222,
+      "permutationP": 0.24857514248575144,
       "minimumDetectableEffect": 0.0333
     },
     "firstQueryMrr@10": {
       "tasks": 104,
-      "meanDifference": 0.0025,
+      "meanDifference": -0.0008,
       "ci": [
-        -0.0001,
-        0.0118
+        -0.004,
+        0.001
       ],
-      "permutationP": 0.33796620337966204,
-      "minimumDetectableEffect": 0.0063
+      "permutationP": 0.6127387261273872,
+      "minimumDetectableEffect": 0.0032
     },
     "searchCalls": {
       "tasks": 104,
-      "meanDifference": -0.0353,
+      "meanDifference": 0.016,
       "ci": [
-        -0.1346,
-        0.0577
+        -0.0994,
+        0.1218
       ],
-      "permutationP": 0.5283471652834717,
-      "minimumDetectableEffect": 0.1362
+      "permutationP": 0.81991800819918,
+      "minimumDetectableEffect": 0.158
     },
     "toolCalls": {
       "tasks": 104,
-      "meanDifference": 1.109,
+      "meanDifference": 1.1731,
       "ci": [
-        1.0224,
-        1.1955
+        1.0929,
+        1.2596
       ],
       "permutationP": 0.00019998000199980003,
-      "minimumDetectableEffect": 0.124
+      "minimumDetectableEffect": 0.1204
     }
   },
   "outcomes": {
@@ -189,19 +189,19 @@
   "tokens": {
     "off": {
       "runs": 312,
-      "input": 2048,
-      "cacheWrite": 1153357,
-      "cacheRead": 2752303,
-      "output": 129456,
-      "apiListPriceUsd": 6.1873
+      "input": 2042,
+      "cacheWrite": 1149977,
+      "cacheRead": 2745690,
+      "output": 129186,
+      "apiListPriceUsd": 6.1704
     },
     "on": {
       "runs": 312,
-      "input": 2108,
-      "cacheWrite": 2229922,
-      "cacheRead": 4739084,
-      "output": 176309,
-      "apiListPriceUsd": 11.1609
+      "input": 2134,
+      "cacheWrite": 2481199,
+      "cacheRead": 5360162,
+      "output": 169093,
+      "apiListPriceUsd": 12.156
     }
   },
   "examples": {
@@ -213,8 +213,8 @@
         "expected": "15 days",
         "offScore": 0,
         "onScore": 0.6667,
-        "offAnswer": "600 days, from the latest revision (TR, issued 2024-07-02) of the Marketing Conferences and Logging Policy. Earlier revisions said 15 days (FJ, 2023-07-12) and 555 days (SP, 2024-03-09).",
-        "onAnswer": "15 days. Marketing\u0027s policy register says revision FJ of the Conferences and Logging Policy is the one in force. Revisions TR (600 days) and SP (555 days) are listed as drafts or superseded, even though they have later issue dates."
+        "offAnswer": "600 days, from the latest Marketing Conferences and Logging Policy (revision TR, issued 2024-07-02). Earlier revisions said 555 days (SP, 2024-03-09) and 15 days (FJ, 2023-07-12).",
+        "onAnswer": "15 days. The Marketing policy register lists revision FJ of the Conferences and Logging Policy (issued 2023-07-12) as the one in force. Revisions TR (600 days) and SP (555 days) are drafts or superseded."
       },
       {
         "task": "test-current-16-s2",
@@ -222,21 +222,41 @@
         "question": "What is the handover overlap time for Field Operations?",
         "expected": "50 minutes",
         "offScore": 0,
+        "onScore": 0.6667,
+        "offAnswer": "35 minutes, per the most recent Field Operations policy (revision DH, issued 2024-11-28). Two older revisions give different values: PZ (2024-07-02) says 40 minutes and VQ (2024-02-10) says 50 minutes. None of the documents says which revision supersedes the others, so I used the latest issue date.",
+        "onAnswer": "50 minutes. The Field Operations policy register says revision VQ of the Access Control and Shift Handover Policy is the one in force. Revisions PZ (40 minutes) and DH (35 minutes) are drafts or superseded."
+      },
+      {
+        "task": "test-correction-08-s2",
+        "kind": "correction",
+        "question": "What is the encryption key rotation period for Legal?",
+        "expected": "330 days",
+        "offScore": 0,
         "onScore": 0.3333,
-        "offAnswer": "35 minutes. Three Field Operations policy revisions give different values: VQ (2024-02-10) says 50, PZ (2024-07-02) says 40, and DH (2024-11-28) says 35. I used the most recently issued one, DH. None of the documents says explicitly that one replaces another, so treating the latest as current is my assumption.",
-        "onAnswer": "50 minutes. The Field Operations policy register says revision VQ of the Access Control and Shift Handover Policy is the one in force. Revisions PZ (40 min) and DH (35 min) are drafts or superseded, even though DH has a later issue date."
+        "offAnswer": "Legal\u0027s encryption key rotation period is 330 days. This comes from the Legal Hardware Lifecycle and Key Management Standard, effective 2025-05-02, where it\u0027s called the \u0022key renewal interval.\u0022 That standard replaces the 2023 Legal IT Equipment and Encryption Policy, which said 450 days.",
+        "onAnswer": "330 days. This comes from the Legal Hardware Lifecycle and Key Management Standard (effective 2025-05-02), which replaced the 2023 policy\u0027s 450 days. It calls the period the \u0022key renewal interval\u0022."
       }
     ],
     "memoryHurt": [
       {
-        "task": "test-correction-07-s2",
+        "task": "test-correction-01-s2",
         "kind": "correction",
-        "question": "What is the contract value requiring legal review for Customer Success?",
-        "expected": "$242,500",
+        "question": "What is the daily meal allowance for Customer Success?",
+        "expected": "$35",
         "offScore": 1,
         "onScore": 0,
-        "offAnswer": "$242,500 (legal sign-off threshold per the 2025-06-24 standard, which replaced the 2023 policy\u0027s $5,000 threshold).",
-        "onAnswer": "$242,500 (legal sign-off threshold in the Customer Success Data Subject Rights and Legal Review Standard, effective 2025-06-24). It replaced the 2023 policy\u0027s $5,000."
+        "offAnswer": "$35 per day. The 2025 Spending Controls and Expense Reimbursement Standard (effective 2025-07-11) sets the per-diem at $35. It replaced the 2023 policy, which said $65.",
+        "onAnswer": "$35 per day. The Spending Controls and Expense Reimbursement Standard (effective 2025-07-11) calls it a \u0022per-diem limit.\u0022 It replaces the 2023 Corporate Cards and Travel Policy, which set $65."
+      },
+      {
+        "task": "test-correction-05-s2",
+        "kind": "correction",
+        "question": "What is the encryption key rotation period for Research?",
+        "expected": "330 days",
+        "offScore": 1,
+        "onScore": 0,
+        "offAnswer": "330 days. The 2025 Research Working Hours and Key Management Standard (effective 2025-01-07) sets the key renewal interval at 330 days. It replaced the 2023 policy, which said 630 days.",
+        "onAnswer": "330 days. The Research Working Hours and Key Management Standard (effective 2025-01-07) sets it and replaces the 2023 policy, which said 630 days."
       },
       {
         "task": "test-correction-09-s2",
@@ -245,18 +265,8 @@
         "expected": "175 days",
         "offScore": 1,
         "onScore": 0,
-        "offAnswer": "175 days. This comes from the Marketing Recruitment and Data Protection Standard, effective 2025-07-16. It replaced the 2023 policy, which said 385 days.",
-        "onAnswer": "175 days. The Marketing Recruitment and Data Protection Standard (effective 2025-07-16) calls it the \u0022snapshot keep period\u0022. It replaced the 2023 policy, which set 385 days."
-      },
-      {
-        "task": "test-correction-12-s2",
-        "kind": "correction",
-        "question": "What is the encryption key rotation period for Manufacturing?",
-        "expected": "150 days",
-        "offScore": 1,
-        "onScore": 0,
-        "offAnswer": "150 days. The 2025 Manufacturing Hardware Lifecycle and Key Management Standard (effective 2025-06-27) sets a key renewal interval of 150 days. It replaced the 2023 policy, which said 540 days.",
-        "onAnswer": "150 days. The Manufacturing Hardware Lifecycle and Key Management Standard (effective 2025-06-27) sets it and replaces the 2023 policy, which had 540 days. The new standard calls it the \u0022key renewal interval\u0022."
+        "offAnswer": "175 days. This comes from the Marketing Recruitment and Data Protection Standard, effective 2025-07-16, which calls it the \u0022snapshot keep period\u0022. It replaces the 2023 policy that said 385 days.",
+        "onAnswer": "175 days. The Marketing Recruitment and Data Protection Standard (effective 2025-07-16) sets the \u0022snapshot keep period\u0022 at 175 days. It replaced the 2023 Hiring and Backup Policy, which said 385 days."
       }
     ]
   },
@@ -269,24 +279,24 @@
   },
   "session1": {
     "runs": 228,
-    "meanScore": 0.7061,
+    "meanScore": 0.6886,
     "outcomes": {
       "Answered": 228
     },
-    "memoryWrites": 228,
-    "writesCitingSources": 228,
+    "memoryWrites": 229,
+    "writesCitingSources": 229,
     "runsThatWrote": 228,
     "tokens": {
       "runs": 228,
-      "input": 1726,
-      "cacheWrite": 1625566,
-      "cacheRead": 5053636,
-      "output": 200318,
-      "apiListPriceUsd": 9.0143
+      "input": 1756,
+      "cacheWrite": 1754238,
+      "cacheRead": 5746865,
+      "output": 188631,
+      "apiListPriceUsd": 9.4815
     }
   },
   "subscription": {
-    "atFirstRun": "allowed (seven_day 37%)",
-    "atLastRun": "allowed (seven_day 39%)"
+    "atFirstRun": "allowed (seven_day 39%)",
+    "atLastRun": "allowed (seven_day 41%)"
   }
 }

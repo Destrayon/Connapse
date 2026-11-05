@@ -24,6 +24,8 @@ ms = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ms)
 
 SEED = 244
+# The scored run started on this day; no document may be dated on or after it.
+RUN_DATE = "2026-11-05"
 
 TEST_SIZES = {"current": 16, "alias": 16, "correction": 16, "location": 16, "control": 28, "stale": 12}
 DEV_SIZES = {"current": 3, "alias": 3, "correction": 3, "location": 3, "control": 4, "stale": 2}
@@ -173,7 +175,7 @@ class Builder:
         """Session 1 learns a value; an update added between the sessions replaces it; session 2 asks again."""
         a, (dept,) = self.take(1)
         old_value, new_value = self.values(a, 2)
-        old_date, new_date = ms.date(self.rng, 2024, 2024), ms.date(self.rng, 2026, 2026)
+        old_date, new_date = ms.date(self.rng, 2024, 2024), before_run(ms.date(self.rng, 2026, 2026))
         old_title = f"{dept} {ms.ATTRIBUTES[a][0]} Policy"
         old = self.doc(f"{n}:old", old_title, "\n".join([
             f"{old_title}. Issued {old_date}.", self.line(a, dept, old_value), ms.filler(self.rng)]))
@@ -231,6 +233,14 @@ def build(rng):
     return b
 
 
+def before_run(date):
+    """Moves a date on or after RUN_DATE two months back, after drawing it, so the random stream is unchanged."""
+    if date < RUN_DATE:
+        return date
+    year, month, day = date.split("-")
+    return f"{year}-{int(month) - 2:02d}-{day}"
+
+
 def check(b):
     titles = [d["title"] for d in b.docs]
     assert len(titles) == len(set(titles)), "document titles must be unique"
@@ -239,6 +249,9 @@ def check(b):
         for d in b.docs:
             if pattern.search(d["title"] + "\n" + d["text"]) and d["key"] not in allowed:
                 raise AssertionError(f"'{word}' leaks into {d['title']}")
+    for d in b.docs:
+        for date in re.findall(r"\d{4}-\d{2}-\d{2}", d["text"]):
+            assert date < RUN_DATE, f"{d['title']} is dated {date}, after the run"
     by_key = {d["key"]: d for d in b.docs}
     for t in b.tasks:
         for key in t["gold"]:
