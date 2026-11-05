@@ -53,3 +53,8 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
   - Files: `tests/Connapse.Eval/Runs/MemorySearch/*`, `Runs/MemorySearchEval.cs`, `Datasets/MemorySearchAdapter.cs`, `Program.cs`, `Cli/CliArgs.cs`, `Statistics/PairedStats.cs`, the csproj (Anthropic 13.5.0), README, `eval/tools/run_light.sh`.
   - Verified: 34 new unit tests; all 3,167 eval unit tests pass.
   - Next: Release build, format, Codex review, PR.
+- **Phase 4:**
+  - Release build with CI flags and `dotnet format` were clean. Codex found two gate gaps (a partial run could pass; a failed index was ignored), both fixed in 7f566ac6 with 6 more tests. Opened draft PR #1130 into main.
+  - Files: `Runs/MemorySearchEval.cs`, `MemorySearchTests.cs`, README.
+  - Verified: 40 memory-search unit tests pass; Release build passes.
+  - Next: the PM's go, an API key and the model, then the scored run.
