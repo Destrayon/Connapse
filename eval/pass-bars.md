@@ -114,7 +114,8 @@ again with a reason saying what is new. Three bars, all of which must pass.
   - **Split.** `memory-search` ops follow their task's split; the 24 unrelated ops and the learned notes go to dev
     when the first byte of SHA-256 of the op id (learned notes: the task family) is even, else to test.
   - **Tuning on dev only.** Candidate scores: the highest share of the note's content words found in one passage,
-    the same share over the top 3 passages together, and the top passage's semantic cosine. The rule picked is the
+    the same share over the top 3 passages together, the highest share of the value's own content words found in one
+    passage, and the top passage's semantic cosine (amended before any run: the value-only share was added). The rule picked is the
     score and cutoff that hold the most dev restating notes while keeping at least 90% of dev new facts; ties go to
     the higher cutoff. The test split is scored once with that rule.
   - **Bar (test):** at least 80% of restating notes held (pooled; each source also reported) and at least 90% of the
