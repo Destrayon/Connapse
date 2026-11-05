@@ -13,13 +13,19 @@ namespace Connapse.TestSuite.Tests;
 internal static class TestSizeRules
 {
     /// <summary>Gate holds the speed gates that time real work; CI runs them in their own steps.</summary>
-    public static readonly string[] Categories = ["Unit", "Integration", "LiveAws", "Gate"];
+    public static readonly string[] Categories = ["Unit", "Integration", "LiveAws", "Gate", "Load"];
 
     /// <summary>
     /// LiveAws runs in no CI step, by design: it needs real AWS. Only these classes may use it, so it
     /// can't become a way to keep a new test out of CI.
     /// </summary>
     public static readonly string[] LiveAwsClasses = ["RolesAnywhereLiveAwsTests"];
+
+    /// <summary>
+    /// Load runs in no CI step, by design: it seeds tens of thousands of rows and times them for minutes.
+    /// Only these classes may use it, for the same reason as LiveAws.
+    /// </summary>
+    public static readonly string[] LoadClasses = ["MemorySpacesLoadTests"];
 
     /// <summary>One problem per offending test method, as "file: Class.Method: reason".</summary>
     public static IEnumerable<string> Problems(string relativePath, SyntaxNode root) =>
@@ -41,7 +47,8 @@ internal static class TestSizeRules
             foreach (var method in cls.Members.OfType<MethodDeclarationSyntax>().Where(m => TestSources.IsTestMethod(m, testAttributes)))
             {
                 var traits = classTraits.Concat(TestSources.Traits(method.AttributeLists)).ToList();
-                string? reason = Check(traits) ?? CheckLiveAws(cls.Identifier.ValueText, traits);
+                string? reason = Check(traits) ?? CheckLiveAws(cls.Identifier.ValueText, traits)
+                    ?? CheckLoad(cls.Identifier.ValueText, traits);
                 if (reason is not null)
                     yield return $"{relativePath}: {cls.Identifier.ValueText}.{method.Identifier.ValueText}: {reason}";
             }
@@ -74,5 +81,10 @@ internal static class TestSizeRules
     internal static string? CheckLiveAws(string className, IReadOnlyList<(string Name, string Value)> traits) =>
         traits.Any(t => t is ("Category", "LiveAws")) && !LiveAwsClasses.Contains(className)
             ? "Category=LiveAws runs in no CI step and is reserved for the listed live-AWS classes"
+            : null;
+
+    internal static string? CheckLoad(string className, IReadOnlyList<(string Name, string Value)> traits) =>
+        traits.Any(t => t is ("Category", "Load")) && !LoadClasses.Contains(className)
+            ? "Category=Load runs in no CI step and is reserved for the listed load-test classes"
             : null;
 }

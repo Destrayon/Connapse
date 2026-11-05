@@ -18,7 +18,7 @@ public class TestSizeTests
         var problems = TestSources.TestFiles().SelectMany(f => TestSizeRules.Problems(f.RelativePath, f.Root)).ToList();
 
         Assert.True(problems.Count == 0,
-            "Every test needs one Category (Unit, Integration, LiveAws or Gate) and at most one Size (Medium or Large). " +
+            "Every test needs one Category (Unit, Integration, LiveAws, Gate or Load) and at most one Size (Medium or Large). " +
             $"A test with no Category runs in no CI step.\n{string.Join("\n", problems)}");
     }
 
@@ -74,6 +74,15 @@ public class TestSizeTests
     {
         TestSizeRules.CheckLiveAws("RolesAnywhereLiveAwsTests", [("Category", "LiveAws")]).Should().BeNull();
         TestSizeRules.CheckLiveAws("NewProofTests", [("Category", "LiveAws")]).Should().Contain("reserved");
+    }
+
+    [Fact]
+    public void Load_IsAllowedOnlyForListedClasses()
+    {
+        TestSizeRules.Check([("Category", "Load")]).Should().BeNull();
+        TestSizeRules.CheckLoad("MemorySpacesLoadTests", [("Category", "Load")]).Should().BeNull();
+        TestSizeRules.CheckLoad("NewProofTests", [("Category", "Load")]).Should().Contain("reserved");
+        TestSizeRules.CheckLoad("NewProofTests", [("Category", "Unit")]).Should().BeNull();
     }
 
     [Fact]
