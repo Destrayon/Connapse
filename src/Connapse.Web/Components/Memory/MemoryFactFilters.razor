@@ -109,6 +109,13 @@
             }
         </select>
     </div>
+
+    <div class="memory-toolbar-row">
+        <button id="memory-group" type="button" class="memory-chip @(View.Grouped ? "memory-chip-on" : "")" aria-pressed="@(View.Grouped ? "true" : "false")"
+                @onclick="() => Pick(View with { Grouped = !View.Grouped })">
+            <span class="bi-list-nested me-1" aria-hidden="true"></span>Grouped by subject
+        </button>
+    </div>
 </div>
 
 @code {

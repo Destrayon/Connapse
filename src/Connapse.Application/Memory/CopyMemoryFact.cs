@@ -83,15 +83,20 @@ public sealed class CopyMemoryFact(
 
     /// <summary>
     /// Copies the current version of <paramref name="factId"/> to <paramref name="destination"/>. With a matching
-    /// current fact already there, refused unless <paramref name="anyway"/>.
+    /// current fact already there, refused unless <paramref name="anyway"/>. With <paramref name="version"/>, refused
+    /// when the current version is no longer that one, so a caller copies only the version it showed.
     /// </summary>
     public async Task<Attempt<MemoryCopied, MemoryStatus>> RunAsync(
-        OperationContext context, string factId, string destination, bool anyway = false, CancellationToken ct = default)
+        OperationContext context, string factId, string destination, bool anyway = false, Guid? version = null,
+        CancellationToken ct = default)
     {
         Attempt<MemoryCopyPlan, MemoryStatus> planned = await PlanAsync(context, factId, destination, ct);
         if (!planned.Succeeded)
             return Attempt<MemoryCopied, MemoryStatus>.Fail(planned.Status, planned.Detail!, planned.Field);
         (RecalledFact current, Container to, RecalledFact? existing) = planned.Result!;
+        if (version is { } shown && current.Fact.Id != shown)
+            return MemoryRules.Fail<MemoryCopied>(MemoryStatus.Invalid,
+                "this fact has changed since it was shown. Check the current version and copy again.", "version");
         if (existing is not null && !anyway)
             return MemoryRules.Fail<MemoryCopied>(MemoryStatus.Exists,
                 $"'{to.Name}' already has a current fact for {existing.Fact.Subject} {existing.Fact.Attribute} ({existing.Fact.Id}). "

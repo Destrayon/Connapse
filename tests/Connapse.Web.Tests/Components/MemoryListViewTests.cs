@@ -16,7 +16,7 @@ public class MemoryListViewTests
     public void Query_ThenParse_GivesBackTheSameView()
     {
         var view = new MemoryListView("postgres db", "Halcyon & Co", Author, MemoryCites.None,
-            new DateOnly(2026, 1, 1), new DateOnly(2026, 2, 1), All: true, MemoryFactSort.ValidFrom, "abc+/=", Page: 3);
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 2, 1), All: true, MemoryFactSort.ValidFrom, "abc+/=", Page: 3, Grouped: true);
 
         string uri = QueryHelpers.AddQueryString("http://localhost/containers/x?tab=memory",
             view.Query().Where(p => p.Value is not null).ToDictionary(p => p.Key, p => (string?)p.Value));

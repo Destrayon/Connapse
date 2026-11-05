@@ -1,3 +1,4 @@
+@using Connapse.Application
 @using Connapse.Application.Memory
 @using Connapse.Core
 @inject MemoryOperations MemoryOps
@@ -32,16 +33,16 @@
             <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Loading facts</span></div>
         </div>
     }
-    else if (facts.Count == 0 && view.Narrowed)
+    else if (Empty && view.Narrowed)
     {
         <div id="memory-no-matches" class="memory-empty">
             <span class="bi-search memory-empty-icon" aria-hidden="true"></span>
             <p class="memory-empty-title">@(view.Text is { } text ? $"No facts match “{text}”" : "No facts match these filters")</p>
             <p>Try other words or fewer filters, or include facts that ended or were corrected.</p>
-            <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="() => Go(new MemoryListView(All: view.All))">Clear search and filters</button>
+            <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="() => Go(new MemoryListView(All: view.All, Grouped: view.Grouped))">Clear search and filters</button>
         </div>
     }
-    else if (facts.Count == 0)
+    else if (Empty)
     {
         <div id="memory-empty" class="memory-empty">
             <span class="bi-lightbulb memory-empty-icon" aria-hidden="true"></span>
@@ -54,56 +55,78 @@
     }
     else
     {
-        <table class="memory-table">
+        <table class="memory-table @(view.Grouped ? "memory-grouped" : "")">
             <thead>
                 <tr>
                     <th>Fact</th>
                     <th class="col-sources">Sources</th>
-                    <th class="col-author">Author</th>
+                    @if (ShowAuthor)
+                    {
+                        <th class="col-author">Author</th>
+                    }
                     <th class="col-true">True from</th>
                     <th class="col-recorded">Recorded</th>
+                    @if (CanCopy)
+                    {
+                        <th class="col-copy"><span class="visually-hidden">Copy</span></th>
+                    }
                 </tr>
             </thead>
-            <tbody>
-                @foreach (var recalled in facts)
+            @if (view.Grouped)
+            {
+                @foreach (MemorySubjectGroup group in groups)
                 {
-                    var fact = recalled.Fact;
-                    <tr class="memory-row @(selected?.Fact.Id == fact.Id ? "row-selected" : "") @(Status(fact) != FactStatus.Current ? "memory-row-old" : "")"
-                        @onclick="() => Select(recalled)" tabindex="0" @onkeydown="e => OnRowKey(e, recalled)"
-                        data-fact-id="@fact.Id">
-                        <td>
-                            <div class="fact-key">@fact.Subject <span class="fact-sep">·</span> @fact.Attribute</div>
-                            <div class="fact-value">@fact.Value</div>
-                            @if (Status(fact) != FactStatus.Current)
+                    <tbody class="memory-group" data-subject="@group.Subject.Subject">
+                        <tr class="memory-group-head">
+                            <td colspan="@Columns">
+                                <button type="button" class="memory-group-toggle" aria-expanded="@(group.Open ? "true" : "false")" @onclick="() => ToggleGroup(group)">
+                                    <span class="@(group.Open ? "bi-chevron-down" : "bi-chevron-right") me-2" aria-hidden="true"></span><span class="memory-group-name">@group.Subject.Subject</span>
+                                    <span class="memory-group-count">@group.CountLabel</span>
+                                </button>
+                            </td>
+                        </tr>
+                        @if (group.Open)
+                        {
+                            @foreach (var recalled in group.Facts)
                             {
-                                <span class="badge fact-status fact-status-@Status(fact).ToString().ToLowerInvariant()">@StatusLabel(fact)</span>
+                                @Row(recalled)
                             }
-                        </td>
-                        <td class="col-sources">
-                            @if (recalled.Sources.Count == 0)
+                            @if (group.Loading)
                             {
-                                <span class="no-sources">No sources</span>
+                                <tr><td colspan="@Columns"><span class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Loading facts</span></span></td></tr>
                             }
-                            else
+                            else if (group.Next is not null)
                             {
-                                <span class="source-chip" title="@SourceName(recalled.Sources[0])">
-                                    <span class="@SourceIcon(recalled.Sources[0]) me-1" aria-hidden="true"></span>@SourceName(recalled.Sources[0])
-                                </span>
-                                @if (recalled.Sources.Count > 1)
-                                {
-                                    <span class="source-more">+@(recalled.Sources.Count - 1)</span>
-                                }
+                                <tr class="memory-group-more">
+                                    <td colspan="@Columns">
+                                        <button type="button" class="btn btn-link btn-sm p-0" data-more-subject="@group.Subject.Subject" @onclick="() => ShowMore(group)">
+                                            <span class="bi-plus-circle me-1" aria-hidden="true"></span>@group.MoreLabel
+                                        </button>
+                                    </td>
+                                </tr>
                             }
-                        </td>
-                        <td class="col-author"><MemoryAuthor Caller="fact.Author" /></td>
-                        <td class="col-true">@ValidityShort(fact)</td>
-                        <td class="col-recorded" title="@Absolute(fact.RecordedAt)">@Relative(fact.RecordedAt)</td>
-                    </tr>
+                        }
+                    </tbody>
                 }
-            </tbody>
+                @if (groups.Count == 0)
+                {
+                    <tbody>
+                        <tr><td colspan="@Columns" class="memory-group-none">No subjects on this page match. Try the @(nextCursor is null ? "previous" : "next") page.</td></tr>
+                    </tbody>
+                }
+            }
+            else
+            {
+                <tbody>
+                    @foreach (var recalled in facts)
+                    {
+                        @Row(recalled)
+                    }
+                </tbody>
+            }
         </table>
         <div class="memory-count">
-            <span id="memory-range">@view.Range(facts.Count, count) · @MemoryListView.PageSize per page</span>
+            <span id="memory-range">@(view.Grouped ? MemorySubjectGroup.Range(groups.Count, view.Page, nextCursor is not null, view.Text, count) : $"{view.Range(facts.Count, count)} · {MemoryListView.PageSize} per page")</span>
             <span class="memory-pager">
                 <button id="memory-prev" class="btn btn-sm btn-outline-secondary" disabled="@(view.Page <= 1)" @onclick="Previous">
                     <span class="bi-chevron-left me-1" aria-hidden="true"></span>Previous
@@ -172,7 +195,7 @@
                 <p class="form-hint">
                     @if (selected.Sources.Count == 0)
                     {
-                        <text>The corrected fact cites no sources, so only you will see it.</text>
+                        <text>@(fact.Scope == MemoryScope.Personal ? "The corrected fact cites no sources, so only you will see it." : "The corrected fact cites no sources, so everyone who can search this space will see it.")</text>
                     }
                     else
                     {
@@ -218,7 +241,7 @@
                     <span class="detail-label">Sources</span>
                     @if (selected.Sources.Count == 0)
                     {
-                        <span class="detail-value text-muted">None cited, so only the person who wrote it can see it.</span>
+                        <span id="memory-sources-none" class="detail-value text-muted">@(fact.Scope == MemoryScope.Personal ? "None cited, so only the person who wrote it can see it." : "None cited, so everyone who can search this space can see it.")</span>
                     }
                     else
                     {
@@ -297,6 +320,12 @@
                     <button id="memory-delete" class="btn btn-sm btn-outline-danger me-auto" @onclick="AskDelete" disabled="@(history is null)">
                         <span class="bi-trash me-1"></span> Delete
                     </button>
+                    @if (CanCopy && Status(fact) == FactStatus.Current)
+                    {
+                        <button id="memory-copy-open" class="btn btn-sm btn-outline-secondary" @onclick="() => copying = selected">
+                            <span class="bi-people me-1"></span> Copy to team
+                        </button>
+                    }
                     @if (Status(fact) == FactStatus.Corrected)
                     {
                         <span class="form-hint">Corrected facts can't be corrected again.</span>
@@ -348,12 +377,92 @@
     </div>
 }
 
+@if (copying is not null)
+{
+    <CopyToTeamDialog Fact="copying" SpaceName="@(SpaceName ?? Space)" Accounts="Accounts" OnClose="() => copying = null" OnCopied="Copied" />
+}
+
 @code {
     /// <summary>The memory space (or container) shown, by id or name.</summary>
     [Parameter, EditorRequired] public string Space { get; set; } = "";
 
     /// <summary>Whether the caller may correct and delete; viewers only read.</summary>
     [Parameter] public bool CanEdit { get; set; }
+
+    /// <summary>Whether to show who wrote each fact; a personal space's facts are all its owner's.</summary>
+    [Parameter] public bool ShowAuthor { get; set; } = true;
+
+    /// <summary>Whether current facts offer Copy to team: only in the caller's own personal space while they can write.</summary>
+    [Parameter] public bool CanCopy { get; set; }
+
+    /// <summary>People with an account here, for saying who will see a copy; null when unknown.</summary>
+    [Parameter] public int? Accounts { get; set; }
+
+    /// <summary>The space's name, for the Copy to team dialog; <see cref="Space"/> when unset.</summary>
+    [Parameter] public string? SpaceName { get; set; }
+
+    private RecalledFact? copying;
+
+    private void Copied(string to) =>
+        (copying, errorMessage, notice) = (null, null, $"Copied to {to}. Your personal fact is unchanged.");
+
+    private List<MemorySubjectGroup> groups = [];
+
+    private bool Empty => view.Grouped ? groups.Count == 0 && nextCursor is null && view.Page == 1 : facts.Count == 0;
+
+    private int Columns => 4 + (ShowAuthor ? 1 : 0) + (CanCopy ? 1 : 0);
+
+    /// <summary>A fact's row, the same in the flat list and under a subject.</summary>
+    private RenderFragment Row(RecalledFact recalled)
+    {
+        MemoryFact fact = recalled.Fact;
+        return @<tr class="memory-row @(selected?.Fact.Id == fact.Id ? "row-selected" : "") @(Status(fact) != FactStatus.Current ? "memory-row-old" : "")"
+                    @onclick="() => Select(recalled)" tabindex="0" @onkeydown="e => OnRowKey(e, recalled)"
+                    data-fact-id="@fact.Id">
+            <td>
+                <div class="fact-key">@fact.Subject <span class="fact-sep">·</span> @fact.Attribute</div>
+                <div class="fact-value">@fact.Value</div>
+                @if (Status(fact) != FactStatus.Current)
+                {
+                    <span class="badge fact-status fact-status-@Status(fact).ToString().ToLowerInvariant()">@StatusLabel(fact)</span>
+                }
+            </td>
+            <td class="col-sources">
+                @if (recalled.Sources.Count == 0)
+                {
+                    <span class="no-sources">No sources</span>
+                }
+                else
+                {
+                    <span class="source-chip" title="@SourceName(recalled.Sources[0])">
+                        <span class="@SourceIcon(recalled.Sources[0]) me-1" aria-hidden="true"></span>@SourceName(recalled.Sources[0])
+                    </span>
+                    @if (recalled.Sources.Count > 1)
+                    {
+                        <span class="source-more">+@(recalled.Sources.Count - 1)</span>
+                    }
+                }
+            </td>
+            @if (ShowAuthor)
+            {
+                <td class="col-author"><MemoryAuthor Caller="fact.Author" /></td>
+            }
+            <td class="col-true">@ValidityShort(fact)</td>
+            <td class="col-recorded" title="@Absolute(fact.RecordedAt)">@Relative(fact.RecordedAt)</td>
+            @if (CanCopy)
+            {
+                <td class="col-copy">
+                    @if (Status(fact) == FactStatus.Current)
+                    {
+                        <button class="btn btn-link btn-sm p-0 copy-link" data-copy-fact="@fact.Id"
+                                @onclick="() => copying = recalled" @onclick:stopPropagation="true">
+                            <span class="bi-people me-1" aria-hidden="true"></span>Copy to team
+                        </button>
+                    }
+                </td>
+            }
+        </tr>;
+    }
 
     private const int HistoryPageSize = 100;
 
@@ -453,32 +562,118 @@
             pageCursors.Clear();
         if (fresh || next.Filter != view.Filter || Space != loadedSpace)
             (count, counting, countRequest) = (null, null, countRequest + 1);
+        // A refresh of the same grouped page keeps the subjects that were open.
+        HashSet<string>? keepOpen = next.Grouped && next == view && loadedSpace == Space
+            ? [.. groups.Where(g => g.Open).Select(g => g.Key)]
+            : null;
         (view, loadedSpace, isLoading) = (next, Space, true);
+        bool? read = next.Grouped ? await LoadGroupsAsync(next, request, keepOpen) : await LoadFactsAsync(next, request);
+        if (read is not { } succeeded) return;
+        isLoading = false;
+        if (next.Cursor is not null)
+            pageCursors[next.Page] = next.Cursor;
+        if (succeeded && count is null && counting != (Space, next.Filter))
+            _ = CountAsync(Space, next.Filter);
+        // The open fact was read before this refresh; show it only if it can still be read now.
+        if (!succeeded)
+            ClearDetail();
+        else if (selected is not null)
+            await LoadHistoryAsync(selected.Fact.Id);
+    }
+
+    /// <summary>A page of facts: whether it was read, or null when a newer load or a redirect took over.</summary>
+    private async Task<bool?> LoadFactsAsync(MemoryListView next, int request)
+    {
         var read = await MemoryOps.List.RunAsync(await AuthStateProvider.OperationContextAsync(), Space, next.Listing);
-        if (request != loadRequest) return;
+        if (request != loadRequest) return null;
         if (read.Field == "cursor" && next.Cursor is not null)
         {
             // A link to a page of another view, or one that's gone stale: start the same view from its first page.
             Go(next.FirstPage, replace: true);
-            return;
+            return null;
         }
         var page = read.ResultOr<MemoryFactsListed, MemoryStatus>(failed => errorMessage = failed, null!);
         if (page is { Facts.Count: 0 } && next.Cursor is not null)
         {
             // A later page emptied by deletes, or reopened from an old link: step back to a page that has facts.
             Go(Before(next), replace: true);
-            return;
+            return null;
         }
-        (facts, nextCursor, isLoading) = ([.. page?.Facts ?? []], page?.NextCursor, false);
-        if (next.Cursor is not null)
-            pageCursors[next.Page] = next.Cursor;
-        if (read.Succeeded && count is null && counting != (Space, next.Filter))
-            _ = CountAsync(Space, next.Filter);
-        // The open fact was read before this refresh; show it only if it can still be read now.
-        if (!read.Succeeded)
-            ClearDetail();
-        else if (selected is not null)
-            await LoadHistoryAsync(selected.Fact.Id);
+        (facts, nextCursor, groups) = ([.. page?.Facts ?? []], page?.NextCursor, []);
+        return read.Succeeded;
+    }
+
+    /// <summary>
+    /// A page of subjects, A to Z, with the first facts of the open ones. While the view is narrowed, every subject's
+    /// first facts load, since a subject is shown only when some of its facts match; its count then loads late.
+    /// </summary>
+    private async Task<bool?> LoadGroupsAsync(MemoryListView next, int request, HashSet<string>? keepOpen)
+    {
+        OperationContext context = await AuthStateProvider.OperationContextAsync();
+        // Subjects match by name, so a subject filter narrows the subjects read; other filters are applied to the facts.
+        var read = await MemoryOps.Subjects.RunAsync(context, Space, next.Subject,
+            next.All ? MemoryFactStatus.All : MemoryFactStatus.Current, next.Cursor, MemoryListView.PageSize);
+        if (request != loadRequest) return null;
+        if (read.Field == "cursor" && next.Cursor is not null)
+        {
+            Go(next.FirstPage, replace: true);
+            return null;
+        }
+        var page = read.ResultOr<MemorySubjectsListed, MemoryStatus>(failed => errorMessage = failed, null!);
+        if (page is { Subjects.Count: 0 } && next.Cursor is not null)
+        {
+            Go(Before(next), replace: true);
+            return null;
+        }
+        // The subjects read match by part of the name, but a subject filter is exact, as in the ungrouped list.
+        IEnumerable<MemorySubject> subjects = (page?.Subjects ?? []).Where(s =>
+            next.Subject is null || string.Equals(s.Subject, next.Subject.Trim(), StringComparison.OrdinalIgnoreCase));
+        List<MemorySubjectGroup> loaded = [.. subjects.Select((subject, i) => new MemorySubjectGroup(subject,
+            keepOpen?.Contains(MemorySubjectGroup.KeyOf(subject.Subject)) ?? i < MemorySubjectGroup.OpenFirst, next.Narrowed ? null : subject.Facts))];
+        await Task.WhenAll(loaded.Where(g => g.Open || next.Narrowed).Select(g => LoadGroupAsync(context, next, g, MemorySubjectGroup.FirstFacts)));
+        if (request != loadRequest) return null;
+        if (next.Narrowed)
+            loaded.RemoveAll(g => g.Loaded && g.Facts.Count == 0);
+        (groups, nextCursor) = (loaded, page?.NextCursor);
+        facts = [.. groups.SelectMany(g => g.Facts)];
+        foreach (MemorySubjectGroup group in groups.Where(g => g.Total is null))
+            _ = CountGroupAsync(context, next, group, request);
+        return read.Succeeded;
+    }
+
+    /// <summary>The next facts of <paramref name="group"/>, up to <paramref name="limit"/>, in the view's order.</summary>
+    private async Task LoadGroupAsync(OperationContext context, MemoryListView of, MemorySubjectGroup group, int limit)
+    {
+        group.Loading = true;
+        var read = await MemoryOps.List.RunAsync(context, Space,
+            new MemoryFactListing(of.Filter with { Subject = group.Subject.Subject }, of.Order, group.Next, limit));
+        group.Loading = false;
+        if (read.ResultOr<MemoryFactsListed, MemoryStatus>(failed => errorMessage = failed, null!) is { } page)
+            group.Add(page.Facts, page.NextCursor);
+    }
+
+    /// <summary>How many of a narrowed subject's facts match, after its first facts have shown.</summary>
+    private async Task CountGroupAsync(OperationContext context, MemoryListView of, MemorySubjectGroup group, int request)
+    {
+        var counted = await MemoryOps.Count.RunAsync(context, Space, of.Filter with { Subject = group.Subject.Subject });
+        if (disposed || request != loadRequest || !counted.Succeeded || group.Total is not null) return;
+        (group.Total, group.Capped) = (counted.Result!.Count, counted.Result.Capped);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleGroup(MemorySubjectGroup group)
+    {
+        group.Open = !group.Open;
+        if (group.Open && !group.Loaded && !group.Loading)
+            await LoadGroupAsync(await AuthStateProvider.OperationContextAsync(), view, group, MemorySubjectGroup.FirstFacts);
+        facts = [.. groups.SelectMany(g => g.Facts)];
+    }
+
+    private async Task ShowMore(MemorySubjectGroup group)
+    {
+        if (group.Next is null || group.Loading) return;
+        await LoadGroupAsync(await AuthStateProvider.OperationContextAsync(), view, group, MemoryListView.PageSize);
+        facts = [.. groups.SelectMany(g => g.Facts)];
     }
 
     /// <summary>Counts the view's facts after its page has shown, since a count can take up to two seconds.</summary>

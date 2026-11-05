@@ -414,7 +414,7 @@ else
     }
 
     private static string Href(MemorySpaceView space) =>
-        space.Kind == MemorySpaceKind.Container ? $"containers/{space.Id}?tab=memory" : $"containers/{space.Id}";
+        space.Kind == MemorySpaceKind.Container ? $"containers/{space.Id}?tab=memory" : $"memory/{space.Id}";
 
     private static string SortValue(MemorySpaceSort sort) => sort switch
     {

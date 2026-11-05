@@ -20,13 +20,14 @@ public sealed record MemoryListView(
     bool All = false,
     MemoryFactSort? Sort = null,
     string? Cursor = null,
-    int Page = 1)
+    int Page = 1,
+    bool Grouped = false)
 {
     /// <summary>Facts a page; the plan's 50.</summary>
     public const int PageSize = 50;
 
     /// <summary>Every address key the view owns, so writing a view clears the ones it leaves unset.</summary>
-    public static readonly IReadOnlyList<string> Keys = ["q", "subject", "author", "cites", "from", "to", "status", "sort", "after", "page"];
+    public static readonly IReadOnlyList<string> Keys = ["q", "subject", "author", "cites", "from", "to", "status", "sort", "after", "page", "group"];
 
     /// <summary>The sort used: the one chosen, else best match while searching and newest first otherwise.</summary>
     public MemoryFactSort Order => Sort switch
@@ -86,7 +87,8 @@ public sealed record MemoryListView(
             },
             cursor,
             // A page number without its cursor would label page 1's rows as another page's.
-            cursor is not null && int.TryParse(Get("page"), NumberStyles.None, CultureInfo.InvariantCulture, out int page) && page > 1 ? page : 1);
+            cursor is not null && int.TryParse(Get("page"), NumberStyles.None, CultureInfo.InvariantCulture, out int page) && page > 1 ? page : 1,
+            Get("group") == "subject");
 
         static DateOnly? Day(string? value) =>
             DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateOnly day) ? day : null;
@@ -112,6 +114,7 @@ public sealed record MemoryListView(
         },
         ["after"] = Cursor,
         ["page"] = Cursor is null || Page <= 1 ? null : Page.ToString(CultureInfo.InvariantCulture),
+        ["group"] = Grouped ? "subject" : null,
     };
 
     /// <summary>The words for a sort in the sort menu.</summary>

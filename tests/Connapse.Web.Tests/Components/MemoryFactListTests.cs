@@ -23,10 +23,10 @@ public class MemoryFactListTests : IDisposable
     private static readonly Guid Container = Guid.NewGuid();
     private static readonly Guid Me = Guid.NewGuid();
     private static readonly DateTimeOffset Jan = new(2026, 1, 5, 0, 0, 0, TimeSpan.Zero);
-    private static readonly MemorySource Runbook = new(MemorySourceKind.Document, Guid.NewGuid().ToString());
+    private static readonly MemorySource Runbook = FakeMemory.Runbook;
 
     private readonly BunitContext ctx = new();
-    private readonly FakeMemory memory = new();
+    private readonly FakeMemory memory = new(Container);
 
     public MemoryFactListTests()
     {
@@ -516,6 +516,107 @@ public class MemoryFactListTests : IDisposable
         cut.FindAll(".alert-danger").Should().BeEmpty();
     }
 
+    private void AddSubject(string subject, int facts, string value = "value")
+    {
+        for (int i = 0; i < facts; i++)
+            memory.Add(subject, $"attribute {i}", $"{value} {i}", recorded: Jan.AddMinutes(i));
+    }
+
+    [Fact]
+    public void Grouped_Toggle_KeepsTheViewInTheAddressAndOpensTheFirstThreeSubjects()
+    {
+        AddSubject("Alpha", 5);
+        AddSubject("Bravo", 1);
+        AddSubject("Charlie", 2);
+        AddSubject("Delta", 2);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-row").Should().HaveCount(10));
+
+        cut.Find("#memory-group").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Should().HaveCount(4));
+        Navigation.Uri.Should().Contain("group=subject");
+        cut.Find("#memory-group").GetAttribute("aria-pressed").Should().Be("true");
+        cut.FindAll(".memory-group-toggle").Select(b => b.GetAttribute("aria-expanded"))
+            .Should().Equal("true", "true", "true", "false");
+        cut.Find("[data-subject='Alpha'] .memory-group-count").TextContent.Should().Be("5 facts");
+        cut.FindAll("[data-subject='Alpha'] .memory-row").Should().HaveCount(3);
+        cut.FindAll("[data-subject='Delta'] .memory-row").Should().BeEmpty("a closed subject loads nothing");
+        cut.Find("#memory-range").TextContent.Should().Contain("All 4 subjects");
+
+        cut.Find("[data-more-subject='Alpha']").TextContent.Should().Contain("Show 2 more in Alpha");
+        cut.Find("[data-more-subject='Alpha']").Click();
+        cut.WaitForAssertion(() => cut.FindAll("[data-subject='Alpha'] .memory-row").Should().HaveCount(5));
+        cut.FindAll("[data-more-subject='Alpha']").Should().BeEmpty();
+
+        cut.Find("[data-subject='Delta'] .memory-group-toggle").Click();
+        cut.WaitForAssertion(() => cut.FindAll("[data-subject='Delta'] .memory-row").Should().HaveCount(2));
+        memory.Lists.Should().Contain(f => f.Subject == "Delta");
+    }
+
+    [Fact]
+    public void Grouped_Search_ShowsOnlySubjectsWithMatchingFactsAndCountsThem()
+    {
+        AddSubject("Refund policy", 5, "refund");
+        AddSubject("Chargebacks", 1, "refund");
+        AddSubject("Chargebacks", 2, "dispute");
+        AddSubject("Coupons", 3, "discount");
+
+        var cut = Render(address: "http://localhost/?group=subject&q=refund");
+
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Select(g => g.GetAttribute("data-subject"))
+            .Should().Equal("Chargebacks", "Refund policy"));
+        cut.FindAll("[data-subject='Chargebacks'] .memory-row").Should().ContainSingle("only its matching fact is listed");
+        cut.Find("[data-subject='Chargebacks'] .memory-group-count").TextContent.Should().Be("1 fact");
+        cut.WaitForAssertion(() => cut.Find("[data-subject='Refund policy'] .memory-group-count").TextContent.Should().Be("5 facts"));
+        cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Be("All 2 subjects matching “refund” · 6 facts"));
+    }
+
+    [Fact]
+    public void Grouped_ManySubjects_PagesFiftyAtATime()
+    {
+        for (int i = 0; i < 60; i++)
+            AddSubject($"subject {i:D2}", 1);
+
+        var cut = Render(address: "http://localhost/?group=subject");
+
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Should().HaveCount(50));
+        cut.Find("#memory-range").TextContent.Should().StartWith("50 subjects on page 1");
+        cut.Find("#memory-next").Click();
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Should().HaveCount(10));
+        cut.Find(".memory-group").GetAttribute("data-subject").Should().Be("subject 50");
+        cut.Find("#memory-range").TextContent.Should().StartWith("10 subjects on page 2");
+        cut.Find("#memory-prev").Click();
+        cut.WaitForAssertion(() => cut.Find(".memory-group").GetAttribute("data-subject").Should().Be("subject 00"));
+    }
+
+    [Fact]
+    public void Grouped_SubjectFilter_KeepsTheSubjectExact()
+    {
+        AddSubject("API", 2);
+        AddSubject("API Gateway", 3);
+
+        var cut = Render(address: "http://localhost/?group=subject&subject=api");
+
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Select(g => g.GetAttribute("data-subject")).Should().Equal("API"));
+        cut.FindAll(".memory-row").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Grouped_FilteredLaterPageWithNoMatches_KeepsThePagerToGoBack()
+    {
+        for (int i = 0; i < 60; i++)
+            AddSubject($"subject {i:D2}", 1, i == 0 ? "refund" : "other");
+        var cut = Render(address: "http://localhost/?group=subject&q=refund");
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Should().ContainSingle());
+
+        cut.Find("#memory-next").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".memory-group-none").TextContent.Should().Contain("Try the previous page"));
+        cut.FindAll("#memory-no-matches").Should().BeEmpty("earlier pages have matching facts");
+        cut.Find("#memory-prev").HasAttribute("disabled").Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(30, "just now")]
     [InlineData(60 * 5, "5 minutes ago")]
@@ -525,200 +626,5 @@ public class MemoryFactListTests : IDisposable
     public void Relative_UnderAMonthIsRelative_OlderIsTheDay(int secondsAgo, string expected)
     {
         MemoryFactList.Relative(Jan.AddSeconds(-secondsAgo), now: Jan).Should().Be(expected);
-    }
-
-    /// <summary>Memory in a list, with the visibility the real service gives a reader who can see everything.</summary>
-    private sealed class FakeMemory : IMemoryService
-    {
-        private readonly List<MemoryFact> facts = [];
-
-        /// <summary>The filter of each page listed.</summary>
-        public List<MemoryFactFilter> Lists { get; } = [];
-
-        /// <summary>The sort of each page listed.</summary>
-        public List<MemoryFactSort> Sorts { get; } = [];
-
-        /// <summary>The filter of each count.</summary>
-        public List<MemoryFactFilter> Counts { get; } = [];
-
-        public List<(Guid FactId, MemoryCorrection Kind, NewMemoryFact Replacement)> Corrections { get; } = [];
-
-        public List<Guid> Forgotten { get; } = [];
-
-        public bool DenyReads { get; set; }
-
-        public string? RefuseCorrections { get; set; }
-
-        private int countsAnswered;
-
-        /// <summary>How many counts have answered.</summary>
-        public int CountsAnswered => Volatile.Read(ref countsAnswered);
-
-        private bool holdingCounts;
-        private readonly List<TaskCompletionSource> countGates = [];
-
-        /// <summary>Counts wait until released, each answering with the total when it started.</summary>
-        public void HoldCounts() => holdingCounts = true;
-
-        public void ReleaseCounts()
-        {
-            holdingCounts = false;
-            foreach (var gate in countGates)
-                gate.TrySetResult();
-        }
-
-        /// <summary>Releases the count started <paramref name="index"/>th, from 0.</summary>
-        public void ReleaseCount(int index) => countGates[index].SetResult();
-
-        public MemoryFact Add(
-            string subject, string attribute, string value, DateTimeOffset? from = null, IReadOnlyList<MemorySource>? sources = null,
-            DateTimeOffset? recorded = null, MemoryCaller? author = null)
-        {
-            Guid id = Guid.NewGuid();
-            var fact = new MemoryFact(id, id, Container, subject, attribute, value, from, null, recorded ?? DateTimeOffset.UtcNow.AddDays(-2),
-                null, null, null, author ?? new MemoryCaller(Guid.NewGuid(), Guid.NewGuid(), "pat"), sources ?? []);
-            facts.Add(fact);
-            return fact;
-        }
-
-        public MemoryFact Correct(MemoryFact old, MemoryCorrection kind, string value, DateTimeOffset? from = null, string? reason = null)
-        {
-            facts.Remove(old);
-            facts.Add(kind == MemoryCorrection.Changed ? old with { ValidTo = from } : old with { SupersededAt = DateTimeOffset.UtcNow });
-            var fact = old with
-            {
-                Id = Guid.NewGuid(),
-                Value = value,
-                ValidFrom = kind == MemoryCorrection.Changed ? from : old.ValidFrom,
-                ValidTo = null,
-                SupersededAt = null,
-                ReplacesId = old.Id,
-                Reason = reason,
-                RecordedAt = old.RecordedAt.AddMinutes(1),
-            };
-            facts.Add(fact);
-            return fact;
-        }
-
-        public Task<MemoryWriteResult> RememberAsync(Guid containerId, NewMemoryFact fact, MemoryCaller caller, CancellationToken ct = default) =>
-            throw new NotSupportedException("The memory list doesn't write new facts.");
-
-        public Task<MemoryWriteResult> CorrectAsync(
-            Guid factId, MemoryCorrection kind, NewMemoryFact replacement, MemoryCaller caller, bool teamWriter,
-            CancellationToken ct = default)
-        {
-            Corrections.Add((factId, kind, replacement));
-            if (RefuseCorrections is { } refusal)
-                return Task.FromResult(MemoryWriteResult.Failed(refusal));
-            MemoryFact old = facts.Single(f => f.Id == factId);
-            MemoryFact written = Correct(old, kind, replacement.Value, replacement.ValidFrom, replacement.Reason);
-            return Task.FromResult(new MemoryWriteResult(written, facts.Single(f => f.Id == factId), null));
-        }
-
-        public Task<(int Deleted, MemoryWriteFailure Failure)> ForgetAsync(
-            Guid factId, MemoryCaller caller, bool teamWriter, CancellationToken ct = default)
-        {
-            Forgotten.Add(factId);
-            Guid chain = facts.Single(f => f.Id == factId).ChainId;
-            int deleted = facts.RemoveAll(f => f.ChainId == chain);
-            return Task.FromResult((deleted, MemoryWriteFailure.None));
-        }
-
-        /// <summary>Facts the reader can no longer see, as when access to their sources is taken away.</summary>
-        public HashSet<Guid> Hidden { get; } = [];
-
-        /// <summary>History reads for this chain wait until <see cref="ReleaseHeldChain"/>.</summary>
-        public Guid? HeldChain { get; set; }
-
-        private readonly TaskCompletionSource held = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public void ReleaseHeldChain() => held.SetResult();
-
-        private static RecalledFact Shown(MemoryFact f) => new(f,
-            [.. f.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, s == Runbook ? "Ops runbook" : null))]);
-
-        private IEnumerable<MemoryFact> Matching(MemoryFactFilter filter) => facts.Where(f =>
-            !Hidden.Contains(f.Id)
-            && (filter.Status == MemoryFactStatus.All || (f.SupersededAt is null && f.ValidTo is null))
-            && (filter.Text is null || f.Value.Contains(filter.Text, StringComparison.OrdinalIgnoreCase)
-                || f.Subject.Contains(filter.Text, StringComparison.OrdinalIgnoreCase))
-            && (filter.Subject is null || string.Equals(f.Subject, filter.Subject, StringComparison.OrdinalIgnoreCase))
-            && (filter.Author is null || f.Author.UserId == filter.Author || f.Author.AgentId == filter.Author)
-            && (filter.Cites == MemoryCites.Any || (filter.Cites == MemoryCites.Some) == (f.Sources.Count > 0))
-            && (filter.From is null || f.RecordedAt >= filter.From)
-            && (filter.To is null || f.RecordedAt <= filter.To));
-
-        public Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default) =>
-            throw new NotSupportedException("The memory list pages through list, not recall.");
-
-        public Task<MemoryFactPage> ListAsync(
-            Guid containerId, MemoryFactFilter filter, MemoryFactSort sort, MemoryFactKey? after, int limit, MemoryCaller caller,
-            CancellationToken ct = default)
-        {
-            Lists.Add(filter);
-            Sorts.Add(sort);
-            if (DenyReads)
-                return Task.FromResult(MemoryFactPage.DeniedResult);
-            // Newest recorded first, whatever the sort: the fake's order only has to be stable for its cursor.
-            IEnumerable<MemoryFact> found = Matching(filter).OrderByDescending(f => f.RecordedAt).ThenByDescending(f => f.Id);
-            if (after is { Recorded: { } recorded })
-                found = found.SkipWhile(f => f.RecordedAt > recorded || (f.RecordedAt == recorded && f.Id.CompareTo(after.Id) >= 0));
-            List<MemoryFact> rest = [.. found.Take(limit + 1)];
-            List<MemoryFact> page = [.. rest.Take(limit)];
-            return Task.FromResult(new MemoryFactPage([.. page.Select(Shown)],
-                rest.Count > limit ? new MemoryFactKey(page[^1].Id, page[^1].RecordedAt) : null));
-        }
-
-        public async Task<MemoryFactCount> CountAsync(Guid containerId, MemoryFactFilter filter, MemoryCaller caller, CancellationToken ct = default)
-        {
-            Counts.Add(filter);
-            int total = Matching(filter).Count();
-            TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            countGates.Add(gate);
-            if (!holdingCounts)
-                gate.SetResult();
-            await gate.Task;
-            Interlocked.Increment(ref countsAnswered);
-            return new MemoryFactCount(total, false);
-        }
-
-        public Task<MemorySubjectPage> SubjectsAsync(
-            Guid containerId, string? text, MemoryFactStatus status, string? after, int limit, MemoryCaller caller,
-            CancellationToken ct = default) =>
-            Task.FromResult(new MemorySubjectPage([.. Matching(new MemoryFactFilter(Status: status))
-                .Where(f => text is null || f.Subject.Contains(text, StringComparison.OrdinalIgnoreCase))
-                .GroupBy(f => f.Subject.ToLowerInvariant())
-                .OrderBy(g => g.Key)
-                .Take(limit)
-                .Select(g => new MemorySubject(g.First().Subject, g.Count()))], null));
-
-        public Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default) =>
-            Task.FromResult(facts.Any(f => f.Id == factId) ? Container : (Guid?)null);
-
-        /// <summary>The fact each history read asked about.</summary>
-        public List<Guid> HistoryReads { get; } = [];
-
-        public async Task<MemoryHistoryPage> HistoryAsync(
-            Guid containerId, Guid factId, MemoryVersionKey? after, int limit, MemoryCaller caller, CancellationToken ct = default)
-        {
-            HistoryReads.Add(factId);
-            if (facts.FirstOrDefault(f => f.Id == factId) is not { } of)
-                return MemoryHistoryPage.Missing;
-            if (of.ChainId == HeldChain)
-                await held.Task;
-            if (DenyReads)
-                return MemoryHistoryPage.DeniedResult;
-            if (Hidden.Contains(factId))
-                return MemoryHistoryPage.Missing;
-            // Newest first, as the store reads a chain.
-            List<MemoryFact> chain = [.. facts.Where(f => f.ChainId == of.ChainId && !Hidden.Contains(f.Id))
-                .OrderByDescending(f => f.RecordedAt).ThenByDescending(f => f.Id)];
-            List<MemoryFact> rest = after is null
-                ? chain
-                : [.. chain.SkipWhile(f => f.RecordedAt > after.Recorded || (f.RecordedAt == after.Recorded && f.Id.CompareTo(after.Id) >= 0))];
-            List<MemoryFact> page = [.. rest.Take(limit)];
-            MemoryVersionKey? next = rest.Count > limit ? new MemoryVersionKey(page[^1].RecordedAt, page[^1].Id) : null;
-            return new MemoryHistoryPage([.. page.Select(Shown)], chain.Count, next);
-        }
     }
 }
