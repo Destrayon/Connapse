@@ -23,9 +23,10 @@ internal static class TestSizeRules
 
     /// <summary>
     /// Load runs in no CI step, by design: it seeds tens of thousands of rows and times them for minutes.
-    /// Only these classes may use it, for the same reason as LiveAws.
+    /// Only these classes may use it, for the same reason as LiveAws. Each is named by project, namespace and class
+    /// (<see cref="TestSources.ClassKey"/>), so a same-named class elsewhere is not let through.
     /// </summary>
-    public static readonly string[] LoadClasses = ["MemorySpacesLoadTests"];
+    public static readonly string[] LoadClasses = ["Connapse.Integration.Tests|Connapse.Integration.Tests.Memory.MemorySpacesLoadTests"];
 
     /// <summary>One problem per offending test method, as "file: Class.Method: reason".</summary>
     public static IEnumerable<string> Problems(string relativePath, SyntaxNode root) =>
@@ -48,7 +49,7 @@ internal static class TestSizeRules
             {
                 var traits = classTraits.Concat(TestSources.Traits(method.AttributeLists)).ToList();
                 string? reason = Check(traits) ?? CheckLiveAws(cls.Identifier.ValueText, traits)
-                    ?? CheckLoad(cls.Identifier.ValueText, traits);
+                    ?? CheckLoad(TestSources.ClassKey(relativePath, cls), traits);
                 if (reason is not null)
                     yield return $"{relativePath}: {cls.Identifier.ValueText}.{method.Identifier.ValueText}: {reason}";
             }
@@ -83,8 +84,8 @@ internal static class TestSizeRules
             ? "Category=LiveAws runs in no CI step and is reserved for the listed live-AWS classes"
             : null;
 
-    internal static string? CheckLoad(string className, IReadOnlyList<(string Name, string Value)> traits) =>
-        traits.Any(t => t is ("Category", "Load")) && !LoadClasses.Contains(className)
+    internal static string? CheckLoad(string classKey, IReadOnlyList<(string Name, string Value)> traits) =>
+        traits.Any(t => t is ("Category", "Load")) && !LoadClasses.Contains(classKey)
             ? "Category=Load runs in no CI step and is reserved for the listed load-test classes"
             : null;
 }

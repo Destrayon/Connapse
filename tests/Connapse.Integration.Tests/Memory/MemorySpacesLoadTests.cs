@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text;
@@ -8,6 +8,7 @@ using IOperationAuthorizer = Connapse.Application.Ports.IOperationAuthorizer;
 using Policies = Connapse.Application.Ports.Policies;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Search.Links;
 using Connapse.Storage.Containers;
 using Connapse.Storage.Data;
 using Connapse.Storage.Memory;
@@ -35,8 +36,9 @@ public sealed class MemoryLoadCollection
 /// memories in one team space (about 65,500 versions), 200 spaces in all, one fact with 500 versions, and a read-only
 /// viewer who can read 1% of the cited documents. Every operation runs 20 times per reader against PostgreSQL capped
 /// like every test container (2 CPUs, 4 GB); the 95th percentile must meet its target. The time measured is the
-/// application operation the REST and MCP routes call, against the real stores. Who may read which document is faked:
-/// the real check needs cloud identity, and its cost is one call per request either way.
+/// application operation the REST and MCP routes call, against the real stores and the real document access check over
+/// 5,000 seeded documents. Only the cloud boundaries are faked: the scope resolver hands each reader its S3 prefixes,
+/// and the per-object verifier admits what the scopes admitted.
 /// Category=Load runs in no CI step; run it with <c>dotnet test --filter "Category=Load"</c>.
 /// </summary>
 [Trait("Category", "Load")]
@@ -63,24 +65,52 @@ public sealed class MemorySpacesLoadTests(ITestOutputHelper output) : IAsyncLife
 
     private sealed record Timing(string Operation, string Reader, double P50, double P95, double Target, string Note);
 
-    public async Task InitializeAsync() => await _postgres.StartAsync();
+    private NpgsqlDataSource? _dataSource;
 
-    public async Task DisposeAsync() => await _postgres.DisposeAsync();
+    public async Task InitializeAsync()
+    {
+        await _postgres.StartAsync();
+        // Built as the app builds it (AddStorage): documents' metadata is a jsonb dictionary.
+        // The write buffer holds a whole request: the full reader sends 5,000 document ids, and split across 8 KB writes
+        // Docker Desktop's port forwarding stalls each such request about 40 ms. The app beside its database does not go
+        // through that forwarding, so the test should not either.
+        var builder = new NpgsqlDataSourceBuilder(_postgres.GetConnectionString() + ";Write Buffer Size=1048576");
+        builder.EnableDynamicJson();
+        builder.UseVector();
+        _dataSource = builder.Build();
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_dataSource is not null)
+            await _dataSource.DisposeAsync();
+        await _postgres.DisposeAsync();
+    }
 
     private DbContextOptions<KnowledgeDbContext> Options() => new DbContextOptionsBuilder<KnowledgeDbContext>()
-        .UseNpgsql(_postgres.GetConnectionString(), npgsql => npgsql.UseVector())
+        .UseNpgsql(_dataSource!, npgsql => npgsql.UseVector())
         .Options;
 
-    /// <summary>The full reader reads every document; the viewer reads every hundredth one.</summary>
-    private sealed class FakeAccess(Dictionary<Guid, HashSet<string>> readable) : IDocumentAccess
+    /// <summary>
+    /// The full reader is granted every document's prefix; the viewer only <c>s3://load/shared/</c>, where every
+    /// hundredth document lives.
+    /// </summary>
+    private sealed class FakeScopes(Guid reader, Guid viewer) : ISearchScopeResolver
     {
-        public Task<IReadOnlySet<string>> ReadableAsync(Guid? userId, IReadOnlyCollection<string> documentIds, CancellationToken ct = default)
-        {
-            IReadOnlySet<string> open = userId is { } u && readable.TryGetValue(u, out HashSet<string>? r)
-                ? documentIds.Where(r.Contains).ToHashSet(StringComparer.Ordinal)
-                : new HashSet<string>(StringComparer.Ordinal);
-            return Task.FromResult(open);
-        }
+        public Task<SearchScopes> ResolveAsync(Guid? userId, CancellationToken ct = default) => Task.FromResult(
+            userId == reader ? SearchScopes.OfPrefixes(["s3://load/"])
+            : userId == viewer ? SearchScopes.OfPrefixes(["s3://load/shared/"])
+            : SearchScopes.None);
+    }
+
+    /// <summary>The cloud's per-object check, which would agree with the grants above.</summary>
+    private sealed class AdmitAll : ISearchResultVerifier
+    {
+        public int CandidateMultiplier => 1;
+
+        public Task<IReadOnlyList<SearchHit>> VerifyAsync(
+            IReadOnlyList<SearchHit> rankedCandidates, Guid? userId, int topK, CancellationToken ct = default) =>
+            Task.FromResult(rankedCandidates);
     }
 
     private sealed class NoLinks : ILinkIndex
@@ -155,6 +185,10 @@ public sealed class MemorySpacesLoadTests(ITestOutputHelper output) : IAsyncLife
                    @t0 + make_interval(secs => l.v), CASE WHEN l.v < 500 THEN @t0 + make_interval(secs => l.v + 1) END,
                    (SELECT p.id FROM long p WHERE p.v = l.v - 1), (@authors)[1], 1
             FROM long l;
+            -- Even versions, the current one among them, cite documents the viewer can read; odd ones cite others.
+            INSERT INTO memory_fact_sources (fact_id, ordinal, kind, ref)
+            SELECT id, 0, 0, CASE WHEN v % 2 = 0 THEN (@docs)[1 + 100 * ((v / 2) % 50)] ELSE (@docs)[2 + (v * 2) % 4000] END
+            FROM long;
 
             CREATE TEMP TABLE spaces AS
             SELECT n, gen_random_uuid() AS id,
@@ -165,6 +199,13 @@ public sealed class MemorySpacesLoadTests(ITestOutputHelper output) : IAsyncLife
             FROM generate_series(1, 199) n;
             INSERT INTO containers (id, name, description, kind, audience, owner_user_id, created_at, updated_at)
             SELECT id, 'load-space-' || n, NULL, kind, audience, owner, @t0, @t0 FROM spaces;
+
+            -- The cited documents, synced from S3 into the first documents container; every hundredth sits under shared/.
+            INSERT INTO documents (id, container_id, file_name, path, content_hash, size_bytes, ingestion_status, resource_uri)
+            SELECT d.ref::uuid, (SELECT id FROM spaces WHERE n = 161), 'doc ' || d.i || '.md', '/doc ' || d.i || '.md',
+                   'hash', 1, 'Ready',
+                   's3://load/' || CASE WHEN (d.i - 1) % 100 = 0 THEN 'shared/' ELSE 'private/' END || 'doc' || d.i
+            FROM unnest(@docs) WITH ORDINALITY AS d(ref, i);
 
             CREATE TEMP TABLE small AS
             SELECT s.id AS container, s.audience, s.owner, f, gen_random_uuid() AS id
@@ -225,11 +266,7 @@ public sealed class MemorySpacesLoadTests(ITestOutputHelper output) : IAsyncLife
         output.WriteLine($"Seeded in {seeding.Elapsed.TotalSeconds:F0} s");
 
         var factory = new PooledDbContextFactory<KnowledgeDbContext>(Options());
-        var access = new FakeAccess(new()
-        {
-            [_reader] = [.. _documents],
-            [_viewer] = [.. _documents.Where((_, i) => i % 100 == 0)],
-        });
+        var access = new UserDocumentAccess(factory, new FakeScopes(_reader, _viewer), new AdmitAll());
         var memory = new MemoryService(new PostgresMemoryStore(factory, TimeProvider.System), access, new NoLinks(),
             Substitute.For<IAuditLogger>(), NullLogger<MemoryService>.Instance);
         var containers = new PostgresContainerStore(factory, NullLogger<PostgresContainerStore>.Instance);
@@ -241,6 +278,7 @@ public sealed class MemorySpacesLoadTests(ITestOutputHelper output) : IAsyncLife
             new PostgresMemorySpaceStore(factory, access, new NoLinks(), TimeProvider.System, NullLogger<PostgresMemorySpaceStore>.Instance),
             authorizer);
         string space = big.ToString();
+
 
         // The viewer is read-only: a save is refused before anything is written.
         var saved = await new RememberFact(containers, memory, authorizer).RunAsync(
@@ -331,7 +369,9 @@ public sealed class MemorySpacesLoadTests(ITestOutputHelper output) : IAsyncLife
             {
                 var read = await history.RunByFactAsync(ctx, longFact.ToString());
                 read.Succeeded.Should().BeTrue(read.Detail);
-                read.Result!.Total.Should().Be(500);
+                // The viewer reads the even versions only.
+                read.Result!.Total.Should().Be(user == _viewer ? 250 : 500);
+                read.Result.Versions.Should().NotBeEmpty().And.OnlyContain(v => v.Sources.All(s => s.Title != null));
                 return $"{read.Result.Versions.Count} of {read.Result.Total}";
             });
         }

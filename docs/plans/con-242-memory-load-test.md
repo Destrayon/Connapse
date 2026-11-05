@@ -26,3 +26,14 @@ that epic branch.
 - Phase 3: passed twice with Ryuk off (2 min each, seed 2 s); every p95 under target, no code change needed. Worst
   margins: viewer every-version first page 140 ms of 150 (p50 65), full count 546 ms of 2 s. Table in
   E:\tmp\con-242\after.md. Next: before numbers on bcce100d.
+- Phase 4: a scratch copy of the seed (no scope, audience or owner columns; never committed) timed `RecallAsync` on
+  bcce100d, the only read it had. The 1% viewer's first page took p95 955–1,020 ms, because hidden facts were dropped
+  in app code 200 rows at a time; every other read was under target. Table in E:\tmp\con-242\before3.md. Next: ship.
+- Phase 5: Codex (gpt-6.1-sol) found three real gaps, all fixed. The test used a fake document access (it now runs the
+  real `UserDocumentAccess` over 5,000 seeded documents, faking only the S3 scope resolver and the verifier). The
+  500-version chain cited nothing (its versions now cite documents, the viewer reading the even ones). The Load
+  reservation matched the bare class name (it now matches project, namespace and class). With real access the full
+  reader first missed 150 ms. Profiling showed Postgres spends about 3 ms checking 5,000 ids, but the request stalled
+  about 40 ms in Docker Desktop's host port forwarding when its array was sent as 8 KB pieces. With a 1 MB Npgsql write
+  buffer in the test, it passed twice; the worst page p95 was 88 ms. Table in E:\tmp\con-242\after.md. Verified: Release
+  build with CI flags, all unit tests. Next: open the PR.

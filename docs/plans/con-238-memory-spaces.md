@@ -419,3 +419,9 @@ split goes to the PM before coding.
   container as a new fact, 409 if one with the same subject and attribute is there unless `anyway`, and removes the
   Agent memory choice from Create Container. Codex found three real bugs (read scope, a superseded version slipping
   through, a duplicate check that failed open), all fixed. Next: CON-247.
+- **CON-242, 2026-11-04.** `MemorySpacesLoadTests` (`Category=Load`, which no CI step runs) seeds 50,000 current
+  facts in one team space, 200 spaces, a 500-version fact and a read-only viewer who can read 1% of the cited documents.
+  It times every operation 20 times on Postgres capped at 2 CPUs and 4 GB. Every target is met: page p95 at most 88 ms,
+  count 203 ms, spaces list 70 ms, history 23 ms. Before the epic, the viewer's first page took about 1 s. The full
+  reader sends its 5,000 readable document ids with every request; that is cheap locally but a cost to watch for
+  Connapse Cloud's remote database.
