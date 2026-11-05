@@ -147,6 +147,12 @@ cited source doesn't exist or can't be read by the writer, or the `space` named 
 one of your personal spaces and by a team space or container is ambiguous; pass the id instead. The detail
 says which.
 
+## memory-fact-exists
+
+The team space or container you're copying to already has a current fact with the same subject and attribute,
+so the copy was refused rather than leave two that may disagree. The detail names the fact already there.
+Nothing in the destination was changed. Send the copy again with `anyway: true` to copy it as well.
+
 ## memory-access-unchecked
 
 Connapse couldn't check whether the caller may read the facts' sources, so it showed, wrote or deleted

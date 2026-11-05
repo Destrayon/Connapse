@@ -41,8 +41,10 @@ public sealed class CopyMemoryFact(
     public async Task<Attempt<MemoryCopyPlan, MemoryStatus>> PlanAsync(
         OperationContext context, string factId, string destination, CancellationToken ct = default)
     {
-        if (!await MemoryRules.WriterAsync(authorizer, context))
-            return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Forbidden, "copying memory needs write access (knowledge:write).");
+        // A copy returns the fact's content, so it needs read access as well as write.
+        if (!await MemoryRules.WriterAsync(authorizer, context) || !await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
+            return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Forbidden,
+                "copying memory needs write and read access (knowledge:write and knowledge:read).");
         MemoryCaller caller = MemoryRules.Caller(context.User);
 
         if (!Guid.TryParse(factId, out Guid id) || await memory.SpaceOfAsync(id, ct) is not { } spaceId
@@ -58,6 +60,10 @@ public sealed class CopyMemoryFact(
         if (newest.NotFound || newest.Versions.Count == 0)
             return MemoryRules.FactNotFound<MemoryCopyPlan>(factId);
         RecalledFact current = newest.Versions[0];
+        // History lists only the versions the caller can read, so its newest may have been replaced by one they can't.
+        if (current.Fact.SupersededAt is not null)
+            return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Invalid,
+                "this fact has a newer version citing a source you can't read, so it can't be copied.", "id");
 
         (Container? to, string? ambiguous) = await MemoryRules.SpaceAsync(containers, destination, caller, ct);
         if (ambiguous is not null)
@@ -68,8 +74,11 @@ public sealed class CopyMemoryFact(
             return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Invalid,
                 $"'{to.Name}' is a personal space. Copy to a team space or a document container.", "destination");
 
-        return Attempt<MemoryCopyPlan, MemoryStatus>.Succeed(
-            new MemoryCopyPlan(current, to, await ExistingAsync(Guid.Parse(to.Id), current.Fact, caller, ct)));
+        (bool checkedAll, RecalledFact? existing) = await ExistingAsync(Guid.Parse(to.Id), current.Fact, caller, ct);
+        if (!checkedAll)
+            return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Unchecked,
+                $"whether '{to.Name}' already has this fact could not be checked.");
+        return Attempt<MemoryCopyPlan, MemoryStatus>.Succeed(new MemoryCopyPlan(current, to, existing));
     }
 
     /// <summary>
@@ -100,8 +109,11 @@ public sealed class CopyMemoryFact(
         return Attempt<MemoryCopied, MemoryStatus>.Succeed(new MemoryCopied(copy, fact.Id, to));
     }
 
-    /// <summary>A current fact in the destination with the same subject and attribute that the caller can see, or null.</summary>
-    private async Task<RecalledFact?> ExistingAsync(Guid destination, MemoryFact fact, MemoryCaller caller, CancellationToken ct)
+    /// <summary>
+    /// A current fact in the destination with the same subject and attribute that the caller can see, or null; not
+    /// <c>Checked</c> when the search was refused or stopped before the end, so no match doesn't mean there is none.
+    /// </summary>
+    private async Task<(bool Checked, RecalledFact? Same)> ExistingAsync(Guid destination, MemoryFact fact, MemoryCaller caller, CancellationToken ct)
     {
         MemoryFactFilter filter = new(Subject: fact.Subject, Status: MemoryFactStatus.Current);
         MemoryFactKey? after = null;
@@ -109,12 +121,14 @@ public sealed class CopyMemoryFact(
         do
         {
             MemoryFactPage page = await memory.ListAsync(destination, filter, MemoryFactSort.Subject, after, 100, caller, ct);
+            if (page.Denied)
+                return (false, null);
             if (page.Facts.FirstOrDefault(f => string.Equals(f.Fact.Attribute, fact.Attribute, StringComparison.OrdinalIgnoreCase)) is { } same)
-                return same;
+                return (true, same);
             scanned += page.Facts.Count;
             after = page.Next;
         }
         while (after is not null && scanned < ExistingScan);
-        return null;
+        return (after is null, null);
     }
 }

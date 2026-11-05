@@ -152,7 +152,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.copy")
-        .WithDescription("Copies the current version of a fact in your own personal space to a team space or document container, as a new fact you wrote; the personal fact is unchanged");
+        .WithDescription("Copies the current version of a fact in your own personal space to a team space or document container, as a new fact you wrote; the personal fact is unchanged. Needs knowledge:read as well as knowledge:write");
 
         return app;
     }
