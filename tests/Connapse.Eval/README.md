@@ -122,8 +122,10 @@ from the GitHub and Jira APIs. Built locally (needs `gh` signed in; about 15 min
 answers each question twice with the real MCP tools: once with `search_knowledge` and `get_document`, once with
 `memory_recall` added. A run scores 1 when the agent cites the current document and no superseded one. The bar,
 set before any run, is in `eval/pass-bars.md`; the report ends with KEEP or DROP and the command exits 3 on DROP.
-It calls the Anthropic API, so it needs `ANTHROPIC_API_KEY` and costs money (about $40–75 for the test split at
-3 repetitions on Sonnet 5.5; try `--split dev --repetitions 1` first):
+Only the pre-registered run (all 112 test tasks, 3 repetitions per arm) can pass; any other run reports its
+verdict as diagnostic only. The run stops before any agent starts if a document fails to index. It calls the
+Anthropic API, so it needs `ANTHROPIC_API_KEY` and costs money (about $40–75 for the test split at 3 repetitions
+on Sonnet 5.5; try `--split dev --repetitions 1` first):
 
     dotnet run --project tests/Connapse.Eval -- memory-search --split test --out eval/runs/memory-search.json
     MEMORY_SEARCH_SPLIT=dev eval/tools/run_light.sh memory-search

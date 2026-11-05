@@ -2,6 +2,7 @@ using System.Text.Json;
 using Connapse.Eval.Runs;
 using Connapse.Eval.Runs.MemorySearch;
 using Connapse.Eval.Statistics;
+using Connapse.Eval.Systems;
 using FluentAssertions;
 
 namespace Connapse.Eval.Tests.Runs;
@@ -286,33 +287,76 @@ public class MemorySearchTests
         MemorySearchScoring.Decide(C(0, -0.05, 0.05, p: 1), C(0, -0.05, 0.05, p: 1), C(0, -0.04, 0.04, p: 1)).Should().Be(Verdict.NoBetter);
     }
 
-    [Fact]
-    public void Report_KeepRun_PassesGateAndListsExamples()
+    private static MemorySearchEval.Options Options(string split = "test", int repetitions = 3, int? limit = null) =>
+        new("hybrid", split, "claude-sonnet-5-5", "medium", repetitions, limit, 1, null);
+
+    private static List<MemorySearchEval.TaskResult> KeepResults(int mTasks, int hTasks, int repetitions)
     {
         List<MemorySearchEval.TaskResult> results = [];
-        for (int i = 0; i < 6; i++)
-        {
-            SearchTask m = Task() with { Id = $"m-{i}" };
-            SearchTask h = Task("control") with { Id = $"h-{i}" };
-            results.Add(Result(m, off: 0, on: 1));
-            results.Add(Result(h, off: 1, on: 1));
-        }
+        for (int i = 0; i < mTasks; i++)
+            results.Add(Result(Task() with { Id = $"m-{i}" }, off: 0, on: 1, repetitions));
+        for (int i = 0; i < hTasks; i++)
+            results.Add(Result(Task("control") with { Id = $"h-{i}" }, off: 1, on: 1, repetitions));
+        return results;
+    }
 
-        var report = MemorySearchEval.Report(new MemorySearchEval.Options("hybrid", "test", "claude-sonnet-5-5", "medium", 1, null, 1, null), results);
+    [Fact]
+    public void Report_RegisteredKeepRun_PassesGateAndListsExamples()
+    {
+        var report = MemorySearchEval.Report(Options(), KeepResults(64, 48, 3));
 
+        ((bool)report["gate"]!["conforming"]!).Should().BeTrue();
         ((bool)report["gate"]!["passed"]!).Should().BeTrue();
         ((string)report["gate"]!["verdict"]!).Should().Be("KEEP");
-        report["examples"]!["memoryHelped"]!.AsArray().Should().HaveCount(3);
+        report["examples"]!["memoryHelped"]!.AsArray().Should().NotBeEmpty();
         report["examples"]!["memoryHurt"]!.AsArray().Should().BeEmpty();
         ((double)report["tokens"]!["on"]!["costUsd"]!).Should().BeGreaterThan(0);
     }
 
-    private static MemorySearchEval.TaskResult Result(SearchTask task, double off, double on)
+    [Theory]
+    [InlineData("dev", 3, null, 64, 48)]
+    [InlineData("test", 1, null, 64, 48)]
+    [InlineData("test", 3, 12, 6, 6)]
+    [InlineData("test", 3, null, 60, 48)]
+    public void Report_KeepOnAPartialRun_IsDiagnosticOnlyAndDoesNotPass(string split, int repetitions, int? limit, int mTasks, int hTasks)
+    {
+        var report = MemorySearchEval.Report(Options(split, repetitions, limit), KeepResults(mTasks, hTasks, repetitions));
+
+        ((string)report["gate"]!["verdict"]!).Should().Be("KEEP");
+        ((bool)report["gate"]!["conforming"]!).Should().BeFalse();
+        report["gate"]!["diagnosticOnly"]!.AsArray().Should().NotBeEmpty();
+        ((bool)report["gate"]!["passed"]!).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Nonconforming_TaskMissingARun_IsReported()
+    {
+        List<MemorySearchEval.TaskResult> results = KeepResults(64, 48, 3);
+        results[0] = results[0] with { On = [.. results[0].On.Take(2)] };
+
+        MemorySearchEval.Nonconforming(Options(), results).Should().ContainSingle().Which.Should().Contain("missing runs");
+    }
+
+    [Fact]
+    public void RequireCompleteIndex_FailedDocument_StopsTheRun()
+    {
+        IndexReport failed = new(364, 1, ["ms-0042"]);
+
+        FluentActions.Invoking(() => MemorySearchEval.RequireCompleteIndex(failed, 364, 364))
+            .Should().Throw<InvalidOperationException>().WithMessage("*ms-0042*");
+        FluentActions.Invoking(() => MemorySearchEval.RequireCompleteIndex(new IndexReport(364, 0, []), 364, 363))
+            .Should().Throw<InvalidOperationException>();
+        FluentActions.Invoking(() => MemorySearchEval.RequireCompleteIndex(new IndexReport(364, 0, []), 364, 364))
+            .Should().NotThrow();
+    }
+
+    private static MemorySearchEval.TaskResult Result(SearchTask task, double off, double on, int repetitions = 1)
     {
         (AgentRun, RunScore) Arm(double score) => (
             Run(AgentOutcome.Answered, "a", []),
             new RunScore(score, false, score > 0, score > 0, score, 1, 2, 0, 100, 10, 50));
-        return new MemorySearchEval.TaskResult(task, [Arm(off)], [Arm(on)]);
+        return new MemorySearchEval.TaskResult(task,
+            [.. Enumerable.Repeat(Arm(off), repetitions)], [.. Enumerable.Repeat(Arm(on), repetitions)]);
     }
 
     [Fact]

@@ -59,8 +59,9 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, "connapse", options.Config);
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
         await using ConnapseSearchSystem system = await ConnapseSearchSystem.StartAsync(config, paths.WebContentRoot, embeddings, log, null, ct);
-        await system.IndexAsync(new EvalDataset(Dataset, entry.Version, [], corpus, [], new Qrels()), ct);
+        IndexReport indexed = await system.IndexAsync(new EvalDataset(Dataset, entry.Version, [], corpus, [], new Qrels()), ct);
         (Guid container, IReadOnlyDictionary<string, string> docMap) = system.ContainerOf(Dataset);
+        RequireCompleteIndex(indexed, corpus.Count, docMap.Count);
 
         Guid userId = Guid.NewGuid();
         await ReplayAsync(system.Services, container, docMap, ops, new MemoryCaller(userId, null, "memory-search-eval"), ct);
@@ -134,8 +135,43 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         }
     }
 
+    /// <summary>The pre-registered run: every test task, three repetitions per arm. Only this run can pass the gate.</summary>
+    public const int RegisteredTasks = 112;
+    public const int RegisteredRepetitions = 3;
+
+    /// <summary>
+    /// Stops before any agent runs when a document failed to index: memory could still hand the agent that
+    /// document's id while search can never return it, which would favour the On arm.
+    /// </summary>
+    public static void RequireCompleteIndex(IndexReport report, int corpusDocuments, int mappedDocuments)
+    {
+        if (report.Failed > 0 || mappedDocuments != corpusDocuments)
+            throw new InvalidOperationException(
+                $"{report.Failed} of {corpusDocuments} documents failed to index and {mappedDocuments} have a Connapse id "
+                + $"({string.Join(", ", report.FailedDocumentIds.Take(10))}); the arms are compared only on a complete corpus.");
+    }
+
+    /// <summary>Why a run is diagnostic only: anything short of the pre-registered run. Empty when it conforms.</summary>
+    public static List<string> Nonconforming(Options options, IReadOnlyList<TaskResult> results)
+    {
+        List<string> reasons = [];
+        if (options.Split != "test")
+            reasons.Add($"split is {options.Split}, not test");
+        if (options.LimitTasks is not null)
+            reasons.Add("--limit-tasks was set");
+        if (results.Count != RegisteredTasks)
+            reasons.Add($"{results.Count} tasks, not {RegisteredTasks}");
+        if (options.Repetitions != RegisteredRepetitions)
+            reasons.Add($"{options.Repetitions} repetitions, not {RegisteredRepetitions}");
+        int incomplete = results.Count(r => r.Off.Count != options.Repetitions || r.On.Count != options.Repetitions);
+        if (incomplete > 0)
+            reasons.Add($"{incomplete} tasks are missing runs");
+        return reasons;
+    }
+
     public static JsonObject Report(Options options, IReadOnlyList<TaskResult> results)
     {
+        List<string> nonconforming = Nonconforming(options, results);
         List<TaskResult> m = [.. results.Where(r => r.Task.InMemorySet)];
         List<TaskResult> h = [.. results.Where(r => !r.Task.InMemorySet)];
         PairedComparison? mCompare = Compare(m, s => s.Score);
@@ -198,7 +234,9 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             {
                 ["verdict"] = verdict is { } v ? MemorySearchScoring.Label(v) : "not scored (fewer than 2 tasks in a set)",
                 ["memorySetMdeOver015"] = mCompare is null ? null : mCompare.MinimumDetectableEffect > 0.15,
-                ["passed"] = verdict == Verdict.Keep,
+                ["conforming"] = nonconforming.Count == 0,
+                ["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]),
+                ["passed"] = verdict == Verdict.Keep && nonconforming.Count == 0,
             },
         };
     }
