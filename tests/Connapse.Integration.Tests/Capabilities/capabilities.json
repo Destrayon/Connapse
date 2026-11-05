@@ -1098,6 +1098,60 @@
       ],
       "mcp": "memory_timeline",
       "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "memorySpaces.list",
+      "capability": "List the memory spaces I may see, with fact counts",
+      "routes": [
+        "GET /api/memory/spaces/"
+      ],
+      "mcp": null,
+      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+    },
+    {
+      "id": "memorySpaces.create",
+      "capability": "Make a personal or team memory space",
+      "routes": [
+        "POST /api/memory/spaces/"
+      ],
+      "mcp": null,
+      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+    },
+    {
+      "id": "memorySpaces.update",
+      "capability": "Rename a memory space or change its description",
+      "routes": [
+        "PATCH /api/memory/spaces/{spaceId:guid}"
+      ],
+      "mcp": null,
+      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+    },
+    {
+      "id": "memorySpaces.delete",
+      "capability": "Delete a memory space and every fact in it",
+      "routes": [
+        "DELETE /api/memory/spaces/{spaceId:guid}"
+      ],
+      "mcp": null,
+      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+    },
+    {
+      "id": "memorySpaces.star",
+      "capability": "Star a memory space for myself",
+      "routes": [
+        "PUT /api/memory/spaces/{spaceId:guid}/star"
+      ],
+      "mcp": null,
+      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+    },
+    {
+      "id": "memorySpaces.unstar",
+      "capability": "Remove my star from a memory space",
+      "routes": [
+        "DELETE /api/memory/spaces/{spaceId:guid}/star"
+      ],
+      "mcp": null,
+      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
     }
   ],
   "plumbing": {

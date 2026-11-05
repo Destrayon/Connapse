@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "10.0.7")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -876,6 +876,46 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("memory_fact_sources", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemorySpaceStarEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("AgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_id");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTimeOffset>("StarredAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starred_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContainerId", "UserId", "AgentId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_memory_space_stars_owner");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ContainerId", "UserId", "AgentId"), false);
+
+                    b.ToTable("memory_space_stars", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_memory_space_stars_owner", "(user_id IS NULL) <> (agent_id IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.ProviderCredentialEntity", b =>
                 {
                     b.Property<string>("Provider")
@@ -1198,6 +1238,15 @@ namespace Connapse.Storage.Migrations
                     b.HasOne("Connapse.Storage.Data.Entities.MemoryFactEntity", null)
                         .WithMany("Sources")
                         .HasForeignKey("FactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemorySpaceStarEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

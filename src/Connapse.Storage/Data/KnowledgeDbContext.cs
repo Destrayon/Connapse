@@ -25,6 +25,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<LinkEdgeEntity> LinkEdges => Set<LinkEdgeEntity>();
     public DbSet<MemoryFactEntity> MemoryFacts => Set<MemoryFactEntity>();
     public DbSet<MemoryFactSourceEntity> MemoryFactSources => Set<MemoryFactSourceEntity>();
+    public DbSet<MemorySpaceStarEntity> MemorySpaceStars => Set<MemorySpaceStarEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,6 +48,28 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureStoredFileRemovals(modelBuilder);
         ConfigureLinks(modelBuilder);
         ConfigureMemory(modelBuilder);
+        ConfigureMemorySpaceStars(modelBuilder);
+    }
+
+    private static void ConfigureMemorySpaceStars(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MemorySpaceStarEntity>(entity =>
+        {
+            entity.ToTable("memory_space_stars", t => t.HasCheckConstraint("ck_memory_space_stars_owner",
+                "(user_id IS NULL) <> (agent_id IS NULL)"));
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.AgentId).HasColumnName("agent_id");
+            entity.Property(e => e.StarredAt).HasColumnName("starred_at").HasDefaultValueSql("now()");
+            // One star per person per space; NULLS NOT DISTINCT so the owner column left empty still collides.
+            entity.HasIndex(e => new { e.ContainerId, e.UserId, e.AgentId })
+                .HasDatabaseName("ix_memory_space_stars_owner")
+                .AreNullsDistinct(false)
+                .IsUnique();
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static void ConfigureMemory(ModelBuilder modelBuilder)

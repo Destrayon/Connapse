@@ -152,6 +152,9 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `files.list` | `GET /api/containers/{containerId}/files` | Read | — |
 | `files.reindexCheck` | `GET /api/containers/{containerId}/files/{fileId}/reindex-check` | Read | Generic tools |
 | `links.list` | `GET /api/v1/auth/links` | Read | Generic tools |
+| `memorySpaces.list` | `GET /api/memory/spaces` | Read | — |
+| `memorySpaces.star` | `PUT /api/memory/spaces/{spaceId}/star` | Write | — |
+| `memorySpaces.unstar` | `DELETE /api/memory/spaces/{spaceId}/star` | Write | — |
 | `search.container` | `GET /api/containers/{containerId}/search` | Read | — |
 | `search.container` | `POST /api/containers/{containerId}/search` | Read | — |
 | `search.source` | `POST /api/sources/{sourceId}/search` | Read | — |
@@ -179,6 +182,9 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `folders.delete` | `DELETE /api/containers/{containerId}/folders` | Destructive | Generic tools |
 | `links.unlink` | `DELETE /api/v1/auth/cloud/{provider}` | Destructive | Generic tools |
 | `links.unlink` | `DELETE /api/v1/auth/custom/{providerId}` | Destructive | Generic tools |
+| `memorySpaces.create` | `POST /api/memory/spaces` | Write | — |
+| `memorySpaces.delete` | `DELETE /api/memory/spaces/{spaceId}` | Destructive | — |
+| `memorySpaces.update` | `PATCH /api/memory/spaces/{spaceId}` | Write | — |
 
 ### `pats:manage`
 
