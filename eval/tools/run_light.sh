@@ -51,6 +51,10 @@ for suite in "$@"; do
   elif [ "$suite" = memory-novelty ]; then
     # Scored by its own command (CON-245): sorts labelled memory notes by closeness to passages, no agent.
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory-novelty --config hybrid       --out "${EVAL_LOG_DIR:-eval/runs}/memory-novelty.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
+  elif [ "$suite" = memory-sort-agent ]; then
+    # Scored by its own command (CON-245): an agent saves each test note through the closeness check.
+    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory-sort-agent --config hybrid --workers 1 ${MEMORY_SEARCH_ARGS} \
+      --out "${EVAL_LOG_DIR:-eval/runs}/memory-sort-agent.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
   else
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config "${EVAL_CONFIGS:-hybrid}" ${EVAL_RUN_ARGS} > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
   fi

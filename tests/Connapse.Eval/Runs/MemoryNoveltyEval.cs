@@ -78,7 +78,7 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
                 ["test"] = test.Count,
             },
             ["rule"] = RuleJson(rule),
-            ["retiredRuleOnDev"] =new JsonObject(Candidates.Select(c => KeyValuePair.Create(c, (JsonNode?)RuleJson(Best([.. scored.Where(s => s.Note.Split == "dev")], c))))),
+            ["retiredRuleOnDev"] = new JsonObject(Candidates.Select(c => KeyValuePair.Create(c, (JsonNode?)RuleJson(Best([.. scored.Where(s => s.Note.Split == "dev")], c))))),
             ["test"] = RuleJson(result),
             ["testBySource"] = new JsonObject(test.GroupBy(s => s.Note.Source).Select(g =>
                 KeyValuePair.Create(g.Key, (JsonNode?)RuleJson(Apply([.. g], rule.Score, rule.Cutoff))))),
@@ -99,7 +99,7 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
         return passed ? 0 : 3;
     }
 
-    private static async Task<string> RootAsync(DatasetCache cache, EvalManifest manifest, string dataset, CancellationToken ct)
+    internal static async Task<string> RootAsync(DatasetCache cache, EvalManifest manifest, string dataset, CancellationToken ct)
     {
         DatasetEntry entry = manifest.Datasets[dataset];
         await cache.EnsureAsync(dataset, entry, allowUnpinned: false, ct);
@@ -107,7 +107,7 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
     }
 
     /// <summary>Indexes the dataset's corpus, without late documents: what the container held when the notes were saved.</summary>
-    private static async Task<Guid> IndexAsync(ConnapseSearchSystem system, string dataset, EvalManifest manifest, string root, CancellationToken ct)
+    internal static async Task<Guid> IndexAsync(ConnapseSearchSystem system, string dataset, EvalManifest manifest, string root, CancellationToken ct)
     {
         List<EvalDocument> corpus = MemorySearchEval.ReadCorpus(Path.Combine(root, "corpus.jsonl"));
         IndexReport indexed = await system.IndexAsync(new EvalDataset(dataset, manifest.Datasets[dataset].Version, [], corpus, [], new Qrels()), ct);

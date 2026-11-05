@@ -178,6 +178,16 @@ public sealed class ClaudeCliAgent(
 
     public SubscriptionLimit? LastLimit { get; private set; }
 
+    /// <summary>
+    /// The seven-day utilization (0–1) a run's budget allows; a run that reports the meter at or past it stops the whole
+    /// run, as a refused one does. Null runs until the subscription refuses.
+    /// </summary>
+    public double? StopAtSevenDay { get; init; }
+
+    /// <summary>True when <paramref name="limit"/> reports the seven-day window at or above <paramref name="stopAt"/>.</summary>
+    public static bool PastStopLine(SubscriptionLimit limit, double? stopAt) =>
+        stopAt is double line && limit.Utilization.TryGetValue("seven_day", out double used) && used >= line;
+
     public async Task<AgentRun> RunAsync(IToolbox toolbox, string system, string question, CancellationToken ct)
     {
         (string id, BridgeSession session) = bridge.Open(toolbox);
@@ -190,6 +200,8 @@ public sealed class ClaudeCliAgent(
                     (FirstLimit, LastLimit) = (FirstLimit ?? limit, limit);
             if (result.Limit is { Allowed: false } blocked && session.Outcome is null)
                 throw new SubscriptionLimitException(blocked);
+            if (result.Limit is { } reached && PastStopLine(reached, StopAtSevenDay))
+                throw new SubscriptionLimitException(reached);
             RequireSubscription(result, session.Outcome is not null || session.Calls.Count > 0);
             return Compose(session, result, process);
         }

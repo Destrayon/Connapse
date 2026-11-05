@@ -51,6 +51,10 @@ internal static class EvalEntryPoint
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
                 "memory-novelty" => await new MemoryNoveltyEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "hybrid", cli.Option("out"), cts.Token),
+                "memory-sort-agent" => await new MemorySortAgentEval(paths, http, Console.Out).RunAsync(new MemorySortAgentEval.Options(
+                    cli.Option("config") ?? "hybrid", cli.Option("model") ?? "claude-sonnet-5-5", cli.Option("effort") ?? "medium",
+                    cli.PositiveInt("limit-notes"), cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"),
+                    MemorySortAgentEval.StopLine(cli.Option("stop-at"))), cts.Token),
                 "code" => await new CodeEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "code", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
@@ -270,6 +274,7 @@ internal static class Commands
               memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent with and without memory_recall; runs `claude -p` on your Claude subscription)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: session-1 agents write memory, session-2 agents answer related questions with and without it)
               memory-novelty [--config hybrid] [--out <file>]   (CON-245: sorts labelled memory notes into restating and new by how close the container's passages are; no agent)
+              memory-sort-agent [--config hybrid] [--model claude-sonnet-5-5] [--effort medium] [--limit-notes N] [--workers 1] [--agent-dir <dir>] [--stop-at 0.42] [--out <file>]   (CON-245: an agent saves each test note through the closeness check; scores restating notes dropped and new facts kept)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
 }

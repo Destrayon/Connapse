@@ -164,7 +164,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         [.. run.Calls.Where(c => WriteTools.Contains(c.Name, StringComparer.Ordinal) && Saved(c.Output))
             .Select(c => c.Input.TryGetValue("sources", out JsonElement s) && s.ValueKind == JsonValueKind.Array && s.GetArrayLength() > 0)];
 
-    private static bool Saved(string output)
+    internal static bool Saved(string output)
     {
         try
         {
