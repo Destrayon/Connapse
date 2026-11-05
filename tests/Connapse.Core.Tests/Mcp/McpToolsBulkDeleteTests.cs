@@ -23,7 +23,7 @@ public class McpToolsBulkDeleteTests
 
     public McpToolsBulkDeleteTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _documentStore = Substitute.For<IDocumentStore>();
         _documentStore.RemovesUnrecordedFiles();
         _fileSystem = Substitute.For<IWritableConnector>();

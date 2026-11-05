@@ -16,4 +16,26 @@
       <NativeCopyLocalItems Remove="@(_UnusedTreeSitterGrammar)" />
     </ItemGroup>
   </Target>
+
+  <!--
+    A build with no runtime identifier copies every package's native libraries for every platform into
+    runtimes/: about 870 MB per output folder (ONNX Runtime, SkiaSharp with an 80 MB Windows .pdb, PDFium,
+    libgit2, tree-sitter), and eleven projects have one, so a solution build writes about 10 GB of it. On
+    GitHub's 72 GB runners that filled the disk (CON-246). CI builds with -p:RuntimeAssetsFor=linux-x64 and
+    gets only the folders the .NET host can load on that machine: the identifier itself, its OS family
+    (linux, win, osx), unix for the non-Windows ones, and any. The deps.json still lists the other
+    platforms; the host never looks for them. Unset, as in local and Docker builds, nothing changes.
+  -->
+  <Target Name="DropOtherPlatformsRuntimeAssets" AfterTargets="ResolvePackageAssets" Condition="'$(RuntimeAssetsFor)' != ''">
+    <PropertyGroup>
+      <_RuntimeAssetsFamily>$(RuntimeAssetsFor.Split('-')[0])</_RuntimeAssetsFamily>
+      <_RuntimeAssetsKept>;$(RuntimeAssetsFor);$(_RuntimeAssetsFamily);any;</_RuntimeAssetsKept>
+      <_RuntimeAssetsKept Condition="'$(_RuntimeAssetsFamily)' != 'win'">$(_RuntimeAssetsKept)unix;</_RuntimeAssetsKept>
+    </PropertyGroup>
+    <ItemGroup>
+      <_OtherPlatformRuntimeAsset Include="@(RuntimeTargetsCopyLocalItems)"
+                                  Condition="!$(_RuntimeAssetsKept.Contains(';%(RuntimeIdentifier);'))" />
+      <RuntimeTargetsCopyLocalItems Remove="@(_OtherPlatformRuntimeAsset)" />
+    </ItemGroup>
+  </Target>
 </Project>

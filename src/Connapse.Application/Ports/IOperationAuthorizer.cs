@@ -33,6 +33,12 @@ public static class Policies
     /// </summary>
     public const string KnowledgeRead = "Scope:KnowledgeRead";
 
+    /// <summary>
+    /// The knowledge:write scope: a person's roles imply it from Editor up, and a token carries it only if it was
+    /// given it, so an Editor's knowledge:read token doesn't hold it.
+    /// </summary>
+    public const string KnowledgeWrite = "Scope:KnowledgeWrite";
+
     /// <summary>The instance's Owner: the one account that manages other administrators.</summary>
     public const string Owner = "RequireOwner";
 

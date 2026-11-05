@@ -58,7 +58,7 @@ public class UploadRandomInputTests
 
     private sealed class World
     {
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
         public readonly IManagedStorageProvider Storage = Substitute.For<IManagedStorageProvider>();
         public readonly IFileTypeValidator Types = Substitute.For<IFileTypeValidator>();
         public readonly IUploadService Uploads = Substitute.For<IUploadService>();

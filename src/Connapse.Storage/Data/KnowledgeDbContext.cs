@@ -25,6 +25,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<LinkEdgeEntity> LinkEdges => Set<LinkEdgeEntity>();
     public DbSet<MemoryFactEntity> MemoryFacts => Set<MemoryFactEntity>();
     public DbSet<MemoryFactSourceEntity> MemoryFactSources => Set<MemoryFactSourceEntity>();
+    public DbSet<MemorySpaceStarEntity> MemorySpaceStars => Set<MemorySpaceStarEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -47,6 +48,28 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureStoredFileRemovals(modelBuilder);
         ConfigureLinks(modelBuilder);
         ConfigureMemory(modelBuilder);
+        ConfigureMemorySpaceStars(modelBuilder);
+    }
+
+    private static void ConfigureMemorySpaceStars(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MemorySpaceStarEntity>(entity =>
+        {
+            entity.ToTable("memory_space_stars", t => t.HasCheckConstraint("ck_memory_space_stars_owner",
+                "(user_id IS NULL) <> (agent_id IS NULL)"));
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.AgentId).HasColumnName("agent_id");
+            entity.Property(e => e.StarredAt).HasColumnName("starred_at").HasDefaultValueSql("now()");
+            // One star per person per space; NULLS NOT DISTINCT so the owner column left empty still collides.
+            entity.HasIndex(e => new { e.ContainerId, e.UserId, e.AgentId })
+                .HasDatabaseName("ix_memory_space_stars_owner")
+                .AreNullsDistinct(false)
+                .IsUnique();
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static void ConfigureMemory(ModelBuilder modelBuilder)
@@ -70,6 +93,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.AuthorUserId).HasColumnName("author_user_id");
             entity.Property(e => e.AuthorAgentId).HasColumnName("author_agent_id");
             entity.Property(e => e.AuthorName).HasColumnName("author_name").HasMaxLength(200);
+            // Personal by default, so a row written without a scope is seen by no one but its author.
+            entity.Property(e => e.Scope).HasColumnName("scope").HasDefaultValue((short)0);
             // Subject counts most, then attribute, value and the reason a writer gave (which names its ticket). Punctuation
             // becomes a space first, as in the query's words: the parser would read "HAL-17" as "hal" and the number -17.
             entity.Property(e => e.SearchVector)
@@ -82,7 +107,13 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                     + "setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')",
                     stored: true);
             entity.HasIndex(e => new { e.ContainerId, e.Subject, e.Attribute }).HasDatabaseName("idx_memory_facts_key");
-            entity.HasIndex(e => e.ChainId).HasDatabaseName("idx_memory_facts_chain");
+            // A fact's history, newest first, paged by (recorded_at, id).
+            entity.HasIndex(e => new { e.ChainId, e.RecordedAt, e.Id }).HasDatabaseName("idx_memory_facts_chain")
+                .IsDescending(false, true, true);
+            // A space's current facts, newest first: the default list, its pages and the count.
+            entity.HasIndex(e => new { e.ContainerId, e.RecordedAt, e.Id }).HasDatabaseName("idx_memory_facts_current")
+                .IsDescending(false, true, true)
+                .HasFilter("superseded_at IS NULL");
             entity.HasIndex(e => e.SearchVector).HasDatabaseName("idx_memory_facts_fts").HasMethod("GIN");
             entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.Sources).WithOne().HasForeignKey(s => s.FactId).OnDelete(DeleteBehavior.Cascade);
@@ -186,8 +217,33 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("updated_at")
                 .HasDefaultValueSql("now()");
 
+            // Who may know the container exists (CON-235). Every container made before memory spaces is team.
+            entity.Property(e => e.Audience)
+                .HasColumnName("audience")
+                .HasMaxLength(16)
+                .HasConversion(
+                    audience => audience == MemoryScope.Personal ? "personal" : "team",
+                    text => text == "personal" ? MemoryScope.Personal : MemoryScope.Team)
+                .IsRequired();
+
+            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
+            entity.Property(e => e.OwnerAgentId).HasColumnName("owner_agent_id");
+
+            // A personal space is a memory container with exactly one owner; a team container has none.
+            entity.ToTable(t => t.HasCheckConstraint("ck_containers_audience_owner",
+                "(audience = 'team' AND owner_user_id IS NULL AND owner_agent_id IS NULL) OR "
+                + "(audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))"));
+
+            // Team names are unique among team containers; a personal space's name only among its owner's spaces, so
+            // a name taken by someone's personal space never blocks, or reveals itself to, anyone else.
             entity.HasIndex(e => e.Name)
                 .HasDatabaseName("ix_containers_name")
+                .HasFilter("audience = 'team'")
+                .IsUnique();
+            entity.HasIndex(e => new { e.OwnerUserId, e.OwnerAgentId, e.Name })
+                .HasDatabaseName("ix_containers_personal_name")
+                .HasFilter("audience = 'personal'")
+                .AreNullsDistinct(false)
                 .IsUnique();
         });
     }

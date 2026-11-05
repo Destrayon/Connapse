@@ -16,7 +16,7 @@ public sealed class GetContainerSettings(IContainerStore containers, IOperationA
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
             return Attempt<ContainerSettingsOverrides, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to view containers.");
-        if (!await containers.ExistsAsync(containerId, ct))
+        if (await containers.GetAsync(containerId, ContainerRules.Viewer(context), ct) is null)
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
 
         return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(
@@ -110,7 +110,7 @@ public sealed class ResetContainerSettings(IContainerStore containers, IAuditLog
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Writer))
             return Attempt<ContainerSettingsOverrides, ContainerStatus>.Fail(ContainerStatus.Forbidden, "You don't have permission to change containers.");
-        if (!await containers.ExistsAsync(containerId, ct))
+        if (await containers.GetAsync(containerId, ContainerRules.Viewer(context), ct) is null)
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
 
         var cleared = new ContainerSettingsOverrides();

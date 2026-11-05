@@ -48,6 +48,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<UserDocumentAccess>();
         services.AddScoped<IMemoryService>(sp => ActivatorUtilities.CreateInstance<MemoryService>(
             sp, (IDocumentAccess)sp.GetRequiredService<UserDocumentAccess>()));
+        services.AddScoped<IMemorySpaceStore>(sp => ActivatorUtilities.CreateInstance<PostgresMemorySpaceStore>(
+            sp, (IDocumentAccess)sp.GetRequiredService<UserDocumentAccess>()));
 
         // Code tools check every file they show with search's rule, scoped to the one container or source asked about.
         services.AddScoped<ICodeTools, CodeTools>();

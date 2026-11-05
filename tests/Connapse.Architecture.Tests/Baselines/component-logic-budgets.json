@@ -48,6 +48,13 @@
     "MarkupLogic": 1,
     "IsEmpty": false
   },
+  "Memory/CopyToTeamDialog.razor": {
+    "CodeLines": 89,
+    "Injects": 2,
+    "Complexity": 33,
+    "MarkupLogic": 12,
+    "IsEmpty": false
+  },
   "Memory/MemoryAuthor.razor": {
     "CodeLines": 1,
     "Injects": 0,
@@ -55,11 +62,32 @@
     "MarkupLogic": 4,
     "IsEmpty": false
   },
-  "Memory/MemoryTab.razor": {
-    "CodeLines": 228,
+  "Memory/MemoryFactFilters.razor": {
+    "CodeLines": 96,
     "Injects": 2,
-    "Complexity": 81,
-    "MarkupLogic": 57,
+    "Complexity": 31,
+    "MarkupLogic": 41,
+    "IsEmpty": false
+  },
+  "Memory/MemoryFactList.razor": {
+    "CodeLines": 454,
+    "Injects": 3,
+    "Complexity": 179,
+    "MarkupLogic": 71,
+    "IsEmpty": false
+  },
+  "Memory/MemoryKindBadge.razor": {
+    "CodeLines": 9,
+    "Injects": 0,
+    "Complexity": 1,
+    "MarkupLogic": 4,
+    "IsEmpty": false
+  },
+  "Memory/NewMemorySpaceDialog.razor": {
+    "CodeLines": 32,
+    "Injects": 2,
+    "Complexity": 9,
+    "MarkupLogic": 17,
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
@@ -133,17 +161,31 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 743,
+    "CodeLines": 757,
     "Injects": 8,
-    "Complexity": 169,
-    "MarkupLogic": 87,
+    "Complexity": 173,
+    "MarkupLogic": 88,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
-    "CodeLines": 140,
+    "CodeLines": 138,
     "Injects": 3,
     "Complexity": 18,
     "MarkupLogic": 24,
+    "IsEmpty": false
+  },
+  "Pages/MemoryPage.razor": {
+    "CodeLines": 222,
+    "Injects": 3,
+    "Complexity": 83,
+    "MarkupLogic": 39,
+    "IsEmpty": false
+  },
+  "Pages/MemorySpacePage.razor": {
+    "CodeLines": 39,
+    "Injects": 4,
+    "Complexity": 12,
+    "MarkupLogic": 10,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
@@ -347,13 +389,6 @@
     "Injects": 0,
     "Complexity": 37,
     "MarkupLogic": 14,
-    "IsEmpty": false
-  },
-  "Shared/ContainerKindPicker.razor": {
-    "CodeLines": 8,
-    "Injects": 0,
-    "Complexity": 0,
-    "MarkupLogic": 5,
     "IsEmpty": false
   },
   "Shared/ContainerStatsLine.razor": {

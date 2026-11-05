@@ -1098,6 +1098,99 @@
       ],
       "mcp": "memory_timeline",
       "note": "MCP only: no REST route yet."
+    },
+    {
+      "id": "memorySpaces.list",
+      "capability": "List the memory spaces I may see, with fact counts",
+      "routes": [
+        "GET /api/memory/spaces/"
+      ],
+      "mcp": "memory_spaces"
+    },
+    {
+      "id": "memorySpaces.create",
+      "capability": "Make a personal or team memory space",
+      "routes": [
+        "POST /api/memory/spaces/"
+      ],
+      "mcp": null,
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+    },
+    {
+      "id": "memorySpaces.update",
+      "capability": "Rename a memory space or change its description",
+      "routes": [
+        "PATCH /api/memory/spaces/{spaceId:guid}"
+      ],
+      "mcp": null,
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+    },
+    {
+      "id": "memorySpaces.delete",
+      "capability": "Delete a memory space and every fact in it",
+      "routes": [
+        "DELETE /api/memory/spaces/{spaceId:guid}"
+      ],
+      "mcp": null,
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+    },
+    {
+      "id": "memorySpaces.star",
+      "capability": "Star a memory space for myself",
+      "routes": [
+        "PUT /api/memory/spaces/{spaceId:guid}/star"
+      ],
+      "mcp": null,
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+    },
+    {
+      "id": "memorySpaces.unstar",
+      "capability": "Remove my star from a memory space",
+      "routes": [
+        "DELETE /api/memory/spaces/{spaceId:guid}/star"
+      ],
+      "mcp": null,
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+    },
+    {
+      "id": "memory.list",
+      "capability": "Page through a memory space's facts",
+      "routes": [
+        "GET /api/memory/spaces/{id}/facts"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.count",
+      "capability": "Count a memory space's facts",
+      "routes": [
+        "GET /api/memory/spaces/{id}/facts/count"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.subjects",
+      "capability": "Page through a memory space's subjects",
+      "routes": [
+        "GET /api/memory/spaces/{id}/subjects"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.history",
+      "capability": "Page through every version of a fact",
+      "routes": [
+        "GET /api/memory/facts/{id}/history"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.copy",
+      "capability": "Copy a fact from my personal space to a team space or container",
+      "routes": [
+        "POST /api/memory/facts/{id}/copy"
+      ],
+      "mcpOff": "Agents share a fact by saving it again with memory_remember and a team space; the copy button is for people on the Memory page."
     }
   ],
   "plumbing": {

@@ -25,7 +25,7 @@ public class UploadOperationTests
     private static readonly OperationContext Caller = new(
         new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, User.ToString())], "test")), OperationSurface.Rest);
 
-    private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containers = ContainerStoreFakes.Create();
     private readonly IManagedStorageProvider _storage = Substitute.For<IManagedStorageProvider>();
     private readonly IFileTypeValidator _types = Substitute.For<IFileTypeValidator>();
     private readonly IUploadService _uploads = Substitute.For<IUploadService>();

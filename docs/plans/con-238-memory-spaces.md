@@ -402,3 +402,26 @@ split goes to the PM before coding.
 - **CON-238 scaling rework, 2026-11-03.** Measured today's queries at 50,000 facts, added the Scaling section with
   targets and a load test, a research report on large lists, four more pictures, and folded the work into CON-235,
   CON-236, CON-237 and the Memory page ticket. Docs only. Next: unchanged, CON-234 (PR #1123) merges.
+- **CON-236, 2026-11-04.** Migration `MoveMemoryIntoSpaces` moves each all-personal, single-author chain on a team
+  container into its author's `<container>-personal` space in committed batches of 1,000; team and mixed chains stay.
+  Correct and forget now find a fact by id anywhere, so old container ids still work. Verified: before/after views for
+  six readers are identical, and 50,000 facts move in 1.1 s on a 2 CPU / 4 GB database. Next: CON-237.
+- **CON-237, 2026-11-04.** Agents get a read-only `memory_spaces` tool, must name a `space` to save (the error lists
+  their spaces with the save test), and recall or timeline across every space, each fact labelled by space and scope.
+  A read of one named space pages through CON-241's keyset list with `nextCursor`. `docs/concepts/memory.md` was
+  rewritten around spaces. Verified: unit and random-input tests on every branch, memory integration tests including
+  a 230-fact walk with no repeats or gaps. Stacked on CON-241 (PR #1128) until it merges.
+  Codex (gpt-6.1-sol) found two real bugs, both fixed in 3dfe5610: `my-memory` now always saves to the caller's own
+  space even when a team space shares the name, and history or past-date reads across spaces include document
+  containers whose facts have all ended. Next: review changes on PR #1131.
+- **CON-239, 2026-11-04.** Split into four PRs (CON-247–249 hold the fact list, Memory page and space view). This one
+  adds `POST /api/memory/facts/{id}/copy`, which copies the current version of a personal fact to a team space or
+  container as a new fact, 409 if one with the same subject and attribute is there unless `anyway`, and removes the
+  Agent memory choice from Create Container. Codex found three real bugs (read scope, a superseded version slipping
+  through, a duplicate check that failed open), all fixed. Next: CON-247.
+- **CON-242, 2026-11-04.** `MemorySpacesLoadTests` (`Category=Load`, which no CI step runs) seeds 50,000 current
+  facts in one team space, 200 spaces, a 500-version fact and a read-only viewer who can read 1% of the cited documents.
+  It times every operation 20 times on Postgres capped at 2 CPUs and 4 GB. Every target is met: page p95 at most 88 ms,
+  count 203 ms, spaces list 70 ms, history 23 ms. Before the epic, the viewer's first page took about 1 s. The full
+  reader sends its 5,000 readable document ids with every request; that is cheap locally but a cost to watch for
+  Connapse Cloud's remote database.

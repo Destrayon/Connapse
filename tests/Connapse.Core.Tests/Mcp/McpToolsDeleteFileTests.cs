@@ -32,7 +32,7 @@ public class McpToolsDeleteFileTests
 
     public McpToolsDeleteFileTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _documentStore = Substitute.For<IDocumentStore>();
         _documentStore.RemovesUnrecordedFiles();
         _folderStore = Substitute.For<IFolderStore>();

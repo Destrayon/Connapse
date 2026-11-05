@@ -13,7 +13,7 @@ public class UploadServiceTests
     private static readonly Guid ContainerId = Guid.NewGuid();
     private static readonly Guid UserId = Guid.NewGuid();
 
-    private readonly IContainerStore _containerStore = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containerStore = ContainerStoreFakes.Create();
     private readonly IManagedStorageProvider _managedStorage = Substitute.For<IManagedStorageProvider>();
     private readonly IWritableConnector _connector = Substitute.For<IWritableConnector>();
     private readonly IFolderStore _folderStore = Substitute.For<IFolderStore>();

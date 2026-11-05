@@ -18,7 +18,7 @@ public class McpToolsBulkUploadTests
 
     public McpToolsBulkUploadTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _uploadService = Substitute.For<IUploadService>();
         _fileTypeValidator = Substitute.For<IFileTypeValidator>();
 

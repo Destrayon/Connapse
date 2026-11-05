@@ -1,0 +1,114 @@
+@page "/memory/{Space}"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "RequirePerson")]
+@using Connapse.Application.Containers
+@using Connapse.Application.Memory
+@using Connapse.Core
+@using Connapse.Web.Components.Memory
+@inject GetContainer GetSpace
+@inject MemorySpaceOperations Spaces
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(space?.Name ?? "Memory") - Connapse</PageTitle>
+
+@* One memory space: who can see it, whether the person may add to it, and its facts in the shared paged list. A
+   document container's memory is its Memory tab, so a link to one here goes there. *@
+<div class="space-header">
+    <nav class="breadcrumb-nav" aria-label="breadcrumb">
+        <a href="memory" class="breadcrumb-link">Memory</a>
+        <span class="breadcrumb-sep">/</span>
+        <span id="memory-space-name" class="breadcrumb-current">@(space?.Name ?? Space)</span>
+    </nav>
+    @if (space is not null)
+    {
+        <div id="memory-space-audience" class="space-audience">
+            <MemoryKindBadge Kind="space.Audience" />
+            <span>@AudienceLine()</span>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(space.Description))
+        {
+            <p class="space-description">@space.Description</p>
+        }
+    }
+</div>
+
+@if (loadError is not null)
+{
+    <div id="memory-space-missing" class="alert alert-warning" role="alert">
+        @loadError <a href="memory">Back to Memory</a>
+    </div>
+}
+else if (space is null || audience is null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-accent" role="status"><span class="visually-hidden">Loading space</span></div>
+    </div>
+}
+else
+{
+    @if (!audience.CanAdd)
+    {
+        <div id="memory-readonly-notice" class="readonly-notice" role="note">
+            <span class="bi-eye me-2" aria-hidden="true"></span>
+            @if (viewer)
+            {
+                <span>You're a <strong>Viewer</strong>, so you and your agents can search this space but not add to it. Ask an admin for the Editor role to save memory.</span>
+            }
+            else
+            {
+                <span>You and your agents can search this space but not add to it, because your sign-in can't save memory.</span>
+            }
+        </div>
+    }
+    <div class="space-list">
+        <MemoryFactList Space="@space.Id" CanEdit="audience.CanAdd" ShowAuthor="space.Audience == MemoryScope.Team"
+                        CanCopy="audience.CanAdd && space.Audience == MemoryScope.Personal" Accounts="audience.Accounts" SpaceName="@space.Name" />
+    </div>
+}
+
+@code {
+    /// <summary>The space's id or name, as the address names it.</summary>
+    [Parameter] public string Space { get; set; } = "";
+
+    private Container? space;
+    private MemorySpaceAudience? audience;
+    private bool viewer;
+    private string? loadError;
+    private string? loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Space == loaded) return;
+        (loaded, space, loadError) = (Space, null, null);
+        var context = await AuthStateProvider.OperationContextAsync();
+        viewer = context.User.IsInRole("Viewer");
+        audience ??= await Spaces.List.AudienceAsync(context);
+        var read = await GetSpace.RunAsync(context, ContainerKey.Parse(Space));
+        if (!read.Succeeded)
+        {
+            // Someone else's personal space reads as missing, the same as one that isn't there.
+            loadError = read.Status == ContainerStatus.NotFound
+                ? "This memory space doesn't exist, or you can't see it."
+                : read.Detail ?? "The space couldn't be read.";
+            return;
+        }
+        if (read.Result!.Kind == ContainerKind.Documents)
+        {
+            Navigation.NavigateTo($"containers/{read.Result.Id}?tab=memory", replace: true);
+            return;
+        }
+        space = read.Result;
+    }
+
+    private string AudienceLine() => space?.Audience == MemoryScope.Personal
+        ? "Only you and the agents acting for you can see this space."
+        : $"Everyone in this Connapse{People()} can search it. Editors and admins can add to it.";
+
+    private string People() => audience?.Accounts switch
+    {
+        null => "",
+        1 => " (1 person)",
+        { } n => $" ({n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} people)",
+    };
+}

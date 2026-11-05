@@ -47,7 +47,7 @@ public class ContainerRandomInputTests
 
     private sealed class World
     {
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IAuditLogger Audit = Substitute.For<IAuditLogger>();
         public readonly PolicyAuthorizer Authorizer;
