@@ -220,6 +220,20 @@ public class ListMemorySpacesTests
     }
 
     [Fact]
+    public async Task RunAsync_DocumentsEmptiedAfterTheProbe_IsLeftOffThePage()
+    {
+        // The probe sees a readable fact, then the page tally finds none: it expired or its source was hidden in between.
+        Space emptied = new("emptied", 0, 0, 2, ContainerKind.Documents), team = new("team", 0, 0, 1);
+        Store store = new Store(emptied, team).Ready();
+        store.Fake.HoldingReadableAsync(Arg.Any<MemoryCaller>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new HashSet<string> { emptied.Id });
+
+        var page = await List(store).RunAsync(Reader, new MemorySpaceQuery(Sort: MemorySpaceSort.Name));
+
+        page.Result!.Items.Select(i => i.Name).Should().Equal("team");
+    }
+
+    [Fact]
     public async Task RunAsync_NothingListed_ChecksNothing()
     {
         Store store = new Store().Ready();

@@ -260,8 +260,9 @@ public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthori
             foreach (MemorySpaceCandidate c in batch)
             {
                 SpaceCursor? key = c.Settled ? Key(c, c.FactsAtLeast, c.UpdatedAtLeast)
-                    : tallies.TryGetValue(c.Container.Id, out MemorySpaceTally? tally) ? Key(c, tally.Facts, tally.UpdatedAt)
-                    : null; // Gone, or no longer visible, since the candidates were read.
+                    : tallies.TryGetValue(c.Container.Id, out MemorySpaceTally? tally)
+                        && (tally.Facts > 0 || c.Container.Kind != ContainerKind.Documents) ? Key(c, tally.Facts, tally.UpdatedAt)
+                    : null; // Gone, no longer visible, or a documents container with nothing left the reader may see.
                 if (key is not null && AfterCursor(key))
                     placed.Add(key);
             }
