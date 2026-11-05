@@ -239,7 +239,7 @@
                     {
                         <span class="detail-value text-muted">Loading…</span>
                     }
-                    else if (history.Count <= 1)
+                    else if (historyTotal <= 1)
                     {
                         <span id="memory-history-none" class="detail-value text-muted">Never corrected.</span>
                     }
@@ -268,9 +268,11 @@
                                 </li>
                             }
                         </ol>
-                        @if (HistoryCapped)
+                        @if (historyNext is not null)
                         {
-                            <span id="memory-history-capped" class="form-hint">Showing the newest @PageSize versions; older ones aren't listed.</span>
+                            <button id="memory-history-older" class="btn btn-link btn-sm p-0" @onclick="ShowOlderVersions" disabled="@loadingOlder">
+                                Show older versions (@(historyTotal - history.Count) more)
+                            </button>
                         }
                     }
                 </div>
@@ -325,7 +327,7 @@
             <div id="memory-delete-body" class="memory-modal-body">
                 <p class="delete-fact-name"><span class="fact-key">@toDelete.Subject · @toDelete.Attribute</span><br />@toDelete.Value</p>
                 <p class="mb-0">
-                    This permanently deletes the fact@(deleteVersions >= PageSize ? " and every earlier version" : deleteVersions > 1 ? $" and its {deleteVersions - 1} earlier {(deleteVersions == 2 ? "version" : "versions")}" : "").
+                    This permanently deletes the fact@(deleteVersions > 1 ? $" and its {deleteVersions - 1} earlier {(deleteVersions == 2 ? "version" : "versions")}" : "").
                     Agents won't recall it again, and it can't be undone. The activity log keeps a record that it was
                     deleted, but not what it said.
                 </p>
@@ -369,6 +371,11 @@
 
     private RecalledFact? selected;
     private List<RecalledFact>? history;
+    private long historyTotal;
+    private string? historyNext;
+    // The fact id historyNext was made for; a cursor is refused for any other version's id.
+    private string historyFact = "";
+    private bool loadingOlder;
     private int historyRequest;
 
     private bool editing;
@@ -431,32 +438,39 @@
 
     private void ShowVersion(RecalledFact version) => (selected, editing) = (version, false);
 
-    /// <summary>Every version of the fact the caller may see, up to the newest <see cref="PageSize"/>, oldest first (shown newest first), through the same recall as agents.</summary>
-    private async Task<List<RecalledFact>> ChainAsync(MemoryFact fact)
-    {
-        var read = await MemoryOps.Recall.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
-            new MemoryQuery(Guid.Empty, ChainId: fact.ChainId, Limit: PageSize));
-        // Recorded order is correction order: a correction is always recorded after the fact it replaces.
-        return [.. read.ResultOr(failed => errorMessage = failed, []).OrderBy(f => f.Fact.RecordedAt).ThenBy(f => f.Fact.Id)];
-    }
-
     /// <summary>
     /// Reloads the open fact's chain and shows the version <paramref name="showId"/> from it, or closes the panel when
-    /// that version can no longer be read. A reply for an earlier selection is dropped, so it can't replace this one's.
+    /// that version can no longer be read. Pages back only as far as that version. A reply for an earlier selection is
+    /// dropped, so it can't replace this one's.
     /// </summary>
     private async Task LoadHistoryAsync(Guid showId)
     {
         if (selected is null) return;
         int request = ++historyRequest;
-        var chain = await ChainAsync(selected.Fact);
+        string factId = selected.Fact.Id.ToString();
+        var read = await MemoryOps.History.BackToAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
+            factId, showId, PageSize);
         if (request != historyRequest) return;
-        if (chain.FirstOrDefault(f => f.Fact.Id == showId) is { } shown)
-            (selected, history) = (shown, chain);
+        var chain = read.ResultOr<MemoryVersionsListed, MemoryStatus>(failed => errorMessage = failed, null!);
+        if (chain?.Versions.FirstOrDefault(f => f.Fact.Id == showId) is { } shown)
+            // Kept oldest first, as recorded order is correction order: a correction is recorded after the fact it replaces.
+            (selected, history, historyTotal, historyNext, historyFact) = (shown, [.. chain.Versions.Reverse()], chain.Total, chain.NextCursor, factId);
         else
             ClearDetail();
     }
 
-    private bool HistoryCapped => history?.Count >= PageSize;
+    private async Task ShowOlderVersions()
+    {
+        if (selected is null || history is null || historyNext is null) return;
+        int request = historyRequest;
+        loadingOlder = true;
+        var read = await MemoryOps.History.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId,
+            historyFact, historyNext, PageSize);
+        loadingOlder = false;
+        if (request != historyRequest || read.ResultOr<MemoryVersionsListed, MemoryStatus>(failed => errorMessage = failed, null!) is not { } page) return;
+        history.InsertRange(0, page.Versions.Reverse());
+        (historyTotal, historyNext) = (page.Total, page.NextCursor);
+    }
 
     private MemoryFact? ReplacedIn(MemoryFact version) =>
         version.ReplacesId is { } id ? history?.FirstOrDefault(h => h.Fact.Id == id)?.Fact : null;
@@ -467,7 +481,7 @@
     private void ClearDetail()
     {
         historyRequest++;
-        (selected, history, editing, toDelete, deleteError) = (null, null, false, null, null);
+        (selected, history, historyTotal, historyNext, editing, toDelete, deleteError) = (null, null, 0, null, false, null, null);
     }
 
     private void StartEdit()
@@ -527,7 +541,7 @@
         if (selected is null || history is null) return;
         toDelete = selected.Fact;
         deleteError = null;
-        deleteVersions = Math.Max(1, history.Count);
+        deleteVersions = (int)Math.Clamp(historyTotal, 1, int.MaxValue);
     }
 
     private void CancelDelete()

@@ -168,10 +168,18 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         return row is null ? null : ToFact(row);
     }
 
-    public async Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, int skip, int take, CancellationToken ct = default)
+    public Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, int skip, int take, CancellationToken ct = default) =>
+        QueryAsync(query, null, skip, take, ct);
+
+    public Task<IReadOnlyList<MemoryFact>> VisibleAsync(MemoryQuery query, MemoryViewer viewer, int take, CancellationToken ct = default) =>
+        QueryAsync(query, viewer, 0, take, ct);
+
+    private async Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, MemoryViewer? viewer, int skip, int take, CancellationToken ct)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         IQueryable<MemoryFactEntity> rows = context.MemoryFacts.AsNoTracking().Where(f => f.ContainerId == query.ContainerId);
+        if (viewer is not null)
+            rows = VisibleTo(rows, viewer);
 
         if (!string.IsNullOrWhiteSpace(query.Subject))
         {

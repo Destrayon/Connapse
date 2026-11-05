@@ -37,7 +37,7 @@ public sealed class PostgresMemorySpaceStore(
     private const string FactCurrent =
         "f.superseded_at IS NULL AND (f.valid_from IS NULL OR f.valid_from <= @now) AND (f.valid_to IS NULL OR f.valid_to > @now)";
 
-    public async Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, CancellationToken ct = default)
+    public async Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, bool withEnded = false, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(viewer);
         DateTimeOffset now = clock.GetUtcNow();
@@ -45,7 +45,7 @@ public sealed class PostgresMemorySpaceStore(
 
         string? pattern = string.IsNullOrWhiteSpace(text) ? null : "%" + EscapeLike(text.Trim()) + "%";
         // Only the spaces the text matches have their sources checked, so a narrow search stays cheap.
-        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, null, pattern, "listing no spaces", ct);
+        IReadOnlySet<MemorySource>? readable = await ReadableAsync(context, viewer, now, null, pattern, "listing no spaces", ct, withEnded);
         if (readable is null)
             return null;
 
@@ -57,6 +57,7 @@ public sealed class PostgresMemorySpaceStore(
             new("pattern", NpgsqlDbType.Text) { Value = (object?)pattern ?? DBNull.Value },
             new("star_user", NpgsqlDbType.Uuid) { Value = (object?)starUser ?? DBNull.Value },
             new("star_agent", NpgsqlDbType.Uuid) { Value = (object?)starAgent ?? DBNull.Value },
+            new("with_ended", NpgsqlDbType.Boolean) { Value = withEnded },
         ];
 
         // One grouped pass over the visible current facts gives every row its count and newest fact.
@@ -78,7 +79,9 @@ public sealed class PostgresMemorySpaceStore(
                 GROUP BY f.container_id
             ) a ON a.container_id = c.id
             WHERE {ContainerVisible}
-              AND (c.kind = 'memory' OR COALESCE(a.facts, 0) > 0)
+              AND (c.kind = 'memory' OR COALESCE(a.facts, 0) > 0
+                   OR (@with_ended AND EXISTS (SELECT 1 FROM memory_facts f
+                       WHERE f.container_id = c.id AND {FactScopeVisible} AND {SourcesReadable})))
               AND {SpaceMatches}
             """,
             [.. parameters]).ToListAsync(ct);
@@ -158,10 +161,10 @@ public sealed class PostgresMemorySpaceStore(
     /// </summary>
     private async Task<IReadOnlySet<MemorySource>?> ReadableAsync(
         KnowledgeDbContext context, MemoryCaller viewer, DateTimeOffset now, Guid? containerId, string? pattern,
-        string onFailure, CancellationToken ct)
+        string onFailure, CancellationToken ct, bool withEnded = false)
     {
         List<SourceRow> cited = await context.Database.SqlQueryRaw<SourceRow>(
-            containerId is null ? CitedInVisibleSpaces : CitedInSpace,
+            containerId is not null ? CitedInSpace : withEnded ? CitedEverInVisibleSpaces : CitedInVisibleSpaces,
             [
                 .. Viewer(viewer, now),
                 new NpgsqlParameter("container", NpgsqlDbType.Uuid) { Value = containerId ?? Guid.Empty },
@@ -213,6 +216,10 @@ public sealed class PostgresMemorySpaceStore(
 
     private const string CitedInVisibleSpaces =
         $"{CitedSources} WHERE {FactCurrent} AND {ContainerVisible} AND {SpaceMatches} AND {FactScopeVisible}";
+
+    // As above, but for facts current or not, when ended facts can list a space.
+    private const string CitedEverInVisibleSpaces =
+        $"{CitedSources} WHERE {ContainerVisible} AND {SpaceMatches} AND {FactScopeVisible}";
 
     private const string CitedInSpace = $"{CitedSources} WHERE f.container_id = @container AND {FactScopeVisible}";
 

@@ -135,6 +135,30 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithEnded_AddsDocumentContainersWhoseVisibleFactsHaveAllEnded()
+    {
+        string tag = $"spaces-{Guid.NewGuid():N}";
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        string restricted = Guid.NewGuid().ToString();
+        FakeAccess access = new(new() { [a] = [restricted] });
+        MemoryService memory = Memory(access);
+        MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
+        Guid ended = await ContainerAsync($"{tag}-ended", ContainerKind.Documents);
+        Guid endedRestricted = await ContainerAsync($"{tag}-ended-restricted", ContainerKind.Documents);
+        DateTimeOffset from = DateTimeOffset.UtcNow.AddDays(-10), to = DateTimeOffset.UtcNow.AddDays(-5);
+        NewMemoryFact old = Fact("old", MemoryScope.Team) with { ValidFrom = from, ValidTo = to };
+        NewMemoryFact secret = Fact("secret", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, restricted)) with { ValidFrom = from, ValidTo = to };
+        (await memory.RememberAsync(ended, old, userA)).Fact.Should().NotBeNull();
+        (await memory.RememberAsync(endedRestricted, secret, userA)).Fact.Should().NotBeNull();
+
+        (await Store(access).ListAsync(userA, tag))!.Should().BeEmpty("neither holds a current fact");
+        (await Store(access).ListAsync(userA, tag, withEnded: true))!.Select(s => (s.Container.Name, s.Facts)).Should()
+            .BeEquivalentTo([($"{tag}-ended", 0), ($"{tag}-ended-restricted", 0)]);
+        (await Store(access).ListAsync(userB, tag, withEnded: true))!.Select(s => s.Container.Name).Should()
+            .Equal([$"{tag}-ended"], "B can't read the source the other container's only fact cites");
+    }
+
+    [Fact]
     public async Task List_CorrectedFactCountsOnce()
     {
         string tag = $"spaces-{Guid.NewGuid():N}";
@@ -145,7 +169,7 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         Guid team = await ContainerAsync($"{tag}-team", ContainerKind.Memory);
         MemoryFact first = (await memory.RememberAsync(team, Fact("v1", MemoryScope.Team), userA)).Fact!;
         MemoryWriteResult corrected = await memory.CorrectAsync(
-            team, first.Id, MemoryCorrection.Changed, new NewMemoryFact("", "", "v2", DateTimeOffset.UtcNow.AddMinutes(-1), null, null), userA, true);
+            first.Id, MemoryCorrection.Changed, new NewMemoryFact("", "", "v2", DateTimeOffset.UtcNow.AddMinutes(-1), null, null), userA, true);
         corrected.Fact.Should().NotBeNull(corrected.Error);
 
         IReadOnlyList<MemorySpaceSummary> seen = (await Store(access).ListAsync(userA, tag))!;

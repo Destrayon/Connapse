@@ -1105,8 +1105,7 @@
       "routes": [
         "GET /api/memory/spaces/"
       ],
-      "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcp": "memory_spaces"
     },
     {
       "id": "memorySpaces.create",
@@ -1115,7 +1114,7 @@
         "POST /api/memory/spaces/"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.update",
@@ -1124,7 +1123,7 @@
         "PATCH /api/memory/spaces/{spaceId:guid}"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.delete",
@@ -1133,7 +1132,7 @@
         "DELETE /api/memory/spaces/{spaceId:guid}"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.star",
@@ -1142,7 +1141,7 @@
         "PUT /api/memory/spaces/{spaceId:guid}/star"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
     },
     {
       "id": "memorySpaces.unstar",
@@ -1151,7 +1150,39 @@
         "DELETE /api/memory/spaces/{spaceId:guid}/star"
       ],
       "mcp": null,
-      "mcpOff": "The memory_spaces MCP tool comes with CON-237."
+      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+    },
+    {
+      "id": "memory.list",
+      "capability": "Page through a memory space's facts",
+      "routes": [
+        "GET /api/memory/spaces/{id}/facts"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.count",
+      "capability": "Count a memory space's facts",
+      "routes": [
+        "GET /api/memory/spaces/{id}/facts/count"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.subjects",
+      "capability": "Page through a memory space's subjects",
+      "routes": [
+        "GET /api/memory/spaces/{id}/subjects"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
+    },
+    {
+      "id": "memory.history",
+      "capability": "Page through every version of a fact",
+      "routes": [
+        "GET /api/memory/facts/{id}/history"
+      ],
+      "mcpOff": "The paged reads back the Memory screen; agents read memory through memory_recall and memory_timeline."
     }
   ],
   "plumbing": {

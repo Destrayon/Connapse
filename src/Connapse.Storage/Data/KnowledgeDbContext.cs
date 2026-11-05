@@ -107,7 +107,13 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                     + "setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')",
                     stored: true);
             entity.HasIndex(e => new { e.ContainerId, e.Subject, e.Attribute }).HasDatabaseName("idx_memory_facts_key");
-            entity.HasIndex(e => e.ChainId).HasDatabaseName("idx_memory_facts_chain");
+            // A fact's history, newest first, paged by (recorded_at, id).
+            entity.HasIndex(e => new { e.ChainId, e.RecordedAt, e.Id }).HasDatabaseName("idx_memory_facts_chain")
+                .IsDescending(false, true, true);
+            // A space's current facts, newest first: the default list, its pages and the count.
+            entity.HasIndex(e => new { e.ContainerId, e.RecordedAt, e.Id }).HasDatabaseName("idx_memory_facts_current")
+                .IsDescending(false, true, true)
+                .HasFilter("superseded_at IS NULL");
             entity.HasIndex(e => e.SearchVector).HasDatabaseName("idx_memory_facts_fts").HasMethod("GIN");
             entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.Sources).WithOne().HasForeignKey(s => s.FactId).OnDelete(DeleteBehavior.Cascade);

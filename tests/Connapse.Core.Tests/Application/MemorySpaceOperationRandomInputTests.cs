@@ -66,7 +66,7 @@ public class MemorySpaceOperationRandomInputTests
                 var sort = (MemorySpaceSort)sortValue;
                 int? limit = limitValue < 0 ? null : limitValue;
                 IMemorySpaceStore store = Substitute.For<IMemorySpaceStore>();
-                store.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                store.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
                     .Returns(unchecked_ ? null : summaries);
                 var list = new ListMemorySpaces(store, Authorizer(reader, false));
                 MemorySpaceQuery query = new(kind, null, starredOnly, sort, limit);

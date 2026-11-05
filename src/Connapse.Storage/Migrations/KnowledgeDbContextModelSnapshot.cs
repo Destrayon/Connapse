@@ -837,13 +837,19 @@ namespace Connapse.Storage.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ChainId")
-                        .HasDatabaseName("idx_memory_facts_chain");
-
                     b.HasIndex("SearchVector")
                         .HasDatabaseName("idx_memory_facts_fts");
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "GIN");
+
+                    b.HasIndex("ChainId", "RecordedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("idx_memory_facts_chain");
+
+                    b.HasIndex("ContainerId", "RecordedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("idx_memory_facts_current")
+                        .HasFilter("superseded_at IS NULL");
 
                     b.HasIndex("ContainerId", "Subject", "Attribute")
                         .HasDatabaseName("idx_memory_facts_key");

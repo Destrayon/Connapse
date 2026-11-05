@@ -26,7 +26,12 @@ public sealed class MemoryService(
     ILogger<MemoryService> logger) : IMemoryService
 {
     internal const int MaxSources = 20;
-    private const int Page = 200;
+
+    /// <summary>The most facts, subjects or versions one page returns.</summary>
+    internal const int MaxPage = 100;
+
+    /// <summary>How long a count runs before it answers with a lower bound; under the 2 seconds a count must answer in.</summary>
+    internal static readonly TimeSpan CountBudget = TimeSpan.FromSeconds(1.5);
 
     public async Task<MemoryWriteResult> RememberAsync(Guid containerId, NewMemoryFact fact, MemoryCaller caller, CancellationToken ct = default)
     {
@@ -116,26 +121,11 @@ public sealed class MemoryService(
     public async Task<MemoryRecall> RecallAsync(MemoryQuery query, MemoryCaller caller, CancellationToken ct = default)
     {
         int limit = Math.Clamp(query.Limit, 1, 100);
-        List<RecalledFact> shown = [];
         try
         {
-            // Hidden facts are skipped, so read further pages until the limit is met or memory runs out.
-            for (int page = 0; shown.Count < limit; page++)
-            {
-                IReadOnlyList<MemoryFact> rows = await store.QueryAsync(query, page * Page, Page, ct);
-                IReadOnlySet<MemorySource> readable = await ReadableAsync(rows.SelectMany(f => f.Sources), caller.UserId, ct);
-                shown.AddRange(rows.Where(f => Visible(f, readable, caller)).Take(limit - shown.Count)
-                    .Select(f => new RecalledFact(f, [])));
-                if (rows.Count < Page)
-                    break;
-            }
-
-            IReadOnlyDictionary<string, string> titles = await store.DocumentTitlesAsync(
-                [.. shown.SelectMany(f => f.Fact.Sources).Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref)], ct);
-            return new MemoryRecall([.. shown.Select(f => f with
-            {
-                Sources = [.. f.Fact.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, titles.GetValueOrDefault(s.Ref)))],
-            })]);
+            // Hidden facts are filtered out by the query itself, so one read returns the page.
+            MemoryViewer viewer = await ViewerAsync(query.ContainerId, query.ChainId, caller, ct);
+            return new MemoryRecall(await ShownAsync(await store.VisibleAsync(query, viewer, limit, ct), ct));
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -143,6 +133,104 @@ public sealed class MemoryService(
             logger.LogWarning(ex, "Could not check memory sources; showing nothing");
             return MemoryRecall.DeniedResult;
         }
+    }
+
+    public async Task<MemoryFactPage> ListAsync(
+        Guid containerId, MemoryFactFilter filter, MemoryFactSort sort, MemoryFactKey? after, int limit, MemoryCaller caller,
+        CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, MaxPage);
+        try
+        {
+            MemoryViewer viewer = await ViewerAsync(containerId, null, caller, ct);
+            // One more than asked, to know whether a next page exists.
+            IReadOnlyList<MemoryListedFact> listed = await store.PageAsync(containerId, filter, sort, after, limit + 1, viewer, ct);
+            List<MemoryListedFact> page = [.. listed.Take(limit)];
+            return new MemoryFactPage(
+                await ShownAsync([.. page.Select(l => l.Fact)], ct),
+                listed.Count > limit ? page[^1].Key : null);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check memory sources; showing nothing");
+            return MemoryFactPage.DeniedResult;
+        }
+    }
+
+    public async Task<MemoryFactCount> CountAsync(Guid containerId, MemoryFactFilter filter, MemoryCaller caller, CancellationToken ct = default)
+    {
+        try
+        {
+            MemoryViewer viewer = await ViewerAsync(containerId, null, caller, ct);
+            (long count, bool capped) = await store.CountAsync(containerId, filter, viewer, CountBudget, ct);
+            return new MemoryFactCount(count, capped);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check memory sources; counting nothing");
+            return MemoryFactCount.DeniedResult;
+        }
+    }
+
+    public async Task<MemorySubjectPage> SubjectsAsync(
+        Guid containerId, string? text, MemoryFactStatus status, string? after, int limit, MemoryCaller caller,
+        CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, MaxPage);
+        try
+        {
+            MemoryViewer viewer = await ViewerAsync(containerId, null, caller, ct);
+            IReadOnlyList<(string Key, MemorySubject Subject)> listed = await store.SubjectsAsync(containerId, text, status, after, limit + 1, viewer, ct);
+            List<(string Key, MemorySubject Subject)> page = [.. listed.Take(limit)];
+            return new MemorySubjectPage([.. page.Select(s => s.Subject)], listed.Count > limit ? page[^1].Key : null);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check memory sources; showing nothing");
+            return MemorySubjectPage.DeniedResult;
+        }
+    }
+
+    public async Task<MemoryHistoryPage> HistoryAsync(
+        Guid containerId, Guid factId, MemoryVersionKey? after, int limit, MemoryCaller caller, CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, MaxPage);
+        // The space was the one authorized, so a fact held anywhere else is reported as missing.
+        if (await store.GetAsync(factId, ct) is not { } fact || fact.ContainerId != containerId)
+            return MemoryHistoryPage.Missing;
+        try
+        {
+            MemoryViewer viewer = await ViewerAsync(containerId, fact.ChainId, caller, ct);
+            // A fact the caller cannot see is reported as missing, so its history cannot be probed through it.
+            if (!Visible(fact, viewer.Readable, caller))
+                return MemoryHistoryPage.Missing;
+            IReadOnlyList<MemoryFact> listed = await store.HistoryAsync(containerId, fact.ChainId, after, limit + 1, viewer, ct);
+            long total = await store.HistoryCountAsync(containerId, fact.ChainId, viewer, ct);
+            List<MemoryFact> page = [.. listed.Take(limit)];
+            return new MemoryHistoryPage(
+                await ShownAsync(page, ct), total,
+                listed.Count > limit ? new MemoryVersionKey(page[^1].RecordedAt, page[^1].Id) : null);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check memory sources; showing nothing");
+            return MemoryHistoryPage.DeniedResult;
+        }
+    }
+
+    public Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default) => store.SpaceOfAsync(factId, ct);
+
+    /// <summary>The caller with the sources it can read among those the container (or one chain) cites. Throws when it cannot tell.</summary>
+    private async Task<MemoryViewer> ViewerAsync(Guid containerId, Guid? chainId, MemoryCaller caller, CancellationToken ct) =>
+        new(caller, await ReadableAsync(await store.CitedSourcesAsync(containerId, chainId, ct), caller.UserId, ct));
+
+    /// <summary>The facts with their sources' document names.</summary>
+    private async Task<IReadOnlyList<RecalledFact>> ShownAsync(IReadOnlyList<MemoryFact> facts, CancellationToken ct)
+    {
+        IReadOnlyDictionary<string, string> titles = await store.DocumentTitlesAsync(
+            [.. facts.SelectMany(f => f.Sources).Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref).Distinct(StringComparer.Ordinal)], ct);
+        return [.. facts.Select(f => new RecalledFact(f,
+            [.. f.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, titles.GetValueOrDefault(s.Ref)))]))];
     }
 
     /// <summary>
