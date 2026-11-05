@@ -170,6 +170,14 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         return ([.. current.Order(StringComparer.Ordinal)], [.. history.Order(StringComparer.Ordinal)]);
     }
 
+    private async Task AddNoveltyColumnAsync(bool add)
+    {
+        await using var context = new KnowledgeDbContext(Options());
+        await context.Database.ExecuteSqlRawAsync(add
+            ? "ALTER TABLE memory_facts ADD COLUMN novelty jsonb"
+            : "ALTER TABLE memory_facts DROP COLUMN novelty");
+    }
+
     private async Task<Dictionary<Guid, Guid>> FactContainersAsync()
     {
         await using var context = new KnowledgeDbContext(Options());
@@ -202,10 +210,14 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         Guid[] longPersonal = await ChainAsync(longContainer, (_bob, null, Personal, null));
         Guid[] alreadyInSpace = await ChainAsync(alicesSpace, (_alice, null, Personal, null));
 
+        // Today's code reads memory_facts.novelty, added after the move (MemoryFactNovelty); give the old schema the
+        // column for the read, and take it away again so that migration runs as it would on a real database.
+        await AddNoveltyColumnAsync(true);
         Dictionary<Guid, Guid> placesBefore = await FactContainersAsync();
         Dictionary<string, (string[] Current, string[] History)> before = [];
         foreach (MemoryCaller reader in Readers())
             before[reader.Name ?? "nobody"] = await ViewAsync(reader);
+        await AddNoveltyColumnAsync(false);
 
         await MigrateAsync();
 

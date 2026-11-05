@@ -158,9 +158,9 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
     public async Task Remember_WithNovelty_StoresWhatIsNewAndThePassagesAndReadsThemBack()
     {
         Guid a = Guid.NewGuid();
-        var (container, service) = await ArrangeAsync(new());
-        MemoryCaller user = new(a, null, null);
         MemoryPassage passage = new(Guid.NewGuid(), "ops.md", "Halcyon runs \"PostgreSQL\" 15 — see ops.");
+        var (container, service) = await ArrangeAsync(new() { [a] = [passage.DocumentId.ToString()] });
+        MemoryCaller user = new(a, null, null);
 
         MemoryWriteResult written = await service.RememberAsync(container, new NewMemoryFact("Halcyon", "database", "PostgreSQL 16",
             Jan, null, [], null, MemoryScope.Personal, new MemoryNovelty(" moved to 16 in March ", [passage])), user);
