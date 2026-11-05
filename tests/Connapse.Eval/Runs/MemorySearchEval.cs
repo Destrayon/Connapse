@@ -144,7 +144,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
                 [.. op.Sources.Select(s => new MemorySource(MemorySourceKind.Document, documentOf[s]))], op.Reason);
             MemoryWriteResult result = op.Op == "remember"
                 ? await memory.RememberAsync(container, fact, caller, ct)
-                : await memory.CorrectAsync(container, written[op.Target!].Fact, MemoryCorrection.Changed, fact, caller, ct);
+                : await memory.CorrectAsync(written[op.Target!].Fact, MemoryCorrection.Changed, fact, caller, true, ct);
             if (result.Fact is null)
                 throw new InvalidOperationException($"{op.Id} was refused: {result.Error}");
             written[op.Id] = (result.Fact.Id, subject, attribute);
