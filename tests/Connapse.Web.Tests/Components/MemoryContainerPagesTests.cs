@@ -164,6 +164,7 @@ public class MemoryContainerPagesTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find("#memory-team-note").TextContent.Should().Contain("Team memory")
             .And.Contain("every document a fact cites"));
+        cut.Find("#memory-personal-pointer a").GetAttribute("href").Should().Be("memory");
     }
 
     [Fact]
