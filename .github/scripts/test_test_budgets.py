@@ -132,13 +132,17 @@ class SmallWall(unittest.TestCase):
 class SlowRunnerRun41957977547(unittest.TestCase):
     """#1133's run 41957977547 failed at 30.8 s with no slower test, and its rerun passed (CON-250).
 
-    The fixture is that run's durations of the reference's tests. GitHub replaced the failing attempt's
-    artifact with the rerun's, so these are the rerun's (same commit) scaled to the failing attempt's
-    factor of 1.01 against the old reference; their sum, 154 s, is within 2% of its 151.5 s."""
+    The fixture is that run's durations of the 809 tests the reference times (115 s of its 6,898). GitHub
+    replaced the failing attempt's artifact with the rerun's, so these are the rerun's (same commit) scaled
+    by 1.116 to the failing attempt's factor of 1.01 against the old reference; the whole rerun scaled
+    so sums to 154 s, within 2% of the failing attempt's 151.5 s.
+
+    The reference is the one CON-250 committed, frozen here, so refreshing the live one can't move these
+    numbers."""
 
     SCRIPTS = pathlib.Path(__file__).resolve().parent
     RUN = json.loads((SCRIPTS / "testdata" / "run-41957977547-small.json").read_text(encoding="utf-8"))
-    CHECKED_IN = json.loads((SCRIPTS.parent / "test-timings" / "small-reference.json").read_text(encoding="utf-8"))
+    CHECKED_IN = json.loads((SCRIPTS / "testdata" / "small-reference-2026-11-04.json").read_text(encoding="utf-8"))
 
     def check(self, durations: dict[str, float], wall: float) -> tuple[int, str]:
         with tier(durations, self.CHECKED_IN):
@@ -176,16 +180,17 @@ class CheckReference(unittest.TestCase):
     """The nightly's check that the reference still describes main's median runner (CON-250)."""
 
     @staticmethod
-    def runs(root: str, factors: list[float], tests: int = len(REFERENCE)) -> list[str]:
+    def runs(root: str, factors: list[float], tests: int | list[int] = len(REFERENCE)) -> list[str]:
+        counts = tests if isinstance(tests, list) else [tests] * len(factors)
         dirs = []
-        for i, factor in enumerate(factors):
+        for i, (factor, count) in enumerate(zip(factors, counts)):
             d = pathlib.Path(root, f"run{i}", "tests", "P", "TestResults")
             d.mkdir(parents=True)
-            (d / "small-tests.trx").write_text(trx(dict(list(scaled(factor).items())[:tests])))
+            (d / "small-tests.trx").write_text(trx(dict(list(scaled(factor).items())[:count])))
             dirs.append(str(pathlib.Path(root, f"run{i}")))
         return dirs
 
-    def check(self, factors: list[float], tests: int = len(REFERENCE)) -> tuple[int, str]:
+    def check(self, factors: list[float], tests: int | list[int] = len(REFERENCE)) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as root:
             pathlib.Path(root, "reference.json").write_text(json.dumps(REFERENCE))
             out = io.StringIO()
@@ -222,6 +227,17 @@ class CheckReference(unittest.TestCase):
         code, out = self.check(self.FLEET, tests=150)
         self.assertEqual(code, 1, out)
         self.assertIn("reads 0 of 15 runs", out)
+
+    def test_newest_runs_that_left_the_reference_behind_fail_even_with_ten_healthy_ones(self):
+        # Codex's case: five newest runs carry 150 of the 200 tests, ten older ones all of them.
+        code, out = self.check(self.FLEET, tests=[150] * 5 + [len(REFERENCE)] * 10)
+        self.assertEqual(code, 1, out)
+        self.assertIn("5 of 15 runs timed too few", out)
+
+    def test_one_or_two_crashed_runs_are_left_out_without_failing(self):
+        code, out = self.check(self.FLEET, tests=[150] * 2 + [len(REFERENCE)] * 13)
+        self.assertEqual(code, 0, out)
+        self.assertIn("reads 13 of 15 runs", out)
 
 
 class WriteReference(unittest.TestCase):

@@ -96,6 +96,10 @@ MAX_DRIFT = 1.25
 # Fewer runs than this can't tell a stale reference from a lucky draw of runners.
 MIN_DRIFT_RUNS = 10
 
+# More runs than this timing too few of the reference's tests means main's test list has moved away from
+# it, which turns the PR check's relief off just as surely; one or two are a crashed or cancelled run.
+MAX_DRIFT_LEFT_OUT = 2
+
 
 def durations(paths: list[str]) -> dict[str, float]:
     """Each passed test's duration by its full name, theory cases apart, across these TRX files."""
@@ -188,6 +192,10 @@ def main(argv: list[str] | None = None) -> int:
         median, factors = reference_drift(reference, a.trx, a.runs)
         print(f"{a.check_reference} reads {len(factors)} of {len(a.runs)} runs at a median runner factor of {median:.2f}: "
               + ", ".join(f"{f:.2f}" for f in factors))
+        if len(a.runs) - len(factors) > MAX_DRIFT_LEFT_OUT:
+            print(f"::error::{len(a.runs) - len(factors)} of {len(a.runs)} runs timed too few of the reference's tests: "
+                  f"main's test list has moved away from it; refresh it with --write-reference from recent runs' artifacts")
+            return 1
         if len(factors) < MIN_DRIFT_RUNS:
             print(f"::error::only {len(factors)} runs timed enough of the reference's tests, and telling a stale reference "
                   f"needs {MIN_DRIFT_RUNS}; refresh it with --write-reference from recent runs' artifacts")
