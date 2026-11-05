@@ -40,11 +40,11 @@ for suite in "$@"; do
   if [ "$suite" = memory-v1 ]; then
     # Scored by its own command (CON-111): agent memory against the same notes stored as documents.
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory --config hybrid --split "${MEMORY_SPLIT:-heldout}"       --out "${EVAL_LOG_DIR:-eval/runs}/memory-${MEMORY_SPLIT:-heldout}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
-  elif [ "$suite" = memory-search ]; then
+  elif [ "$suite" = memory-search ] || [ "$suite" = memory-search-v1 ]; then
     # Scored by its own command (CON-244): the same agent searching with and without memory_recall.
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory-search --config hybrid --split "${MEMORY_SEARCH_SPLIT:-test}" --workers 1 ${MEMORY_SEARCH_ARGS} \
       --out "${EVAL_LOG_DIR:-eval/runs}/memory-search-${MEMORY_SEARCH_SPLIT:-test}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
-  elif [ "$suite" = memory-learned ]; then
+  elif [ "$suite" = memory-learned ] || [ "$suite" = memory-learned-v1 ]; then
     # Scored by its own command (CON-244): session-2 agents with and without the memory session-1 agents wrote.
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory-learned --config hybrid --split "${MEMORY_SEARCH_SPLIT:-test}" --workers 1 ${MEMORY_SEARCH_ARGS} \
       --out "${EVAL_LOG_DIR:-eval/runs}/memory-learned-${MEMORY_SEARCH_SPLIT:-test}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1

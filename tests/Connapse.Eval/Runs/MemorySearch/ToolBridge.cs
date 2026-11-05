@@ -47,6 +47,8 @@ public sealed class BridgeSession(IToolbox toolbox)
             if (name == AgentContract.AnswerTool)
             {
                 (string? text, List<string> cited) = AgentContract.ReadAnswer(input);
+                if (text is null)
+                    return ("Error: Missing required argument 'answer': give the answer as a string.", true);
                 (Outcome, Answer, Cited) = (AgentOutcome.Answered, text, cited);
                 return ("Answer recorded. " + TaskOver, false);
             }

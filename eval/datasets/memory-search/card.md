@@ -26,9 +26,10 @@
   - current: the revisions say which is in force, or nothing says so;
   - alias: the team charter names the nickname, or no document contains it;
   - correction: the new standard says what it replaces, or it does not;
-  - location: the system overview names the codename, or no document does.
+  - location: the system overview names the codename, or no document but the system's own runbooks does.
 
-  The generator fails if an undocumented nickname or codename appears in any document, if a system's name appears
+  The generator fails if an undocumented nickname appears in any document, if an undocumented codename appears
+  outside its system's runbooks, if a system's name appears
   in its runbooks, or if a corrected document uses the old wording the question uses.
 - **Sets the pass bar uses** (`eval/pass-bars.md`, "Container memory for search"):
   - **M**, where memory should help: current, alias, correction and location, 64 test tasks.

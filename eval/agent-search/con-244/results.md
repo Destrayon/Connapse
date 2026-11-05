@@ -61,8 +61,11 @@ Score by kind of task, without memory and then with it:
 | Tool calls per run, counting `memory_recall` | +0.55 | [0.18, 0.84] |
 | Stale citations | −0.12 | [−0.19, −0.07] |
 | Answer accuracy | +0.05 | [0.01, 0.10] |
-| Run recall of gold documents | +0.06 | [0.02, 0.11] |
+| Saw a gold document in any tool output | +0.06 | [0.02, 0.11] |
 | First-query MRR@10 | −0.002 | [−0.009, 0.001] |
+
+"Saw a gold document" counts every tool output, `memory_recall` included, so a memory that cites a gold document
+counts as seeing it. It is not run recall over search results alone, which this run's traces cannot recompute.
 
 The first search ranks gold documents the same in both arms (first-query MRR@10). The gain comes from what the agent searches for after it recalls memory. Without memory, the agent searched about 4 times per alias or location task. With memory, it searched under 2 times.
 

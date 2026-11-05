@@ -17,6 +17,8 @@ public interface IProcessRunner
 /// <summary>Runs a process at below-normal priority, reading its output line by line; kills it on timeout.</summary>
 public sealed class ProcessRunner : IProcessRunner
 {
+    private static readonly TimeSpan StderrGrace = TimeSpan.FromSeconds(30);
+
     public async Task<ProcessResult> RunAsync(ProcessStartInfo start, TimeSpan timeout, CancellationToken ct)
     {
         start.UseShellExecute = false;
@@ -52,7 +54,18 @@ public sealed class ProcessRunner : IProcessRunner
                 throw;
             return new ProcessResult(-1, lines, "", TimedOut: true);
         }
-        return new ProcessResult(process.ExitCode, lines, await stderr, TimedOut: false);
+        string error;
+        try
+        {
+            // A descendant that outlives the process can hold stderr open; don't wait on it forever.
+            error = await stderr.WaitAsync(StderrGrace, ct);
+        }
+        catch (TimeoutException)
+        {
+            process.Kill(entireProcessTree: true);
+            error = "";
+        }
+        return new ProcessResult(process.ExitCode, lines, error, TimedOut: false);
     }
 }
 
@@ -177,7 +190,7 @@ public sealed class ClaudeCliAgent(
                     (FirstLimit, LastLimit) = (FirstLimit ?? limit, limit);
             if (result.Limit is { Allowed: false } blocked && session.Outcome is null)
                 throw new SubscriptionLimitException(blocked);
-            RequireSubscription(result);
+            RequireSubscription(result, session.Outcome is not null || session.Calls.Count > 0);
             return Compose(session, result, process);
         }
         finally
@@ -188,11 +201,12 @@ public sealed class ClaudeCliAgent(
 
     /// <summary>
     /// Stops the run when a session that reached the model reported no subscription rate limit: only subscription
-    /// sign-in reports one, so its absence means the usage went to some other account.
+    /// sign-in reports one, so its absence means the usage went to some other account. A session that called a tool
+    /// reached the model even if it then timed out before finishing.
     /// </summary>
-    public static void RequireSubscription(CliResult result)
+    public static void RequireSubscription(CliResult result, bool usedTools = false)
     {
-        if (result.Finished && result.Limit is null)
+        if ((result.Finished || usedTools) && result.Limit is null)
             throw new InvalidOperationException(
                 "claude reported no subscription rate limit, so it was not signed in with the subscription. Nothing past this point was scored.");
     }

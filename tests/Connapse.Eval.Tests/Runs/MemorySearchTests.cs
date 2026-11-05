@@ -119,6 +119,19 @@ public class MemorySearchTests
     }
 
     [Fact]
+    public async Task CallAsync_AnswerWithoutAStringAnswer_IsAnErrorAndLeavesTheRunOpen()
+    {
+        BridgeSession session = new(new FakeTools());
+
+        (string text, bool isError) = await session.CallAsync("answer", Input(new { answer = 5, documentIds = new[] { GoldUuid } }), CancellationToken.None);
+
+        isError.Should().BeTrue();
+        text.Should().Contain("answer");
+        session.Outcome.Should().BeNull();
+        session.Cited.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task CallAsync_AfterTheRunCloses_IsRefusedAndNotRecorded()
     {
         FakeTools tools = new();
@@ -274,10 +287,12 @@ public class MemorySearchTests
     [Fact]
     public async Task ProcessRunner_PastItsTimeout_ReportsTimedOut()
     {
-        ProcessStartInfo start = new("dotnet");
-        start.ArgumentList.Add("--version");
+        // A process that outlives the timeout by far, so the timer always fires first.
+        ProcessStartInfo start = OperatingSystem.IsWindows() ? new("ping") : new("sleep");
+        foreach (string a in OperatingSystem.IsWindows() ? ["-n", "60", "127.0.0.1"] : (string[])["60"])
+            start.ArgumentList.Add(a);
 
-        ProcessResult result = await new ProcessRunner().RunAsync(start, TimeSpan.Zero, CancellationToken.None);
+        ProcessResult result = await new ProcessRunner().RunAsync(start, TimeSpan.FromMilliseconds(500), CancellationToken.None);
 
         result.Should().Be(new ProcessResult(-1, result.Stdout, "", TimedOut: true));
     }
@@ -406,6 +421,30 @@ public class MemorySearchTests
     }
 
     [Fact]
+    public void RequireSubscription_UnfinishedAfterToolCallsWithoutALimit_Throws()
+    {
+        FluentActions.Invoking(() => ClaudeCliAgent.RequireSubscription(CliResult.None, usedTools: true))
+            .Should().Throw<InvalidOperationException>().WithMessage("*not signed in with the subscription*");
+    }
+
+    [Fact]
+    public void RequireNoProjectMemory_ClaudeMdInTheAgentFolder_Throws()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "connapse-eval-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            FluentActions.Invoking(() => MemorySearchEval.RequireNoProjectMemory(dir)).Should().NotThrow();
+            File.WriteAllText(Path.Combine(dir, "CLAUDE.md"), "x");
+            FluentActions.Invoking(() => MemorySearchEval.RequireNoProjectMemory(dir)).Should().Throw<InvalidOperationException>();
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void RemovedVariables_IncludeEveryProviderSelector()
     {
         ClaudeCliAgent.RemovedVariables.Should().Contain(["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "ANTHROPIC_API_KEY"]);
@@ -454,11 +493,11 @@ public class MemorySearchTests
     }
 
     [Fact]
-    public void Describe_MemoryRecall_HasNoRequiredArgumentBeyondContainer()
+    public void Describe_MemoryRecall_HasNoRequiredArgument()
     {
         ToolSpec spec = McpToolbox.Describe(McpToolbox.Find("memory_recall"));
 
-        spec.Required.Should().Equal("containerId");
+        spec.Required.Should().BeEmpty();
         spec.Properties["includeHistory"].GetProperty("type").GetString().Should().Be("boolean");
     }
 

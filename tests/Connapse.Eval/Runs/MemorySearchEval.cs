@@ -54,6 +54,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         // The agents run in an empty folder outside the repository, so no project CLAUDE.md is near them.
         string agentDir = Path.GetFullPath(options.AgentDir ?? Path.Combine(Path.GetTempPath(), "connapse-memory-search-agent"));
         Directory.CreateDirectory(agentDir);
+        RequireNoProjectMemory(agentDir);
 
         DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[Dataset];
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
@@ -165,6 +166,19 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             throw new InvalidOperationException(
                 $"{report.Failed} of {corpusDocuments} documents failed to index and {mappedDocuments} have a Connapse id "
                 + $"({string.Join(", ", report.FailedDocumentIds.Take(10))}); the arms are compared only on a complete corpus.");
+    }
+
+    /// <summary>
+    /// Stops before any agent runs when a CLAUDE.md could reach the agents: Claude Code loads one from its working folder
+    /// and every folder above it, so it would reach both arms.
+    /// </summary>
+    public static void RequireNoProjectMemory(string agentDir)
+    {
+        for (DirectoryInfo? dir = new(agentDir); dir is not null; dir = dir.Parent)
+            foreach (string name in (string[])["CLAUDE.md", "CLAUDE.local.md", Path.Combine(".claude", "CLAUDE.md")])
+                if (File.Exists(Path.Combine(dir.FullName, name)))
+                    throw new InvalidOperationException(
+                        $"{Path.Combine(dir.FullName, name)} would reach the agents; run them from a folder with no CLAUDE.md in it or above it.");
     }
 
     /// <summary>Why a run is diagnostic only: anything short of the pre-registered run. Empty when it conforms.</summary>
@@ -356,6 +370,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
                         {
                             ["tool"] = c.Name,
                             ["input"] = JsonSerializer.SerializeToNode(c.Input),
+                            ["output"] = c.Output,
                         })]),
                         ["error"] = run.Error,
                     }.ToJsonString();

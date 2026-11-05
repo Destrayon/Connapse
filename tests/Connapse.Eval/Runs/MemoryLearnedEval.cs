@@ -36,6 +36,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
     {
         string agentDir = Path.GetFullPath(options.AgentDir ?? Path.Combine(Path.GetTempPath(), "connapse-memory-learned-agent"));
         Directory.CreateDirectory(agentDir);
+        MemorySearchEval.RequireNoProjectMemory(agentDir);
 
         DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[Dataset];
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
