@@ -203,6 +203,96 @@ public class MemorySearchTests
     }
 
     [Fact]
+    public void Parse_PartialAndOddEvents_FallBackToDefaults()
+    {
+        CliResult result = CliResult.Parse(
+        [
+            "[1,2]",
+            """{"type":"system","subtype":"status","tools":["Read"]}""",
+            """{"type":"system","subtype":"init"}""",
+            """{"type":"rate_limit_event"}""",
+            """{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"seven_day":{"utilization":"high"},"five_hour":{},"weekly":null}}}""",
+            """{"type":"result","modelUsage":{"m":5,"n":{"inputTokens":7}}}""",
+        ]);
+
+        result.Finished.Should().BeTrue();
+        result.IsError.Should().BeFalse();
+        result.Subtype.Should().BeNull();
+        result.StopReason.Should().BeNull();
+        result.Turns.Should().Be(0);
+        result.Text.Should().BeNull();
+        result.Tools.Should().BeEmpty();
+        result.Usage.Should().Be(new TokenUsage(7, 0, 0, 0));
+        result.Limit!.Status.Should().Be("unknown");
+        result.Limit.Utilization.Should().BeEmpty();
+        result.Limit.Allowed.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Parse_NoEvents_IsNone()
+    {
+        CliResult.Parse([]).Should().Be(CliResult.None);
+        CliResult.Parse([ResultLine, """{"type":"result","is_error":true,"subtype":"error_during_execution"}"""]).Usage.Should().Be(TokenUsage.Zero);
+    }
+
+    [Fact]
+    public void Parse_LaterRateLimitEvent_ReplacesTheEarlierOne()
+    {
+        CliResult.Parse([AllowedLine, RejectedLine]).Limit!.Status.Should().Be("rejected");
+        CliResult.Parse([RejectedLine, AllowedLine]).Limit!.Status.Should().Be("allowed");
+    }
+
+    [Theory]
+    [InlineData("allowed", true)]
+    [InlineData("allowed_warning", true)]
+    [InlineData("rejected", false)]
+    [InlineData("unknown", false)]
+    [InlineData("not_allowed", false)]
+    public void Allowed_OnlyAnAllowedStatus(string status, bool allowed) =>
+        new SubscriptionLimit(status, new Dictionary<string, double>()).Allowed.Should().Be(allowed);
+
+    [Fact]
+    public void SubscriptionLimit_ToString_RoundsEachWindowToAWholePercentInKeyOrder() =>
+        new SubscriptionLimit("allowed", new Dictionary<string, double> { ["seven_day"] = 0.316, ["five_hour"] = 0.004 })
+            .ToString().Should().Be("allowed (five_hour 0%, seven_day 32%)");
+
+    [Fact]
+    public async Task ProcessRunner_ReadsEveryLineAndTheExitCode()
+    {
+        ProcessStartInfo start = new("dotnet");
+        start.ArgumentList.Add("--version");
+
+        ProcessResult result = await new ProcessRunner().RunAsync(start, TimeSpan.FromMinutes(1), CancellationToken.None);
+
+        result.TimedOut.Should().BeFalse();
+        result.ExitCode.Should().Be(0);
+        result.Stdout.Should().ContainSingle().Which.Should().MatchRegex(@"^\d+\.\d+");
+        start.RedirectStandardOutput.Should().BeTrue();
+        start.UseShellExecute.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ProcessRunner_PastItsTimeout_ReportsTimedOut()
+    {
+        ProcessStartInfo start = new("dotnet");
+        start.ArgumentList.Add("--version");
+
+        ProcessResult result = await new ProcessRunner().RunAsync(start, TimeSpan.Zero, CancellationToken.None);
+
+        result.Should().Be(new ProcessResult(-1, result.Stdout, "", TimedOut: true));
+    }
+
+    [Fact]
+    public async Task ProcessRunner_Cancelled_Throws()
+    {
+        ProcessStartInfo start = new("dotnet");
+        start.ArgumentList.Add("--version");
+
+        await FluentActions.Awaiting(() => new ProcessRunner().RunAsync(start, TimeSpan.FromMinutes(1), new CancellationToken(canceled: true)))
+            .Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
     public async Task Compose_SessionOutcomeComesFirst()
     {
         BridgeSession session = new(new FakeTools());

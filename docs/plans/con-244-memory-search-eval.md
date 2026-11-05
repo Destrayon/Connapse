@@ -30,8 +30,13 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
    - Goal: a Release build with CI's flags, `dotnet format`, the Codex review, a PR into `main`, and the cost
      estimate sent to ClaudePM.
    - Done when the PR is open and ClaudePM has the estimate.
-5. **Scored run.**
-   - Goal: run the test split after ClaudePM's go and with an API key.
+5. **Subscription runner.** (Added 2026-11-04: the user wants the run on their Claude subscription, not an API key.)
+   - Goal: run each agent through headless `claude -p` on the subscription, with the Connapse tools served by a
+     local MCP bridge, and remove the Anthropic SDK path.
+   - Done when the runner has unit tests, the Release build is clean, it is pushed, and a dev trial's numbers and
+     subscription usage are with ClaudePM.
+6. **Scored run.**
+   - Goal: run the test split after ClaudePM's go, on the subscription.
    - Done when the PR reports both scores, the CI, the minimum detectable effect, examples, and a one-line
      keep or drop verdict.
 
@@ -58,3 +63,8 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
   - Files: `Runs/MemorySearchEval.cs`, `MemorySearchTests.cs`, README.
   - Verified: 40 memory-search unit tests pass; Release build passes.
   - Next: the PM's go, an API key and the model, then the scored run.
+- **Phase 5:**
+  - Agents now run as headless `claude -p` (claude-sonnet-5-5) on the subscription, over a loopback MCP bridge to the in-process tools, with no API key. CI fixes: percentages print the same on every OS, and parsing and process-runner branches have tests.
+  - Files: `Runs/MemorySearch/{ClaudeCliAgent,ToolBridge,Agent}.cs`, `Runs/MemorySearchEval.cs`, `MemorySearchTests.cs`, README, `run_light.sh`.
+  - Verified: dev trial (24 tasks, 1 repetition) ran clean. Memory set: off 0.56, on 0.94, +0.375 (CI 0.19–0.63). Searches: 2.17 off, 1.50 on. It used 1% of the seven-day window (31% to 32%). 3,199 eval unit tests pass.
+  - Next: the PM's go for the full test split.

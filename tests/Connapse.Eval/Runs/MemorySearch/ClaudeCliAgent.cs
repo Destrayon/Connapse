@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -61,7 +62,7 @@ public sealed record SubscriptionLimit(string Status, IReadOnlyDictionary<string
     public bool Allowed => Status.StartsWith("allowed", StringComparison.Ordinal);
 
     public override string ToString() =>
-        $"{Status} ({string.Join(", ", Utilization.OrderBy(u => u.Key, StringComparer.Ordinal).Select(u => $"{u.Key} {u.Value:P0}"))})";
+        $"{Status} ({string.Join(", ", Utilization.OrderBy(u => u.Key, StringComparer.Ordinal).Select(u => string.Create(CultureInfo.InvariantCulture, $"{u.Key} {u.Value * 100:0}%")))})";
 }
 
 /// <summary>What one <c>claude -p</c> stream-json run reported.</summary>
