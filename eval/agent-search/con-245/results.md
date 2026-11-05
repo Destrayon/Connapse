@@ -41,3 +41,11 @@ keeps every dev new fact (the highest dev new fact scored 0.889). Telling these 
 the decision rules out (Connapse runs no model of its own for this).
 
 The cutoff was not moved after the test score.
+
+## Agent arms (not run)
+
+The planted and realistic agent arms were not rerun with the check on. Each run drives Claude agents, and the usage
+meter had reached the 42% stop line set for this ticket on 2026-11-05. The bars stay as pre-registered: realistic arm
+with memory on no worse than off (off ≈ 0.70), and planted arm gain at least +0.3. Given the sorting result, the expected
+effect is small: the check holds a third of restating saves and no new facts, so it cannot lower the planted gain
+through lost facts, and it removes only part of the restating clutter the realistic arm suffered from.
