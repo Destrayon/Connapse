@@ -49,9 +49,9 @@
     "IsEmpty": false
   },
   "Memory/CopyToTeamDialog.razor": {
-    "CodeLines": 84,
+    "CodeLines": 89,
     "Injects": 2,
-    "Complexity": 30,
+    "Complexity": 33,
     "MarkupLogic": 12,
     "IsEmpty": false
   },
@@ -70,10 +70,10 @@
     "IsEmpty": false
   },
   "Memory/MemoryFactList.razor": {
-    "CodeLines": 451,
+    "CodeLines": 454,
     "Injects": 3,
-    "Complexity": 176,
-    "MarkupLogic": 70,
+    "Complexity": 179,
+    "MarkupLogic": 71,
     "IsEmpty": false
   },
   "Memory/MemoryKindBadge.razor": {

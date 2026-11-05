@@ -15,8 +15,8 @@
         <div class="copy-modal-body">
             <h5 class="copy-label">This fact</h5>
             <div class="copy-fact">
-                <div class="fact-key">@Fact.Fact.Subject · @Fact.Fact.Attribute</div>
-                <div>@Fact.Fact.Value</div>
+                <div class="fact-key">@Shown.Fact.Subject · @Shown.Fact.Attribute</div>
+                <div>@Shown.Fact.Value</div>
                 <div class="copy-fact-meta">@FactMeta()</div>
             </div>
 
@@ -56,7 +56,7 @@
                 <div id="memory-copy-who" class="copy-who" role="note">
                     <p class="mb-1">
                         <span class="bi-info-circle me-1" aria-hidden="true"></span>Everyone in this Connapse@(People())
-                        @if (Fact.Sources.Count > 0)
+                        @if (Shown.Sources.Count > 0)
                         {
                             <text> who can read <strong>@Sources()</strong></text>
                         }
@@ -77,7 +77,7 @@
         <div class="copy-modal-footer">
             <button class="btn btn-sm btn-outline-secondary" @onclick="Close" disabled="@isCopying">Cancel</button>
             <button id="memory-copy-confirm" class="btn btn-sm btn-primary" @onclick="CopyAsync"
-                    disabled="@(isCopying || isPlanning || Chosen is null)">
+                    disabled="@(isCopying || isPlanning || plan is null)">
                 @if (isCopying)
                 {
                     <span class="spinner-border spinner-border-sm me-1" role="status"></span>
@@ -114,6 +114,9 @@
 
     private Container? Chosen => destinations?.FirstOrDefault(c => c.Id == destination);
 
+    /// <summary>The version that would be copied once planned; until then, the version the list showed.</summary>
+    private RecalledFact Shown => plan?.Current ?? Fact;
+
     protected override async Task OnInitializedAsync()
     {
         destinations = await Copy.DestinationsAsync(await AuthStateProvider.OperationContextAsync());
@@ -139,14 +142,17 @@
 
     private async Task CopyAsync()
     {
-        if (Chosen is not { } to || isPlanning) return;
+        if (Chosen is not { } to || isPlanning || plan is null) return;
         isCopying = true;
         error = null;
         var copied = await Copy.RunAsync(await AuthStateProvider.OperationContextAsync(), Fact.Fact.Id.ToString(), to.Id,
-            anyway: plan?.Existing is not null);
+            anyway: plan.Existing is not null, version: plan.Current.Fact.Id);
         isCopying = false;
         if (!copied.Succeeded)
         {
+            // The fact changed after it was shown: show the version that would now be copied before trying again.
+            if (copied.Field == "version")
+                await PlanAsync(to.Id);
             error = copied.Detail ?? "The fact wasn't copied.";
             return;
         }
@@ -164,7 +170,7 @@
 
     private string Sources()
     {
-        List<string> names = [.. Fact.Sources.Select(s => string.IsNullOrWhiteSpace(s.Title) ? s.Ref : s.Title)];
+        List<string> names = [.. Shown.Sources.Select(s => string.IsNullOrWhiteSpace(s.Title) ? s.Ref : s.Title)];
         return names.Count switch
         {
             1 => names[0],
@@ -175,15 +181,15 @@
 
     private string FactMeta()
     {
-        MemoryFact fact = Fact.Fact;
+        MemoryFact fact = Shown.Fact;
         string from = fact.ValidFrom is { } f
             ? $"True from {f.UtcDateTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture)}"
             : "No dates given";
-        string cites = Fact.Sources.Count switch
+        string cites = Shown.Sources.Count switch
         {
             0 => "no sources",
             1 => $"cites {Sources()}",
-            _ => $"cites {Fact.Sources.Count} sources",
+            _ => $"cites {Shown.Sources.Count} sources",
         };
         return $"{from} · {cites}";
     }

@@ -111,7 +111,7 @@
                 @if (groups.Count == 0)
                 {
                     <tbody>
-                        <tr><td colspan="@Columns" class="memory-group-none">No subjects on this page match. Try the next page.</td></tr>
+                        <tr><td colspan="@Columns" class="memory-group-none">No subjects on this page match. Try the @(nextCursor is null ? "previous" : "next") page.</td></tr>
                     </tbody>
                 }
             }
@@ -408,7 +408,7 @@
 
     private List<MemorySubjectGroup> groups = [];
 
-    private bool Empty => view.Grouped ? groups.Count == 0 && nextCursor is null : facts.Count == 0;
+    private bool Empty => view.Grouped ? groups.Count == 0 && nextCursor is null && view.Page == 1 : facts.Count == 0;
 
     private int Columns => 4 + (ShowAuthor ? 1 : 0) + (CanCopy ? 1 : 0);
 
@@ -625,7 +625,10 @@
             Go(Before(next), replace: true);
             return null;
         }
-        List<MemorySubjectGroup> loaded = [.. (page?.Subjects ?? []).Select((subject, i) => new MemorySubjectGroup(subject,
+        // The subjects read match by part of the name, but a subject filter is exact, as in the ungrouped list.
+        IEnumerable<MemorySubject> subjects = (page?.Subjects ?? []).Where(s =>
+            next.Subject is null || string.Equals(s.Subject, next.Subject.Trim(), StringComparison.OrdinalIgnoreCase));
+        List<MemorySubjectGroup> loaded = [.. subjects.Select((subject, i) => new MemorySubjectGroup(subject,
             keepOpen?.Contains(MemorySubjectGroup.KeyOf(subject.Subject)) ?? i < MemorySubjectGroup.OpenFirst, next.Narrowed ? null : subject.Facts))];
         await Task.WhenAll(loaded.Where(g => g.Open || next.Narrowed).Select(g => LoadGroupAsync(context, next, g, MemorySubjectGroup.FirstFacts)));
         if (request != loadRequest) return null;

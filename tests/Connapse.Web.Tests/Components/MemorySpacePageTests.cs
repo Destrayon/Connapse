@@ -185,6 +185,40 @@ public class MemorySpacePageTests : IDisposable
         cut.FindAll("#memory-notice").Should().BeEmpty();
     }
 
+    [Fact]
+    public void CopyToTeam_FactCorrectedAfterTheListLoaded_ShowsAndCopiesTheCurrentVersion()
+    {
+        MemoryFact first = memory.Add("Import job", "file size limit", "Fails over 2 GB", inSpace: Guid.Parse(mine.Id));
+        var cut = Render(mine.Id);
+        cut.WaitForAssertion(() => cut.Find("[data-copy-fact]"));
+        memory.Correct(first, MemoryCorrection.Wrong, "Fails over 4 GB");
+
+        cut.Find("[data-copy-fact]").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".copy-fact").TextContent.Should().Contain("Fails over 4 GB").And.NotContain("2 GB"));
+        cut.Find("#memory-copy-confirm").Click();
+        cut.WaitForAssertion(() => cut.Find("#memory-notice"));
+        memory.Remembered.Should().ContainSingle().Which.Fact.Value.Should().Be("Fails over 4 GB");
+    }
+
+    [Fact]
+    public void CopyToTeam_FactCorrectedWhileTheDialogIsOpen_RefusesAndShowsTheNewVersion()
+    {
+        MemoryFact first = memory.Add("Import job", "file size limit", "Fails over 2 GB", inSpace: Guid.Parse(mine.Id));
+        var cut = Render(mine.Id);
+        cut.WaitForAssertion(() => cut.Find("[data-copy-fact]").Click());
+        cut.WaitForAssertion(() => cut.Find(".copy-fact").TextContent.Should().Contain("2 GB"));
+        memory.Correct(first, MemoryCorrection.Wrong, "Fails over 4 GB");
+
+        cut.Find("#memory-copy-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#memory-copy-error").TextContent.Should().Contain("has changed since it was shown"));
+        cut.Find(".copy-fact").TextContent.Should().Contain("Fails over 4 GB");
+        memory.Remembered.Should().BeEmpty();
+        cut.Find("#memory-copy-confirm").Click();
+        cut.WaitForAssertion(() => memory.Remembered.Should().ContainSingle().Which.Fact.Value.Should().Be("Fails over 4 GB"));
+    }
+
     [Theory]
     [InlineData(MemoryScope.Personal, "only the person who wrote it can see it")]
     [InlineData(MemoryScope.Team, "everyone who can search this space can see it")]

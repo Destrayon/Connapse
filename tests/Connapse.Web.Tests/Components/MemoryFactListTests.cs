@@ -590,6 +590,33 @@ public class MemoryFactListTests : IDisposable
         cut.WaitForAssertion(() => cut.Find(".memory-group").GetAttribute("data-subject").Should().Be("subject 00"));
     }
 
+    [Fact]
+    public void Grouped_SubjectFilter_KeepsTheSubjectExact()
+    {
+        AddSubject("API", 2);
+        AddSubject("API Gateway", 3);
+
+        var cut = Render(address: "http://localhost/?group=subject&subject=api");
+
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Select(g => g.GetAttribute("data-subject")).Should().Equal("API"));
+        cut.FindAll(".memory-row").Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void Grouped_FilteredLaterPageWithNoMatches_KeepsThePagerToGoBack()
+    {
+        for (int i = 0; i < 60; i++)
+            AddSubject($"subject {i:D2}", 1, i == 0 ? "refund" : "other");
+        var cut = Render(address: "http://localhost/?group=subject&q=refund");
+        cut.WaitForAssertion(() => cut.FindAll(".memory-group").Should().ContainSingle());
+
+        cut.Find("#memory-next").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".memory-group-none").TextContent.Should().Contain("Try the previous page"));
+        cut.FindAll("#memory-no-matches").Should().BeEmpty("earlier pages have matching facts");
+        cut.Find("#memory-prev").HasAttribute("disabled").Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(30, "just now")]
     [InlineData(60 * 5, "5 minutes ago")]

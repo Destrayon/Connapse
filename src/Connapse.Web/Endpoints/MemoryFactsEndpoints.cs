@@ -140,7 +140,7 @@ public static class MemoryFactsEndpoints
             if (string.IsNullOrWhiteSpace(request.Destination))
                 return ApiProblem.BadRequest("destination is required: a team space or document container, by id or name.", field: "destination");
 
-            var copied = await copy.RunAsync(Rest(http), id, request.Destination, request.Anyway, ct);
+            var copied = await copy.RunAsync(Rest(http), id, request.Destination, request.Anyway, ct: ct);
             return copied.Succeeded
                 ? Results.Ok(new MemoryCopyResponse(copied.Result!.Copy, copied.Result.CopiedFrom, copied.Result.SavedTo.Id))
                 : OperationProblems.Result(copied);
