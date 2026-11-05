@@ -103,7 +103,7 @@ public sealed class CopyMemoryFact(
                 + "Set anyway to copy it as well; nothing there is changed.", "anyway");
 
         MemoryFact fact = current.Fact;
-        Attempt<MemoryWritten, MemoryStatus> saved = await remember.RunAsync(context, MemoryTarget.Space(to.Id),
+        Attempt<MemoryWritten, MemoryStatus> saved = await remember.RunUncheckedAsync(context, MemoryTarget.Space(to.Id),
             new NewMemoryFact(fact.Subject, fact.Attribute, fact.Value, fact.ValidFrom, fact.ValidTo, fact.Sources, fact.Reason), ct);
         if (!saved.Succeeded)
             return Attempt<MemoryCopied, MemoryStatus>.Fail(saved.Status, saved.Detail!, saved.Field);

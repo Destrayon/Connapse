@@ -65,7 +65,7 @@ public class MemoryCopyTests(SharedWebAppFixture fixture)
         public List<Guid> Cleanup { get; } = [];
 
         public CopyMemoryFact Copy(IOperationAuthorizer authorizer) =>
-            new(Containers, Memory, new RememberFact(Containers, Memory, authorizer), Audit, authorizer);
+            new(Containers, Memory, new RememberFact(Containers, Memory, authorizer, NoClosePassages.Instance), Audit, authorizer);
 
         public CopyMemoryFact Copy() => Copy(Authorizer());
 

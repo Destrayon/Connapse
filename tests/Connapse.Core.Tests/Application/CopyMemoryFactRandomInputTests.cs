@@ -103,7 +103,7 @@ public class CopyMemoryFactRandomInputTests
                         ? new MemoryWriteResult(Fact(call.ArgAt<Guid>(0), "database"), null, null)
                         : MemoryWriteResult.Failed("no", failure));
 
-                var copy = new CopyMemoryFact(containers, memory, new RememberFact(containers, memory, authorizer), NoAudit.Instance, authorizer);
+                var copy = new CopyMemoryFact(containers, memory, new RememberFact(containers, memory, authorizer, AllClosePassages.Instance), NoAudit.Instance, authorizer);
                 string named = to is null ? (byName ? "zz-elsewhere" : Guid.NewGuid().ToString()) : byName ? to.Name : to.Id;
                 var copied = await copy.RunAsync(caller, original.Id.ToString(), named, anyway);
 

@@ -56,6 +56,7 @@ public class MemoryContainerPagesTests : IDisposable
         ctx.Services.AddSingleton(new IngestionProgressNotifier());
         ctx.Services.AddOptions();
         ctx.Services.AddApplication();
+        ctx.Services.AddSingleton(Substitute.For<Connapse.Application.Memory.IDocumentPassages>());
         // The pages inject every container and file operation; the ones these tests don't reach get bare stand-ins.
         foreach (var port in typeof(IContainerStore).Assembly.GetTypes().Concat(typeof(IOperationAuthorizer).Assembly.GetTypes())
                      .Where(t => t is { IsInterface: true, IsGenericTypeDefinition: false, IsPublic: true }

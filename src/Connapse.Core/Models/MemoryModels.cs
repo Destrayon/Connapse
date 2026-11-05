@@ -51,7 +51,17 @@ public sealed record MemoryFact(
     string? Reason,
     MemoryCaller Author,
     IReadOnlyList<MemorySource> Sources,
-    MemoryScope Scope = MemoryScope.Personal);
+    MemoryScope Scope = MemoryScope.Personal,
+    MemoryNovelty? Novelty = null);
+
+/// <summary>A document passage a save into a container's memory looked close to.</summary>
+public sealed record MemoryPassage(Guid DocumentId, string DocumentName, string Text);
+
+/// <summary>
+/// Why a save into a container's memory was kept although it looked close to the container's documents: what the
+/// writer said is new (<paramref name="WhatIsNew"/>), and the passages it was close to when it was saved.
+/// </summary>
+public sealed record MemoryNovelty(string WhatIsNew, IReadOnlyList<MemoryPassage> ClosePassages);
 
 /// <summary>
 /// A fact to write. Dates are when it became (and stopped being) true; null means not known or still open.
@@ -67,7 +77,8 @@ public sealed record NewMemoryFact(
     DateTimeOffset? ValidTo,
     IReadOnlyList<MemorySource>? Sources,
     string? Reason = null,
-    MemoryScope? Scope = null)
+    MemoryScope? Scope = null,
+    MemoryNovelty? Novelty = null)
 {
     /// <summary>The scope a new fact is saved with.</summary>
     public MemoryScope ScopeOrDefault => Scope ?? (Sources is { Count: > 0 } ? MemoryScope.Team : MemoryScope.Personal);

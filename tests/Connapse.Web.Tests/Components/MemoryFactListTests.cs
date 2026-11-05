@@ -41,6 +41,7 @@ public class MemoryFactListTests : IDisposable
         ctx.Services.AddSingleton(authorizer);
         ctx.Services.AddSingleton<IMemoryService>(memory);
         ctx.Services.AddApplication();
+        ctx.Services.AddSingleton(Substitute.For<Connapse.Application.Memory.IDocumentPassages>());
     }
 
     public void Dispose() => ctx.Dispose();

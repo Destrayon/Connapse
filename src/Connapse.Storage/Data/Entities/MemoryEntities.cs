@@ -23,6 +23,12 @@ public class MemoryFactEntity
 
     /// <summary>A <see cref="Connapse.Core.MemoryScope"/>: 0 personal, 1 team.</summary>
     public short Scope { get; set; }
+
+    /// <summary>
+    /// JSON of a <see cref="Connapse.Core.MemoryNovelty"/>: why a save that looked close to its container's documents
+    /// was kept, and the passages it was close to. Null for every other fact.
+    /// </summary>
+    public string? Novelty { get; set; }
     public NpgsqlTsVector SearchVector { get; set; } = null!;
     public List<MemoryFactSourceEntity> Sources { get; set; } = [];
 }

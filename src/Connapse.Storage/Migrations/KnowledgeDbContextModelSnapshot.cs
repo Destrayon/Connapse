@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.7")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -784,6 +784,10 @@ namespace Connapse.Storage.Migrations
                     b.Property<Guid>("ContainerId")
                         .HasColumnType("uuid")
                         .HasColumnName("container_id");
+
+                    b.Property<string>("Novelty")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("novelty");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(1000)

@@ -153,4 +153,24 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
         recalled.Status.Should().Be(MemoryStatus.Success);
         recalled.Result!.Select(f => f.Fact.Value).Should().Equal(["PostgreSQL 15"], "a viewer recalls the team fact, not the editor's personal one");
     }
+
+    [Fact]
+    public async Task Remember_WithNovelty_StoresWhatIsNewAndThePassagesAndReadsThemBack()
+    {
+        Guid a = Guid.NewGuid();
+        var (container, service) = await ArrangeAsync(new());
+        MemoryCaller user = new(a, null, null);
+        MemoryPassage passage = new(Guid.NewGuid(), "ops.md", "Halcyon runs \"PostgreSQL\" 15 — see ops.");
+
+        MemoryWriteResult written = await service.RememberAsync(container, new NewMemoryFact("Halcyon", "database", "PostgreSQL 16",
+            Jan, null, [], null, MemoryScope.Personal, new MemoryNovelty(" moved to 16 in March ", [passage])), user);
+        await service.RememberAsync(container, new NewMemoryFact("Halcyon", "cache", "Redis", Jan, null, [], null, MemoryScope.Personal), user);
+
+        written.Fact!.Novelty!.WhatIsNew.Should().Be("moved to 16 in March");
+        IReadOnlyList<RecalledFact> facts = (await service.RecallAsync(new MemoryQuery(container, Limit: 10), user)).Facts;
+        MemoryFact database = facts.Single(f => f.Fact.Attribute == "database").Fact;
+        database.Novelty!.WhatIsNew.Should().Be("moved to 16 in March");
+        database.Novelty.ClosePassages.Should().Equal(passage);
+        facts.Single(f => f.Fact.Attribute == "cache").Fact.Novelty.Should().BeNull();
+    }
 }

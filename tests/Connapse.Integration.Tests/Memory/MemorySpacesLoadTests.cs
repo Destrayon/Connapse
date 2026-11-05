@@ -281,7 +281,7 @@ public sealed class MemorySpacesLoadTests(ITestOutputHelper output) : IAsyncLife
 
 
         // The viewer is read-only: a save is refused before anything is written.
-        var saved = await new RememberFact(containers, memory, authorizer).RunAsync(
+        var saved = await new RememberFact(containers, memory, authorizer, NoClosePassages.Instance).RunAsync(
             As(_viewer), space, new NewMemoryFact("Refunds", "window", "30 days", null, null, null));
         saved.Status.Should().Be(MemoryStatus.Forbidden);
 

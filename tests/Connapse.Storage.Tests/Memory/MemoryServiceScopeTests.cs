@@ -111,6 +111,46 @@ public class MemoryServiceScopeTests
         await _store.DidNotReceiveWithAnyArgs().AddAsync(default, default!, default!, default);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public async Task Remember_NoveltyWithoutWhatIsNew_IsRefusedBeforeTheStore(string? whatIsNew)
+    {
+        NewMemoryFact fact = new("s", "a", "v", null, null, [], null, null, new MemoryNovelty(whatIsNew!, []));
+
+        MemoryWriteResult result = await _service.RememberAsync(Container, fact, Me);
+
+        result.Error.Should().Be($"Error: 'whatIsNew' must say what is new, in at most {MemoryService.MaxWhatIsNew} characters.");
+        await _store.DidNotReceiveWithAnyArgs().AddAsync(default, default!, default!, default);
+    }
+
+    [Fact]
+    public async Task Remember_WhatIsNewOverTheLimit_IsRefusedBeforeTheStore()
+    {
+        NewMemoryFact fact = new("s", "a", "v", null, null, [], null, null,
+            new MemoryNovelty(new string('n', MemoryService.MaxWhatIsNew + 1), []));
+
+        MemoryWriteResult result = await _service.RememberAsync(Container, fact, Me);
+
+        result.Error.Should().Contain("'whatIsNew'");
+        await _store.DidNotReceiveWithAnyArgs().AddAsync(default, default!, default!, default);
+    }
+
+    [Fact]
+    public async Task Remember_WithNovelty_StoresItWithWhatIsNewTrimmed()
+    {
+        MemoryPassage passage = new(Guid.NewGuid(), "ops.md", "Halcyon runs PostgreSQL 15.");
+        _store.AddAsync(Container, Arg.Any<NewMemoryFact>(), Me, Arg.Any<CancellationToken>()).Returns(Fact(Me, MemoryScope.Team));
+
+        await _service.RememberAsync(Container,
+            new NewMemoryFact("s", "a", "v", null, null, [], null, null, new MemoryNovelty("  why it is new \n", [passage])), Me);
+
+        await _store.Received(1).AddAsync(Container,
+            Arg.Is<NewMemoryFact>(f => f.Novelty!.WhatIsNew == "why it is new" && f.Novelty.ClosePassages.Single() == passage),
+            Me, Arg.Any<CancellationToken>());
+    }
+
     // ── who sees a fact ───────────────────────────────────────────────────────────────────────────
 
     [Fact]

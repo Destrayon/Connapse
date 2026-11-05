@@ -27,6 +27,9 @@ public sealed class MemoryService(
 {
     internal const int MaxSources = 20;
 
+    /// <summary>The longest 'whatIsNew' a save may give.</summary>
+    public const int MaxWhatIsNew = 1000;
+
     /// <summary>The most facts, subjects or versions one page returns.</summary>
     internal const int MaxPage = 100;
 
@@ -340,6 +343,8 @@ public sealed class MemoryService(
             return "Error: 'value' must be at most 2000 characters; store long text as a document and cite it.";
         if (fact.Reason?.Trim().Length > 1000)
             return "Error: 'reason' must be at most 1000 characters.";
+        if (fact.Novelty is { } novelty && (string.IsNullOrWhiteSpace(novelty.WhatIsNew) || novelty.WhatIsNew.Trim().Length > MaxWhatIsNew))
+            return $"Error: 'whatIsNew' must say what is new, in at most {MaxWhatIsNew} characters.";
         if (fact.ValidFrom is { } from && fact.ValidTo is { } to && to <= from)
             return "Error: 'validTo' must be after 'validFrom'.";
         if (fact.Scope is { } scope && !Enum.IsDefined(scope))
@@ -358,6 +363,7 @@ public sealed class MemoryService(
         Attribute = fact.Attribute.Trim(),
         Value = fact.Value.Trim(),
         Reason = string.IsNullOrWhiteSpace(fact.Reason) ? null : fact.Reason.Trim(),
+        Novelty = fact.Novelty is null ? null : fact.Novelty with { WhatIsNew = fact.Novelty.WhatIsNew.Trim() },
         Sources = [.. (fact.Sources ?? []).Select(s => s with { Ref = s.Ref.Trim() }).Distinct()],
     };
 }

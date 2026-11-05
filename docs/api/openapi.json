@@ -17338,6 +17338,16 @@
           },
           "scope": {
             "$ref": "#/components/schemas/MemoryScope"
+          },
+          "novelty": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MemoryNovelty"
+              }
+            ]
           }
         }
       },
@@ -17379,6 +17389,44 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "MemoryNovelty": {
+        "required": [
+          "whatIsNew",
+          "closePassages"
+        ],
+        "type": "object",
+        "properties": {
+          "whatIsNew": {
+            "type": "string"
+          },
+          "closePassages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryPassage"
+            }
+          }
+        }
+      },
+      "MemoryPassage": {
+        "required": [
+          "documentId",
+          "documentName",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
           }
         }
       },

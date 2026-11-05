@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -324,6 +325,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             AuthorName = author.Name,
             Scope = (short)fact.ScopeOrDefault,
             Sources = [.. (fact.Sources ?? []).Select((s, i) => new MemoryFactSourceEntity { FactId = id, Ordinal = i, Kind = (short)s.Kind, Ref = s.Ref })],
+            Novelty = fact.Novelty is null ? null : JsonSerializer.Serialize(fact.Novelty, NoveltyJson),
         };
     }
 
@@ -332,5 +334,8 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         row.ValidFrom, row.ValidTo, row.RecordedAt, row.SupersededAt, row.ReplacesId, row.Reason,
         new MemoryCaller(row.AuthorUserId, row.AuthorAgentId, row.AuthorName),
         [.. row.Sources.OrderBy(s => s.Ordinal).Select(s => new MemorySource((MemorySourceKind)s.Kind, s.Ref))],
-        (MemoryScope)row.Scope);
+        (MemoryScope)row.Scope,
+        row.Novelty is null ? null : JsonSerializer.Deserialize<MemoryNovelty>(row.Novelty, NoveltyJson));
+
+    private static readonly JsonSerializerOptions NoveltyJson = new(JsonSerializerDefaults.Web);
 }

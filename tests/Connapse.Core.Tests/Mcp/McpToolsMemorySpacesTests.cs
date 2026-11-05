@@ -52,7 +52,8 @@ public class McpToolsMemorySpacesTests
     private ListMemorySpaces List(IOperationAuthorizer? authorizer = null, IUserDirectory? people = null) =>
         new(_spaces, authorizer ?? McpCaller.Allowed, people);
 
-    private RememberFact Remember() => new(_containers, _memory, McpCaller.Allowed);
+    private RememberFact Remember(IDocumentPassages? passages = null) =>
+        new(_containers, _memory, McpCaller.Allowed, passages ?? NoClosePassages.Instance);
 
     private RecallMemory Recall() => new(_containers, _memory, McpCaller.Allowed, _spaces);
 
@@ -230,6 +231,42 @@ public class McpToolsMemorySpacesTests
 
         JsonDocument.Parse(result).RootElement.GetProperty("savedTo").GetProperty("note").GetString().Should().StartWith(
             "Saved to 'handbook', a document container: everyone in this Connapse can see it");
+    }
+
+    [Fact]
+    public async Task MemoryRemember_CloseToADocument_IsHeldThenSavedWithWhatIsNewAndThePassagesShown()
+    {
+        Container docs = Space("handbook", MemorySpaceKind.Container);
+        _containers.GetByNameAsync("handbook", Arg.Any<CancellationToken>()).Returns(docs);
+        MemoryPassage passage = new(Guid.NewGuid(), "ops.md", "Halcyon runs PostgreSQL 15.");
+        IDocumentPassages passages = Substitute.For<IDocumentPassages>();
+        passages.FindAsync(Arg.Any<OperationContext>(), Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new PassageLookup([passage]));
+        _memory.RememberAsync(Arg.Any<Guid>(), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(c => new MemoryWriteResult(Fact(c.ArgAt<Guid>(0), MemoryScope.Team) with { Novelty = c.ArgAt<NewMemoryFact>(1).Novelty }, null, null));
+
+        string held = await McpTools.MemoryRemember(Remember(passages), List(), Signed, "Halcyon", "database", "PostgreSQL 15", space: "handbook");
+        string saved = await McpTools.MemoryRemember(Remember(passages), List(), Signed, "Halcyon", "database", "PostgreSQL 15",
+            space: "handbook", whatIsNew: "the docs never say it is in force");
+
+        held.Should().StartWith("Error: Not saved. These passages look close:").And.Contain($"ops.md ({passage.DocumentId})");
+        JsonElement remembered = JsonDocument.Parse(saved).RootElement.GetProperty("remembered");
+        remembered.GetProperty("whatIsNew").GetString().Should().Be("the docs never say it is in force");
+        JsonElement shown = remembered.GetProperty("closePassages")[0];
+        shown.GetProperty("documentId").GetGuid().Should().Be(passage.DocumentId);
+        shown.GetProperty("document").GetString().Should().Be("ops.md");
+        shown.GetProperty("text").GetString().Should().Be("Halcyon runs PostgreSQL 15.");
+        await _memory.Received(1).RememberAsync(Guid.Parse(docs.Id), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void MemoryRemember_Description_StatesTheNewOnlyRuleFirst()
+    {
+        string description = typeof(McpTools).GetMethod(nameof(McpTools.MemoryRemember))!
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+
+        description.Should().StartWith("A document container's memory keeps only what its documents don't say");
     }
 
     [Fact]

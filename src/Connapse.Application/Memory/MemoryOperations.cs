@@ -29,6 +29,12 @@ public enum MemoryStatus
 
     [Failure(409, "memory-fact-exists", "A current fact already says this")]
     Exists,
+
+    [Failure(409, "memory-close-to-documents", "The container's documents already look to say this")]
+    CloseToDocuments,
+
+    [Failure(503, "memory-documents-unchecked", "The container's documents could not be checked")]
+    DocumentsUnchecked,
 }
 
 /// <summary>
@@ -149,16 +155,46 @@ internal static class MemoryRules
 /// <c>containerId</c>, a fact citing no sources is personal and goes to the caller's <c>&lt;container&gt;-personal</c>
 /// space, so an old client never shares a fact by accident. The writer must be able to read every source it cites.
 /// Either scope needs write access; read-only callers can only recall.
+/// A save into a document container's memory must say something its documents don't (CON-245): one that looks close
+/// to a passage there is held, with the passages, until it is sent again with <c>whatIsNew</c>, which is stored with
+/// the passages. Memory spaces, personal or team, save without that check.
 /// </summary>
 [Operation("memory.remember", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class RememberFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class RememberFact(
+    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IDocumentPassages passages)
 {
+    /// <summary>The longest <c>whatIsNew</c> a save may give.</summary>
+    public const int MaxWhatIsNew = 1000;
+
+    /// <summary>How many close passages a held save shows and a kept one stores.</summary>
+    public const int PassagesShown = 3;
+
+    /// <summary>How much of each close passage is shown and stored.</summary>
+    public const int PassageChars = 400;
+
     public Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
         OperationContext context, string containerId, NewMemoryFact fact, CancellationToken ct = default) =>
         RunAsync(context, MemoryTarget.Container(containerId), fact, ct);
 
-    public async Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
-        OperationContext context, MemoryTarget target, NewMemoryFact fact, CancellationToken ct = default)
+    public Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
+        OperationContext context, MemoryTarget target, NewMemoryFact fact, CancellationToken ct = default) =>
+        RunAsync(context, target, fact, whatIsNew: null, ct);
+
+    /// <summary>
+    /// Saves <paramref name="fact"/>. <paramref name="whatIsNew"/> is what it says that the close passages of a document
+    /// container don't; it is needed only when a first save was held, and ignored by memory spaces.
+    /// </summary>
+    public Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
+        OperationContext context, MemoryTarget target, NewMemoryFact fact, string? whatIsNew, CancellationToken ct = default) =>
+        SaveAsync(context, target, fact, whatIsNew, checkDocuments: true, ct);
+
+    /// <summary>A save a person chose, such as a copy, which the document check does not hold.</summary>
+    internal Task<Attempt<MemoryWritten, MemoryStatus>> RunUncheckedAsync(
+        OperationContext context, MemoryTarget target, NewMemoryFact fact, CancellationToken ct = default) =>
+        SaveAsync(context, target, fact, whatIsNew: null, checkDocuments: false, ct);
+
+    private async Task<Attempt<MemoryWritten, MemoryStatus>> SaveAsync(
+        OperationContext context, MemoryTarget target, NewMemoryFact fact, string? whatIsNew, bool checkDocuments, CancellationToken ct)
     {
         static Attempt<MemoryWritten, MemoryStatus> Invalid(string detail, string field) =>
             MemoryRules.Fail<MemoryWritten>(MemoryStatus.Invalid, detail, field);
@@ -167,6 +203,8 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
             return MemoryRules.WriteForbidden<MemoryWritten>();
         if (fact.Scope is { } asked && !Enum.IsDefined(asked))
             return Invalid("scope must be \"personal\" or \"team\".", "scope");
+        if (whatIsNew?.Trim().Length > MaxWhatIsNew)
+            return Invalid($"whatIsNew must be at most {MaxWhatIsNew} characters.", "whatIsNew");
 
         MemoryCaller caller = MemoryRules.Caller(context.User);
         string field = target.IsSpace ? "space" : "containerId";
@@ -209,7 +247,44 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
                 caller, MemoryRules.PersonalSpaceFor(named.Name), $"Your personal memory saved to {named.Name}.", ct);
         }
 
-        return MemoryRules.Written(await memory.RememberAsync(Guid.Parse(saveTo.Id), fact with { Scope = scope }, caller, ct), saveTo);
+        MemoryNovelty? novelty = null;
+        if (checkDocuments && saveTo.Kind == ContainerKind.Documents
+            && !string.IsNullOrWhiteSpace(fact.Subject) && !string.IsNullOrWhiteSpace(fact.Attribute) && !string.IsNullOrWhiteSpace(fact.Value))
+        {
+            PassageLookup lookup = await passages.FindAsync(context, Guid.Parse(saveTo.Id), CheckText(fact), ct);
+            if (lookup.Error is { } error)
+                return MemoryRules.Fail<MemoryWritten>(MemoryStatus.DocumentsUnchecked,
+                    $"not saved: '{saveTo.Name}' could not be searched to check that its documents don't already say this ({error}) Try again shortly.");
+            IReadOnlyList<MemoryPassage> close = [.. lookup.Passages.Take(PassagesShown).Select(p => p with { Text = Shorten(p.Text) })];
+            if (close.Count > 0)
+            {
+                if (string.IsNullOrWhiteSpace(whatIsNew))
+                    return MemoryRules.Fail<MemoryWritten>(MemoryStatus.CloseToDocuments, Held(close), "whatIsNew");
+                novelty = new MemoryNovelty(whatIsNew.Trim(), close);
+            }
+        }
+
+        return MemoryRules.Written(await memory.RememberAsync(
+            Guid.Parse(saveTo.Id), fact with { Scope = scope, Novelty = novelty }, caller, ct), saveTo);
+    }
+
+    /// <summary>The text a save is checked with: its subject, attribute and value.</summary>
+    public static string CheckText(NewMemoryFact fact) => $"{fact.Subject.Trim()} {fact.Attribute.Trim()} {fact.Value.Trim()}";
+
+    /// <summary>The reply to a held save: the close passages with their documents, and how to save anyway.</summary>
+    internal static string Held(IReadOnlyList<MemoryPassage> close)
+    {
+        System.Text.StringBuilder text = new("Not saved. These passages look close:");
+        foreach (MemoryPassage passage in close)
+            text.Append($"\n- {passage.DocumentName} ({passage.DocumentId}): \"{passage.Text}\"");
+        text.Append("\nSave again only if your memory says something they don't, and give the reason in whatIsNew.");
+        return text.ToString();
+    }
+
+    private static string Shorten(string text)
+    {
+        string flat = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return flat.Length <= PassageChars ? flat : flat[..PassageChars].TrimEnd() + "…";
     }
 
     /// <summary>Why personal memory can't go in a team space or container, and which of the caller's own spaces it can go in.</summary>

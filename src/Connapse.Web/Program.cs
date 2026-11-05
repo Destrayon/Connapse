@@ -258,6 +258,7 @@ builder.Services.AddKnowledgeSearch();
 
 // Add the operations every surface calls (epic #783)
 builder.Services.AddApplication();
+builder.Services.AddScoped<Connapse.Application.Memory.IDocumentPassages, Connapse.Application.Memory.SearchDocumentPassages>();
 builder.Services.AddConnapseProblemDetails();
 // Validation runs on request records before handlers; Core declares records too, so it registers its own.
 builder.Services.AddCoreValidation();

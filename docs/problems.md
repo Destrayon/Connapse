@@ -153,6 +153,18 @@ The team space or container you're copying to already has a current fact with th
 so the copy was refused rather than leave two that may disagree. The detail names the fact already there.
 Nothing in the destination was changed. Send the copy again with `anyway: true` to copy it as well.
 
+## memory-close-to-documents
+
+The fact was not saved: a document container's memory keeps only what its documents don't say, and passages
+in its documents look close to this fact. The detail quotes them with their document names. If the memory
+says something they don't, save it again with `whatIsNew` saying what that is; the reason and the passages
+are stored with the fact.
+
+## memory-documents-unchecked
+
+Connapse couldn't search the container's documents to check that they don't already say this, so it saved
+nothing rather than guess. Try again shortly; if it keeps happening, search on the container is failing.
+
 ## memory-access-unchecked
 
 Connapse couldn't check whether the caller may read the facts' sources, so it showed, wrote or deleted

@@ -30,7 +30,7 @@ public class MemorySpaceSaveTests
 
     public MemorySpaceSaveTests()
     {
-        _remember = new RememberFact(_containers, _memory, new PolicyAuthorizer(_ => true));
+        _remember = new RememberFact(_containers, _memory, new PolicyAuthorizer(_ => true), NoClosePassages.Instance);
         _memory.RememberAsync(Arg.Any<Guid>(), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
             .Returns(call => new MemoryWriteResult(new MemoryFact(Guid.NewGuid(), Guid.NewGuid(), call.ArgAt<Guid>(0), "Halcyon", "database",
                 "PostgreSQL 15", null, null, DateTimeOffset.UnixEpoch, null, null, null, call.ArgAt<MemoryCaller>(2), [],

@@ -34,6 +34,12 @@ public partial class McpTools
         + "would be true and useful for others; to a document container if you learned it from that container's "
         + "documents. If unsure, ask.";
 
+    /// <summary>The rule a save into a document container follows, which memory_remember states first.</summary>
+    internal const string NewOnlyRule =
+        "A document container's memory keeps only what its documents don't say: a save there that looks close to one of "
+        + "its passages is not saved, and the reply shows the passages. Save again only if your fact says something they "
+        + "don't, with `whatIsNew` saying what. Personal and team spaces have no such check.";
+
     /// <summary>How many spaces the missing-space error names before pointing at memory_spaces for the rest.</summary>
     internal const int SpacesNamedInError = 20;
 
@@ -95,7 +101,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_remember", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name the `space` (memory_spaces lists yours; \"my-memory\" is your own and is made on first use). "
+     Description(NewOnlyRule + " Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name the `space` (memory_spaces lists yours; \"my-memory\" is your own and is made on first use). "
         + SaveTest
         + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead.")]
     public static async Task<string> MemoryRemember(
@@ -111,6 +117,7 @@ public partial class McpTools
         [Description("Sources: document IDs, or link node IDs as \"node:<id>\"")] string[]? sources = null,
         [Description("Why or how it was learned, e.g. the ticket that made the change")] string? reason = null,
         [Description("Older name for a container to save to; use `space` instead. A fact citing no sources saved this way goes to your own `<container>-personal` space")] string? containerId = null,
+        [Description("Only after a save to a document container was held as close to its passages: what this fact says that those passages don't")] string? whatIsNew = null,
         CancellationToken ct = default)
     {
         MemoryTarget target;
@@ -127,7 +134,7 @@ public partial class McpTools
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
         var written = await remember.RunAsync(Mcp(http), target,
-            new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), ct);
+            new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), whatIsNew, ct);
         return written.Succeeded
             ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson)
             : Refused(written);
@@ -344,6 +351,8 @@ public partial class McpTools
         fact.SupersededAt,
         replaces = fact.ReplacesId,
         fact.Reason,
+        whatIsNew = fact.Novelty?.WhatIsNew,
+        closePassages = fact.Novelty?.ClosePassages.Select(p => new { documentId = p.DocumentId, document = p.DocumentName, text = p.Text }),
         author = new { userId = fact.Author.UserId, agentId = fact.Author.AgentId, name = fact.Author.Name },
         sources = sources?.Select(s => new { kind = s.Kind, id = s.Ref, title = s.Title })
             ?? fact.Sources.Select(s => new { kind = s.Kind, id = s.Ref, title = (string?)null }),

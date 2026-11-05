@@ -112,7 +112,7 @@ public class MemoryOperationRandomInputTests
                     .Returns(call => world.Answers(failure, call.ArgAt<Guid>(0)));
 
                 var target = asSpace ? MemoryTarget.Space(named) : MemoryTarget.Container(named);
-                var written = await new RememberFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, target, fact);
+                var written = await new RememberFact(world.Containers, world.Memory, world.Authorizer, NoClosePassages.Instance).RunAsync(caller, target, fact);
 
                 // The rules, written out. A space decides the scope; an old-style container keeps sourceless facts personal.
                 (MemoryStatus Status, Guid? SavedTo, MemoryScope Scope, string? Made) Expected()
@@ -217,7 +217,7 @@ public class MemoryOperationRandomInputTests
         world.Memory.RememberAsync(Guid.Parse(container.Id), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
             .Returns(world.Answers(MemoryWriteFailure.None, Guid.Parse(container.Id)));
 
-        var written = await new RememberFact(world.Containers, world.Memory, authorizer).RunAsync(
+        var written = await new RememberFact(world.Containers, world.Memory, authorizer, NoClosePassages.Instance).RunAsync(
             Signed(true, OperationSurface.Mcp), MemoryTarget.Space(container.Id),
             new NewMemoryFact("Halcyon", "database", "PostgreSQL", null, null, [], null, scope));
 
