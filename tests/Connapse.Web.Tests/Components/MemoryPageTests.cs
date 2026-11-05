@@ -29,6 +29,7 @@ public class MemoryPageTests : IDisposable
 
     private readonly BunitContext ctx = new();
     private readonly FakeSpaces spaces = new();
+    private int accounts = 7;
     private bool writer = true;
 
     public MemoryPageTests()
@@ -44,7 +45,7 @@ public class MemoryPageTests : IDisposable
         authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>())
             .Returns(call => writer || call.ArgAt<string>(1) is not (Policies.Writer or Policies.KnowledgeWrite));
         IUserDirectory people = Substitute.For<IUserDirectory>();
-        people.ListAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns(new DirectoryPage([], 7));
+        people.ListAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<CancellationToken>()).Returns(_ => new DirectoryPage([], accounts));
         ctx.Services.AddSingleton(containers);
         ctx.Services.AddSingleton(authorizer);
         ctx.Services.AddSingleton(people);
@@ -259,6 +260,19 @@ public class MemoryPageTests : IDisposable
 
         cut.WaitForAssertion(() => cut.Find("#memory-spaces-range").TextContent.Should().Be("1–10 of 10 spaces"));
         Navigation.Uri.Should().Contain("kind=team").And.NotContain("after=");
+    }
+
+    [Fact]
+    public void NewSpace_TeamWithOneAccount_SaysThePersonInTheSingular()
+    {
+        accounts = 1;
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
+
+        cut.Find("#memory-new-space").Click();
+        cut.Find("#new-space-team").Change(true);
+
+        cut.Find("#new-space-note").TextContent.Should().Contain("with the 1 person who has an account here");
     }
 
     [Fact]

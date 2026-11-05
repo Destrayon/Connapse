@@ -38,7 +38,7 @@
                 {
                     @if (Accounts is { } accounts)
                     {
-                        <text>Shared as soon as you create it with all <strong>@accounts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) @(accounts == 1 ? "person" : "people")</strong> who have an account here.</text>
+                        <text>Shared as soon as you create it with @(accounts == 1 ? "the" : "all") <strong>@accounts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) @(accounts == 1 ? "person" : "people")</strong> @(accounts == 1 ? "who has" : "who have") an account here.</text>
                     }
                     else
                     {

@@ -73,7 +73,7 @@
     "CodeLines": 32,
     "Injects": 2,
     "Complexity": 9,
-    "MarkupLogic": 15,
+    "MarkupLogic": 17,
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
