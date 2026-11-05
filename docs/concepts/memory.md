@@ -79,6 +79,10 @@ Only a caller who can see every version of a fact can correct it; anyone else ca
 
 `memory_recall` and `memory_timeline` return the facts as data, with a fixed notice that they are claims to weigh against their sources. An agent should treat a recalled fact the way it treats a search result, as evidence rather than an order. Anyone with write access can add facts to a team space.
 
+## Recalling across spaces
+
+An agent that keeps memory in several spaces, such as one per project, can ask several at once by naming them in `spaces`, or all of them by naming none. The spaces are read as one memory: facts from the spaces the question's words describe, such as a project's name, come first, and each space's facts keep the order a recall of that space alone gives them. Who sees a fact doesn't change: each fact is checked against its own sources, so a recall across spaces shows exactly the facts the caller could recall from each space on its own.
+
 ## Related
 
 - [Tutorial: connect Claude to Connapse](../get-started/connect-an-agent.md) ends with an agent saving and recalling a fact.

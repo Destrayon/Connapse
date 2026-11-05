@@ -329,10 +329,8 @@ public class McpToolsMemorySpacesTests
         Container team = Space("on-call", MemorySpaceKind.Team);
         Lists(mine, team);
         _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(c =>
-        {
-            Guid id = c.Arg<MemoryQuery>().ContainerId;
-            return new MemoryRecall([new RecalledFact(Fact(id, id == Guid.Parse(mine.Id) ? MemoryScope.Personal : MemoryScope.Team), [])]);
-        });
+            new MemoryRecall([.. c.Arg<MemoryQuery>().Containers.Select(id =>
+                new RecalledFact(Fact(id, id == Guid.Parse(mine.Id) ? MemoryScope.Personal : MemoryScope.Team), []))]));
 
         JsonElement root = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed)).RootElement;
 
@@ -572,15 +570,20 @@ public class McpToolsMemorySpacesTests
             "Read the 100 most recently changed spaces; 3 more were not read. Name a `space` to read one of them.");
     }
 
-    [Fact]
-    public void Merge_Ranked_InterleavesEachSpacesBestFirstUpToTheLimit()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SpacesAsync_Unnamed_ReadsASpaceWithNoCurrentFactsOnlyWhenTheReadReachesPastNow(bool history)
     {
-        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
-        RecalledFact a1 = new(Fact(a, MemoryScope.Team), []), a2 = new(Fact(a, MemoryScope.Team), []), b1 = new(Fact(b, MemoryScope.Team), []);
+        Container ended = Space("team-a", MemorySpaceKind.Team);
+        _spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns([new MemorySpaceSummary(ended, 0, new DateTimeOffset(Epoch), false)]);
+        _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(new MemoryRecall([]));
 
-        SpacedRecall.Merge([[a1, a2], [b1]], ranked: true, limit: 2).Should().Equal(a1, b1);
-        SpacedRecall.Merge([[a1, a2], [b1]], ranked: true, limit: -1).Should().BeEmpty();
-        SpacedRecall.Merge([], ranked: true, limit: 5).Should().BeEmpty();
+        await Recall().SpacesAsync(McpContext(), null, new MemoryQuery(Guid.Empty, History: history));
+        await Recall().SpacesAsync(McpContext(), null, new MemoryQuery(Guid.Empty, AsOf: history ? DateTimeOffset.UnixEpoch : null));
+
+        await _memory.Received(history ? 2 : 0).RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
     }
 
     private static OperationContext McpContext() => new(Signed.HttpContext!.User, OperationSurface.Mcp);

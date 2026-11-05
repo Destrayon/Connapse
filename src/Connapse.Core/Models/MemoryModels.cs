@@ -85,6 +85,8 @@ public enum MemoryCorrection { Changed = 0, Wrong = 1 }
 /// with <paramref name="AsOf"/>, the facts true then. <paramref name="History"/> also returns ended and superseded
 /// facts. <paramref name="ChangedFrom"/>/<paramref name="ChangedTo"/> keep facts that started or ended in that window.
 /// <paramref name="ChainId"/> keeps one fact's versions, every one of them (a fact's history).
+/// <paramref name="ContainerIds"/>, when it names any, reads those containers as one memory instead of
+/// <paramref name="ContainerId"/>: each container's facts keep the order a recall of that container alone gives them.
 /// </summary>
 public sealed record MemoryQuery(
     Guid ContainerId,
@@ -96,7 +98,12 @@ public sealed record MemoryQuery(
     DateTimeOffset? ChangedFrom = null,
     DateTimeOffset? ChangedTo = null,
     int Limit = 10,
-    Guid? ChainId = null);
+    Guid? ChainId = null,
+    IReadOnlyList<Guid>? ContainerIds = null)
+{
+    /// <summary>The containers read: <see cref="ContainerIds"/> when it names any, else <see cref="ContainerId"/>.</summary>
+    public IReadOnlyList<Guid> Containers => ContainerIds is { Count: > 0 } ids ? ids : [ContainerId];
+}
 
 /// <summary>
 /// A fact as one reader may see it. Only facts whose every source the reader can read are returned, and a personal

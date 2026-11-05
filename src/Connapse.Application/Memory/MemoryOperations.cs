@@ -290,33 +290,51 @@ public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer autho
 public sealed class RecallMemory(
     IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemorySpaceStore? spaces = null)
 {
-    /// <summary>The most spaces one unnamed recall reads, the most recently changed first; the rest are counted as skipped.</summary>
+    /// <summary>
+    /// The most spaces one recall reads: an unnamed one reads the most recently changed first and counts the rest as
+    /// skipped; a recall naming more is refused.
+    /// </summary>
     public const int MaxSpaces = 100;
 
     /// <summary>
     /// Reads one space, named by id or name, or, when <paramref name="space"/> is blank, every space the caller may
-    /// see memory in, merged: by rank when the query has text, newest first otherwise. Spaces are returned with the
-    /// facts so each can be labelled. An unnamed read skips spaces with no current facts unless it asks for history,
-    /// a point in time, a change window or one chain, since those can find facts no longer current.
+    /// see memory in. See the overload naming several.
     /// </summary>
-    public async Task<Attempt<SpacedRecall, MemoryStatus>> SpacesAsync(
-        OperationContext context, string? space, MemoryQuery query, CancellationToken ct = default)
+    public Task<Attempt<SpacedRecall, MemoryStatus>> SpacesAsync(
+        OperationContext context, string? space, MemoryQuery query, CancellationToken ct = default) =>
+        AcrossAsync(context, string.IsNullOrWhiteSpace(space) ? [] : [space], query, ct);
+
+    /// <summary>
+    /// Reads the spaces in <paramref name="named"/> (ids or names) as one memory, or, when it names none, every space
+    /// the caller may see memory in. Spaces are returned with the facts so each can be labelled. The facts of every
+    /// space read are ranked together in one read, each space's in the order a recall of that space alone gives them,
+    /// and each passes the same visibility rule as a one-space recall, so reading more spaces never shows a fact the
+    /// caller couldn't recall from its own space. An unnamed read skips spaces with no current facts unless it asks
+    /// for history, a point in time, a change window or one chain, since those can find facts no longer current.
+    /// </summary>
+    public async Task<Attempt<SpacedRecall, MemoryStatus>> AcrossAsync(
+        OperationContext context, IReadOnlyList<string> named, MemoryQuery query, CancellationToken ct = default)
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
             return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Forbidden, "reading memory needs knowledge:read.");
         MemoryCaller caller = MemoryRules.Caller(context.User);
 
-        if (!string.IsNullOrWhiteSpace(space))
+        Dictionary<Guid, Container> labels = [];
+        if (named.Count > 0)
         {
-            (Container? named, string? refused) = await MemoryRules.SpaceAsync(containers, space, caller, ct);
-            if (refused is not null)
-                return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, refused, "space");
-            if (named is null || !Guid.TryParse(named.Id, out Guid id))
-                return MemoryRules.Fail<SpacedRecall>(MemoryStatus.ContainerNotFound, $"Space '{space}' not found. memory_spaces lists the ones you can use.");
-            MemoryRecall one = await memory.RecallAsync(query with { ContainerId = id }, caller, ct);
-            return one.Denied
-                ? Unchecked()
-                : Attempt<SpacedRecall, MemoryStatus>.Succeed(new SpacedRecall(one.Facts, new Dictionary<Guid, Container> { [id] = named }, 0));
+            string field = named.Count == 1 ? "space" : "spaces";
+            if (named.Count > MaxSpaces)
+                return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, $"name at most {MaxSpaces} spaces, or none to read every space you can see.", field);
+            foreach (string key in named)
+            {
+                (Container? found, string? refused) = await MemoryRules.SpaceAsync(containers, key, caller, ct);
+                if (refused is not null)
+                    return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, refused, field);
+                if (found is null || !Guid.TryParse(found.Id, out Guid id))
+                    return MemoryRules.Fail<SpacedRecall>(MemoryStatus.ContainerNotFound, $"Space '{key}' not found. memory_spaces lists the ones you can use.");
+                labels[id] = found;
+            }
+            return await ReadAsync(query, labels, 0, caller, ct);
         }
 
         if (spaces is null)
@@ -332,20 +350,26 @@ public sealed class RecallMemory(
             .OrderByDescending(s => s.UpdatedAt)
             .ThenBy(s => s.Container.Id, StringComparer.Ordinal)];
         int skipped = Math.Max(0, read.Count - MaxSpaces);
-        Dictionary<Guid, Container> labels = [];
-        List<IReadOnlyList<RecalledFact>> found = [];
         foreach (MemorySpaceSummary summary in read.Take(MaxSpaces))
         {
-            if (!Guid.TryParse(summary.Container.Id, out Guid id))
-                continue;
-            MemoryRecall each = await memory.RecallAsync(query with { ContainerId = id }, caller, ct);
-            if (each.Denied)
-                return Unchecked();
-            labels[id] = summary.Container;
-            found.Add(each.Facts);
+            if (Guid.TryParse(summary.Container.Id, out Guid id))
+                labels[id] = summary.Container;
         }
-        return Attempt<SpacedRecall, MemoryStatus>.Succeed(
-            new SpacedRecall(SpacedRecall.Merge(found, !string.IsNullOrWhiteSpace(query.Text), query.Limit), labels, skipped));
+        return labels.Count == 0
+            ? Attempt<SpacedRecall, MemoryStatus>.Succeed(new SpacedRecall([], labels, skipped))
+            : await ReadAsync(query, labels, skipped, caller, ct);
+    }
+
+    /// <summary>One recall over every space in <paramref name="labels"/>, read from one snapshot.</summary>
+    private async Task<Attempt<SpacedRecall, MemoryStatus>> ReadAsync(
+        MemoryQuery query, Dictionary<Guid, Container> labels, int skipped, MemoryCaller caller, CancellationToken ct)
+    {
+        Guid[] ids = [.. labels.Keys];
+        MemoryRecall recall = await memory.RecallAsync(
+            query with { ContainerId = ids[0], ContainerIds = ids.Length > 1 ? ids : null }, caller, ct);
+        return recall.Denied
+            ? Unchecked()
+            : Attempt<SpacedRecall, MemoryStatus>.Succeed(new SpacedRecall(recall.Facts, labels, skipped));
     }
 
     /// <summary>
@@ -388,24 +412,25 @@ public sealed class RecallMemory(
     /// <summary>
     /// A recall as the API and the memory_recall tool both take it. One named space without a point in time or an
     /// attribute is read a page at a time (by relevance when there is text, newest recorded first otherwise); any
-    /// other read goes through <see cref="SpacesAsync"/>, and a cursor on it is refused, since it has no next page.
+    /// other read goes through <see cref="AcrossAsync"/>, and a cursor on it is refused, since it has no next page.
     /// </summary>
     public Task<Attempt<SpacedRecall, MemoryStatus>> RecallAsync(
         OperationContext context, MemoryRecallRequest request, CancellationToken ct = default)
     {
-        if (!string.IsNullOrWhiteSpace(request.Space) && request.AsOf is null && string.IsNullOrWhiteSpace(request.Attribute))
+        IReadOnlyList<string> named = request.Named();
+        if (named.Count == 1 && request.AsOf is null && string.IsNullOrWhiteSpace(request.Attribute))
         {
             MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject,
                 Status: request.History ? MemoryFactStatus.All : MemoryFactStatus.Current);
             MemoryFactSort sort = string.IsNullOrWhiteSpace(request.Text) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
-            return PageAsync(context, request.Space,
+            return PageAsync(context, named[0],
                 new MemoryFactListing(filter, sort, request.Cursor, Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
         }
         if (!string.IsNullOrWhiteSpace(request.Cursor))
             return Task.FromResult(MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
                 "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor"));
 
-        return SpacesAsync(context, request.Space,
+        return AcrossAsync(context, named,
             new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
     }
 
@@ -418,11 +443,12 @@ public sealed class RecallMemory(
         OperationContext context, MemoryTimelineRequest request, CancellationToken ct = default)
     {
         bool windowed = request.From is not null || request.To is not null;
+        IReadOnlyList<string> named = request.Named();
         Attempt<SpacedRecall, MemoryStatus> read;
-        if (!string.IsNullOrWhiteSpace(request.Space) && !windowed && string.IsNullOrWhiteSpace(request.Attribute))
+        if (named.Count == 1 && !windowed && string.IsNullOrWhiteSpace(request.Attribute))
         {
             MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject, Status: MemoryFactStatus.All);
-            read = await PageAsync(context, request.Space, new MemoryFactListing(filter, MemoryFactSort.ValidFrom, request.Cursor,
+            read = await PageAsync(context, named[0], new MemoryFactListing(filter, MemoryFactSort.ValidFrom, request.Cursor,
                 Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
         }
         else if (!string.IsNullOrWhiteSpace(request.Cursor))
@@ -432,7 +458,7 @@ public sealed class RecallMemory(
         }
         else
         {
-            read = await SpacesAsync(context, request.Space, new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute,
+            read = await AcrossAsync(context, named, new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute,
                 History: !windowed, ChangedFrom: request.From, ChangedTo: request.To, Limit: request.Limit), ct);
         }
 
@@ -461,7 +487,7 @@ public sealed class RecallMemory(
         if (found is not { } container)
             return MemoryRules.Fail<IReadOnlyList<RecalledFact>>(MemoryStatus.ContainerNotFound, $"Space '{containerId}' not found.");
 
-        MemoryRecall recall = await memory.RecallAsync(query with { ContainerId = container }, caller, ct);
+        MemoryRecall recall = await memory.RecallAsync(query with { ContainerId = container, ContainerIds = null }, caller, ct);
         return recall.Denied
             ? MemoryRules.Fail<IReadOnlyList<RecalledFact>>(MemoryStatus.Unchecked, "access to memory sources could not be checked; nothing is shown.")
             : Attempt<IReadOnlyList<RecalledFact>, MemoryStatus>.Succeed(recall.Facts);
@@ -469,7 +495,8 @@ public sealed class RecallMemory(
 }
 
 /// <summary>
-/// What to recall: one <paramref name="Space"/> by id or name, or every space the caller can see when it is blank;
+/// What to recall: one <paramref name="Space"/> by id or name, several more in <paramref name="Spaces"/> to read as one
+/// memory, or every space the caller can see when both are blank;
 /// facts matching <paramref name="Text"/>, <paramref name="Subject"/> and <paramref name="Attribute"/>, true at
 /// <paramref name="AsOf"/> (now when null), ended and corrected ones too with <paramref name="History"/>; at most
 /// <paramref name="Limit"/>; and the <paramref name="Cursor"/> a previous page of one space returned.
@@ -482,11 +509,17 @@ public sealed record MemoryRecallRequest(
     DateTimeOffset? AsOf = null,
     bool History = false,
     int Limit = 10,
-    string? Cursor = null);
+    string? Cursor = null,
+    IReadOnlyList<string>? Spaces = null)
+{
+    /// <summary><see cref="Space"/> followed by <see cref="Spaces"/>, blanks left out.</summary>
+    public IReadOnlyList<string> Named() =>
+        [.. new[] { Space }.Concat(Spaces ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!)];
+}
 
 /// <summary>
-/// What a timeline reads: one <paramref name="Space"/> by id or name, or every space the caller can see when it is
-/// blank; facts matching <paramref name="Text"/>, <paramref name="Subject"/> and <paramref name="Attribute"/>; with
+/// What a timeline reads: one <paramref name="Space"/> by id or name, several more in <paramref name="Spaces"/> to read
+/// as one memory, or every space the caller can see when both are blank; facts matching <paramref name="Text"/>, <paramref name="Subject"/> and <paramref name="Attribute"/>; with
 /// <paramref name="From"/>/<paramref name="To"/>, only those that started or ended in that window; at most
 /// <paramref name="Limit"/>; and the <paramref name="Cursor"/> a previous page of one space returned.
 /// </summary>
@@ -498,7 +531,13 @@ public sealed record MemoryTimelineRequest(
     DateTimeOffset? From = null,
     DateTimeOffset? To = null,
     int Limit = 50,
-    string? Cursor = null);
+    string? Cursor = null,
+    IReadOnlyList<string>? Spaces = null)
+{
+    /// <summary><see cref="Space"/> followed by <see cref="Spaces"/>, blanks left out.</summary>
+    public IReadOnlyList<string> Named() =>
+        [.. new[] { Space }.Concat(Spaces ?? []).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!)];
+}
 
 /// <summary>
 /// Facts read from one or more spaces, with the spaces they came from for labelling, and how many spaces an unnamed
@@ -506,36 +545,7 @@ public sealed record MemoryTimelineRequest(
 /// read of one space, and is null on its last page and for every other read.
 /// </summary>
 public sealed record SpacedRecall(
-    IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null)
-{
-    /// <summary>
-    /// One list from several spaces' answers, at most <paramref name="limit"/> long. Ranked answers interleave by
-    /// position, each space's best first, since ranks from separate reads aren't comparable; unranked ones go newest
-    /// first, ties by id so the order is stable.
-    /// </summary>
-    public static IReadOnlyList<RecalledFact> Merge(IReadOnlyList<IReadOnlyList<RecalledFact>> perSpace, bool ranked, int limit)
-    {
-        int take = Math.Max(0, limit);
-        if (!ranked)
-        {
-            return [.. perSpace.SelectMany(f => f)
-                .OrderByDescending(f => f.Fact.RecordedAt)
-                .ThenBy(f => f.Fact.Id)
-                .Take(take)];
-        }
-        List<RecalledFact> merged = [];
-        int deepest = perSpace.Count == 0 ? 0 : perSpace.Max(f => f.Count);
-        for (int position = 0; position < deepest && merged.Count < take; position++)
-        {
-            foreach (IReadOnlyList<RecalledFact> facts in perSpace)
-            {
-                if (position < facts.Count && merged.Count < take)
-                    merged.Add(facts[position]);
-            }
-        }
-        return merged;
-    }
-}
+    IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null);
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
 public sealed class MemoryOperations(
