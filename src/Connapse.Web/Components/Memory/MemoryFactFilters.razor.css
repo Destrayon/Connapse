@@ -119,3 +119,9 @@
 .memory-sort {
     width: auto;
 }
+
+.memory-toolbar-row {
+    flex-basis: 100%;
+    display: flex;
+    gap: 0.4rem;
+}

@@ -1,0 +1,190 @@
+@using Connapse.Application.Memory
+@using Connapse.Core
+@inject CopyMemoryFact Copy
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* Copies the current version of a personal fact to a team space or document container the person can add to. It
+   names who will see the copy, and shows a matching fact already there before copying a second one. *@
+<div class="modal-backdrop" @onclick="Close"></div>
+<div id="memory-copy" class="copy-modal" role="dialog" aria-labelledby="memory-copy-title">
+    <div class="copy-modal-content">
+        <div class="copy-modal-header">
+            <h4 id="memory-copy-title">Copy to a team space</h4>
+            <button class="btn btn-sm btn-outline-secondary" aria-label="Close" @onclick="Close" disabled="@isCopying"><span class="bi-x-lg"></span></button>
+        </div>
+        <div class="copy-modal-body">
+            <h5 class="copy-label">This fact</h5>
+            <div class="copy-fact">
+                <div class="fact-key">@Fact.Fact.Subject · @Fact.Fact.Attribute</div>
+                <div>@Fact.Fact.Value</div>
+                <div class="copy-fact-meta">@FactMeta()</div>
+            </div>
+
+            @if (destinations is null)
+            {
+                <div class="spinner-border spinner-border-sm text-secondary mt-3" role="status"><span class="visually-hidden">Loading team spaces</span></div>
+            }
+            else if (destinations.Count == 0)
+            {
+                <p id="memory-copy-none" class="copy-hint mt-3 mb-0">There are no team spaces or document containers you can add to.</p>
+            }
+            else
+            {
+                <label for="memory-copy-to" class="copy-label mt-3">Copy to</label>
+                <div class="copy-to">
+                    @if (Chosen is { } chosen)
+                    {
+                        <MemoryKindBadge Kind="chosen.Audience" Container="chosen.Kind == ContainerKind.Documents" />
+                    }
+                    <select id="memory-copy-to" class="form-select form-select-sm" value="@destination" @onchange="Choose" disabled="@isCopying">
+                        @foreach (Container to in destinations)
+                        {
+                            <option value="@to.Id">@to.Name</option>
+                        }
+                    </select>
+                </div>
+                <p class="copy-hint">Team spaces and document containers you can add to.</p>
+
+                @if (plan?.Existing is { } existing)
+                {
+                    <div id="memory-copy-existing" class="alert alert-warning py-2 small" role="note">
+                        @plan.Destination.Name already has a current fact for @existing.Fact.Subject · @existing.Fact.Attribute:
+                        <strong>@existing.Fact.Value</strong>. Copying adds a second one; nothing there is changed.
+                    </div>
+                }
+
+                <div id="memory-copy-who" class="copy-who" role="note">
+                    <p class="mb-1">
+                        <span class="bi-info-circle me-1" aria-hidden="true"></span>Everyone in this Connapse@(People())
+                        @if (Fact.Sources.Count > 0)
+                        {
+                            <text> who can read <strong>@Sources()</strong></text>
+                        }
+                        will see the copy.
+                    </p>
+                    <ul class="mb-0">
+                        <li>Only the current version is copied, with its dates and source. Its earlier versions stay private.</li>
+                        <li>Your personal fact stays in @SpaceName. Later changes to either one don't reach the other.</li>
+                    </ul>
+                </div>
+            }
+
+            @if (error is not null)
+            {
+                <div id="memory-copy-error" class="alert alert-danger py-2 small mt-3 mb-0" role="alert">@error</div>
+            }
+        </div>
+        <div class="copy-modal-footer">
+            <button class="btn btn-sm btn-outline-secondary" @onclick="Close" disabled="@isCopying">Cancel</button>
+            <button id="memory-copy-confirm" class="btn btn-sm btn-primary" @onclick="CopyAsync"
+                    disabled="@(isCopying || isPlanning || Chosen is null)">
+                @if (isCopying)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                }
+                @(plan?.Existing is not null ? "Copy anyway" : Chosen is { } target ? $"Copy to {target.Name}" : "Copy")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The personal fact to copy, as shown in the list.</summary>
+    [Parameter, EditorRequired] public RecalledFact Fact { get; set; } = null!;
+
+    /// <summary>The personal space's name, for saying where the original stays.</summary>
+    [Parameter] public string SpaceName { get; set; } = "";
+
+    /// <summary>People with an account here, for saying who will see the copy; null when unknown.</summary>
+    [Parameter] public int? Accounts { get; set; }
+
+    /// <summary>The dialog was closed without copying.</summary>
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>The fact was copied; the argument is the destination's name.</summary>
+    [Parameter] public EventCallback<string> OnCopied { get; set; }
+
+    private IReadOnlyList<Container>? destinations;
+    private string? destination;
+    private MemoryCopyPlan? plan;
+    private int planRequest;
+    private bool isPlanning;
+    private bool isCopying;
+    private string? error;
+
+    private Container? Chosen => destinations?.FirstOrDefault(c => c.Id == destination);
+
+    protected override async Task OnInitializedAsync()
+    {
+        destinations = await Copy.DestinationsAsync(await AuthStateProvider.OperationContextAsync());
+        if (destinations.Count > 0)
+            await PlanAsync(destinations[0].Id);
+    }
+
+    private Task Choose(ChangeEventArgs e) => PlanAsync((string)e.Value!);
+
+    /// <summary>Checks the destination for a matching fact; a reply for an earlier choice is dropped.</summary>
+    private async Task PlanAsync(string to)
+    {
+        int request = ++planRequest;
+        (destination, plan, error, isPlanning) = (to, null, null, true);
+        var planned = await Copy.PlanAsync(await AuthStateProvider.OperationContextAsync(), Fact.Fact.Id.ToString(), to);
+        if (request != planRequest) return;
+        isPlanning = false;
+        if (planned.Succeeded)
+            plan = planned.Result;
+        else
+            error = planned.Detail ?? "This fact can't be copied there.";
+    }
+
+    private async Task CopyAsync()
+    {
+        if (Chosen is not { } to || isPlanning) return;
+        isCopying = true;
+        error = null;
+        var copied = await Copy.RunAsync(await AuthStateProvider.OperationContextAsync(), Fact.Fact.Id.ToString(), to.Id,
+            anyway: plan?.Existing is not null);
+        isCopying = false;
+        if (!copied.Succeeded)
+        {
+            error = copied.Detail ?? "The fact wasn't copied.";
+            return;
+        }
+        await OnCopied.InvokeAsync(copied.Result!.SavedTo.Name);
+    }
+
+    private Task Close() => isCopying ? Task.CompletedTask : OnClose.InvokeAsync();
+
+    private string People() => Accounts switch
+    {
+        null => "",
+        1 => " (1 person)",
+        { } n => $" ({n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} people)",
+    };
+
+    private string Sources()
+    {
+        List<string> names = [.. Fact.Sources.Select(s => string.IsNullOrWhiteSpace(s.Title) ? s.Ref : s.Title)];
+        return names.Count switch
+        {
+            1 => names[0],
+            2 => $"{names[0]} and {names[1]}",
+            _ => $"{string.Join(", ", names.Take(2))} and {names.Count - 2} more",
+        };
+    }
+
+    private string FactMeta()
+    {
+        MemoryFact fact = Fact.Fact;
+        string from = fact.ValidFrom is { } f
+            ? $"True from {f.UtcDateTime.ToString("MMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture)}"
+            : "No dates given";
+        string cites = Fact.Sources.Count switch
+        {
+            0 => "no sources",
+            1 => $"cites {Sources()}",
+            _ => $"cites {Fact.Sources.Count} sources",
+        };
+        return $"{from} · {cites}";
+    }
+}

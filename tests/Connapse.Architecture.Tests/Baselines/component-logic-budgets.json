@@ -48,6 +48,13 @@
     "MarkupLogic": 1,
     "IsEmpty": false
   },
+  "Memory/CopyToTeamDialog.razor": {
+    "CodeLines": 84,
+    "Injects": 2,
+    "Complexity": 30,
+    "MarkupLogic": 12,
+    "IsEmpty": false
+  },
   "Memory/MemoryAuthor.razor": {
     "CodeLines": 1,
     "Injects": 0,
@@ -56,17 +63,24 @@
     "IsEmpty": false
   },
   "Memory/MemoryFactFilters.razor": {
-    "CodeLines": 94,
+    "CodeLines": 96,
     "Injects": 2,
     "Complexity": 31,
-    "MarkupLogic": 38,
+    "MarkupLogic": 41,
     "IsEmpty": false
   },
   "Memory/MemoryFactList.razor": {
-    "CodeLines": 308,
+    "CodeLines": 451,
     "Injects": 3,
-    "Complexity": 119,
-    "MarkupLogic": 52,
+    "Complexity": 176,
+    "MarkupLogic": 70,
+    "IsEmpty": false
+  },
+  "Memory/MemoryKindBadge.razor": {
+    "CodeLines": 9,
+    "Injects": 0,
+    "Complexity": 1,
+    "MarkupLogic": 4,
     "IsEmpty": false
   },
   "Memory/NewMemorySpaceDialog.razor": {
@@ -165,6 +179,13 @@
     "Injects": 3,
     "Complexity": 83,
     "MarkupLogic": 39,
+    "IsEmpty": false
+  },
+  "Pages/MemorySpacePage.razor": {
+    "CodeLines": 39,
+    "Injects": 4,
+    "Complexity": 12,
+    "MarkupLogic": 10,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {

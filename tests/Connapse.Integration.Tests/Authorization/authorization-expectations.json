@@ -590,6 +590,11 @@
       "risk": "write",
       "scope": null
     },
+    "GET,POST /memory/{Space}": {
+      "requires": "user",
+      "risk": "write",
+      "scope": null
+    },
     "GET,POST /not-found": {
       "requires": "anonymous",
       "risk": "read",

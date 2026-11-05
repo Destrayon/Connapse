@@ -1,0 +1,104 @@
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--shadow-overlay);
+    z-index: 1040;
+}
+
+.copy-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1050;
+    width: 100%;
+    max-width: 560px;
+    padding: 1rem;
+}
+
+.copy-modal-content {
+    background: var(--surface-elevated);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.copy-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.copy-modal-header h4 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.copy-modal-body {
+    padding: 1.25rem;
+    font-size: 0.9rem;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.copy-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.copy-fact {
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 8px;
+    background: var(--surface-hover);
+    overflow-wrap: anywhere;
+}
+
+.copy-fact .fact-key {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+}
+
+.copy-fact-meta {
+    font-size: 0.8rem;
+    color: var(--bs-secondary-color);
+    margin-top: 0.25rem;
+}
+
+.copy-to {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.copy-hint {
+    font-size: 0.78rem;
+    color: var(--bs-secondary-color);
+    margin: 0.4rem 0 0.75rem;
+}
+
+.copy-who {
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--bs-info-border-subtle);
+    border-radius: 8px;
+    background: var(--bs-info-bg-subtle);
+    color: var(--bs-info-text-emphasis);
+    overflow-wrap: anywhere;
+}
+
+.copy-who ul {
+    padding-left: 1.25rem;
+}
+
+.copy-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--bs-border-color);
+}

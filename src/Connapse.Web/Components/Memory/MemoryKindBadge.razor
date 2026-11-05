@@ -1,0 +1,29 @@
+@using Connapse.Core
+@* A memory space's kind as a small coloured badge: personal, team, or a document container. *@
+@switch (Kind)
+{
+    case MemoryScope.Personal when !Container:
+        <span class="kind-badge kind-badge-personal"><span class="bi-lock-fill" aria-hidden="true"></span> @(Label ?? "Personal")</span>
+        break;
+    case MemoryScope.Team when !Container:
+        <span class="kind-badge kind-badge-team"><span class="bi-people-fill" aria-hidden="true"></span> Team</span>
+        break;
+    default:
+        <span class="kind-badge kind-badge-container"><span class="bi-folder" aria-hidden="true"></span> Container</span>
+        break;
+}
+
+@code {
+    /// <summary>Who the space is for.</summary>
+    [Parameter] public MemoryScope Kind { get; set; }
+
+    /// <summary>Whether the space is a document container rather than a memory space.</summary>
+    [Parameter] public bool Container { get; set; }
+
+    /// <summary>Words for a personal badge; "Personal" when unset.</summary>
+    [Parameter] public string? Label { get; set; }
+
+    /// <summary>The badge for <paramref name="container"/>.</summary>
+    public static (MemoryScope Kind, bool Container) Of(Container container) =>
+        (container.Audience, container.Kind == ContainerKind.Documents);
+}
