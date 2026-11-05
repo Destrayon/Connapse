@@ -157,6 +157,24 @@ public class MemoryPageTests : IDisposable
     }
 
     [Fact]
+    public void Paging_NextClickedTwiceWhileLoading_MovesOnePage()
+    {
+        AddTeams(60);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.Find("#memory-spaces-range").TextContent.Should().Be("1–50 of 61 spaces"));
+        spaces.Hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        cut.Find("#memory-spaces-next").Click();
+        cut.Find("#memory-spaces-next").HasAttribute("disabled").Should().BeTrue("a page is loading");
+        cut.Find("#memory-spaces-prev").HasAttribute("disabled").Should().BeTrue("a page is loading");
+        cut.Find("#memory-spaces-next").Click();
+        spaces.Hold.SetResult();
+
+        cut.WaitForAssertion(() => cut.Find("#memory-spaces-range").TextContent.Should().Be("51–61 of 61 spaces"));
+        Navigation.Uri.Should().Contain("page=2");
+    }
+
+    [Fact]
     public void Find_NarrowsTheTableWithoutTurningItIntoCards()
     {
         AddTeams(12);
@@ -342,13 +360,18 @@ public class MemoryPageTests : IDisposable
             return container;
         }
 
-        public Task<IReadOnlyList<MemorySpaceCandidate>> CandidatesAsync(MemoryCaller viewer, string? text, CancellationToken ct = default)
+        /// <summary>When set, every listing waits for it, to hold a page load open.</summary>
+        public TaskCompletionSource? Hold { get; set; }
+
+        public async Task<IReadOnlyList<MemorySpaceCandidate>> CandidatesAsync(MemoryCaller viewer, string? text, CancellationToken ct = default)
         {
+            if (Hold is { } hold)
+                await hold.Task;
             lock (all)
-                return Task.FromResult<IReadOnlyList<MemorySpaceCandidate>>([.. all
+                return [.. all
                     .Where(s => text is null || s.Container.Name.Contains(text, StringComparison.OrdinalIgnoreCase)
                         || (s.Container.Description?.Contains(text, StringComparison.OrdinalIgnoreCase) ?? false))
-                    .Select(s => new MemorySpaceCandidate(s.Container, Stars.Contains(s.Container.Id), s.Facts, s.Facts, s.Updated, s.Updated))]);
+                    .Select(s => new MemorySpaceCandidate(s.Container, Stars.Contains(s.Container.Id), s.Facts, s.Facts, s.Updated, s.Updated))];
         }
 
         public Task<IReadOnlyDictionary<string, MemorySpaceTally>?> TallyAsync(

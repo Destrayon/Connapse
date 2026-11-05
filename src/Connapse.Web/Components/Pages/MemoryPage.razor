@@ -202,10 +202,10 @@ else
             <div class="spaces-footer">
                 <span id="memory-spaces-range">@view.Range(items.Count, matching)</span>
                 <span class="spaces-pager">
-                    <button id="memory-spaces-prev" class="btn btn-sm btn-outline-secondary" disabled="@(view.Page <= 1)" @onclick="Previous">
+                    <button id="memory-spaces-prev" class="btn btn-sm btn-outline-secondary" disabled="@(isLoading || view.Page <= 1)" @onclick="Previous">
                         <span class="bi-chevron-left me-1" aria-hidden="true"></span>Previous
                     </button>
-                    <button id="memory-spaces-next" class="btn btn-sm btn-outline-secondary" disabled="@(nextCursor is null)" @onclick="Next">
+                    <button id="memory-spaces-next" class="btn btn-sm btn-outline-secondary" disabled="@(isLoading || nextCursor is null)" @onclick="Next">
                         Next<span class="bi-chevron-right ms-1" aria-hidden="true"></span>
                     </button>
                 </span>
@@ -300,13 +300,18 @@ else
         Sort = e.Value?.ToString() switch { "name" => MemorySpaceSort.Name, "facts" => MemorySpaceSort.Facts, _ => MemorySpaceSort.Updated },
     });
 
+    // While a page loads, view is already the next page but nextCursor is still the old one's, so paging waits.
     private void Next()
     {
-        if (nextCursor is not null)
+        if (!isLoading && nextCursor is not null)
             Go(view with { Cursor = nextCursor, Page = view.Page + 1 });
     }
 
-    private void Previous() => Go(Before(view));
+    private void Previous()
+    {
+        if (!isLoading)
+            Go(Before(view));
+    }
 
     // A page reached by a link has no earlier cursors here, so the page before it is the first.
     private MemorySpacesView Before(MemorySpacesView page) =>

@@ -161,10 +161,10 @@
     "IsEmpty": false
   },
   "Pages/MemoryPage.razor": {
-    "CodeLines": 217,
+    "CodeLines": 222,
     "Injects": 3,
-    "Complexity": 81,
-    "MarkupLogic": 37,
+    "Complexity": 83,
+    "MarkupLogic": 39,
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
