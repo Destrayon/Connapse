@@ -97,6 +97,19 @@ public class MemoryLearnedTests
     }
 
     [Fact]
+    public void Describe_EveryLearnTool_SourcesIsAStringArray()
+    {
+        List<ToolSpec> specs = [.. MemoryLearnedEval.LearnTools.Select(n => McpToolbox.Describe(McpToolbox.Find(n), MemorySearchEval.Pinned.GetValueOrDefault(n, [])))];
+
+        foreach (ToolSpec spec in specs.Where(s => MemoryLearnedEval.WriteTools.Contains(s.Name)))
+        {
+            spec.Properties["sources"].GetProperty("type").GetString().Should().Be("array");
+            spec.Properties["sources"].GetProperty("items").GetProperty("type").GetString().Should().Be("string");
+        }
+        specs.Should().HaveCount(MemoryLearnedEval.LearnTools.Length);
+    }
+
+    [Fact]
     public void Prompts_LearnPromptAsksToSaveMemory_WhileSessionTwoPromptNeverMentionsIt()
     {
         Guid container = Guid.NewGuid();

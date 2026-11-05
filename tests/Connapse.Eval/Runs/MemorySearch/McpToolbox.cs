@@ -74,7 +74,9 @@ public sealed class McpToolbox : IToolbox
         {
             if (p.GetCustomAttribute<DescriptionAttribute>() is not { } description || pinned.Contains(p.Name!))
                 continue;
-            properties[p.Name!] = JsonSerializer.SerializeToElement(new { type = JsonType(p.ParameterType), description = description.Description });
+            properties[p.Name!] = JsonType(p.ParameterType) == "array"
+                ? JsonSerializer.SerializeToElement(new { type = "array", items = new { type = JsonType(p.ParameterType.GetElementType()!) }, description = description.Description })
+                : JsonSerializer.SerializeToElement(new { type = JsonType(p.ParameterType), description = description.Description });
             if (!p.HasDefaultValue)
                 required.Add(p.Name!);
         }
@@ -91,6 +93,7 @@ public sealed class McpToolbox : IToolbox
         Type t when t == typeof(int) || t == typeof(long) => "integer",
         Type t when t == typeof(float) || t == typeof(double) => "number",
         Type t when t == typeof(bool) => "boolean",
+        Type t when t == typeof(string[]) => "array",
         Type t => throw new NotSupportedException($"No JSON type for {t.Name}."),
     };
 
