@@ -92,7 +92,7 @@ public class HybridSearchService : IKnowledgeSearch
 
         // Cross-model search: override Semantic to Hybrid so keyword results can
         // surface documents embedded with previous models (keyword search is model-agnostic).
-        if (searchSettings.EnableCrossModelSearch && mode == SearchMode.Semantic)
+        if (searchSettings.EnableCrossModelSearch && mode == SearchMode.Semantic && !options.CosineOnly)
         {
             mode = SearchMode.Hybrid;
             _logger.LogInformation(
@@ -143,7 +143,7 @@ public class HybridSearchService : IKnowledgeSearch
         // each counts. Off, none of this is read and search is exactly what it was.
         SearchSettings effective = searchSettings;
         bool walkLinks = false;
-        if (searchSettings.EnableLinkSearch)
+        if (searchSettings.EnableLinkSearch && !options.CosineOnly)
         {
             effective = await SourceSearchChoices.ResolveAsync(
                 scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>(),
@@ -202,7 +202,7 @@ public class HybridSearchService : IKnowledgeSearch
         // Apply reranking if configured
         bool verifiedBeforeRerank = false;
         var rerankerName = searchSettings.Reranker;
-        if (!string.IsNullOrEmpty(rerankerName) && rerankerName != "None")
+        if (!string.IsNullOrEmpty(rerankerName) && rerankerName != "None" && !options.CosineOnly)
         {
             var reranker = _rerankers.FirstOrDefault(r =>
                 r.Name.Equals(rerankerName, StringComparison.OrdinalIgnoreCase));
@@ -248,7 +248,7 @@ public class HybridSearchService : IKnowledgeSearch
             : await verifier.VerifyAsync(ordered, options.UserId, options.TopK, ct);
 
         var filtered = verified.ToList();
-        if (searchSettings.AutoCut)
+        if (searchSettings.AutoCut && !options.CosineOnly)
             filtered = ApplyAutoCut(filtered);
 
         // Substitute SentenceWindow chunks' Content with their wider window text

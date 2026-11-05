@@ -246,6 +246,114 @@ public class MemoryServicePagingTests
         (await _service.HistoryAsync(Container, current.Id, null, 10, Me)).Should().Be(MemoryHistoryPage.DeniedResult);
     }
 
+    // ── close passages kept with a fact (CON-245) ─────────────────────────────────────────────────
+
+    private static readonly MemoryPassage OpenPassage = new(Guid.NewGuid(), "open.md", "Halcyon runs PostgreSQL 15.");
+    private static readonly MemoryPassage HiddenPassage = new(Guid.NewGuid(), "hidden.md", "Halcyon's database is PostgreSQL.");
+
+    private static MemoryFact WithPassages(int minute) =>
+        Fact(minute) with { Novelty = new MemoryNovelty("the upgrade date", [OpenPassage, HiddenPassage]) };
+
+    /// <summary>The reader may read every document but the hidden passage's, and every cited source.</summary>
+    private void HiddenPassageUnreadable() =>
+        _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => (IReadOnlySet<string>)ci.ArgAt<IReadOnlyCollection<string>>(1)
+                .Where(d => d != HiddenPassage.DocumentId.ToString()).ToHashSet());
+
+    [Fact]
+    public async Task RecallAsync_PassageInADocumentTheReaderCantRead_IsLeftOut()
+    {
+        HiddenPassageUnreadable();
+        MemoryFact fact = WithPassages(1);
+        _store.VisibleAsync(default!, null!, default).ReturnsForAnyArgs([fact]);
+
+        MemoryRecall recall = await _service.RecallAsync(new MemoryQuery(Container), Me);
+
+        RecalledFact shown = recall.Facts.Should().ContainSingle().Subject;
+        shown.Fact.Novelty!.WhatIsNew.Should().Be("the upgrade date");
+        shown.Fact.Novelty.ClosePassages.Should().Equal(OpenPassage);
+    }
+
+    [Fact]
+    public async Task ListAsync_PassageInADocumentTheReaderCantRead_IsLeftOut()
+    {
+        HiddenPassageUnreadable();
+        MemoryFact fact = WithPassages(1);
+        _store.PageAsync(default, null!, default, null, default, null!)
+            .ReturnsForAnyArgs([new MemoryListedFact(fact, new MemoryFactKey(fact.Id, Recorded: fact.RecordedAt))]);
+
+        MemoryFactPage page = await _service.ListAsync(Container, Everything, MemoryFactSort.Recorded, null, 10, Me);
+
+        page.Facts.Single().Fact.Novelty!.ClosePassages.Should().Equal(OpenPassage);
+    }
+
+    [Fact]
+    public async Task HistoryAsync_PassageInADocumentTheReaderCantRead_IsLeftOut()
+    {
+        HiddenPassageUnreadable();
+        MemoryFact current = WithPassages(9);
+        _store.GetAsync(current.Id, Arg.Any<CancellationToken>()).Returns(current);
+        _store.HistoryAsync(default, default, null, default, null!).ReturnsForAnyArgs([current]);
+        _store.HistoryCountAsync(default, default, null!).ReturnsForAnyArgs(1L);
+
+        MemoryHistoryPage page = await _service.HistoryAsync(Container, current.Id, null, 10, Me);
+
+        page.Versions.Single().Fact.Novelty!.ClosePassages.Should().Equal(OpenPassage);
+    }
+
+    [Fact]
+    public async Task RecallAsync_ReaderCanReadEveryPassage_SeesThemAll()
+    {
+        MemoryFact fact = WithPassages(1);
+        _store.VisibleAsync(default!, null!, default).ReturnsForAnyArgs([fact]);
+
+        MemoryRecall recall = await _service.RecallAsync(new MemoryQuery(Container), Me);
+
+        recall.Facts.Single().Fact.Novelty!.ClosePassages.Should().Equal(OpenPassage, HiddenPassage);
+    }
+
+    [Fact]
+    public async Task RecallAsync_NoPassages_ShowsTheFactUnchangedWithoutAskingAboutPassageDocuments()
+    {
+        MemoryFact fact = Fact(1);
+        _store.VisibleAsync(default!, null!, default).ReturnsForAnyArgs([fact]);
+
+        MemoryRecall recall = await _service.RecallAsync(new MemoryQuery(Container), Me);
+
+        recall.Facts.Single().Fact.Should().Be(fact);
+        await _access.DidNotReceive().ReadableAsync(Arg.Any<Guid?>(),
+            Arg.Is<IReadOnlyCollection<string>>(d => d.Any(id => id.Length == 36)), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RecallAsync_PassageAccessCantBeChecked_ShowsNothing()
+    {
+        MemoryFact fact = WithPassages(1);
+        _store.CitedSourcesAsync(Container, Arg.Any<Guid?>(), Arg.Any<CancellationToken>()).Returns([]);
+        _store.VisibleAsync(default!, null!, default).ReturnsForAnyArgs([fact]);
+        AccessCantBeChecked();
+
+        (await _service.RecallAsync(new MemoryQuery(Container), Me)).Should().Be(MemoryRecall.DeniedResult);
+    }
+
+    [Fact]
+    public void Readable_FactWithoutNovelty_IsUnchanged()
+    {
+        MemoryFact fact = Fact(1);
+
+        MemoryService.Readable(fact, new HashSet<string>()).Should().BeSameAs(fact);
+    }
+
+    [Fact]
+    public void Readable_PassageWithoutADocumentId_IsLeftOut()
+    {
+        MemoryPassage unnamed = new(Guid.Empty, "not-a-guid", "Halcyon's database.");
+        MemoryFact fact = Fact(1) with { Novelty = new MemoryNovelty("why", [unnamed, OpenPassage]) };
+
+        MemoryService.Readable(fact, new HashSet<string> { OpenPassage.DocumentId.ToString() })
+            .Novelty!.ClosePassages.Should().Equal(OpenPassage);
+    }
+
     [Fact]
     public async Task SpaceOfAsync_AsksTheStore()
     {

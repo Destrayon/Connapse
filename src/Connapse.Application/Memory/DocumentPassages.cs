@@ -31,7 +31,7 @@ public sealed class SearchDocumentPassages(SearchContainer search) : IDocumentPa
     public async Task<PassageLookup> FindAsync(OperationContext context, Guid containerId, string text, CancellationToken ct = default)
     {
         Attempt<SearchResult, SearchStatus> found = await search.RunAsync(context, containerId,
-            new SearchRequest(text, SearchMode.Semantic, RememberFact.PassagesShown, CloseCosine), ct);
+            new SearchRequest(text, SearchMode.Semantic, RememberFact.PassagesShown, CloseCosine, CosineOnly: true), ct);
         return found.Succeeded
             ? new PassageLookup([.. found.Result!.Hits.Select(Passage)])
             : PassageLookup.Failed(found.Detail ?? found.Status.ToString());

@@ -13,13 +13,19 @@
 /// rather than too much.
 /// </para>
 /// </remarks>
+/// <param name="CosineOnly">
+/// Scores must stay the plain cosine of the query to each chunk: a Semantic search runs as asked, with no cross-model
+/// switch to Hybrid, no link walk, no reranker and no auto-cut, so <see cref="MinScore"/> is a cosine. Permission
+/// filtering still applies.
+/// </param>
 public record SearchOptions(
     int TopK = 10,
     float MinScore = 0.0f,
     string? ContainerId = null,
     SearchMode Mode = SearchMode.Hybrid,
     Dictionary<string, string>? Filters = null,
-    Guid? UserId = null);
+    Guid? UserId = null,
+    bool CosineOnly = false);
 
 public record SearchResult(
     List<SearchHit> Hits,

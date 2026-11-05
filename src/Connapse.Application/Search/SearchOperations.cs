@@ -51,7 +51,8 @@ public sealed record SearchScope(string IdOrName, SearchScopeKind Kind = SearchS
 /// <summary>
 /// One search. <see cref="TopK"/> null asks for <see cref="SearchKnowledge.DefaultTopK"/> results and
 /// <see cref="MinScore"/> null uses the configured minimum; <see cref="Path"/> narrows the search to a folder
-/// subtree unless <see cref="Filters"/> already names one.
+/// subtree unless <see cref="Filters"/> already names one. <see cref="CosineOnly"/> keeps scores plain cosines
+/// (see <see cref="SearchOptions.CosineOnly"/>).
 /// </summary>
 public sealed record SearchRequest(
     string? Query,
@@ -59,7 +60,8 @@ public sealed record SearchRequest(
     int? TopK = null,
     float? MinScore = null,
     string? Path = null,
-    IReadOnlyDictionary<string, string>? Filters = null);
+    IReadOnlyDictionary<string, string>? Filters = null,
+    bool CosineOnly = false);
 
 /// <summary>
 /// Searches one container or source for the caller, from every surface. The request is checked before the
@@ -107,7 +109,8 @@ public sealed class SearchKnowledge(
                 ContainerId: ownerId.ToString(),
                 Mode: request.Mode,
                 Filters: filters.Count > 0 ? filters : null,
-                UserId: SearchPrincipal.Resolve(context.User)), ct);
+                UserId: SearchPrincipal.Resolve(context.User),
+                CosineOnly: request.CosineOnly), ct);
         }
         catch (Exception ex) when (!discoverable && ex is not OperationCanceledException)
         {

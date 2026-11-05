@@ -128,7 +128,7 @@ public sealed class MemoryService(
         {
             // Hidden facts are filtered out by the query itself, so one read returns the page.
             MemoryViewer viewer = await ViewerAsync(query.ContainerId, query.ChainId, caller, ct);
-            return new MemoryRecall(await ShownAsync(await store.VisibleAsync(query, viewer, limit, ct), ct));
+            return new MemoryRecall(await ShownAsync(await store.VisibleAsync(query, viewer, limit, ct), caller, ct));
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -150,7 +150,7 @@ public sealed class MemoryService(
             IReadOnlyList<MemoryListedFact> listed = await store.PageAsync(containerId, filter, sort, after, limit + 1, viewer, ct);
             List<MemoryListedFact> page = [.. listed.Take(limit)];
             return new MemoryFactPage(
-                await ShownAsync([.. page.Select(l => l.Fact)], ct),
+                await ShownAsync([.. page.Select(l => l.Fact)], caller, ct),
                 listed.Count > limit ? page[^1].Key : null);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -211,7 +211,7 @@ public sealed class MemoryService(
             long total = await store.HistoryCountAsync(containerId, fact.ChainId, viewer, ct);
             List<MemoryFact> page = [.. listed.Take(limit)];
             return new MemoryHistoryPage(
-                await ShownAsync(page, ct), total,
+                await ShownAsync(page, caller, ct), total,
                 listed.Count > limit ? new MemoryVersionKey(page[^1].RecordedAt, page[^1].Id) : null);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -227,14 +227,29 @@ public sealed class MemoryService(
     private async Task<MemoryViewer> ViewerAsync(Guid containerId, Guid? chainId, MemoryCaller caller, CancellationToken ct) =>
         new(caller, await ReadableAsync(await store.CitedSourcesAsync(containerId, chainId, ct), caller.UserId, ct));
 
-    /// <summary>The facts with their sources' document names.</summary>
-    private async Task<IReadOnlyList<RecalledFact>> ShownAsync(IReadOnlyList<MemoryFact> facts, CancellationToken ct)
+    /// <summary>
+    /// The facts with their sources' document names, and with only the close passages <paramref name="caller"/> can read
+    /// now: the passages were checked against the writer when it saved, which says nothing about this reader. Throws
+    /// when it cannot tell, so the caller shows nothing.
+    /// </summary>
+    private async Task<IReadOnlyList<RecalledFact>> ShownAsync(IReadOnlyList<MemoryFact> facts, MemoryCaller caller, CancellationToken ct)
     {
         IReadOnlyDictionary<string, string> titles = await store.DocumentTitlesAsync(
             [.. facts.SelectMany(f => f.Sources).Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref).Distinct(StringComparer.Ordinal)], ct);
-        return [.. facts.Select(f => new RecalledFact(f,
+        List<string> passageDocuments = [.. facts.SelectMany(f => f.Novelty?.ClosePassages ?? [])
+            .Select(p => p.DocumentId.ToString()).Distinct(StringComparer.Ordinal)];
+        IReadOnlySet<string> readable = passageDocuments.Count == 0
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : await access.ReadableAsync(caller.UserId, passageDocuments, ct);
+        return [.. facts.Select(f => new RecalledFact(Readable(f, readable),
             [.. f.Sources.Select(s => new ShownMemorySource(s.Kind, s.Ref, titles.GetValueOrDefault(s.Ref)))]))];
     }
+
+    /// <summary>The fact with only the close passages whose documents are in <paramref name="readable"/>.</summary>
+    internal static MemoryFact Readable(MemoryFact fact, IReadOnlySet<string> readable) =>
+        fact.Novelty is { } novelty
+            ? fact with { Novelty = novelty with { ClosePassages = [.. novelty.ClosePassages.Where(p => readable.Contains(p.DocumentId.ToString()))] } }
+            : fact;
 
     /// <summary>
     /// Null when <paramref name="caller"/> can see every version of the chain, or the error refusing the correction.

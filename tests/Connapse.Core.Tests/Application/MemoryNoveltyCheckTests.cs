@@ -262,6 +262,7 @@ public class MemoryNoveltyCheckTests
         search.Asked.TopK.Should().Be(RememberFact.PassagesShown);
         search.Asked.MinScore.Should().Be(SearchDocumentPassages.CloseCosine);
         search.Asked.ContainerId.Should().Be(container.ToString());
+        search.Asked.CosineOnly.Should().BeTrue("the cutoff is a cosine, so no reranker or score blend may move it");
     }
 
     [Fact]
