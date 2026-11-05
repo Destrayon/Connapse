@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Text.RegularExpressions;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -177,7 +178,10 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     private async Task<IReadOnlyList<MemoryFact>> QueryAsync(MemoryQuery query, MemoryViewer? viewer, int skip, int take, CancellationToken ct)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        IQueryable<MemoryFactEntity> rows = context.MemoryFacts.AsNoTracking().Where(f => f.ContainerId == query.ContainerId);
+        Guid[] containers = [.. query.Containers.Distinct()];
+        IQueryable<MemoryFactEntity> rows = containers.Length == 1
+            ? context.MemoryFacts.AsNoTracking().Where(f => f.ContainerId == containers[0])
+            : context.MemoryFacts.AsNoTracking().Where(f => containers.Contains(f.ContainerId));
         if (viewer is not null)
             rows = VisibleTo(rows, viewer);
 
@@ -211,7 +215,11 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
                 && (f.ValidTo == null || f.ValidTo > at));
         }
 
-        string? terms = TsQuery(await DistinctiveWordsAsync(context, query.ContainerId, QueryWords(query.Text), ct));
+        IReadOnlyList<string> words = QueryWords(query.Text);
+        if (containers.Length > 1 && words.Count > 0)
+            return await RankedAcrossAsync(context, rows, containers, words, skip, take, ct);
+
+        string? terms = TsQuery(await DistinctiveWordsAsync(context, containers[0], words, ct));
         IQueryable<MemoryFactEntity> ordered;
         if (terms is null)
         {
@@ -282,7 +290,13 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
                    (SELECT count(*)::int FROM memory_facts f WHERE f.container_id = {containerId}) AS "Facts"
             FROM unnest({all}) AS w
             """).ToListAsync(ct);
-        if (counts.Count == 0 || counts[0].Facts < MinFactsToPrune)
+        return Distinctive(words, counts);
+    }
+
+    /// <summary><see cref="DistinctiveWordsAsync"/>'s choice, from each word's count of matching facts in one container.</summary>
+    internal static IReadOnlyList<string> Distinctive(IReadOnlyList<string> words, IReadOnlyList<WordCount> counts)
+    {
+        if (words.Count < 2 || counts.Count == 0 || counts[0].Facts < MinFactsToPrune)
             return words;
         HashSet<string> common = [.. counts.Where(c => c.Matches * 2 > c.Facts).Select(c => c.Word)];
         // A kept word must match something, or a question of stop words and common words would match nothing at all.
@@ -293,8 +307,104 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     /// <summary>Below this many facts a word's share says little about how common it is.</summary>
     private const int MinFactsToPrune = 8;
 
-    private sealed class WordCount
+    internal sealed class WordCount
     {
+        public string Word { get; init; } = "";
+        public int Matches { get; init; }
+        public int Facts { get; init; }
+    }
+
+    /// <summary>
+    /// A recall with words across several containers. Each container leaves out its own common words, so its facts
+    /// rank as a recall of that container alone would rank them: counted over all the containers, a project's name is
+    /// rare and would outrank the word that picks the fact. A word most of a container's facts share says what the
+    /// container is about instead, so containers sharing more of the question's words come first, then the ranks merge.
+    /// One statement ranks every container, each with its own words, so the page is read from one snapshot.
+    /// </summary>
+    private static async Task<IReadOnlyList<MemoryFact>> RankedAcrossAsync(KnowledgeDbContext context,
+        IQueryable<MemoryFactEntity> rows, Guid[] containers, IReadOnlyList<string> words, int skip, int take, CancellationToken ct)
+    {
+        string[] all = [.. words];
+        // One pass over the containers' facts: for each word, how many facts it matches in each container, and how many facts there are.
+        List<ContainerWordCount> counts = await context.Database.SqlQuery<ContainerWordCount>($"""
+            SELECT f.container_id AS "Container", w.word AS "Word",
+                count(*) FILTER (WHERE f.search_vector @@ w.query)::int AS "Matches", count(*)::int AS "Facts"
+            FROM memory_facts f
+            CROSS JOIN (SELECT DISTINCT word, to_tsquery('english', word) AS query FROM unnest({all}) AS word) w
+            WHERE f.container_id = ANY({containers})
+            GROUP BY f.container_id, w.word
+            """).ToListAsync(ct);
+
+        List<(Guid Container, string Terms, int About)> plans = [];
+        foreach (IGrouping<Guid, ContainerWordCount> container in counts.GroupBy(c => c.Container))
+        {
+            List<WordCount> perWord = [.. words.Select(w => new WordCount
+            {
+                Word = w,
+                Matches = container.Where(c => c.Word == w).Sum(c => c.Matches),
+                Facts = container.First().Facts,
+            })];
+            plans.Add((container.Key, TsQuery(Distinctive(words, perWord))!, perWord.Count(c => c.Matches * 2 > c.Facts)));
+        }
+        if (plans.Count == 0)
+            return [];
+
+        // Each fact takes its container's words and about-count: a CASE over the groups of containers that share them.
+        List<IGrouping<(string Terms, int About), (Guid Container, string Terms, int About)>> groups =
+            [.. plans.GroupBy(p => (p.Terms, p.About))];
+        ParameterExpression f = Expression.Parameter(typeof(MemoryFactEntity), "f");
+        MemberExpression factContainer = Expression.Property(f, nameof(MemoryFactEntity.ContainerId));
+        Expression terms = Parameter(groups[^1].Key.Terms);
+        Expression about = Parameter(groups[^1].Key.About);
+        for (int i = groups.Count - 2; i >= 0; i--)
+        {
+            Expression inGroup = Expression.Call(typeof(Enumerable), nameof(Enumerable.Contains), [typeof(Guid)],
+                Parameter(groups[i].Select(p => p.Container).ToArray()), factContainer);
+            terms = Expression.Condition(inGroup, Parameter(groups[i].Key.Terms), terms);
+            about = Expression.Condition(inGroup, Parameter(groups[i].Key.About), about);
+        }
+        Expression<Func<MemoryFactEntity, RankedRow>> plan = Expression.Lambda<Func<MemoryFactEntity, RankedRow>>(
+            Expression.MemberInit(Expression.New(typeof(RankedRow)),
+                Expression.Bind(typeof(RankedRow).GetProperty(nameof(RankedRow.Fact))!, f),
+                Expression.Bind(typeof(RankedRow).GetProperty(nameof(RankedRow.Terms))!, terms),
+                Expression.Bind(typeof(RankedRow).GetProperty(nameof(RankedRow.About))!, about)),
+            f);
+
+        // A container's about-count is the same for all its facts, so its facts keep the order its own recall gives them.
+        List<MemoryFactEntity> page = await rows.Select(plan)
+            .Where(r => r.Fact.SearchVector.Matches(EF.Functions.ToTsQuery("english", r.Terms)))
+            .OrderByDescending(r => r.About)
+            .ThenByDescending(r => r.Fact.SearchVector.Rank(EF.Functions.ToTsQuery("english", r.Terms)))
+            .ThenByDescending(r => r.Fact.ValidFrom)
+            .ThenByDescending(r => r.Fact.RecordedAt)
+            .ThenBy(r => r.Fact.Id)
+            .Skip(skip)
+            .Take(take)
+            .Select(r => r.Fact)
+            .Include(r => r.Sources)
+            .ToListAsync(ct);
+        return [.. page.Select(ToFact)];
+    }
+
+    /// <summary>A value read through a property, so EF sends it as a parameter rather than writing it into the SQL.</summary>
+    private static MemberExpression Parameter<T>(T value) =>
+        Expression.Property(Expression.Constant(new Box<T>(value)), nameof(Box<T>.Value));
+
+    private sealed class Box<T>(T value)
+    {
+        public T Value { get; } = value;
+    }
+
+    private sealed class RankedRow
+    {
+        public MemoryFactEntity Fact { get; init; } = null!;
+        public string Terms { get; init; } = "";
+        public int About { get; init; }
+    }
+
+    private sealed class ContainerWordCount
+    {
+        public Guid Container { get; init; }
         public string Word { get; init; } = "";
         public int Matches { get; init; }
         public int Facts { get; init; }

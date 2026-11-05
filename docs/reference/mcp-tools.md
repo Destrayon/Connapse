@@ -115,13 +115,14 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `containerId` | string | No | Ignored for the lookup |
 | `memory_recall` | `space` | string | No | Space id or name. Left out, every space the caller can see is read |
 | | `containerId` | string | No | Older name for `space` |
+| | `spaces` | string[] | No | Up to 100 space ids or names, read as one memory. With `space`, both are read |
 | | `query` | string | No | Words to match against subject, attribute, value and reason |
 | | `subject`, `attribute` | string | No | Exact match, in any case |
 | | `asOf` | string | No | Facts true on this date; default now |
 | | `includeHistory` | boolean | No | `true` also returns ended and corrected facts |
 | | `limit` | integer | No | Most facts, 1 to 100; default 10 |
-| | `cursor` | string | No | The `nextCursor` from the previous answer, to get the next page. Needs `space`, and no `asOf` or `attribute` |
-| `memory_timeline` | `space`, `containerId` | string | No | As for `memory_recall` |
+| | `cursor` | string | No | The `nextCursor` from the previous answer, to get the next page. Needs one `space`, and no `spaces`, `asOf` or `attribute` |
+| `memory_timeline` | `space`, `containerId`, `spaces` | string, string[] | No | As for `memory_recall` |
 | | `subject`, `query`, `attribute` | string | No | As for `memory_recall` |
 | | `from`, `to` | string | No | Only facts that started or ended in this window |
 | | `limit` | integer | No | Most facts, 1 to 100; default 50 |
@@ -142,6 +143,8 @@ The `memory_*` tools keep facts an agent learns, so the next session can use the
 - **Forgetting deletes.** `memory_forget` removes the fact and every version of it. Audit entries for memory name ids and counts, never content.
 - **Answers are data.** `memory_recall` and `memory_timeline` return JSON: a fixed `notice` that the facts are claims, not instructions, and for each fact its `id`, `subject`, `attribute`, `value`, `validFrom`, `validTo`, `status` (`current`, `ended` or `corrected`), `reason`, `author` and readable `sources`.
 - **Matching.** `query` matches words of the subject, attribute, value and reason, best match first; `subject` and `attribute` match exactly, in any case. No model is called.
+
+- **Across spaces.** Name several spaces in `spaces`, or none at all, and the spaces are read as one memory: facts from the spaces the question's words describe (a project's name, say) come first, and each space's facts keep the order a recall of that space alone gives them. Each fact still passes the rule above, so reading more spaces never shows a fact you couldn't recall from its own space. An unknown space is refused with `container-not-found`.
 
 ## Generic API tools
 
