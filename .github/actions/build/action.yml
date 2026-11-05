@@ -24,8 +24,10 @@ runs:
     with:
       project: ${{ inputs.project }}
 
+  # Only linux-x64's native libraries are copied into the output: every platform's came to about 10 GB
+  # per solution build and filled a 72 GB runner's disk (CON-246, Directory.Build.targets).
   - name: Build
     shell: bash
     run: |
-      dotnet build ${{ inputs.project }} --no-restore --configuration Release
+      dotnet build ${{ inputs.project }} --no-restore --configuration Release -p:RuntimeAssetsFor=linux-x64
       df -h /
