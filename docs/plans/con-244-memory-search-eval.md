@@ -77,3 +77,22 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
 **Codex review of the final diff (2026-11-04):** 3 real findings, fixed in d372685f — search mode/topK not pinned (deviation recorded in results.md: off 171 non-Hybrid / 78 topK>10 searches, on 38 / 8), cloud-provider selectors inherited plus no subscription check, conformance ignoring model/effort/config. Release build clean, format clean, 3,207 Eval tests pass. Next: user marks #1130 ready (`gh pr ready` was denied to this session); ClaudePM decides on a pinned rerun.
 
 **Conforming rerun (2026-11-05, 05:06–06:47 UTC):** search locked to Hybrid with 10 results; exit 0, conforming, KEEP. M 0.479 → 0.911 (+0.432, 95% CI 0.313–0.542, MDE 0.165); H 1.000 in both arms. Seven-day window 34% → 36%, $17.55 at list price. Results, results.md and the PR verdict replaced; no containers left running. Next: user marks #1130 ready.
+
+## Realistic arm: memory the agent wrote itself (added 2026-11-05)
+
+The user's review of #1130 asked when a container would hold facts its documents don't. 89% of the +0.432 came
+from such facts (sent to ClaudePM). This arm tests the case the user described instead: agents save memories
+about the documents they read, and a later agent answers related questions with or without them. Its verdict
+decides container memory.
+
+7. **Category split.** Goal: split the f9de8a4a gain by kind and documented half. Done when ClaudePM has it.
+8. **Dataset and bar.** Goal: a `memory-learned` dataset whose every fact is in a document, with session-1 and
+   session-2 questions per entity, plus a bar committed before any scored run. Done when the generator, dataset,
+   manifest entry and bar are committed.
+9. **Command.** Goal: `memory-learned` runs session 1 (agents search and write memory), adds the late documents,
+   then session 2 on and off, per repetition in its own container, with one command. Done when it builds and its
+   unit tests pass.
+10. **Dev trial and review.** Goal: a small dev run and its subscription cost, one Codex adversarial review, real
+    findings fixed. Done when the trial ran clean and the fixes are pushed.
+11. **Scored run.** Goal: the pre-registered test run within about 5% of the seven-day window. Done when the PR
+    has both scores, the interval, examples and a KEEP/DROP verdict for this arm, and CI is green.

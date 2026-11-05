@@ -31,6 +31,7 @@ before any of these features or their results existed. A change merges only when
 | **Agent memory** (suite `memory-v1`, to be built; answer keys from a scripted fact timeline) | Current-value, as-of-date and what-changed questions at least +0.10 Recall@5 over the same notes stored as plain documents | All suites; ordinary recall questions no significant drop against plain documents | A write lands in under 200 ms, recall p95 +150 ms at most, 0 AI tokens on the server |
 | **AI link extraction** (opt-in) | `links-v1` test MRR@10 at least +0.05 over links-only | All suites | Reported: tokens per passage, index time; no default-on without a new bar |
 | **Container memory for search** (suite `memory-search-v1`, CON-244; see below) | Correct-document score on the memory tasks at least +0.15 over the same agent without memory | Control and stale tasks non-inferior within 0.10 | Reported: search calls, tool calls and tokens per task |
+| **Learned container memory** (suite `memory-learned-v1`, CON-244; see below) | Same rule, session-2 memory tasks, memory written by session-1 agents | Same rule, session-2 control and stale tasks | Reported: session-1 scores and facts written |
 
 ## Container memory for search (CON-244)
 
@@ -68,6 +69,30 @@ no better or worse.
 - **Reported, not gated:** each kind separately, documented and undocumented halves, answer-value accuracy, stale
   citations, run recall of gold documents, first-query MRR@10, search and tool calls with their intervals, tokens,
   and a few answers memory changed for better and for worse.
+
+### Learned container memory (CON-244, realistic arm)
+
+Written on 2026-11-05, before the `memory-learned` command or any scored run existed. The memory-search run above
+seeds memory by hand, so it cannot say whether memory an agent writes for itself helps. This arm can, and **the
+keep-or-drop decision for container memory rests on it.**
+
+- **Dataset:** `memory-learned` (suite `memory-learned-v1`): every fact a task needs is in a document.
+- **Per repetition, in a fresh container holding the corpus:**
+  1. **Session 1.** An agent answers each session-1 test question with `search_knowledge`, `get_document`,
+     `memory_recall`, `memory_remember` and `memory_correct`. Its system prompt asks it to save what it learned that
+     would help answer related questions later, citing the documents. Nothing else is written into memory.
+  2. The late documents are uploaded and indexed.
+  3. **Session 2.** A fresh agent answers each session-2 test question twice, with the original memory-search system
+     prompt, which never mentions memory: **Off** has `search_knowledge` and `get_document`; **On** adds only
+     `memory_recall`, reading what session 1 wrote. Both sessions use the same user.
+- **Fixed as above:** model, effort, 3 repetitions, 12 tool calls per run, Hybrid search with 10 results, retries,
+  exclusions, the score per run, the paired statistics and the KEEP, WORSE and NO BETTER rules. Only session-2 test
+  tasks are scored: **M** is the 64 current, alias, correction and location tasks, **H** the 28 control and 12 stale
+  tasks, 104 in all.
+- **Reported, not gated:** everything listed above, plus session-1 scores and the facts session 1 wrote (how many,
+  how many cite documents).
+- **Budget:** one full run (228 session-1 and 624 session-2 runs) must use at most about 5% of the seven-day
+  subscription window, on the subscription only.
 
 ## Baselines
 
