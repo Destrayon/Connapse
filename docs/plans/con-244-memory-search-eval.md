@@ -75,3 +75,5 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
   - Next: merge once CI is green.
 
 **Codex review of the final diff (2026-11-04):** 3 real findings, fixed in d372685f — search mode/topK not pinned (deviation recorded in results.md: off 171 non-Hybrid / 78 topK>10 searches, on 38 / 8), cloud-provider selectors inherited plus no subscription check, conformance ignoring model/effort/config. Release build clean, format clean, 3,207 Eval tests pass. Next: user marks #1130 ready (`gh pr ready` was denied to this session); ClaudePM decides on a pinned rerun.
+
+**Conforming rerun (2026-11-05, 05:06–06:47 UTC):** search locked to Hybrid with 10 results; exit 0, conforming, KEEP. M 0.479 → 0.911 (+0.432, 95% CI 0.313–0.542, MDE 0.165); H 1.000 in both arms. Seven-day window 34% → 36%, $17.55 at list price. Results, results.md and the PR verdict replaced; no containers left running. Next: user marks #1130 ready.
