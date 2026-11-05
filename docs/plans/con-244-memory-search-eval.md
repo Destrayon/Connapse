@@ -68,3 +68,8 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
   - Files: `Runs/MemorySearch/{ClaudeCliAgent,ToolBridge,Agent}.cs`, `Runs/MemorySearchEval.cs`, `MemorySearchTests.cs`, README, `run_light.sh`.
   - Verified: dev trial (24 tasks, 1 repetition) ran clean. Memory set: off 0.56, on 0.94, +0.375 (CI 0.19–0.63). Searches: 2.17 off, 1.50 on. It used 1% of the seven-day window (31% to 32%). 3,199 eval unit tests pass.
   - Next: the PM's go for the full test split.
+- **Phase 6:**
+  - Full run on the test split: 112 tasks, 3 repetitions, 672 runs on the subscription, which moved the seven-day window from 32% to 34%. KEEP. On M, memory gained +0.396 (95% CI 0.287–0.510, p=0.0002). On H the difference is 0 (90% CI 0 to 0). Searches fell from 1.80 to 1.31.
+  - Files: `eval/agent-search/con-244/{results.md,memory-search-test.json,memory-search-test.runs.jsonl}`. The progress line in `Runs/MemorySearchEval.cs` now shows the subscription window.
+  - Verified: the run exited 0 (a conforming run that passed the gate), and no containers were left running.
+  - Next: merge once CI is green.

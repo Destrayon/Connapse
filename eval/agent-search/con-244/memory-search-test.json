@@ -1,0 +1,254 @@
+{
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "tasks": 112,
+  "all": {
+    "tasks": 112,
+    "offScore": 0.7083,
+    "onScore": 0.9345,
+    "offSearches": 1.8006,
+    "onSearches": 1.3125
+  },
+  "memorySet": {
+    "tasks": 64,
+    "offScore": 0.4896,
+    "onScore": 0.8854,
+    "offSearches": 2.401,
+    "onSearches": 1.4687
+  },
+  "holdoutSet": {
+    "tasks": 48,
+    "offScore": 1,
+    "onScore": 1,
+    "offSearches": 1,
+    "onSearches": 1.1042
+  },
+  "kinds": {
+    "alias": {
+      "tasks": 16,
+      "offScore": 0.5,
+      "onScore": 1,
+      "offSearches": 3.3542,
+      "onSearches": 2.0208
+    },
+    "control": {
+      "tasks": 40,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1,
+      "onSearches": 1.125
+    },
+    "correction": {
+      "tasks": 16,
+      "offScore": 0.3125,
+      "onScore": 0.6458,
+      "offSearches": 1.3542,
+      "onSearches": 1.0625
+    },
+    "current": {
+      "tasks": 16,
+      "offScore": 0.5,
+      "onScore": 0.8958,
+      "offSearches": 1.0625,
+      "onSearches": 1.0833
+    },
+    "location": {
+      "tasks": 16,
+      "offScore": 0.6458,
+      "onScore": 1,
+      "offSearches": 3.8333,
+      "onSearches": 1.7083
+    },
+    "stale": {
+      "tasks": 8,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1,
+      "onSearches": 1
+    }
+  },
+  "memorySetHalves": {
+    "documented": {
+      "tasks": 32,
+      "offScore": 0.875,
+      "onScore": 0.9375,
+      "offSearches": 1.375,
+      "onSearches": 1.125
+    },
+    "undocumented": {
+      "tasks": 32,
+      "offScore": 0.1042,
+      "onScore": 0.8333,
+      "offSearches": 3.4271,
+      "onSearches": 1.8125
+    }
+  },
+  "comparisons": {
+    "memorySetScore95": {
+      "tasks": 64,
+      "meanDifference": 0.3958,
+      "ci": [
+        0.2865,
+        0.5104
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.1596
+    },
+    "holdoutSetScore90": {
+      "tasks": 48,
+      "meanDifference": 0,
+      "ci": [
+        0,
+        0
+      ],
+      "permutationP": 1,
+      "minimumDetectableEffect": 0
+    },
+    "allScore95": {
+      "tasks": 112,
+      "meanDifference": 0.2262,
+      "ci": [
+        0.1607,
+        0.3065
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.1048
+    },
+    "answerAccuracy": {
+      "tasks": 112,
+      "meanDifference": 0.0446,
+      "ci": [
+        0.006,
+        0.0952
+      ],
+      "permutationP": 0.055394460553944605,
+      "minimumDetectableEffect": 0.0632
+    },
+    "staleCitations": {
+      "tasks": 112,
+      "meanDifference": -0.1042,
+      "ci": [
+        -0.1637,
+        -0.0595
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.0749
+    },
+    "runRecall": {
+      "tasks": 112,
+      "meanDifference": 0.0417,
+      "ci": [
+        0.0149,
+        0.0923
+      ],
+      "permutationP": 0.0301969803019698,
+      "minimumDetectableEffect": 0.0504
+    },
+    "firstQueryMrr@10": {
+      "tasks": 112,
+      "meanDifference": -0.0031,
+      "ci": [
+        -0.022,
+        0.0019
+      ],
+      "permutationP": 0.9859014098590141,
+      "minimumDetectableEffect": 0.0127
+    },
+    "searchCalls": {
+      "tasks": 112,
+      "meanDifference": -0.4881,
+      "ci": [
+        -0.7589,
+        -0.2887
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.3323
+    },
+    "toolCalls": {
+      "tasks": 112,
+      "meanDifference": 0.619,
+      "ci": [
+        0.3538,
+        0.8393
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.3459
+    }
+  },
+  "outcomes": {
+    "off": {
+      "Answered": 335,
+      "NoAnswer": 1
+    },
+    "on": {
+      "Answered": 336
+    }
+  },
+  "tokens": {
+    "off": {
+      "runs": 336,
+      "input": 2500,
+      "cacheWrite": 1459208,
+      "cacheRead": 4951055,
+      "output": 188824,
+      "apiListPriceUsd": 8.2252
+    },
+    "on": {
+      "runs": 336,
+      "input": 2350,
+      "cacheWrite": 1653272,
+      "cacheRead": 4993300,
+      "output": 202792,
+      "apiListPriceUsd": 9.145
+    }
+  },
+  "examples": {
+    "memoryHelped": [
+      {
+        "task": "test-alias-04",
+        "kind": "alias",
+        "question": "What is the password rotation interval for the Bluebird team?",
+        "expected": "30 days",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": null,
+        "onAnswer": "I couldn\u0027t confirm this. No document mentions a \u0022Bluebird\u0022 team. A memory note says Bluebird is Marketing\u0027s nickname, but the Marketing team charter it cites lists only \u0022Sherpas\u0022 and \u0022Beacons\u0022. If Bluebird does mean Marketing, the Marketing Access Control Policy sets the password rotation interval at 30 days. That is unverified, so please confirm which department Bluebird is."
+      },
+      {
+        "task": "test-alias-06",
+        "kind": "alias",
+        "question": "What is the single-transaction card limit for the Northstar team?",
+        "expected": "$4,000",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find a \u0022Northstar\u0022 team in the documents, so I can\u0027t give you its single-transaction card limit. No document uses the name Northstar, either as a team or as an alias in a team charter. The corporate card policies I found cover Security ($4,000), Platform ($12,500), Manufacturing ($4,500) and Sales Engineering ($11,000). If you can tell me which department Northstar maps to, I can give you that limit.",
+        "onAnswer": "I couldn\u0027t confirm this. No document mentions a \u0022Northstar\u0022 team. The only link is a memory note saying Northstar is the Security team, and the Security team charter it cites doesn\u0027t say that. It lists the nicknames Night Owls and Rocketeers. If Northstar does mean Security, the single-transaction card limit is $4,000, from the Security Corporate Cards Policy issued 2024-04-09. Please verify that Northstar is Security before relying on this."
+      },
+      {
+        "task": "test-alias-07",
+        "kind": "alias",
+        "question": "What is the home-office equipment allowance for the Voyagers team?",
+        "expected": "$400",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find a \u0022Voyagers\u0022 team in the documents, so I have no home-office equipment allowance figure for it. The remote work policies cover other departments only: Research $700, Platform $350, Finance $1150, Facilities $400, Data Science $450, Security $1000, Legal $1000, Customer Success $1050, Sales Engineering $1450, Marketing $950, Manufacturing $450 and Field Operations $700. A keyword search for \u0022Voyagers\u0022 returned nothing. If Voyagers sits under one of those departments, tell me which one and I can give you its figure.",
+        "onAnswer": "$400, assuming Voyagers is the Facilities team. The only link between the two is a memory note that calls Voyagers the team\u0027s chat nickname. The Facilities team charter it cites doesn\u0027t mention \u0022Voyagers\u0022, and no document uses that name. The Facilities Remote Work Policy (issued 2025-12-28) sets the home-office equipment allowance at $400."
+      }
+    ],
+    "memoryHurt": []
+  },
+  "gate": {
+    "verdict": "KEEP",
+    "memorySetMdeOver015": true,
+    "conforming": true,
+    "diagnosticOnly": [],
+    "passed": true
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 32%)",
+    "atLastRun": "allowed (seven_day 34%)"
+  }
+}

@@ -87,7 +87,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             done[(job.Task.Id, job.Rep, job.Memory)] = (run, score);
             int n = Interlocked.Increment(ref finished);
             log.WriteLine($"[{n}/{jobs.Count}] {job.Task.Id} rep {job.Rep + 1} {(job.Memory ? "on " : "off")}: " +
-                $"{run.Outcome} score {score.Score} calls {score.ToolCalls}{(run.Error is null ? "" : $" ({run.Error})")}");
+                $"{run.Outcome} score {score.Score} calls {score.ToolCalls}{(run.Error is null ? "" : $" ({run.Error})")} | {agent.LastLimit}");
         });
 
         List<TaskResult> results = [.. tasks.Select(t => new TaskResult(t,
