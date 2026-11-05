@@ -42,3 +42,9 @@ Research: `docs/research/container-memory-search-eval-2026-11-04.md`.
   - Files: `docs/research/container-memory-search-eval-2026-11-04.md`, `docs/plans/con-244-memory-search-eval.md`.
   - Verified that search has no path to memory (grep of `Connapse.Search` and `SearchOperations`).
   - Next: the dataset generator.
+- **Phase 2:**
+  - Generated 364 documents, 154 memory operations and 136 tasks (112 test, 24 dev); each memory kind is half
+    documented, half undocumented. Wrote the KEEP / WORSE / NO BETTER bar before any scored run.
+  - Files: `eval/tools/build_memory_search.py`, `eval/datasets/memory-search/*`, `eval/MANIFEST.json`, `eval/pass-bars.md`.
+  - Verified: the generator's leak checks pass (no undocumented alias or codename in any document).
+  - Next: the `memory-search` command and its adapter.

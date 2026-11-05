@@ -30,6 +30,43 @@ before any of these features or their results existed. A change merges only when
 | **Code retrieval** (suite `code-v1`, to be built; answer keys from a compiler-grade indexer) | Definition questions Hit@1 ≥ 0.95; caller/usage Recall@10 at least +0.15 over a grep baseline; parser call edges at high confidence ≥ 0.90 precision against the compiler's; "how does X work" MRR@10 at least +0.05 over the baseline | All suites | Under 1 s per changed file, a full Connapse checkout under 2 min, symbol lookups p95 under 300 ms, 0 AI tokens |
 | **Agent memory** (suite `memory-v1`, to be built; answer keys from a scripted fact timeline) | Current-value, as-of-date and what-changed questions at least +0.10 Recall@5 over the same notes stored as plain documents | All suites; ordinary recall questions no significant drop against plain documents | A write lands in under 200 ms, recall p95 +150 ms at most, 0 AI tokens on the server |
 | **AI link extraction** (opt-in) | `links-v1` test MRR@10 at least +0.05 over links-only | All suites | Reported: tokens per passage, index time; no default-on without a new bar |
+| **Container memory for search** (suite `memory-search-v1`, CON-244; see below) | Correct-document score on the memory tasks at least +0.15 over the same agent without memory | Control and stale tasks non-inferior within 0.10 | Reported: search calls, tool calls and tokens per task |
+
+## Container memory for search (CON-244)
+
+Written on 2026-11-04, before the `memory-search` command or any scored run existed. The result decides whether
+container-level memory stays in the product: **keep** it only if it clearly beats plain search; **drop** it if it is
+no better or worse.
+
+- **Arms.** Both run the same agent, model, system prompt, questions and repetitions. **Off** has
+  `search_knowledge` and `get_document`, as an agent searches today. **On** adds only `memory_recall`. Nothing tells
+  the agent to use memory. The tool descriptions are the MCP server's own.
+- **Fixed before the run:**
+  - **Model:** `claude-sonnet-5-5` at temperature 0. If ClaudePM's go names another model, the change is committed
+    here before the run.
+  - **Repetitions:** 3 per task and arm, averaged per task before any test.
+  - **Limits:** at most 12 tool calls per run. `search_knowledge` returns its default 10 results in Hybrid mode.
+  - **Split:** the 112 `test` tasks, scored once. The `dev` tasks are for building and checking the command only.
+  - **Exclusions:** none. A provider error is retried up to 3 times; a run that still fails, runs out of tool calls
+    or never answers scores 0, and the count of such runs is reported per arm.
+- **Score per run:** 1 when the documents the agent cites include a gold document and no labelled stale document,
+  else 0. A task's score is the mean over its repetitions.
+- **Sets:** **M** is the 64 current, alias, correction and location tasks. **H** is the 48 control and stale tasks.
+- **Verdicts** (difference = On − Off, paired by task):
+  - **KEEP** only when both hold:
+    1. on M the mean difference is at least +0.15, its 95% BCa interval lies above 0, and the permutation p < 0.05;
+    2. on H the lower end of the 90% BCa interval is above −0.10.
+
+    Both must pass, so each is tested at α = 0.05 with no Holm split (an intersection-union test).
+  - **WORSE** when the 95% interval of the difference over all 112 tasks lies below 0, or when H's mean
+    difference is below 0 and the lower end of its 90% interval is at or below −0.10.
+  - **NO BETTER** for every other result.
+  - **WORSE and NO BETTER both mean DROP.**
+- **Minimum detectable effect.** The report gives the minimum detectable effect for M and H. If it is above 0.15 on
+  M and KEEP fails, the report says the run could not tell a tie from a 0.15 gain; the verdict is still DROP.
+- **Reported, not gated:** each kind separately, documented and undocumented halves, answer-value accuracy, stale
+  citations, run recall of gold documents, first-query MRR@10, search and tool calls with their intervals, tokens,
+  and a few answers memory changed for better and for worse.
 
 ## Baselines
 

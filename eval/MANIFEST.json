@@ -50,6 +50,9 @@
     "memory-v1": [
       "memory-questions"
     ],
+    "memory-search-v1": [
+      "memory-search"
+    ],
     "links-v2": [
       "links-connapse-github-2"
     ],
@@ -1065,6 +1068,30 @@
           "name": "ops-TDW.jsonl",
           "url": "repo:memory-questions/memory-ops/TDW.jsonl",
           "sha256": "ce69e3e38cf41ceb0d75fa282ae1c74b4eda86d7bd1c9162dc561d44ce31c505"
+        }
+      ]
+    },
+    "memory-search": {
+      "adapter": "memory-search",
+      "version": "con-244",
+      "tags": [
+        "shape:memory"
+      ],
+      "files": [
+        {
+          "name": "corpus.jsonl",
+          "url": "repo:memory-search/corpus.jsonl",
+          "sha256": "274edac33c6c4da59f325719a672b0561a78ebf1dc47aafe8f950d60092383a1"
+        },
+        {
+          "name": "memory.jsonl",
+          "url": "repo:memory-search/memory.jsonl",
+          "sha256": "1b61110545209ffff5fccc71e755d3c71e0193a78948644de69ee1f2f390bef3"
+        },
+        {
+          "name": "tasks.jsonl",
+          "url": "repo:memory-search/tasks.jsonl",
+          "sha256": "b1d8cb6ffe3fc17d6f654c5d77588e55e65f6a1c117c3d746bd2d08a97970f82"
         }
       ]
     },
