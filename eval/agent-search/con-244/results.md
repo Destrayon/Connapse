@@ -114,8 +114,9 @@ later agent answering a related question uses those memories.
 - **Usage:** the subscription's seven-day window went from 37% to 39%. At API list price the run would have cost $26.36.
 - **Files:** `memory-learned-test.json` is the report, and `memory-learned-test.runs.jsonl` holds every run, including session 1.
 
-Every session-1 run saved at least one memory, and every saved memory cited source documents. Session-1 agents scored
-0.706 on their own questions. That means about 3 in 10 of the memories carried a wrong or stale answer forward.
+Every session-1 run called a memory write tool at least once, and every call cited source documents. This run's
+traces don't record whether each call was saved. Session-1 agents scored 0.706 on their own questions. That is a
+citation score, so it doesn't say how many of the saved memories were wrong.
 
 ### Main metric
 

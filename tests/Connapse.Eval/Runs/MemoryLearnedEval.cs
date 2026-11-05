@@ -156,10 +156,26 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         return [.. inSplit.Where(t => kept.Contains(t.Family))];
     }
 
-    /// <summary>The memory writes a run made, each with whether it cited at least one source.</summary>
+    /// <summary>
+    /// The memory writes a run saved, each with whether it cited at least one source. A refused or invalid write
+    /// returns an error instead of a <c>remembered</c> fact, and isn't counted.
+    /// </summary>
     public static List<bool> Writes(AgentRun run) =>
-        [.. run.Calls.Where(c => WriteTools.Contains(c.Name, StringComparer.Ordinal))
+        [.. run.Calls.Where(c => WriteTools.Contains(c.Name, StringComparer.Ordinal) && Saved(c.Output))
             .Select(c => c.Input.TryGetValue("sources", out JsonElement s) && s.ValueKind == JsonValueKind.Array && s.GetArrayLength() > 0)];
+
+    private static bool Saved(string output)
+    {
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(output);
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("remembered", out _);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     public static JsonObject Session1(IReadOnlyList<(LearnedTask Task, (AgentRun Run, RunScore Score) Result)> runs)
     {

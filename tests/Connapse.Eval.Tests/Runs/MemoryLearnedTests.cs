@@ -16,6 +16,8 @@ public class MemoryLearnedTests
     private static Dictionary<string, JsonElement> Input(object o) =>
         JsonSerializer.SerializeToElement(o).EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
 
+    private const string Saved = "{\"remembered\":{\"subject\":\"s\"}}";
+
     private static AgentRun Run(params ToolTrace[] calls) =>
         new(AgentOutcome.Answered, "a", [], calls, new TokenUsage(100, 10, 50, 0, 0.002), 2, null);
 
@@ -61,18 +63,29 @@ public class MemoryLearnedTests
     {
         AgentRun run = Run(
             new ToolTrace("search_knowledge", Input(new { query = "x" }), "[]"),
-            new ToolTrace("memory_remember", Input(new { subject = "s", sources = new[] { "doc" } }), "ok"),
-            new ToolTrace("memory_remember", Input(new { subject = "s", sources = Array.Empty<string>() }), "ok"),
-            new ToolTrace("memory_correct", Input(new { factId = "f" }), "ok"),
+            new ToolTrace("memory_remember", Input(new { subject = "s", sources = new[] { "doc" } }), Saved),
+            new ToolTrace("memory_remember", Input(new { subject = "s", sources = Array.Empty<string>() }), Saved),
+            new ToolTrace("memory_correct", Input(new { factId = "f" }), Saved),
             new ToolTrace("memory_recall", Input(new { query = "x" }), "[]"));
 
         MemoryLearnedEval.Writes(run).Should().Equal(true, false, false);
     }
 
     [Fact]
+    public void Writes_RefusedOrInvalidWrite_IsNotCounted()
+    {
+        AgentRun run = Run(
+            new ToolTrace("memory_remember", Input(new { sources = new[] { "nope" } }), "Error: Unknown source 'nope'."),
+            new ToolTrace("memory_correct", Input(new { sources = new[] { "doc" } }), "{\"error\":\"not yours\"}"),
+            new ToolTrace("memory_remember", Input(new { sources = new[] { "doc" } }), Saved));
+
+        MemoryLearnedEval.Writes(run).Should().Equal(true);
+    }
+
+    [Fact]
     public void Session1_SummarisesScoresAndWrites()
     {
-        AgentRun wrote = Run(new ToolTrace("memory_remember", Input(new { sources = new[] { "doc" } }), "ok"));
+        AgentRun wrote = Run(new ToolTrace("memory_remember", Input(new { sources = new[] { "doc" } }), Saved));
         RunScore one = new(1, false, true, true, 1, 1, 2, 0, 100, 10, 50);
         RunScore zero = one with { Score = 0 };
 

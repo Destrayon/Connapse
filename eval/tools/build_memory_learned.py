@@ -2,7 +2,8 @@
 
 Nothing here is written into memory up front. In session 1 an agent answers questions by searching the documents and
 saves whatever memories it chooses. In session 2 a fresh agent answers different but related questions about the
-same things, with and without that memory. Every fact a task needs is in some document; memory can only save the
+same things, with and without that memory; stale families repeat their session-1 question, which a late document
+has since answered differently. Every fact a task needs is in some document; memory can only save the
 agent the work of finding it again.
 
 Usage: python -I eval/tools/build_memory_learned.py eval/datasets/memory-learned

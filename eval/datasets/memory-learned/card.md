@@ -9,7 +9,8 @@
   charter per department, system overviews and codenamed runbooks. **Late documents** (`late.jsonl`, 14) are uploaded
   between the two sessions; each replaces an older policy and says so.
 - **Tasks** (`tasks.jsonl`): every task has `family` and `session` (1 or 2). A family's session-1 question and its
-  session-2 question are different but need the same thing to be worked out first.
+  session-2 question are different but need the same thing to be worked out first, except in stale families, which
+  ask the same question twice so the late document changes the answer.
 
   | Kind | What session 1 has to work out | Session 2 asks | Test families | Dev families |
   |---|---|---|---|---|
