@@ -352,7 +352,7 @@ public class MemoryOperationRandomInputTests
                 var (((caller, reader, listed, unchecked_, deniedAt, limit), history, ranked, deniedAny), counts) = sample;
                 var world = new World(reader, writer: false, new Container(Guid.NewGuid().ToString(), "unused", null, Epoch, Epoch), exists: false);
                 IMemorySpaceStore spaces = Substitute.For<IMemorySpaceStore>();
-                spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
                     .Returns(unchecked_ ? null : listed);
 
                 // Each space answers its own facts, recorded at distinct times; one may be unable to check access.

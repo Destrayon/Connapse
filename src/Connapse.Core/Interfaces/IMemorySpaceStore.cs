@@ -7,8 +7,10 @@ public interface IMemorySpaceStore
     /// Every place <paramref name="viewer"/> may see memory in: their personal spaces, every team space, and each
     /// document container holding at least one current fact they may see. <paramref name="text"/>, when given, must
     /// appear in the name or description. Null when access to the facts' sources could not be checked.
+    /// <paramref name="withEnded"/> also lists document containers whose only facts they may see are no longer
+    /// current, for reads of history or a past date; counts stay counts of current facts.
     /// </summary>
-    Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, CancellationToken ct = default);
+    Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, bool withEnded = false, CancellationToken ct = default);
 
     /// <summary>
     /// A new personal space owned by <paramref name="owner"/>, or null when the owner already has one with this name.

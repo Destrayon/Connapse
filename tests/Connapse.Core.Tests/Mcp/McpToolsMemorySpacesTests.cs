@@ -40,7 +40,7 @@ public class McpToolsMemorySpacesTests
         Audience: kind == MemorySpaceKind.Personal ? MemoryScope.Personal : MemoryScope.Team);
 
     private void Lists(params Container[] spaces) =>
-        _spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(spaces.Select((s, i) => new MemorySpaceSummary(s, 1, new DateTimeOffset(Epoch).AddMinutes(-i), false)).ToList());
 
     private ListMemorySpaces List(IOperationAuthorizer? authorizer = null, IUserDirectory? people = null) =>
@@ -111,7 +111,7 @@ public class McpToolsMemorySpacesTests
         JsonElement root = JsonDocument.Parse(await McpTools.MemorySpaces(List(), Signed, name: " call ", kind: "Team")).RootElement;
 
         root.GetProperty("spaces").EnumerateArray().Select(s => s.GetProperty("name").GetString()).Should().Equal("on-call");
-        await _spaces.Received().ListAsync(Arg.Any<MemoryCaller>(), "call", Arg.Any<CancellationToken>());
+        await _spaces.Received().ListAsync(Arg.Any<MemoryCaller>(), "call", false, Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -181,7 +181,7 @@ public class McpToolsMemorySpacesTests
     [Fact]
     public async Task MemoryRemember_NoSpaceAndSpacesCannotBeListed_PointsAtMemorySpaces()
     {
-        _spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns((IReadOnlyList<MemorySpaceSummary>?)null);
+        _spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns((IReadOnlyList<MemorySpaceSummary>?)null);
 
         string result = await McpTools.MemoryRemember(Remember(), List(), Signed, "Halcyon", "database", "x");
 
@@ -478,6 +478,20 @@ public class McpToolsMemorySpacesTests
         string json = await McpTools.MemoryRecall(Recall(), Signed);
         JsonDocument.Parse(json).RootElement.GetProperty("note").GetString().Should().Be(
             "Read the 100 most recently changed spaces; 3 more were not read. Name a `space` to read one of them.");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task SpacesAsync_Unnamed_ListsSpacesWithEndedFactsOnlyWhenTheReadReachesPastNow(bool history, bool withEnded)
+    {
+        Lists(Space("team-a", MemorySpaceKind.Team));
+        _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(new MemoryRecall([]));
+
+        await Recall().SpacesAsync(McpContext(), null, new MemoryQuery(Guid.Empty, History: history));
+        await Recall().SpacesAsync(McpContext(), null, new MemoryQuery(Guid.Empty, AsOf: history ? DateTimeOffset.UnixEpoch : null));
+
+        await _spaces.Received(2).ListAsync(Arg.Any<MemoryCaller>(), null, withEnded, Arg.Any<CancellationToken>());
     }
 
     [Fact]

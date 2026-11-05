@@ -181,7 +181,7 @@ public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthori
                     "cursor isn't one this list returned for the same kind, q, starred and sort", "cursor");
         }
 
-        IReadOnlyList<MemorySpaceSummary>? listed = await spaces.ListAsync(MemoryRules.Caller(context.User), text, ct);
+        IReadOnlyList<MemorySpaceSummary>? listed = await spaces.ListAsync(MemoryRules.Caller(context.User), text, false, ct);
         if (listed is null)
             return MemorySpaceRules.Fail<MemorySpacePage>(MemorySpaceStatus.Unchecked,
                 "access to memory sources could not be checked, so no fact counts are shown.");

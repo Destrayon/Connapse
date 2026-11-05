@@ -153,6 +153,22 @@ public class MemorySpaceSaveTests
     }
 
     [Fact]
+    public async Task Remember_MyMemoryWhenATeamSpaceHasThatName_GoesToYourOwnSpace()
+    {
+        Container team = Space("my-memory", MemoryScope.Team);
+        Have(team);
+
+        var written = await _remember.RunAsync(Alice, MemoryTarget.Space("My-Memory"), Fact());
+
+        written.Succeeded.Should().BeTrue();
+        written.Result!.SavedTo!.Audience.Should().Be(MemoryScope.Personal);
+        await _memory.DidNotReceive().RememberAsync(Guid.Parse(team.Id), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+        await _memory.Received(1).RememberAsync(Arg.Any<Guid>(),
+            Arg.Is<NewMemoryFact>(f => f.Scope == MemoryScope.Personal), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+        (await _remember.RunAsync(Alice, MemoryTarget.Space(team.Id), Fact())).Result!.SavedTo!.Id.Should().Be(team.Id, "the id still reaches the team one");
+    }
+
+    [Fact]
     public async Task Remember_MyMemoryForACallerWithNoId_IsForbiddenAndMakesNothing()
     {
         var anonymous = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Mcp);

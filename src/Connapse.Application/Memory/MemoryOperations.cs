@@ -167,10 +167,15 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 
         MemoryCaller caller = MemoryRules.Caller(context.User);
         string field = target.IsSpace ? "space" : "containerId";
-        (Container? named, string? ambiguous) = await MemoryRules.SpaceAsync(containers, target.IdOrName, caller, ct);
+        // my-memory always means the caller's own space, even when a team space or container has that name, since
+        // the tools offer it as the private place to save; the team one is still reachable by id.
+        bool myMemory = target.IsSpace && string.Equals(target.IdOrName?.Trim(), MemoryRules.MyMemory, StringComparison.OrdinalIgnoreCase);
+        (Container? named, string? ambiguous) = myMemory
+            ? (null, null)
+            : await MemoryRules.SpaceAsync(containers, target.IdOrName, caller, ct);
         if (ambiguous is not null)
             return Invalid(ambiguous, field);
-        if (named is null && target.IsSpace && string.Equals(target.IdOrName?.Trim(), MemoryRules.MyMemory, StringComparison.OrdinalIgnoreCase))
+        if (myMemory)
         {
             if (!MemoryRules.CanOwn(caller))
                 return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Forbidden, "personal memory needs a signed-in user or agent to belong to.");
@@ -318,12 +323,12 @@ public sealed class RecallMemory(
 
         if (spaces is null)
             return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, "name the space to read.", "space");
-        IReadOnlyList<MemorySpaceSummary>? listed = await spaces.ListAsync(caller, null, ct);
+        bool beyondCurrent = query.History || query.AsOf is not null || query.ChangedFrom is not null
+            || query.ChangedTo is not null || query.ChainId is not null;
+        IReadOnlyList<MemorySpaceSummary>? listed = await spaces.ListAsync(caller, null, beyondCurrent, ct);
         if (listed is null)
             return Unchecked();
 
-        bool beyondCurrent = query.History || query.AsOf is not null || query.ChangedFrom is not null
-            || query.ChangedTo is not null || query.ChainId is not null;
         List<MemorySpaceSummary> read = [.. listed
             .Where(s => beyondCurrent || s.Facts > 0)
             .OrderByDescending(s => s.UpdatedAt)
