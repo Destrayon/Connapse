@@ -78,7 +78,7 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
                 ["test"] = test.Count,
             },
             ["rule"] = RuleJson(rule),
-            ["devCurves"] = new JsonObject(Candidates.Select(c => KeyValuePair.Create(c, (JsonNode?)RuleJson(Best([.. scored.Where(s => s.Note.Split == "dev")], c))))),
+            ["retiredRuleOnDev"] =new JsonObject(Candidates.Select(c => KeyValuePair.Create(c, (JsonNode?)RuleJson(Best([.. scored.Where(s => s.Note.Split == "dev")], c))))),
             ["test"] = RuleJson(result),
             ["testBySource"] = new JsonObject(test.GroupBy(s => s.Note.Source).Select(g =>
                 KeyValuePair.Create(g.Key, (JsonNode?)RuleJson(Apply([.. g], rule.Score, rule.Cutoff))))),
@@ -147,24 +147,32 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
         };
     }
 
+    /// <summary>The share of dev restating notes the recall rule must hold.</summary>
+    public const double MinRestatingHeldDev = 0.90;
+
+    /// <summary>The score the recall rule tunes: the cosine the save check compares.</summary>
+    public const string TunedScore = "semantic-cosine";
+
     /// <summary>
-    /// The registered tuning rule: for each score, the cutoff holding the most restating notes while keeping at least
-    /// <see cref="MinNewKept"/> of new facts, ties to the higher cutoff; then the score holding the most, ties to the
-    /// first in <see cref="Candidates"/>.
+    /// The tuning rule as amended before any agent run (eval/pass-bars.md): the highest <see cref="TunedScore"/>
+    /// cutoff that holds at least <see cref="MinRestatingHeldDev"/> of dev restating notes. Held new facts are
+    /// accepted, because the agent can save them again with a reason.
     /// </summary>
     public static Rule Tune(IReadOnlyList<Scored> dev)
     {
-        Rule? best = null;
-        foreach (string score in Candidates)
+        foreach (double cutoff in dev.Select(s => s.Scores[TunedScore]).Distinct().OrderByDescending(v => v))
         {
-            Rule candidate = Best(dev, score);
-            if (best is null || candidate.RestatingHeld > best.RestatingHeld)
-                best = candidate;
+            Rule rule = Apply(dev, TunedScore, cutoff);
+            if (rule.RestatingHeld >= MinRestatingHeldDev)
+                return rule;
         }
-        return best!;
+        return Apply(dev, TunedScore, double.NegativeInfinity);
     }
 
-    /// <summary>The best cutoff for one score; a note is held when its score is at or above the cutoff.</summary>
+    /// <summary>
+    /// The retired first rule, still reported per score: the cutoff holding the most restating notes while keeping at
+    /// least <see cref="MinNewKept"/> of new facts. A note is held when its score is at or above the cutoff.
+    /// </summary>
     public static Rule Best(IReadOnlyList<Scored> dev, string score)
     {
         // Above every value holds nothing and keeps every new fact, so a rule always exists.
@@ -238,7 +246,7 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
     private static JsonObject RuleJson(Rule rule) => new()
     {
         ["score"] = rule.Score,
-        ["cutoff"] = double.IsPositiveInfinity(rule.Cutoff) ? null : Math.Round(rule.Cutoff, 4),
+        ["cutoff"] = double.IsInfinity(rule.Cutoff) ? null : Math.Round(rule.Cutoff, 6),
         ["restatingHeld"] = Math.Round(rule.RestatingHeld, 4),
         ["newKept"] = Math.Round(rule.NewKept, 4),
     };
@@ -252,6 +260,6 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
         ["held"] = s.Scores[rule.Score] >= rule.Cutoff,
         ["note"] = RememberFact.CheckText(new NewMemoryFact(s.Note.Subject, s.Note.Attribute, s.Note.Value, null, null, null)),
         ["topFile"] = s.TopFile,
-        ["scores"] = new JsonObject(s.Scores.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)Math.Round(kv.Value, 4)))),
+        ["scores"] = new JsonObject(s.Scores.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)Math.Round(kv.Value, 6)))),
     }.ToJsonString();
 }

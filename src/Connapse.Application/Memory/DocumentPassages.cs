@@ -23,10 +23,12 @@ public sealed record PassageLookup(IReadOnlyList<MemoryPassage> Passages, string
 public sealed class SearchDocumentPassages(SearchContainer search) : IDocumentPassages
 {
     /// <summary>
-    /// The cosine at which a passage counts as close: the cutoff tuned on the dev split of the CON-245 sorting eval
-    /// (eval/agent-search/con-245), the highest that kept every new fact there. It was tuned on nomic-embed-text.
+    /// The cosine at which a passage counts as close: tuned on the dev split of the CON-245 sorting eval
+    /// (eval/agent-search/con-245) as the highest cutoff that holds at least 90% of notes restating a document
+    /// (0.783082; this value sits just under it, above the next dev score). It holds some new facts too, which the
+    /// agent saves again with a reason. It was tuned on nomic-embed-text.
     /// </summary>
-    public const float CloseCosine = 0.8893f;
+    public const float CloseCosine = 0.78306f;
 
     public async Task<PassageLookup> FindAsync(OperationContext context, Guid containerId, string text, CancellationToken ct = default)
     {
