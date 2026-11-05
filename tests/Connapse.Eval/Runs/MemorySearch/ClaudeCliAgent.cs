@@ -146,8 +146,15 @@ public sealed class ClaudeCliAgent(
     ToolBridge bridge, string model, string effort, string workDir, IProcessRunner? runner = null,
     string executable = "claude", TimeSpan? timeout = null) : IAgentRunner
 {
-    /// <summary>Variables that would make Claude Code bill an API account instead of the subscription.</summary>
-    public static readonly string[] RemovedVariables = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"];
+    /// <summary>
+    /// Variables that would make Claude Code bill an API account or a cloud provider instead of the subscription. The
+    /// provider selectors take precedence over subscription sign-in.
+    /// </summary>
+    public static readonly string[] RemovedVariables =
+    [
+        "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+        "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+    ];
 
     private readonly IProcessRunner _runner = runner ?? new ProcessRunner();
     private readonly TimeSpan _timeout = timeout ?? TimeSpan.FromMinutes(10);
@@ -170,12 +177,24 @@ public sealed class ClaudeCliAgent(
                     (FirstLimit, LastLimit) = (FirstLimit ?? limit, limit);
             if (result.Limit is { Allowed: false } blocked && session.Outcome is null)
                 throw new SubscriptionLimitException(blocked);
+            RequireSubscription(result);
             return Compose(session, result, process);
         }
         finally
         {
             bridge.Close(id);
         }
+    }
+
+    /// <summary>
+    /// Stops the run when a session that reached the model reported no subscription rate limit: only subscription
+    /// sign-in reports one, so its absence means the usage went to some other account.
+    /// </summary>
+    public static void RequireSubscription(CliResult result)
+    {
+        if (result.Finished && result.Limit is null)
+            throw new InvalidOperationException(
+                "claude reported no subscription rate limit, so it was not signed in with the subscription. Nothing past this point was scored.");
     }
 
     public ProcessStartInfo StartInfo(string mcpUrl, string system, string question)

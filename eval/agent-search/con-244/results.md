@@ -1,6 +1,8 @@
 # CON-244 results: does container memory make agent search better?
 
-**Verdict: KEEP.** This is the pre-registered run measured against the bar in `eval/pass-bars.md`.
+**Verdict: KEEP, with one protocol deviation.** This is the pre-registered run measured against the bar in
+`eval/pass-bars.md`. The bar fixes search at its default 10 results in Hybrid mode, but this run let the agent change
+both; see [Protocol deviation](#protocol-deviation).
 
 ## The run
 
@@ -72,6 +74,23 @@ Outcomes: one run without memory ended with no answer. Every other run in both a
 - 13 of those runs cited more than one document. In the two examined closely, test-correction-01 and -04, the agent named the current value and the document that replaced the old one. It also cited the superseded document, to explain what had changed.
 - The pre-registered rule scores any stale citation as 0, so those runs count as misses. That bias works against the memory arm, so it doesn't weaken the KEEP.
 - The other 9 runs cited a single document that was not the current one.
+
+## Protocol deviation
+
+The Codex adversarial review found this after the run. `eval/pass-bars.md` says `search_knowledge` returns its default
+10 results in Hybrid mode. The run offered the agent the tool's `mode` and `topK` parameters and passed them through.
+
+| Arm | Searches | Not Hybrid | More than 10 results | Runs with either | Score in those runs |
+|---|---|---|---|---|---|
+| Memory off | 605 | 171 | 78 | 73 of 336 | 23 of 73 |
+| Memory on | 441 | 38 | 8 | 28 of 336 | 26 of 28 |
+
+- The off arm changed mode or size mostly after it could not find a document: those runs scored 0.32.
+- Both arms had the same freedom, so it does not by itself favour memory. But its effect can't be removed from this
+  run's numbers, so the KEEP rests on a protocol the bar did not register.
+- Fixed since: the eval now hides `mode` and `topK` from the agent and ignores them if sent. Conformance now also checks
+  the model, effort and search config.
+- A rerun with search pinned would make the result fully conforming.
 
 ## Caveats
 

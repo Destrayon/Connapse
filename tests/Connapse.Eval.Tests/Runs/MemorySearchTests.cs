@@ -389,6 +389,29 @@ public class MemorySearchTests
     }
 
     [Fact]
+    public async Task RunAsync_FinishedWithoutASubscriptionLimit_StopsTheRun()
+    {
+        await using ToolBridge bridge = new();
+        await bridge.StartAsync(CancellationToken.None);
+        ClaudeCliAgent agent = new(bridge, "claude-sonnet-5-5", "medium", ".", new FakeRunner(_ => System.Threading.Tasks.Task.FromResult(Printed(InitLine, ResultLine))));
+
+        await FluentActions.Awaiting(() => agent.RunAsync(new FakeTools(), "sys", "q?", CancellationToken.None))
+            .Should().ThrowAsync<InvalidOperationException>().WithMessage("*not signed in with the subscription*");
+    }
+
+    [Fact]
+    public void RequireSubscription_UnfinishedWithoutALimit_IsLeftToCompose()
+    {
+        FluentActions.Invoking(() => ClaudeCliAgent.RequireSubscription(CliResult.None)).Should().NotThrow();
+    }
+
+    [Fact]
+    public void RemovedVariables_IncludeEveryProviderSelector()
+    {
+        ClaudeCliAgent.RemovedVariables.Should().Contain(["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "ANTHROPIC_API_KEY"]);
+    }
+
+    [Fact]
     public void ReadAnswer_LoneStringId_CountsAsOneCitation()
     {
         (string? answer, List<string> cited) = AgentContract.ReadAnswer(Input(new { answer = "x", documentIds = GoldUuid }));
@@ -408,6 +431,26 @@ public class MemorySearchTests
         spec.Required.Should().Equal("query", "containerId");
         spec.Properties["topK"].GetProperty("type").GetString().Should().Be("integer");
         spec.Properties["minScore"].GetProperty("type").GetString().Should().Be("number");
+    }
+
+    [Fact]
+    public void Describe_PinnedSearchParameters_AreNotOffered()
+    {
+        ToolSpec spec = McpToolbox.Describe(McpToolbox.Find("search_knowledge"), MemorySearchEval.Pinned["search_knowledge"]);
+
+        spec.Properties.Keys.Should().BeEquivalentTo(["query", "containerId", "path", "minScore"]);
+        spec.Required.Should().Equal("query", "containerId");
+    }
+
+    [Fact]
+    public void Unpinned_AgentSendsPinnedArguments_DropsThemAndKeepsTheRest()
+    {
+        Dictionary<string, JsonElement> input = Input(new { query = "q", containerId = "c", mode = "Keyword", topK = 50 });
+
+        IReadOnlyDictionary<string, JsonElement> kept = McpToolbox.Unpinned(input, MemorySearchEval.Pinned["search_knowledge"]);
+
+        kept.Keys.Should().BeEquivalentTo(["query", "containerId"]);
+        McpToolbox.Unpinned(input, []).Should().BeSameAs(input);
     }
 
     [Fact]
@@ -573,6 +616,20 @@ public class MemorySearchTests
         ((bool)report["gate"]!["conforming"]!).Should().BeFalse();
         report["gate"]!["diagnosticOnly"]!.AsArray().Should().NotBeEmpty();
         ((bool)report["gate"]!["passed"]!).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("hybrid-rerank", "claude-sonnet-5-5", "medium", "config")]
+    [InlineData("hybrid", "claude-opus-5-5", "medium", "model")]
+    [InlineData("hybrid", "claude-sonnet-5-5", "high", "effort")]
+    public void Report_KeepWithAnUnregisteredSetting_IsDiagnosticOnly(string config, string model, string effort, string reason)
+    {
+        MemorySearchEval.Options options = Options() with { Config = config, Model = model, Effort = effort };
+
+        var report = MemorySearchEval.Report(options, KeepResults(64, 48, 3));
+
+        ((bool)report["gate"]!["passed"]!).Should().BeFalse();
+        MemorySearchEval.Nonconforming(options, KeepResults(64, 48, 3)).Should().ContainSingle().Which.Should().StartWith(reason);
     }
 
     [Fact]

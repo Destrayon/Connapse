@@ -20,14 +20,23 @@ public sealed class McpToolbox : IToolbox
     private readonly IServiceProvider _services;
     private readonly ClaimsPrincipal _user;
     private readonly Dictionary<string, MethodInfo> _methods;
+    private readonly IReadOnlyDictionary<string, string[]> _pinned;
 
-    public McpToolbox(IServiceProvider services, ClaimsPrincipal user, IEnumerable<string> toolNames)
+    /// <param name="pinned">
+    /// Per tool, the parameters the protocol fixes at their defaults: the agent is not offered them, and a value it
+    /// sends anyway is ignored.
+    /// </param>
+    public McpToolbox(IServiceProvider services, ClaimsPrincipal user, IEnumerable<string> toolNames,
+        IReadOnlyDictionary<string, string[]>? pinned = null)
     {
         _services = services;
         _user = user;
+        _pinned = pinned ?? new Dictionary<string, string[]>();
         _methods = toolNames.ToDictionary(n => n, Find, StringComparer.Ordinal);
-        Tools = [.. _methods.Values.Select(Describe)];
+        Tools = [.. _methods.Select(m => Describe(m.Value, PinnedOf(m.Key)))];
     }
+
+    private string[] PinnedOf(string tool) => _pinned.TryGetValue(tool, out string[]? names) ? names : [];
 
     public IReadOnlyList<ToolSpec> Tools { get; }
 
@@ -45,13 +54,15 @@ public sealed class McpToolbox : IToolbox
             .SingleOrDefault(m => m.GetCustomAttribute<McpServerToolAttribute>()?.Name == toolName)
         ?? throw new ArgumentException($"No MCP tool is named '{toolName}'.");
 
-    public static ToolSpec Describe(MethodInfo method)
+    public static ToolSpec Describe(MethodInfo method) => Describe(method, []);
+
+    public static ToolSpec Describe(MethodInfo method, IReadOnlyCollection<string> pinned)
     {
         Dictionary<string, JsonElement> properties = new(StringComparer.Ordinal);
         List<string> required = [];
         foreach (ParameterInfo p in method.GetParameters())
         {
-            if (p.GetCustomAttribute<DescriptionAttribute>() is not { } description)
+            if (p.GetCustomAttribute<DescriptionAttribute>() is not { } description || pinned.Contains(p.Name!))
                 continue;
             properties[p.Name!] = JsonSerializer.SerializeToElement(new { type = JsonType(p.ParameterType), description = description.Description });
             if (!p.HasDefaultValue)
@@ -73,6 +84,10 @@ public sealed class McpToolbox : IToolbox
         Type t => throw new NotSupportedException($"No JSON type for {t.Name}."),
     };
 
+    /// <summary>The agent's arguments without the pinned ones, so each pinned parameter takes its default.</summary>
+    public static IReadOnlyDictionary<string, JsonElement> Unpinned(IReadOnlyDictionary<string, JsonElement> input, IReadOnlyCollection<string> pinned) =>
+        pinned.Count == 0 ? input : input.Where(a => !pinned.Contains(a.Key)).ToDictionary(StringComparer.Ordinal);
+
     public async Task<string> CallAsync(string name, IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct)
     {
         if (!_methods.TryGetValue(name, out MethodInfo? method))
@@ -80,6 +95,7 @@ public sealed class McpToolbox : IToolbox
 
         await using AsyncServiceScope scope = _services.CreateAsyncScope();
         IHttpContextAccessor http = new FixedHttpContextAccessor(new DefaultHttpContext { User = _user, RequestServices = scope.ServiceProvider });
+        input = Unpinned(input, PinnedOf(name));
         ParameterInfo[] parameters = method.GetParameters();
         object?[] args = new object?[parameters.Length];
         for (int i = 0; i < parameters.Length; i++)

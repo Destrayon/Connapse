@@ -30,6 +30,16 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     public static readonly string[] OffTools = ["search_knowledge", "get_document"];
     public static readonly string[] OnTools = [.. OffTools, "memory_recall"];
 
+    /// <summary>The registered protocol fixes search at its default 10 results in Hybrid mode, so the agent can't change either.</summary>
+    public static readonly IReadOnlyDictionary<string, string[]> Pinned = new Dictionary<string, string[]>(StringComparer.Ordinal)
+    {
+        ["search_knowledge"] = ["mode", "topK"],
+    };
+
+    public const string RegisteredConfig = "hybrid";
+    public const string RegisteredModel = "claude-sonnet-5-5";
+    public const string RegisteredEffort = "medium";
+
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath,
         string? AgentDir = null);
 
@@ -67,8 +77,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         log.WriteLine($"{corpus.Count} documents indexed, {ops.Count} memory operations replayed");
 
         var principal = McpToolbox.Reader(userId, "memory-search-eval");
-        McpToolbox off = new(system.Services, principal, OffTools);
-        McpToolbox on = new(system.Services, principal, OnTools);
+        McpToolbox off = new(system.Services, principal, OffTools, Pinned);
+        McpToolbox on = new(system.Services, principal, OnTools, Pinned);
         DocumentIndex index = new(docMap, corpus.ToDictionary(d => d.Id, d => d.FileName!, StringComparer.Ordinal));
         string prompt = SystemPrompt(container);
         await using ToolBridge bridge = new();
@@ -163,6 +173,12 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         List<string> reasons = [];
         if (options.Split != "test")
             reasons.Add($"split is {options.Split}, not test");
+        if (options.Config != RegisteredConfig)
+            reasons.Add($"config is {options.Config}, not {RegisteredConfig}");
+        if (options.Model != RegisteredModel)
+            reasons.Add($"model is {options.Model}, not {RegisteredModel}");
+        if (options.Effort != RegisteredEffort)
+            reasons.Add($"effort is {options.Effort}, not {RegisteredEffort}");
         if (options.LimitTasks is not null)
             reasons.Add("--limit-tasks was set");
         if (results.Count != RegisteredTasks)
