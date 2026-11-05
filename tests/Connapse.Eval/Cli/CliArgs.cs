@@ -63,7 +63,7 @@ public sealed class CliArgs
             ["report"] = [],
             ["pool"] = ["out"],
             ["memory"] = ["config", "split", "out"],
-            ["memory-search"] = ["config", "split", "out", "model", "effort", "repetitions", "limit-tasks", "workers"],
+            ["memory-search"] = ["config", "split", "out", "model", "effort", "repetitions", "limit-tasks", "workers", "agent-dir"],
             ["code"] = ["config", "split", "out"],
             ["datasets"] = ["suite", "datasets"],
             ["vector-index"] = ["suite", "datasets", "limit-queries", "scale", "strategy", "insert-bench"],

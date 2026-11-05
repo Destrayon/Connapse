@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Anthropic;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Eval.Cli;
@@ -31,7 +30,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     public static readonly string[] OffTools = ["search_knowledge", "get_document"];
     public static readonly string[] OnTools = [.. OffTools, "memory_recall"];
 
-    public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath);
+    public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath,
+        string? AgentDir = null);
 
     public sealed record MemoryOp(string Op, string Id, string? Target, string? Subject, string? Attribute, string Value,
         string? ValidFrom, IReadOnlyList<string> Sources, string? Reason);
@@ -41,10 +41,9 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
 
     public async Task<int> RunAsync(Options options, CancellationToken ct)
     {
-        // Checked first, so a missing key fails before containers start.
-        string apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") is { Length: > 0 } key
-            ? key
-            : throw new InvalidOperationException("Set ANTHROPIC_API_KEY to run the memory-search agents.");
+        // The agents run in an empty folder outside the repository, so no project CLAUDE.md is near them.
+        string agentDir = Path.GetFullPath(options.AgentDir ?? Path.Combine(Path.GetTempPath(), "connapse-memory-search-agent"));
+        Directory.CreateDirectory(agentDir);
 
         DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[Dataset];
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
@@ -72,7 +71,9 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         McpToolbox on = new(system.Services, principal, OnTools);
         DocumentIndex index = new(docMap, corpus.ToDictionary(d => d.Id, d => d.FileName!, StringComparer.Ordinal));
         string prompt = SystemPrompt(container);
-        ClaudeAgentModel model = new(new AnthropicClient { ApiKey = apiKey, MaxRetries = 3 }, options.Model, options.Effort);
+        await using ToolBridge bridge = new();
+        await bridge.StartAsync(ct);
+        ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir);
 
         // Each task's repetitions run Off then On back to back, so drift in the API hits both arms alike.
         List<(SearchTask Task, int Rep, bool Memory)> jobs =
@@ -81,7 +82,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         int finished = 0;
         await Parallel.ForEachAsync(jobs, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (job, token) =>
         {
-            AgentRun run = await AgentLoop.RunAsync(model, job.Memory ? on : off, prompt, job.Task.Question, token);
+            AgentRun run = await agent.RunAsync(job.Memory ? on : off, prompt, job.Task.Question, token);
             RunScore score = MemorySearchScoring.Score(job.Task, run, index);
             done[(job.Task.Id, job.Rep, job.Memory)] = (run, score);
             int n = Interlocked.Increment(ref finished);
@@ -94,6 +95,11 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             [.. Enumerable.Range(0, options.Repetitions).Select(r => done[(t.Id, r, true)])]))];
 
         JsonObject report = Report(options, results);
+        report["subscription"] = new JsonObject
+        {
+            ["atFirstRun"] = agent.FirstLimit?.ToString(),
+            ["atLastRun"] = agent.LastLimit?.ToString(),
+        };
         string json = report.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         if (options.OutPath is not null)
         {
@@ -109,7 +115,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         $"You answer questions about a company's internal documents, stored in the Connapse container with ID {container}. " +
         "Use the tools to find the document that answers the question, and read a document in full with get_document " +
         "when a search result is not enough. When you are sure, call the answer tool with a short answer and the " +
-        $"DocumentId of each document your answer relies on. You may make at most {AgentLoop.MaxToolCalls} tool calls before answering.";
+        $"DocumentId of each document your answer relies on. You may make at most {AgentContract.MaxToolCalls} tool calls before answering.";
 
     /// <summary>The agents' memory, written as they wrote it: each fact cites its source documents.</summary>
     public static async Task ReplayAsync(IServiceProvider services, Guid container, IReadOnlyDictionary<string, string> docMap,
@@ -222,8 +228,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             },
             ["tokens"] = new JsonObject
             {
-                ["off"] = Tokens(options.Model, results.SelectMany(r => r.Off)),
-                ["on"] = Tokens(options.Model, results.SelectMany(r => r.On)),
+                ["off"] = Tokens(results.SelectMany(r => r.Off)),
+                ["on"] = Tokens(results.SelectMany(r => r.On)),
             },
             ["examples"] = new JsonObject
             {
@@ -275,14 +281,11 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         return counts;
     }
 
-    /// <summary>Token totals, and their cost at list price for the models whose price this knows.</summary>
-    private static JsonObject Tokens(string model, IEnumerable<(AgentRun Run, RunScore Score)> runs)
+    /// <summary>Token totals, and what they would cost at API list price; the run itself is billed to the subscription.</summary>
+    private static JsonObject Tokens(IEnumerable<(AgentRun Run, RunScore Score)> runs)
     {
         List<TokenUsage> usage = [.. runs.Select(r => r.Run.Usage)];
         TokenUsage total = usage.Aggregate(TokenUsage.Zero, (a, b) => a.Add(b));
-        double? cost = model == "claude-sonnet-5-5"
-            ? (total.Input * 2.0 + total.CacheWrite * 2.5 + total.CacheRead * 0.2 + total.Output * 10.0) / 1_000_000
-            : null;
         return new JsonObject
         {
             ["runs"] = usage.Count,
@@ -290,7 +293,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             ["cacheWrite"] = total.CacheWrite,
             ["cacheRead"] = total.CacheRead,
             ["output"] = total.Output,
-            ["costUsd"] = cost is null ? null : Math.Round(cost.Value, 4),
+            ["apiListPriceUsd"] = Math.Round(total.CostUsd, 4),
         };
     }
 

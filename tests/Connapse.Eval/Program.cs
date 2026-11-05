@@ -44,7 +44,7 @@ internal static class EvalEntryPoint
                 "memory-search" => await new MemorySearchEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
-                    cli.PositiveInt("workers") ?? 2, cli.Option("out")), cts.Token),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
                 "code" => await new CodeEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "code", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
@@ -261,7 +261,7 @@ internal static class Commands
               pool     <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
-              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 2] [--out <file>]   (memory-search-v1: an agent with and without memory_recall; needs ANTHROPIC_API_KEY)
+              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent with and without memory_recall; runs `claude -p` on your Claude subscription)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
 }

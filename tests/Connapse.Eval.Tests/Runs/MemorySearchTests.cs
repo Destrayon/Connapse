@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using System.Net;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Connapse.Eval.Runs;
 using Connapse.Eval.Runs.MemorySearch;
 using Connapse.Eval.Statistics;
@@ -24,23 +28,16 @@ public class MemorySearchTests
     private static Dictionary<string, JsonElement> Input(object o) =>
         JsonSerializer.SerializeToElement(o).EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
 
-    private static ModelReply Calls(params AgentToolCall[] calls) => new(calls, "tool_use", new TokenUsage(10, 5, 0, 0));
+    private const string InitLine = """{"type":"system","subtype":"init","tools":["mcp__connapse__search_knowledge","mcp__connapse__answer"]}""";
 
-    private static AgentToolCall Search(string id = "s") => new(id, "search_knowledge", Input(new { query = "q", containerId = "c" }));
+    private const string AllowedLine =
+        """{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"seven_day":{"utilization":0.31},"five_hour":{"utilization":0.05}}}}""";
 
-    private static AgentToolCall AnswerCall(string answer, params string[] ids) => new("a", "answer", Input(new { answer, documentIds = ids }));
+    private const string RejectedLine =
+        """{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","unifiedWindows":{"five_hour":{"utilization":1.0}}}}""";
 
-    private sealed class ScriptedModel(params Func<IReadOnlyList<AgentMessage>, ModelReply>[] turns) : IAgentModel
-    {
-        private int _turn;
-        public List<IReadOnlyList<ToolSpec>> SeenTools { get; } = [];
-
-        public Task<ModelReply> ReplyAsync(string system, IReadOnlyList<ToolSpec> tools, IReadOnlyList<AgentMessage> messages, CancellationToken ct)
-        {
-            SeenTools.Add(tools);
-            return System.Threading.Tasks.Task.FromResult(turns[Math.Min(_turn++, turns.Length - 1)](messages));
-        }
-    }
+    private const string ResultLine =
+        """{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","num_turns":3,"result":"done","modelUsage":{"claude-sonnet-5-5":{"inputTokens":100,"outputTokens":20,"cacheReadInputTokens":300,"cacheCreationInputTokens":40,"costUSD":0.01},"claude-haiku-5-5":{"inputTokens":5,"outputTokens":1,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.001}}}""";
 
     private sealed class FakeTools(string output = $"--- Result 1 ---\nDocumentId: {GoldUuid}\n") : IToolbox
     {
@@ -54,97 +51,257 @@ public class MemorySearchTests
         }
     }
 
-    [Fact]
-    public async Task RunAsync_SearchThenAnswer_ReturnsAnswerCitationsAndTrace()
+    private sealed class FakeRunner(Func<ProcessStartInfo, Task<ProcessResult>> run) : IProcessRunner
     {
-        ScriptedModel model = new(_ => Calls(Search()), _ => Calls(AnswerCall("270 days", GoldUuid)));
+        public ProcessStartInfo? Started { get; private set; }
 
-        AgentRun run = await AgentLoop.RunAsync(model, new FakeTools(), "sys", "q?", CancellationToken.None);
+        public Task<ProcessResult> RunAsync(ProcessStartInfo start, TimeSpan timeout, CancellationToken ct)
+        {
+            Started = start;
+            return run(start);
+        }
+    }
+
+    private static ProcessResult Printed(params string[] lines) => new(0, lines, "", TimedOut: false);
+
+    private static JsonObject Rpc(string method, object? parameters = null, int? id = 1)
+    {
+        JsonObject message = new() { ["jsonrpc"] = "2.0", ["method"] = method };
+        if (id is not null)
+            message["id"] = id;
+        if (parameters is not null)
+            message["params"] = JsonSerializer.SerializeToNode(parameters);
+        return message;
+    }
+
+    private static string McpUrl(ProcessStartInfo start) =>
+        JsonNode.Parse(start.ArgumentList[start.ArgumentList.IndexOf("--mcp-config") + 1])!["mcpServers"]!["connapse"]!["url"]!.GetValue<string>();
+
+    [Fact]
+    public async Task CallAsync_SearchThenAnswer_RecordsTraceAnswerAndCitations()
+    {
+        BridgeSession session = new(new FakeTools("found it"));
+
+        (string text, bool isError) = await session.CallAsync("search_knowledge", Input(new { query = "q" }), CancellationToken.None);
+        await session.CallAsync("answer", Input(new { answer = "270 days", documentIds = new[] { GoldUuid } }), CancellationToken.None);
+
+        (text, isError).Should().Be(("found it", false));
+        session.Outcome.Should().Be(AgentOutcome.Answered);
+        session.Answer.Should().Be("270 days");
+        session.Cited.Should().Equal(GoldUuid);
+        session.Calls.Should().ContainSingle().Which.Name.Should().Be("search_knowledge");
+        session.Tools.Select(t => t.Name).Should().Equal("search_knowledge", "answer");
+    }
+
+    [Fact]
+    public async Task CallAsync_PastTwelveCalls_IsOutOfCallsAndDoesNotRunTheTool()
+    {
+        FakeTools tools = new();
+        BridgeSession session = new(tools);
+
+        for (int i = 0; i <= AgentContract.MaxToolCalls; i++)
+            await session.CallAsync("search_knowledge", Input(new { }), CancellationToken.None);
+
+        session.Outcome.Should().Be(AgentOutcome.OutOfCalls);
+        tools.Calls.Should().Be(AgentContract.MaxToolCalls);
+    }
+
+    [Fact]
+    public async Task CallAsync_ToolThrows_IsErrorWithReason()
+    {
+        BridgeSession session = new(new FakeTools());
+
+        (_, bool isError) = await session.CallAsync("boom", Input(new { }), CancellationToken.None);
+
+        isError.Should().BeTrue();
+        session.Outcome.Should().Be(AgentOutcome.Error);
+        session.Error.Should().Contain("tool broke");
+    }
+
+    [Fact]
+    public async Task CallAsync_AfterTheRunCloses_IsRefusedAndNotRecorded()
+    {
+        FakeTools tools = new();
+        BridgeSession session = new(tools);
+        await session.CallAsync("answer", Input(new { answer = "x", documentIds = new[] { GoldUuid } }), CancellationToken.None);
+
+        (string text, bool isError) = await session.CallAsync("search_knowledge", Input(new { }), CancellationToken.None);
+        await session.CallAsync("answer", Input(new { answer = "y", documentIds = new[] { StaleUuid } }), CancellationToken.None);
+
+        (text, isError).Should().Be((BridgeSession.TaskOver, true));
+        tools.Calls.Should().Be(0);
+        session.Answer.Should().Be("x");
+        session.Cited.Should().Equal(GoldUuid);
+    }
+
+    [Fact]
+    public async Task HandleAsync_InitializeListAndCall_SpeakMcp()
+    {
+        await using ToolBridge bridge = new();
+        (string id, _) = bridge.Open(new FakeTools("found it"));
+
+        JsonObject init = (await bridge.HandleAsync(id, Rpc("initialize", new { protocolVersion = "2025-06-18" }), CancellationToken.None))!;
+        JsonObject list = (await bridge.HandleAsync(id, Rpc("tools/list"), CancellationToken.None))!;
+        JsonObject call = (await bridge.HandleAsync(id, Rpc("tools/call", new { name = "search_knowledge", arguments = new { query = "q" } }), CancellationToken.None))!;
+
+        init["result"]!["protocolVersion"]!.GetValue<string>().Should().Be("2025-06-18");
+        init["result"]!["capabilities"]!["tools"].Should().NotBeNull();
+        list["result"]!["tools"]!.AsArray().Select(t => t!["name"]!.GetValue<string>()).Should().Equal("search_knowledge", "answer");
+        list["result"]!["tools"]![1]!["inputSchema"]!["required"]!.AsArray().Select(r => r!.GetValue<string>()).Should().Equal("answer", "documentIds");
+        call["result"]!["content"]![0]!["text"]!.GetValue<string>().Should().Be("found it");
+        call["result"]!["isError"]!.GetValue<bool>().Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task HandleAsync_NotificationUnknownMethodAndUnknownSession_AnswerAsMcpExpects()
+    {
+        await using ToolBridge bridge = new();
+        (string id, _) = bridge.Open(new FakeTools());
+
+        JsonObject? notification = await bridge.HandleAsync(id, Rpc("notifications/initialized", id: null), CancellationToken.None);
+        JsonObject unknown = (await bridge.HandleAsync(id, Rpc("resources/list"), CancellationToken.None))!;
+        bridge.Close(id);
+
+        notification.Should().BeNull();
+        unknown["error"]!["code"]!.GetValue<int>().Should().Be(-32601);
+        await FluentActions.Awaiting(() => bridge.HandleAsync(id, Rpc("ping"), CancellationToken.None)).Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    [Fact]
+    public async Task StartAsync_ServesSessionsOverLoopbackHttp()
+    {
+        await using ToolBridge bridge = new();
+        await bridge.StartAsync(CancellationToken.None);
+        (string id, _) = bridge.Open(new FakeTools());
+        using HttpClient http = new();
+
+        HttpResponseMessage ping = await http.PostAsync(bridge.UrlFor(id), new StringContent(Rpc("ping").ToJsonString(), Encoding.UTF8, "application/json"));
+        HttpResponseMessage missing = await http.PostAsync($"{bridge.BaseUrl}/mcp/nope", new StringContent(Rpc("ping").ToJsonString(), Encoding.UTF8, "application/json"));
+        HttpResponseMessage get = await http.GetAsync(bridge.UrlFor(id));
+
+        bridge.BaseUrl.Should().StartWith("http://127.0.0.1:");
+        ping.StatusCode.Should().Be(HttpStatusCode.OK);
+        JsonNode.Parse(await ping.Content.ReadAsStringAsync())!["result"].Should().NotBeNull();
+        missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        get.StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+    }
+
+    [Fact]
+    public void Parse_StreamJson_ReadsToolsLimitAndUsageSummedOverModels()
+    {
+        CliResult result = CliResult.Parse(["not json", InitLine, AllowedLine, """{"type":"assistant"}""", ResultLine]);
+
+        result.Finished.Should().BeTrue();
+        result.IsError.Should().BeFalse();
+        result.StopReason.Should().Be("end_turn");
+        result.Turns.Should().Be(3);
+        result.Tools.Should().Equal("mcp__connapse__search_knowledge", "mcp__connapse__answer");
+        result.Usage.Should().BeEquivalentTo(new TokenUsage(105, 21, 300, 40, 0.011), o => o.Using<double>(c => c.Subject.Should().BeApproximately(c.Expectation, 1e-9)).WhenTypeIs<double>());
+        result.Limit!.Allowed.Should().BeTrue();
+        result.Limit.Utilization["seven_day"].Should().Be(0.31);
+        result.Limit.ToString().Should().Be("allowed (five_hour 5%, seven_day 31%)");
+    }
+
+    [Fact]
+    public async Task Compose_SessionOutcomeComesFirst()
+    {
+        BridgeSession session = new(new FakeTools());
+        await session.CallAsync("answer", Input(new { answer = "x", documentIds = new[] { GoldUuid } }), CancellationToken.None);
+
+        AgentRun run = ClaudeCliAgent.Compose(session, CliResult.None, new ProcessResult(1, [], "", TimedOut: true));
+
+        run.Outcome.Should().Be(AgentOutcome.Answered);
+        run.Cited.Should().Equal(GoldUuid);
+    }
+
+    [Theory]
+    [InlineData("timeout", AgentOutcome.Error, "timed out")]
+    [InlineData("no-result", AgentOutcome.Error, "without a result")]
+    [InlineData("no-tools", AgentOutcome.Error, "did not get the eval's tools")]
+    [InlineData("refusal", AgentOutcome.Refused, null)]
+    [InlineData("is-error", AgentOutcome.Error, "error_max_turns")]
+    [InlineData("stopped", AgentOutcome.NoAnswer, null)]
+    public void Compose_WithoutAnAnswer_NamesHowTheSessionEnded(string shape, AgentOutcome expected, string? error)
+    {
+        CliResult finished = CliResult.Parse([InitLine, ResultLine]);
+        (CliResult result, ProcessResult process) = shape switch
+        {
+            "timeout" => (CliResult.None, new ProcessResult(-1, [], "", TimedOut: true)),
+            "no-result" => (CliResult.None, new ProcessResult(1, [], "boom", TimedOut: false)),
+            "no-tools" => (finished with { Tools = ["Read"] }, Printed()),
+            "refusal" => (finished with { StopReason = "refusal" }, Printed()),
+            "is-error" => (finished with { IsError = true, Subtype = "error_max_turns" }, Printed()),
+            _ => (finished, Printed()),
+        };
+
+        AgentRun run = ClaudeCliAgent.Compose(new BridgeSession(new FakeTools()), result, process);
+
+        run.Outcome.Should().Be(expected);
+        if (error is null)
+            run.Error.Should().BeNull();
+        else
+            run.Error.Should().Contain(error);
+        run.Usage.Should().Be(result.Usage);
+    }
+
+    [Fact]
+    public void StartInfo_IsolatesTheAgentAndDropsApiKeys()
+    {
+        ClaudeCliAgent agent = new(new ToolBridge(), "claude-sonnet-5-5", "medium", "E:/agent");
+
+        ProcessStartInfo start = agent.StartInfo("http://127.0.0.1:1/mcp/abc", "sys", "q?");
+
+        start.WorkingDirectory.Should().Be("E:/agent");
+        start.ArgumentList.Should().ContainInOrder("-p", "q?").And.ContainInOrder("--model", "claude-sonnet-5-5")
+            .And.ContainInOrder("--system-prompt", "sys").And.ContainInOrder("--tools", "")
+            .And.ContainInOrder("--allowedTools", "mcp__connapse").And.ContainInOrder("--setting-sources", "")
+            .And.Contain(["--strict-mcp-config", "--restricted", "--disable-slash-commands", "--no-session-persistence"]);
+        McpUrl(start).Should().Be("http://127.0.0.1:1/mcp/abc");
+        start.Environment.Keys.Should().NotContain(ClaudeCliAgent.RemovedVariables);
+    }
+
+    [Fact]
+    public async Task RunAsync_AgentAnswersThroughTheBridge_ReturnsTheAnswerAndUsage()
+    {
+        await using ToolBridge bridge = new();
+        await bridge.StartAsync(CancellationToken.None);
+        using HttpClient http = new();
+        FakeRunner runner = new(async start =>
+        {
+            JsonObject call = Rpc("tools/call", new { name = "answer", arguments = new { answer = "270 days", documentIds = new[] { GoldUuid } } });
+            await http.PostAsync(McpUrl(start), new StringContent(call.ToJsonString(), Encoding.UTF8, "application/json"));
+            return Printed(InitLine, AllowedLine, ResultLine);
+        });
+        ClaudeCliAgent agent = new(bridge, "claude-sonnet-5-5", "medium", ".", runner);
+
+        AgentRun run = await agent.RunAsync(new FakeTools(), "sys", "q?", CancellationToken.None);
 
         run.Outcome.Should().Be(AgentOutcome.Answered);
         run.Answer.Should().Be("270 days");
         run.Cited.Should().Equal(GoldUuid);
-        run.Calls.Should().ContainSingle().Which.Name.Should().Be("search_knowledge");
-        run.Usage.Input.Should().Be(20);
-        run.Turns.Should().Be(2);
-        model.SeenTools[0].Select(t => t.Name).Should().Equal("search_knowledge", "answer");
+        run.Usage.Input.Should().Be(105);
+        agent.FirstLimit!.Utilization["seven_day"].Should().Be(0.31);
+        agent.LastLimit.Should().Be(agent.FirstLimit);
+        string id = McpUrl(runner.Started!).Split('/')[^1];
+        await FluentActions.Awaiting(() => bridge.HandleAsync(id, Rpc("ping"), CancellationToken.None)).Should().ThrowAsync<KeyNotFoundException>();
     }
 
     [Fact]
-    public async Task RunAsync_ToolResult_GoesBackInTheNextUserMessage()
+    public async Task RunAsync_SubscriptionLimitReachedBeforeAnAnswer_StopsTheRun()
     {
-        IReadOnlyList<AgentMessage>? second = null;
-        ScriptedModel model = new(_ => Calls(Search("call-1")), m => { second = m; return Calls(AnswerCall("x")); });
+        await using ToolBridge bridge = new();
+        await bridge.StartAsync(CancellationToken.None);
+        ClaudeCliAgent agent = new(bridge, "claude-sonnet-5-5", "medium", ".", new FakeRunner(_ => System.Threading.Tasks.Task.FromResult(Printed(InitLine, RejectedLine))));
 
-        await AgentLoop.RunAsync(model, new FakeTools("found it"), "sys", "q?", CancellationToken.None);
-
-        second.Should().HaveCount(3);
-        second![1].Role.Should().Be(AgentRole.Assistant);
-        second[2].Blocks.Should().ContainSingle().Which.Should().Be(new AgentToolResult("call-1", "found it"));
-    }
-
-    [Fact]
-    public async Task RunAsync_AnswerBesideOtherCalls_EndsWithoutRunningThem()
-    {
-        FakeTools tools = new();
-        ScriptedModel model = new(_ => Calls(Search(), AnswerCall("x", GoldUuid)));
-
-        AgentRun run = await AgentLoop.RunAsync(model, tools, "sys", "q?", CancellationToken.None);
-
-        run.Outcome.Should().Be(AgentOutcome.Answered);
-        tools.Calls.Should().Be(0);
-    }
-
-    [Fact]
-    public async Task RunAsync_ModelStopsWithoutATool_IsNoAnswer()
-    {
-        ScriptedModel model = new(_ => new ModelReply([new AgentText("I think it's 270 days.")], "end_turn", TokenUsage.Zero));
-
-        AgentRun run = await AgentLoop.RunAsync(model, new FakeTools(), "sys", "q?", CancellationToken.None);
-
-        run.Outcome.Should().Be(AgentOutcome.NoAnswer);
-        run.Cited.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task RunAsync_MoreThanTwelveCalls_IsOutOfCalls()
-    {
-        FakeTools tools = new();
-        ScriptedModel model = new(_ => Calls(Search()));
-
-        AgentRun run = await AgentLoop.RunAsync(model, tools, "sys", "q?", CancellationToken.None);
-
-        run.Outcome.Should().Be(AgentOutcome.OutOfCalls);
-        tools.Calls.Should().Be(AgentLoop.MaxToolCalls);
-    }
-
-    [Fact]
-    public async Task RunAsync_Refusal_IsRefused()
-    {
-        ScriptedModel model = new(_ => new ModelReply([], "refusal", TokenUsage.Zero));
-
-        (await AgentLoop.RunAsync(model, new FakeTools(), "sys", "q?", CancellationToken.None)).Outcome.Should().Be(AgentOutcome.Refused);
-    }
-
-    [Fact]
-    public async Task RunAsync_ModelOrToolThrows_IsErrorWithReason()
-    {
-        ScriptedModel throwing = new(_ => throw new HttpRequestException("503"));
-        ScriptedModel callsBroken = new(_ => Calls(new AgentToolCall("b", "boom", Input(new { }))));
-
-        AgentRun modelError = await AgentLoop.RunAsync(throwing, new FakeTools(), "sys", "q?", CancellationToken.None);
-        AgentRun toolError = await AgentLoop.RunAsync(callsBroken, new FakeTools(), "sys", "q?", CancellationToken.None);
-
-        modelError.Outcome.Should().Be(AgentOutcome.Error);
-        modelError.Error.Should().Contain("503");
-        toolError.Outcome.Should().Be(AgentOutcome.Error);
-        toolError.Error.Should().Contain("tool broke");
+        await FluentActions.Awaiting(() => agent.RunAsync(new FakeTools(), "sys", "q?", CancellationToken.None))
+            .Should().ThrowAsync<SubscriptionLimitException>().Where(e => e.Limit.Status == "rejected");
+        agent.LastLimit!.Allowed.Should().BeFalse();
     }
 
     [Fact]
     public void ReadAnswer_LoneStringId_CountsAsOneCitation()
     {
-        (string? answer, List<string> cited) = AgentLoop.ReadAnswer(Input(new { answer = "x", documentIds = GoldUuid }));
+        (string? answer, List<string> cited) = AgentContract.ReadAnswer(Input(new { answer = "x", documentIds = GoldUuid }));
 
         answer.Should().Be("x");
         cited.Should().Equal(GoldUuid);
@@ -200,7 +357,7 @@ public class MemorySearchTests
     }
 
     private static AgentRun Run(AgentOutcome outcome, string? answer, string[] cited, params ToolTrace[] calls) =>
-        new(outcome, answer, cited, calls, new TokenUsage(100, 10, 50, 0), 2, null);
+        new(outcome, answer, cited, calls, new TokenUsage(100, 10, 50, 0, 0.002), 2, null);
 
     private static ToolTrace Trace(string name, string output) => new(name, new Dictionary<string, JsonElement>(), output);
 
@@ -310,7 +467,7 @@ public class MemorySearchTests
         ((string)report["gate"]!["verdict"]!).Should().Be("KEEP");
         report["examples"]!["memoryHelped"]!.AsArray().Should().NotBeEmpty();
         report["examples"]!["memoryHurt"]!.AsArray().Should().BeEmpty();
-        ((double)report["tokens"]!["on"]!["costUsd"]!).Should().BeGreaterThan(0);
+        ((double)report["tokens"]!["on"]!["apiListPriceUsd"]!).Should().BeGreaterThan(0);
     }
 
     [Theory]
