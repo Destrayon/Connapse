@@ -1,0 +1,292 @@
+{
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "tasks": 104,
+  "all": {
+    "tasks": 104,
+    "offScore": 0.8013,
+    "onScore": 0.7276,
+    "offSearches": 1.2821,
+    "onSearches": 1.2468
+  },
+  "memorySet": {
+    "tasks": 64,
+    "offScore": 0.7083,
+    "onScore": 0.599,
+    "offSearches": 1.4531,
+    "onSearches": 1.2656
+  },
+  "holdoutSet": {
+    "tasks": 40,
+    "offScore": 0.95,
+    "onScore": 0.9333,
+    "offSearches": 1.0083,
+    "onSearches": 1.2167
+  },
+  "kinds": {
+    "alias": {
+      "tasks": 16,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.9167,
+      "onSearches": 1.6875
+    },
+    "control": {
+      "tasks": 28,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.0119,
+      "onSearches": 1.3095
+    },
+    "correction": {
+      "tasks": 16,
+      "offScore": 0.5625,
+      "onScore": 0.1458,
+      "offSearches": 1.25,
+      "onSearches": 1
+    },
+    "current": {
+      "tasks": 16,
+      "offScore": 0.2708,
+      "onScore": 0.25,
+      "offSearches": 1.0208,
+      "onSearches": 1.1875
+    },
+    "location": {
+      "tasks": 16,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.625,
+      "onSearches": 1.1875
+    },
+    "stale": {
+      "tasks": 12,
+      "offScore": 0.8333,
+      "onScore": 0.7778,
+      "offSearches": 1,
+      "onSearches": 1
+    }
+  },
+  "memorySetHalves": {
+    "documented": {
+      "tasks": 64,
+      "offScore": 0.7083,
+      "onScore": 0.599,
+      "offSearches": 1.4531,
+      "onSearches": 1.2656
+    },
+    "undocumented": {
+      "tasks": 0,
+      "offScore": 0,
+      "onScore": 0,
+      "offSearches": 0,
+      "onSearches": 0
+    }
+  },
+  "comparisons": {
+    "memorySetScore95": {
+      "tasks": 64,
+      "meanDifference": -0.1094,
+      "ci": [
+        -0.2031,
+        -0.0469
+      ],
+      "permutationP": 0.0091990800919908,
+      "minimumDetectableEffect": 0.1102
+    },
+    "holdoutSetScore90": {
+      "tasks": 40,
+      "meanDifference": -0.0167,
+      "ci": [
+        -0.0417,
+        0
+      ],
+      "permutationP": 0.49275072492750727,
+      "minimumDetectableEffect": 0.0326
+    },
+    "allScore95": {
+      "tasks": 104,
+      "meanDifference": -0.0737,
+      "ci": [
+        -0.1346,
+        -0.0321
+      ],
+      "permutationP": 0.0027997200279972004,
+      "minimumDetectableEffect": 0.0698
+    },
+    "answerAccuracy": {
+      "tasks": 104,
+      "meanDifference": -0.016,
+      "ci": [
+        -0.0417,
+        -0
+      ],
+      "permutationP": 0.24337566243375663,
+      "minimumDetectableEffect": 0.0296
+    },
+    "staleCitations": {
+      "tasks": 104,
+      "meanDifference": 0.0737,
+      "ci": [
+        0.0353,
+        0.1346
+      ],
+      "permutationP": 0.0027997200279972004,
+      "minimumDetectableEffect": 0.0698
+    },
+    "runRecall": {
+      "tasks": 104,
+      "meanDifference": 0.0192,
+      "ci": [
+        0.0032,
+        0.0609
+      ],
+      "permutationP": 0.24777522247775222,
+      "minimumDetectableEffect": 0.0333
+    },
+    "firstQueryMrr@10": {
+      "tasks": 104,
+      "meanDifference": 0.0025,
+      "ci": [
+        -0.0001,
+        0.0118
+      ],
+      "permutationP": 0.33796620337966204,
+      "minimumDetectableEffect": 0.0063
+    },
+    "searchCalls": {
+      "tasks": 104,
+      "meanDifference": -0.0353,
+      "ci": [
+        -0.1346,
+        0.0577
+      ],
+      "permutationP": 0.5283471652834717,
+      "minimumDetectableEffect": 0.1362
+    },
+    "toolCalls": {
+      "tasks": 104,
+      "meanDifference": 1.109,
+      "ci": [
+        1.0224,
+        1.1955
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.124
+    }
+  },
+  "outcomes": {
+    "off": {
+      "Answered": 312
+    },
+    "on": {
+      "Answered": 312
+    }
+  },
+  "tokens": {
+    "off": {
+      "runs": 312,
+      "input": 2048,
+      "cacheWrite": 1153357,
+      "cacheRead": 2752303,
+      "output": 129456,
+      "apiListPriceUsd": 6.1873
+    },
+    "on": {
+      "runs": 312,
+      "input": 2108,
+      "cacheWrite": 2229922,
+      "cacheRead": 4739084,
+      "output": 176309,
+      "apiListPriceUsd": 11.1609
+    }
+  },
+  "examples": {
+    "memoryHelped": [
+      {
+        "task": "test-current-07-s2",
+        "kind": "current",
+        "question": "What is the log retention period for Marketing?",
+        "expected": "15 days",
+        "offScore": 0,
+        "onScore": 0.6667,
+        "offAnswer": "600 days, from the latest revision (TR, issued 2024-07-02) of the Marketing Conferences and Logging Policy. Earlier revisions said 15 days (FJ, 2023-07-12) and 555 days (SP, 2024-03-09).",
+        "onAnswer": "15 days. Marketing\u0027s policy register says revision FJ of the Conferences and Logging Policy is the one in force. Revisions TR (600 days) and SP (555 days) are listed as drafts or superseded, even though they have later issue dates."
+      },
+      {
+        "task": "test-current-16-s2",
+        "kind": "current",
+        "question": "What is the handover overlap time for Field Operations?",
+        "expected": "50 minutes",
+        "offScore": 0,
+        "onScore": 0.3333,
+        "offAnswer": "35 minutes. Three Field Operations policy revisions give different values: VQ (2024-02-10) says 50, PZ (2024-07-02) says 40, and DH (2024-11-28) says 35. I used the most recently issued one, DH. None of the documents says explicitly that one replaces another, so treating the latest as current is my assumption.",
+        "onAnswer": "50 minutes. The Field Operations policy register says revision VQ of the Access Control and Shift Handover Policy is the one in force. Revisions PZ (40 min) and DH (35 min) are drafts or superseded, even though DH has a later issue date."
+      }
+    ],
+    "memoryHurt": [
+      {
+        "task": "test-correction-07-s2",
+        "kind": "correction",
+        "question": "What is the contract value requiring legal review for Customer Success?",
+        "expected": "$242,500",
+        "offScore": 1,
+        "onScore": 0,
+        "offAnswer": "$242,500 (legal sign-off threshold per the 2025-06-24 standard, which replaced the 2023 policy\u0027s $5,000 threshold).",
+        "onAnswer": "$242,500 (legal sign-off threshold in the Customer Success Data Subject Rights and Legal Review Standard, effective 2025-06-24). It replaced the 2023 policy\u0027s $5,000."
+      },
+      {
+        "task": "test-correction-09-s2",
+        "kind": "correction",
+        "question": "What is the backup retention period for Marketing?",
+        "expected": "175 days",
+        "offScore": 1,
+        "onScore": 0,
+        "offAnswer": "175 days. This comes from the Marketing Recruitment and Data Protection Standard, effective 2025-07-16. It replaced the 2023 policy, which said 385 days.",
+        "onAnswer": "175 days. The Marketing Recruitment and Data Protection Standard (effective 2025-07-16) calls it the \u0022snapshot keep period\u0022. It replaced the 2023 policy, which set 385 days."
+      },
+      {
+        "task": "test-correction-12-s2",
+        "kind": "correction",
+        "question": "What is the encryption key rotation period for Manufacturing?",
+        "expected": "150 days",
+        "offScore": 1,
+        "onScore": 0,
+        "offAnswer": "150 days. The 2025 Manufacturing Hardware Lifecycle and Key Management Standard (effective 2025-06-27) sets a key renewal interval of 150 days. It replaced the 2023 policy, which said 540 days.",
+        "onAnswer": "150 days. The Manufacturing Hardware Lifecycle and Key Management Standard (effective 2025-06-27) sets it and replaces the 2023 policy, which had 540 days. The new standard calls it the \u0022key renewal interval\u0022."
+      }
+    ]
+  },
+  "gate": {
+    "verdict": "WORSE (DROP)",
+    "memorySetMdeOver015": false,
+    "conforming": true,
+    "diagnosticOnly": [],
+    "passed": false
+  },
+  "session1": {
+    "runs": 228,
+    "meanScore": 0.7061,
+    "outcomes": {
+      "Answered": 228
+    },
+    "memoryWrites": 228,
+    "writesCitingSources": 228,
+    "runsThatWrote": 228,
+    "tokens": {
+      "runs": 228,
+      "input": 1726,
+      "cacheWrite": 1625566,
+      "cacheRead": 5053636,
+      "output": 200318,
+      "apiListPriceUsd": 9.0143
+    }
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 37%)",
+    "atLastRun": "allowed (seven_day 39%)"
+  }
+}
