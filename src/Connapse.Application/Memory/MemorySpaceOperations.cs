@@ -181,32 +181,96 @@ public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthori
                     "cursor isn't one this list returned for the same kind, q, starred and sort", "cursor");
         }
 
-        IReadOnlyList<MemorySpaceSummary>? listed = await spaces.ListAsync(MemoryRules.Caller(context.User), text, false, ct);
-        if (listed is null)
-            return MemorySpaceRules.Fail<MemorySpacePage>(MemorySpaceStatus.Unchecked,
-                "access to memory sources could not be checked, so no fact counts are shown.");
+        MemoryCaller viewer = MemoryRules.Caller(context.User);
+        IReadOnlyList<MemorySpaceCandidate> candidates = await spaces.CandidatesAsync(viewer, text, ct);
 
-        List<MemorySpaceView> views = [.. listed.Select(s => MemorySpaceRules.View(s.Container, s.Facts, s.UpdatedAt, s.Starred))];
+        // A documents container is listed only when it holds a fact the caller may read. One with a fact citing no
+        // source plainly does; the rest are settled by checking one fact each, and only a denied one costs more.
+        List<string> unknown = [.. candidates
+            .Where(c => c.Container.Kind == ContainerKind.Documents && c.FactsAtLeast == 0)
+            .Select(c => c.Container.Id)];
+        IReadOnlySet<string> holding = new HashSet<string>(StringComparer.Ordinal);
+        if (unknown.Count > 0)
+        {
+            if (await spaces.HoldingReadableAsync(viewer, unknown, ct) is not { } held)
+                return Unchecked();
+            holding = held;
+        }
+        List<MemorySpaceCandidate> listed = [.. candidates.Where(c =>
+            c.Container.Kind != ContainerKind.Documents || c.FactsAtLeast > 0 || holding.Contains(c.Container.Id))];
+
         MemorySpaceCounts counts = new(
-            views.Count,
-            views.Count(v => v.Starred),
-            views.Count(v => v.Kind == MemorySpaceKind.Personal),
-            views.Count(v => v.Kind == MemorySpaceKind.Team),
-            views.Count(v => v.Kind == MemorySpaceKind.Container));
+            listed.Count,
+            listed.Count(c => c.Starred),
+            listed.Count(c => MemorySpaceRules.KindOf(c.Container) == MemorySpaceKind.Personal),
+            listed.Count(c => MemorySpaceRules.KindOf(c.Container) == MemorySpaceKind.Team),
+            listed.Count(c => MemorySpaceRules.KindOf(c.Container) == MemorySpaceKind.Container));
 
-        List<SpaceCursor> matching = [.. views
-            .Where(v => query.Kind is not { } k || v.Kind == k)
-            .Where(v => !query.Starred || v.Starred)
-            .Select(v => SpaceCursor.Of(v, query.Sort, filters))
-            .Order(SpaceCursor.Ordering)];
-        int start = after is null ? 0 : matching.FindIndex(c => SpaceCursor.Ordering.Compare(c, after) > 0);
-        if (start < 0)
-            start = matching.Count;
+        List<MemorySpaceCandidate> matching = [.. listed
+            .Where(c => query.Kind is not { } k || MemorySpaceRules.KindOf(c.Container) == k)
+            .Where(c => !query.Starred || c.Starred)];
         int limit = query.Limit ?? DefaultLimit;
-        List<SpaceCursor> page = [.. matching.Skip(start).Take(limit)];
-        string? next = start + page.Count < matching.Count ? page[^1].Encode() : null;
+        (List<SpaceCursor>? page, bool more) = await PageAsync(viewer, matching, query.Sort, filters, after, limit, ct);
+        if (page is null)
+            return Unchecked();
         return Attempt<MemorySpacePage, MemorySpaceStatus>.Succeed(
-            new MemorySpacePage([.. page.Select(c => c.View!)], next, matching.Count, counts));
+            new MemorySpacePage([.. page.Select(c => c.View!)], more ? page[^1].Encode() : null, matching.Count, counts));
+    }
+
+    private static Attempt<MemorySpacePage, MemorySpaceStatus> Unchecked() =>
+        MemorySpaceRules.Fail<MemorySpacePage>(MemorySpaceStatus.Unchecked,
+            "access to memory sources could not be checked, so no fact counts are shown.");
+
+    /// <summary>
+    /// The page after <paramref name="after"/>, with exact values checked only for spaces that could land on it. Each
+    /// space's place lies between where its upper bounds and its lower bounds would put it. Spaces are checked a page at
+    /// a time, in order of the earliest place each could take, until the page's last space comes before the earliest
+    /// place any unchecked one could take. Null when access could not be checked.
+    /// </summary>
+    private async Task<(List<SpaceCursor>? Page, bool More)> PageAsync(
+        MemoryCaller viewer, List<MemorySpaceCandidate> matching, MemorySpaceSort sort, string filters, SpaceCursor? after,
+        int limit, CancellationToken ct)
+    {
+        SpaceCursor Key(MemorySpaceCandidate c, int facts, DateTimeOffset updatedAt) =>
+            SpaceCursor.Of(MemorySpaceRules.View(c.Container, facts, updatedAt, c.Starred), sort, filters);
+        bool AfterCursor(SpaceCursor key) => after is null || SpaceCursor.Ordering.Compare(key, after) > 0;
+
+        // A space whose latest possible place is at or before the cursor was on an earlier page, whatever its values.
+        List<(MemorySpaceCandidate Candidate, SpaceCursor Earliest)> waiting = [.. matching
+            .Where(c => AfterCursor(Key(c, c.FactsAtLeast, c.UpdatedAtLeast)))
+            .Select(c => (c, Key(c, c.FactsAtMost, c.UpdatedAtMost)))
+            .OrderBy(w => w.Item2, SpaceCursor.Ordering)];
+
+        List<SpaceCursor> placed = [];
+        int next = 0;
+        while (next < waiting.Count)
+        {
+            if (placed.Count >= limit && SpaceCursor.Ordering.Compare(placed[limit - 1], waiting[next].Earliest) < 0)
+                break;
+            List<MemorySpaceCandidate> batch = [.. waiting.Skip(next).Take(limit).Select(w => w.Candidate)];
+            next += batch.Count;
+            List<string> unsettled = [.. batch.Where(c => !c.Settled).Select(c => c.Container.Id)];
+            IReadOnlyDictionary<string, MemorySpaceTally> tallies = new Dictionary<string, MemorySpaceTally>(StringComparer.Ordinal);
+            if (unsettled.Count > 0)
+            {
+                if (await spaces.TallyAsync(viewer, unsettled, ct) is not { } tallied)
+                    return (null, false);
+                tallies = tallied;
+            }
+            foreach (MemorySpaceCandidate c in batch)
+            {
+                SpaceCursor? key = c.Settled ? Key(c, c.FactsAtLeast, c.UpdatedAtLeast)
+                    : tallies.TryGetValue(c.Container.Id, out MemorySpaceTally? tally)
+                        && (tally.Facts > 0 || c.Container.Kind != ContainerKind.Documents) ? Key(c, tally.Facts, tally.UpdatedAt)
+                    : null; // Gone, no longer visible, or a documents container with nothing left the reader may see.
+                if (key is not null && AfterCursor(key))
+                    placed.Add(key);
+            }
+            placed.Sort(SpaceCursor.Ordering);
+        }
+
+        // Every space still waiting comes after the page's last one, so it is on a later page.
+        return ([.. placed.Take(limit)], placed.Count > limit || next < waiting.Count);
     }
 }
 

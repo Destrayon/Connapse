@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using Connapse.Application;
+using Connapse.Application.Memory;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -9,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
+using IOperationAuthorizer = Connapse.Application.Ports.IOperationAuthorizer;
 
 namespace Connapse.Integration.Tests.Memory;
 
@@ -91,6 +95,25 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         return id;
     }
 
+    /// <summary>A space as listed, with its exact values.</summary>
+    private sealed record Listed(Container Container, int Facts, DateTimeOffset UpdatedAt, bool Starred);
+
+    /// <summary>
+    /// Every space the viewer may see, the way the list settles them: candidates, then a probe for each documents container
+    /// in doubt, then an exact tally of all of them. Null when access could not be checked.
+    /// </summary>
+    private static async Task<IReadOnlyList<Listed>?> ListAsync(PostgresMemorySpaceStore store, MemoryCaller viewer, string? text)
+    {
+        IReadOnlyList<MemorySpaceCandidate> candidates = await store.CandidatesAsync(viewer, text);
+        string[] doubtful = [.. candidates.Where(c => c.Container.Kind == ContainerKind.Documents && c.FactsAtLeast == 0).Select(c => c.Container.Id)];
+        if (await store.HoldingReadableAsync(viewer, doubtful) is not { } holding)
+            return null;
+        List<MemorySpaceCandidate> listed = [.. candidates.Where(c => !doubtful.Contains(c.Container.Id) || holding.Contains(c.Container.Id))];
+        if (await store.TallyAsync(viewer, [.. listed.Select(c => c.Container.Id)]) is not { } tallies)
+            return null;
+        return [.. listed.Select(c => new Listed(c.Container, tallies[c.Container.Id].Facts, tallies[c.Container.Id].UpdatedAt, c.Starred))];
+    }
+
     private static NewMemoryFact Fact(string value, MemoryScope scope, params MemorySource[] sources) =>
         new("Halcyon", value, value, null, null, sources, null, scope);
 
@@ -113,8 +136,8 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         await memory.RememberAsync(documents, Fact("docs", MemoryScope.Team), userA);
         Container personal = (await Store(access).CreatePersonalAsync(userA, $"{tag}-own", "notes"))!;
 
-        IReadOnlyList<MemorySpaceSummary> seenByA = (await Store(access).ListAsync(userA, tag))!;
-        IReadOnlyList<MemorySpaceSummary> seenByB = (await Store(access).ListAsync(userB, tag))!;
+        IReadOnlyList<Listed> seenByA = (await ListAsync(Store(access), userA, tag))!;
+        IReadOnlyList<Listed> seenByB = (await ListAsync(Store(access), userB, tag))!;
 
         seenByA.ToDictionary(s => s.Container.Name, s => s.Facts).Should().Equal(new Dictionary<string, int>
         {
@@ -130,7 +153,7 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         seenByA.Should().NotContain(s => s.Container.Id == emptyDocuments.ToString(), "a document container is listed once it holds memory");
         seenByA.Single(s => s.Container.Id == personal.Id).Container.Audience.Should().Be(MemoryScope.Personal);
         seenByA.Single(s => s.Container.Id == documents.ToString()).Container.Kind.Should().Be(ContainerKind.Documents);
-        MemorySpaceSummary teamRow = seenByA.Single(s => s.Container.Id == team.ToString());
+        Listed teamRow = seenByA.Single(s => s.Container.Id == team.ToString());
         teamRow.UpdatedAt.Should().BeOnOrAfter(teamRow.Container.UpdatedAt, "the newest fact moves the space's updated time");
     }
 
@@ -172,7 +195,7 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
             first.Id, MemoryCorrection.Changed, new NewMemoryFact("", "", "v2", DateTimeOffset.UtcNow.AddMinutes(-1), null, null), userA, true);
         corrected.Fact.Should().NotBeNull(corrected.Error);
 
-        IReadOnlyList<MemorySpaceSummary> seen = (await Store(access).ListAsync(userA, tag))!;
+        IReadOnlyList<Listed> seen = (await ListAsync(Store(access), userA, tag))!;
         MemorySpaceImpact? impact = await Store(access).ImpactAsync(team, userA);
 
         seen.Single().Facts.Should().Be(1);
@@ -210,7 +233,7 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         await ContainerAsync($"{tag}-a%b", ContainerKind.Memory);
         await ContainerAsync($"{tag}-axb", ContainerKind.Memory);
 
-        IReadOnlyList<MemorySpaceSummary> seen = (await Store(new FakeAccess([])).ListAsync(new MemoryCaller(Guid.NewGuid(), null, null), $"{tag}-a%b"))!;
+        IReadOnlyList<Listed> seen = (await ListAsync(Store(new FakeAccess([])), new MemoryCaller(Guid.NewGuid(), null, null), $"{tag}-a%b"))!;
 
         seen.Select(s => s.Container.Name).Should().Equal($"{tag}-a%b");
     }
@@ -228,7 +251,7 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         await memory.RememberAsync(other, Fact("unrelated", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, unrelated)), user);
         RecordingAccess access = new();
 
-        IReadOnlyList<MemorySpaceSummary> seen = (await Store(access).ListAsync(user, $"{tag}-match"))!;
+        IReadOnlyList<Listed> seen = (await ListAsync(Store(access), user, $"{tag}-match"))!;
 
         seen.Single().Facts.Should().Be(1);
         access.Asked.Should().Contain(wanted).And.NotContain(unrelated,
@@ -243,7 +266,7 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         MemoryCaller user = new(Guid.NewGuid(), null, null);
         await Memory(new FakeAccess([])).RememberAsync(team, Fact("open", MemoryScope.Team), user);
 
-        (await Store(new FailingAccess()).ListAsync(user, tag)).Should().BeNull();
+        (await ListAsync(Store(new FailingAccess()), user, tag)).Should().BeNull();
     }
 
     [Fact]
@@ -276,13 +299,114 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         await store.StarAsync(team, a);
         await store.StarAsync(team, agentOfA);
 
-        (await store.ListAsync(a, tag))!.Single().Starred.Should().BeTrue();
-        (await store.ListAsync(agentOfA, tag))!.Single().Starred.Should().BeTrue("an agent acting for A shares A's stars");
-        (await store.ListAsync(b, tag))!.Single().Starred.Should().BeFalse();
+        (await ListAsync(store, a, tag))!.Single().Starred.Should().BeTrue();
+        (await ListAsync(store, agentOfA, tag))!.Single().Starred.Should().BeTrue("an agent acting for A shares A's stars");
+        (await ListAsync(store, b, tag))!.Single().Starred.Should().BeFalse();
 
         await store.UnstarAsync(team, agentOfA);
         await store.UnstarAsync(team, a);
 
-        (await store.ListAsync(a, tag))!.Single().Starred.Should().BeFalse();
+        (await ListAsync(store, a, tag))!.Single().Starred.Should().BeFalse();
+    }
+
+    private ListMemorySpaces Operation(IDocumentAccess access)
+    {
+        IOperationAuthorizer authorizer = Substitute.For<IOperationAuthorizer>();
+        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+        return new ListMemorySpaces(Store(access), authorizer);
+    }
+
+    private static OperationContext As(Guid user) => new(new ClaimsPrincipal(new ClaimsIdentity(
+        [new Claim(ClaimTypes.NameIdentifier, user.ToString())], "test")), OperationSurface.Rest);
+
+    [Fact]
+    public async Task List_HiddenDocuments_CountsStayCorrectForEachReader()
+    {
+        string tag = $"spaces-{Guid.NewGuid():N}";
+        Guid writer = Guid.NewGuid(), a = Guid.NewGuid(), b = Guid.NewGuid(), c = Guid.NewGuid();
+        string forA = Guid.NewGuid().ToString(), forB = Guid.NewGuid().ToString();
+        FakeAccess access = new(new() { [writer] = [forA, forB], [a] = [forA], [b] = [forB] });
+        MemoryService memory = Memory(access);
+        MemoryCaller author = new(writer, null, null);
+        Guid team = await ContainerAsync($"{tag}-team", ContainerKind.Memory);
+        Guid onlyA = await ContainerAsync($"{tag}-only-a", ContainerKind.Documents);
+        Guid mixed = await ContainerAsync($"{tag}-mixed", ContainerKind.Documents);
+        MemorySource docA = new(MemorySourceKind.Document, forA), docB = new(MemorySourceKind.Document, forB);
+        await memory.RememberAsync(team, Fact("open", MemoryScope.Team), author);
+        await memory.RememberAsync(team, Fact("a's", MemoryScope.Team, docA), author);
+        await memory.RememberAsync(team, Fact("b's", MemoryScope.Team, docB), author);
+        await memory.RememberAsync(onlyA, Fact("a only", MemoryScope.Team, docA), author);
+        // The newest fact, so the one checked first, is one B can't read; B still sees the older one.
+        await memory.RememberAsync(mixed, Fact("older", MemoryScope.Team, docB), author);
+        await memory.RememberAsync(mixed, Fact("newer", MemoryScope.Team, docA), author);
+
+        async Task<Dictionary<string, int>> SeenBy(Guid reader, MemorySpaceCounts counts)
+        {
+            MemorySpacePage page = (await Operation(access).RunAsync(As(reader), new MemorySpaceQuery(Q: tag))).Result!;
+            page.Counts.Should().Be(counts);
+            page.Total.Should().Be(counts.All);
+            return page.Items.ToDictionary(i => i.Name[(tag.Length + 1)..], i => i.Facts);
+        }
+
+        (await SeenBy(a, new MemorySpaceCounts(3, 0, 0, 1, 2))).Should().Equal(
+            new Dictionary<string, int> { ["team"] = 2, ["only-a"] = 1, ["mixed"] = 1 });
+        (await SeenBy(b, new MemorySpaceCounts(2, 0, 0, 1, 1))).Should().Equal(
+            new Dictionary<string, int> { ["team"] = 2, ["mixed"] = 1 },
+            "B's checked fact in mixed is hidden, so the whole container is checked and its other fact found");
+        (await SeenBy(c, new MemorySpaceCounts(1, 0, 0, 1, 0))).Should().Equal(
+            new Dictionary<string, int> { ["team"] = 1 }, "every documents fact cites a document C can't read");
+    }
+
+    [Fact]
+    public async Task List_ChecksOnlyThePagesSourcesAndOneFactPerDocumentsContainer()
+    {
+        string tag = $"spaces-{Guid.NewGuid():N}";
+        MemoryCaller user = new(Guid.NewGuid(), null, null);
+        Dictionary<string, string[]> cites = new()
+        {
+            ["a"] = [Guid.NewGuid().ToString(), Guid.NewGuid().ToString()],
+            ["b"] = [Guid.NewGuid().ToString()],
+            ["c"] = [Guid.NewGuid().ToString()],
+            ["docs"] = [Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), Guid.NewGuid().ToString()],
+        };
+        MemoryService memory = Memory(new FakeAccess(new() { [user.UserId!.Value] = [.. cites.Values.SelectMany(d => d)] }));
+        foreach ((string name, string[] documents) in cites)
+        {
+            Guid space = await ContainerAsync($"{tag}-{name}", name == "docs" ? ContainerKind.Documents : ContainerKind.Memory);
+            foreach (string document in documents)
+                await memory.RememberAsync(space, Fact(document, MemoryScope.Team, new MemorySource(MemorySourceKind.Document, document)), user);
+        }
+        RecordingAccess access = new();
+
+        MemorySpacePage page = (await Operation(access).RunAsync(As(user.UserId!.Value),
+            new MemorySpaceQuery(Q: tag, Sort: MemorySpaceSort.Name, Limit: 1))).Result!;
+
+        page.Items.Should().ContainSingle().Which.Facts.Should().Be(2);
+        page.Counts.Should().Be(new MemorySpaceCounts(4, 0, 0, 3, 1));
+        access.Asked.Should().BeEquivalentTo([.. cites["a"], cites["docs"][^1]],
+            "only the page's space is counted, and the documents container is settled by its newest fact");
+    }
+
+    [Fact]
+    public async Task Candidates_FactsCitingNothing_AreTheLowerBound()
+    {
+        string tag = $"spaces-{Guid.NewGuid():N}";
+        MemoryCaller a = new(Guid.NewGuid(), null, null), b = new(Guid.NewGuid(), null, null);
+        string cited = Guid.NewGuid().ToString();
+        RecordingAccess access = new();
+        MemoryService memory = Memory(new FakeAccess(new() { [a.UserId!.Value] = [cited] }));
+        Guid team = await ContainerAsync($"{tag}-team", ContainerKind.Memory);
+        await memory.RememberAsync(team, Fact("one", MemoryScope.Team), a);
+        await memory.RememberAsync(team, Fact("two", MemoryScope.Team), a);
+        await memory.RememberAsync(team, Fact("cited", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, cited)), a);
+        await memory.RememberAsync(team, Fact("mine", MemoryScope.Personal), a);
+
+        MemorySpaceCandidate seenByA = (await Store(access).CandidatesAsync(a, tag)).Single();
+        MemorySpaceCandidate seenByB = (await Store(access).CandidatesAsync(b, tag)).Single();
+
+        (seenByA.FactsAtLeast, seenByA.FactsAtMost).Should().Be((3, 4));
+        (seenByB.FactsAtLeast, seenByB.FactsAtMost).Should().Be((2, 3), "A's personal fact is never a candidate for B");
+        seenByA.UpdatedAtLeast.Should().BeOnOrBefore(seenByA.UpdatedAtMost);
+        access.Asked.Should().BeEmpty("candidates check no source");
     }
 }
