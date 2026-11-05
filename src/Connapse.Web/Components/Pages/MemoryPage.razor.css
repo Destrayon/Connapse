@@ -263,7 +263,7 @@
 }
 
 .spaces-table .col-desc {
-    color: var(--accent-hover);
+    color: var(--text-muted);
     max-width: 28rem;
     overflow: hidden;
     text-overflow: ellipsis;
