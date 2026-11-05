@@ -42,7 +42,7 @@ for suite in "$@"; do
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory --config hybrid --split "${MEMORY_SPLIT:-heldout}"       --out "${EVAL_LOG_DIR:-eval/runs}/memory-${MEMORY_SPLIT:-heldout}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
   elif [ "$suite" = memory-search ]; then
     # Scored by its own command (CON-244): the same agent searching with and without memory_recall.
-    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory-search --config hybrid --split "${MEMORY_SEARCH_SPLIT:-test}" --workers 1 \
+    tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe memory-search --config hybrid --split "${MEMORY_SEARCH_SPLIT:-test}" --workers 1 ${MEMORY_SEARCH_ARGS} \
       --out "${EVAL_LOG_DIR:-eval/runs}/memory-search-${MEMORY_SEARCH_SPLIT:-test}.json" > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
   else
     tests/Connapse.Eval/bin/Release/net10.0/Connapse.Eval.exe run --suite "$suite" --config "${EVAL_CONFIGS:-hybrid}" ${EVAL_RUN_ARGS} > "${EVAL_LOG_DIR:-eval/runs}/light-$suite.log" 2>&1
