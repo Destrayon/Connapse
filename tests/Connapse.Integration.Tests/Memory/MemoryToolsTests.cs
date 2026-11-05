@@ -629,6 +629,24 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task TimelineAcross_CappedBelowWhatMatches_KeepsTheNewestChangeFirst()
+    {
+        string subject = $"Newest-{Guid.NewGuid():N}";
+        (Guid b, _, string bUpload) = await SecondContainerAsync();
+        As(_writer);
+        Task<string> RememberIn(string container, string value, string validFrom, string source) =>
+            McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(),
+                Sp.GetRequiredService<IHttpContextAccessor>(), subject, value, value, validFrom: validFrom, sources: [source], containerId: container);
+        Id(await RememberIn(C, "older change", "2020-01-01", _upload));
+        Id(await RememberIn(b.ToString(), "newer change", "2026-01-01", bUpload));
+
+        Facts(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(),
+                subject: subject, limit: 1, spaces: [C, b.ToString()]))
+            .Select(f => f.GetProperty("value").GetString()).Should().Equal(["newer change"],
+                "a capped read across spaces drops the oldest changes, as one space's capped chain does");
+    }
+
+    [Fact]
     public async Task RecallAcross_SeveralSpacesNamed_ReadAsOneAndAnUnknownSpaceIsRefused()
     {
         string subject = $"Single-{Guid.NewGuid():N}";
