@@ -1,0 +1,66 @@
+{
+  "config": "hybrid",
+  "notes": {
+    "planted": 134,
+    "learned": 228,
+    "dev": 140,
+    "test": 222
+  },
+  "rule": {
+    "score": "semantic-cosine",
+    "cutoff": 0.8893,
+    "restatingHeld": 0.4015,
+    "newKept": 1
+  },
+  "devCurves": {
+    "best-passage": {
+      "score": "best-passage",
+      "cutoff": 1,
+      "restatingHeld": 0.1818,
+      "newKept": 1
+    },
+    "top3-together": {
+      "score": "top3-together",
+      "cutoff": 0.8611,
+      "restatingHeld": 0.3485,
+      "newKept": 1
+    },
+    "value-best-passage": {
+      "score": "value-best-passage",
+      "cutoff": null,
+      "restatingHeld": 0,
+      "newKept": 1
+    },
+    "semantic-cosine": {
+      "score": "semantic-cosine",
+      "cutoff": 0.8893,
+      "restatingHeld": 0.4015,
+      "newKept": 1
+    }
+  },
+  "test": {
+    "score": "semantic-cosine",
+    "cutoff": 0.8893,
+    "restatingHeld": 0.3211,
+    "newKept": 1
+  },
+  "testBySource": {
+    "planted": {
+      "score": "semantic-cosine",
+      "cutoff": 0.8893,
+      "restatingHeld": 0.0299,
+      "newKept": 1
+    },
+    "learned": {
+      "score": "semantic-cosine",
+      "cutoff": 0.8893,
+      "restatingHeld": 0.4797,
+      "newKept": 1
+    }
+  },
+  "gate": {
+    "restatingHeldAtLeast": 0.8,
+    "newKeptAtLeast": 0.9,
+    "passed": false
+  }
+}
