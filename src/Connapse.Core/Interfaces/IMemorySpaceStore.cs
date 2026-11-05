@@ -13,6 +13,28 @@ public interface IMemorySpaceStore
     Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, bool withEnded = false, CancellationToken ct = default);
 
     /// <summary>
+    /// Every place <paramref name="viewer"/> may see memory in, with bounds on its numbers and no source checked: their
+    /// personal spaces, every team space, and each document container holding a current fact in their scope.
+    /// <paramref name="text"/>, when given, must appear in the name or description.
+    /// </summary>
+    Task<IReadOnlyList<MemorySpaceCandidate>> CandidatesAsync(MemoryCaller viewer, string? text, CancellationToken ct = default);
+
+    /// <summary>
+    /// The exact numbers of the spaces <paramref name="containerIds"/> names for <paramref name="viewer"/>, checking only
+    /// the sources their facts cite. A space the viewer may not see is left out. Null when access could not be checked.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, MemorySpaceTally>?> TallyAsync(
+        MemoryCaller viewer, IReadOnlyCollection<string> containerIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Which of <paramref name="containerIds"/> hold at least one current fact <paramref name="viewer"/> may read. Each
+    /// space's likeliest fact is checked first, and the rest of its facts only when that one is hidden. Null when access
+    /// could not be checked.
+    /// </summary>
+    Task<IReadOnlySet<string>?> HoldingReadableAsync(
+        MemoryCaller viewer, IReadOnlyCollection<string> containerIds, CancellationToken ct = default);
+
+    /// <summary>
     /// A new personal space owned by <paramref name="owner"/>, or null when the owner already has one with this name.
     /// Throws <see cref="ArgumentException"/> when the name isn't a valid container name or the owner has no id.
     /// </summary>

@@ -52,22 +52,52 @@ public class MemorySpaceOperationRandomInputTests
 
     // ── memorySpaces.list ─────────────────────────────────────────────────────────────────────────
 
-    private static readonly Gen<MemorySpaceSummary> AnySummary = Gen.Select(AnySpace, Gen.Int[0, 3], Gen.Int[0, 4], Gen.Bool,
-        (c, facts, minutes, starred) => new MemorySpaceSummary(c, facts, new DateTimeOffset(Epoch).AddMinutes(minutes), starred));
+    /// <summary>
+    /// A space as the caller would see it, with the bounds the store gives before checking: up to two facts and two
+    /// minutes either side. A documents container whose every fact is hidden still comes back as a candidate.
+    /// </summary>
+    private sealed record Truth(Container Container, int Facts, DateTimeOffset UpdatedAt, bool Starred, int Below, int Above, int Earlier, int Later)
+    {
+        public bool Listed => Container.Kind != ContainerKind.Documents || Facts > 0;
+
+        public MemorySpaceCandidate Candidate => new(Container, Starred, Math.Max(0, Facts - Below),
+            Container.Kind == ContainerKind.Documents ? Math.Max(1, Facts + Above) : Facts + Above,
+            UpdatedAt.AddMinutes(-Earlier), UpdatedAt.AddMinutes(Later));
+    }
+
+    private static readonly Gen<Truth> AnyTruth = Gen.Select(AnySpace, Gen.Int[0, 3], Gen.Int[2, 6], Gen.Bool, Gen.Int[0, 2], Gen.Int[0, 2],
+        Gen.Int[0, 2], Gen.Int[0, 2],
+        (c, facts, minutes, starred, below, above, earlier, later) =>
+            new Truth(c, facts, new DateTimeOffset(Epoch).AddMinutes(minutes), starred, below, above, earlier, later));
+
+    /// <summary>A store that knows each space's exact values and answers the operation's questions from them.</summary>
+    private static IMemorySpaceStore StoreOf(IReadOnlyList<Truth> truths, bool unchecked_)
+    {
+        IMemorySpaceStore store = Substitute.For<IMemorySpaceStore>();
+        store.CandidatesAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(truths.Select(t => t.Candidate).ToList());
+        store.TallyAsync(Arg.Any<MemoryCaller>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(call => unchecked_ ? null : truths
+                .Where(t => call.ArgAt<IReadOnlyCollection<string>>(1).Contains(t.Container.Id))
+                .ToDictionary(t => t.Container.Id, t => new MemorySpaceTally(t.Facts, t.UpdatedAt)));
+        store.HoldingReadableAsync(Arg.Any<MemoryCaller>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(call => unchecked_ ? null : truths
+                .Where(t => call.ArgAt<IReadOnlyCollection<string>>(1).Contains(t.Container.Id) && t.Facts > 0)
+                .Select(t => t.Container.Id).ToHashSet());
+        return store;
+    }
 
     [Fact]
     [RandomInputTestOf(typeof(ListMemorySpaces))]
     public Task List_AnyQuery_PagesVisitEveryMatchingSpaceOnceInOrder() =>
-        Gen.Select(AnySummary.List[0, 12], Gen.Bool, Gen.Bool, Gen.Int[-1, 3], Gen.Int[0, 3], Gen.Int[-1, 6], Gen.Bool)
+        Gen.Select(AnyTruth.List[0, 12], Gen.Bool, Gen.Bool, Gen.Int[-1, 3], Gen.Int[0, 3], Gen.Int[-1, 6], Gen.Bool)
             .SampleAsync(async s =>
             {
-                var (summaries, reader, unchecked_, kindValue, sortValue, limitValue, starredOnly) = s;
+                var (truths, reader, unchecked_, kindValue, sortValue, limitValue, starredOnly) = s;
                 MemorySpaceKind? kind = kindValue < 0 ? null : (MemorySpaceKind)kindValue;
                 var sort = (MemorySpaceSort)sortValue;
                 int? limit = limitValue < 0 ? null : limitValue;
-                IMemorySpaceStore store = Substitute.For<IMemorySpaceStore>();
-                store.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
-                    .Returns(unchecked_ ? null : summaries);
+                IMemorySpaceStore store = StoreOf(truths, unchecked_);
                 var list = new ListMemorySpaces(store, Authorizer(reader, false));
                 MemorySpaceQuery query = new(kind, null, starredOnly, sort, limit);
 
@@ -77,8 +107,12 @@ public class MemorySpaceOperationRandomInputTests
                     : kindValue > 2 ? MemorySpaceStatus.Invalid
                     : sortValue > 2 ? MemorySpaceStatus.Invalid
                     : limit is < 1 or > ListMemorySpaces.MaxLimit ? MemorySpaceStatus.InvalidPage
-                    : unchecked_ ? MemorySpaceStatus.Unchecked
                     : MemorySpaceStatus.Success;
+                // Access goes unchecked only when something had to be checked.
+                bool asked = store.ReceivedCalls().Any(c => c.GetMethodInfo().Name is nameof(IMemorySpaceStore.TallyAsync)
+                    or nameof(IMemorySpaceStore.HoldingReadableAsync));
+                if (expected == MemorySpaceStatus.Success && unchecked_ && asked)
+                    expected = MemorySpaceStatus.Unchecked;
                 first.Status.Should().Be(expected);
                 if (expected != MemorySpaceStatus.Success)
                 {
@@ -87,8 +121,9 @@ public class MemorySpaceOperationRandomInputTests
                     return;
                 }
 
+                List<Truth> listed = [.. truths.Where(t => t.Listed)];
                 // The order, written out: starred first, then the sort's key, then the id.
-                List<MemorySpaceSummary> want = [.. summaries
+                List<Truth> want = [.. listed
                     .Where(x => kind is not { } k || KindOf(x.Container) == k)
                     .Where(x => !starredOnly || x.Starred)
                     .OrderByDescending(x => x.Starred)
@@ -104,18 +139,22 @@ public class MemorySpaceOperationRandomInputTests
                     page.Result!.Total.Should().Be(want.Count);
                     page.Result.Items.Count.Should().BeLessThanOrEqualTo(limit ?? ListMemorySpaces.DefaultLimit);
                     seen.AddRange(page.Result.Items.Select(i => i.Id));
+                    page.Result.Items.Should().OnlyContain(i => want.Single(w => w.Container.Id == i.Id).Facts == i.Facts,
+                        "every space shown carries its exact count");
                     if (page.Result.NextCursor is not { } cursor)
                         break;
+                    if (unchecked_)
+                        return;
                     (++pages).Should().BeLessThan(20);
                     page = await list.RunAsync(Signed(true, OperationSurface.Rest), query with { Cursor = cursor });
                     page.Status.Should().Be(MemorySpaceStatus.Success);
                 }
                 seen.Should().Equal(want.Select(x => x.Container.Id));
                 first.Result!.Counts.Should().Be(new MemorySpaceCounts(
-                    summaries.Count, summaries.Count(x => x.Starred),
-                    summaries.Count(x => KindOf(x.Container) == MemorySpaceKind.Personal),
-                    summaries.Count(x => KindOf(x.Container) == MemorySpaceKind.Team),
-                    summaries.Count(x => KindOf(x.Container) == MemorySpaceKind.Container)));
+                    listed.Count, listed.Count(x => x.Starred),
+                    listed.Count(x => KindOf(x.Container) == MemorySpaceKind.Personal),
+                    listed.Count(x => KindOf(x.Container) == MemorySpaceKind.Team),
+                    listed.Count(x => KindOf(x.Container) == MemorySpaceKind.Container)));
 
                 // A cursor from one sort is refused by another.
                 if (first.Result.NextCursor is { } issued)
