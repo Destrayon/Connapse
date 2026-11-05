@@ -414,3 +414,8 @@ split goes to the PM before coding.
   Codex (gpt-6.1-sol) found two real bugs, both fixed in 3dfe5610: `my-memory` now always saves to the caller's own
   space even when a team space shares the name, and history or past-date reads across spaces include document
   containers whose facts have all ended. Next: review changes on PR #1131.
+- **CON-239, 2026-11-04.** Split into four PRs (CON-247–249 hold the fact list, Memory page and space view). This one
+  adds `POST /api/memory/facts/{id}/copy`, which copies the current version of a personal fact to a team space or
+  container as a new fact, 409 if one with the same subject and attribute is there unless `anyway`, and removes the
+  Agent memory choice from Create Container. Codex found three real bugs (read scope, a superseded version slipping
+  through, a duplicate check that failed open), all fixed. Next: CON-247.

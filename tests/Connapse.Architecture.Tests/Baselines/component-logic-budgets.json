@@ -140,7 +140,7 @@
     "IsEmpty": false
   },
   "Pages/Home.razor": {
-    "CodeLines": 140,
+    "CodeLines": 138,
     "Injects": 3,
     "Complexity": 18,
     "MarkupLogic": 24,
@@ -347,13 +347,6 @@
     "Injects": 0,
     "Complexity": 37,
     "MarkupLogic": 14,
-    "IsEmpty": false
-  },
-  "Shared/ContainerKindPicker.razor": {
-    "CodeLines": 8,
-    "Injects": 0,
-    "Complexity": 0,
-    "MarkupLogic": 5,
     "IsEmpty": false
   },
   "Shared/ContainerStatsLine.razor": {

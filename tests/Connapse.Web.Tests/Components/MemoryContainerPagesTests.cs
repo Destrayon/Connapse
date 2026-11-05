@@ -72,21 +72,7 @@ public class MemoryContainerPagesTests : IDisposable
     }
 
     [Fact]
-    public void CreateDialog_Opened_OffersBothTypesWithDocumentsChosen()
-    {
-        containers.ListAsync(default, default, default).ReturnsForAnyArgs([]);
-        var cut = ctx.Render<Home>();
-
-        cut.Find(".container-list-header button").Click();
-
-        cut.Find("#kind-documents").GetAttribute("aria-checked").Should().Be("true");
-        cut.Find("#kind-memory").GetAttribute("aria-checked").Should().Be("false");
-        cut.Find("#kind-memory").TextContent.Should().Contain("Agent memory");
-        cut.Find("#container-kind-note").TextContent.Should().Contain("storage Connapse owns");
-    }
-
-    [Fact]
-    public void CreateDialog_AgentMemoryPicked_CreatesAMemoryContainer()
+    public void CreateDialog_Created_MakesADocumentContainerWithNoTypeChoice()
     {
         containers.ListAsync(default, default, default).ReturnsForAnyArgs([]);
         containers.CreateAsync(default!, default).ReturnsForAnyArgs(c => new Container(Guid.NewGuid().ToString(),
@@ -94,28 +80,14 @@ public class MemoryContainerPagesTests : IDisposable
         var cut = ctx.Render<Home>();
         cut.Find(".container-list-header button").Click();
 
-        cut.Find("#kind-memory").Click();
-        cut.Find("#kind-memory").GetAttribute("aria-checked").Should().Be("true");
-        cut.Find("#container-kind-note").TextContent.Should().Contain("memory_remember");
-        cut.Find("input[placeholder='my-project']").Input("agent-notes");
+        cut.FindAll("[role=radio]").Should().BeEmpty("memory spaces are made on the Memory page, not here");
+        cut.Markup.Should().NotContain("Agent memory");
+        cut.Find("#container-kind-note").TextContent.Should().Contain("storage Connapse owns");
+        cut.Find("input[placeholder='my-project']").Input("project-docs");
         cut.Find(".modal-footer-custom .btn-primary").Click();
 
         cut.WaitForAssertion(() => containers.Received(1).CreateAsync(
-            new CreateContainerRequest("agent-notes", null, ContainerKind.Memory), Arg.Any<CancellationToken>()));
-    }
-
-    [Fact]
-    public void CreateDialog_ReopenedAfterPickingMemory_StartsBackOnDocuments()
-    {
-        containers.ListAsync(default, default, default).ReturnsForAnyArgs([]);
-        var cut = ctx.Render<Home>();
-        cut.Find(".container-list-header button").Click();
-        cut.Find("#kind-memory").Click();
-
-        cut.Find(".modal-footer-custom .btn-outline-secondary").Click();
-        cut.Find(".container-list-header button").Click();
-
-        cut.Find("#kind-documents").GetAttribute("aria-checked").Should().Be("true");
+            new CreateContainerRequest("project-docs", null, ContainerKind.Documents), Arg.Any<CancellationToken>()));
     }
 
     [Fact]

@@ -125,7 +125,11 @@ else
                 <button class="btn-close btn-close-white" @onclick="HideCreateModal"></button>
             </div>
             <div class="modal-body-custom">
-                <ContainerKindPicker @bind-Kind="newContainerKind" />
+                <div class="alert alert-info py-2 small" id="container-kind-note">
+                    <span class="bi-info-circle me-1"></span>
+                    A container is storage Connapse owns — upload to it, organise it, delete from it.
+                    To index data that lives somewhere else, add a <a href="sources">source</a> instead.
+                </div>
                 <div class="mb-3">
                     <label class="form-label">Name</label>
                     <input type="text" class="form-control" placeholder="my-project"
@@ -223,7 +227,6 @@ else
     private bool showCreateModal;
     private string newContainerName = "";
     private string? newContainerDescription;
-    private ContainerKind newContainerKind = ContainerKind.Documents;
     private string? createError;
     private bool isCreating;
 
@@ -289,7 +292,6 @@ else
         showCreateModal = true;
         newContainerName = "";
         newContainerDescription = null;
-        newContainerKind = ContainerKind.Documents;
         createError = null;
     }
 
@@ -306,7 +308,7 @@ else
         try
         {
             var created = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(),
-                new CreateContainerRequest(newContainerName, newContainerDescription, newContainerKind));
+                new CreateContainerRequest(newContainerName, newContainerDescription, ContainerKind.Documents));
             if (!created.Succeeded)
             {
                 createError = created.Detail;

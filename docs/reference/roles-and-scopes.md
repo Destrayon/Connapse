@@ -182,6 +182,7 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `folders.delete` | `DELETE /api/containers/{containerId}/folders` | Destructive | Generic tools |
 | `links.unlink` | `DELETE /api/v1/auth/cloud/{provider}` | Destructive | Generic tools |
 | `links.unlink` | `DELETE /api/v1/auth/custom/{providerId}` | Destructive | Generic tools |
+| `memory.copy` | `POST /api/memory/facts/{id}/copy` | Write | — |
 | `memorySpaces.create` | `POST /api/memory/spaces` | Write | — |
 | `memorySpaces.delete` | `DELETE /api/memory/spaces/{spaceId}` | Destructive | — |
 | `memorySpaces.update` | `PATCH /api/memory/spaces/{spaceId}` | Write | — |
