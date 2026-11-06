@@ -100,9 +100,9 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `path` | string | No | Only files under this folder, such as `src/billing` |
 | | `maxFiles` | integer | No | Most files, 1 to 200; default 30 |
 | `memory_spaces` | `name` | string | No | Only spaces whose name or description contains this text |
-| | `kind` | string | No | `personal`, `team` or `container` |
-| `memory_remember` | `space` | string | Yes | Space or container id or name, from `memory_spaces`; memory can't be written to a source |
-| | `containerId` | string | No | Older name for the place to save, used only when `space` is left out. A fact citing no sources saved this way goes to the caller's `<container>-personal` space |
+| | `kind` | string | No | `personal` or `team` |
+| `memory_remember` | `space` | string | Yes | Space id or name, from `memory_spaces`; memory can't be written to a document container or a source |
+| | `containerId` | string | No | Older name for the space to save to, used only when `space` is left out. A fact citing no sources saved this way goes to the caller's `<space>-personal` space |
 | | `subject`, `attribute`, `value` | string | Yes | The fact, such as `Halcyon`, `database`, `PostgreSQL 15` |
 | | `validFrom`, `validTo` | string | No | When it became and stopped being true, `YYYY-MM-DD` or ISO 8601 |
 | | `sources` | string[] | No | Document ids, or link node ids as `node:<id>` |
@@ -113,7 +113,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `containerId` | string | No | Ignored for the lookup; kept so older agents still work |
 | `memory_forget` | `factId` | string | Yes | The fact to delete, found by id in any space the caller can see |
 | | `containerId` | string | No | Ignored for the lookup |
-| `memory_recall` | `space` | string | No | Space or container id or name. Left out, every space the caller can see is read |
+| `memory_recall` | `space` | string | No | Space id or name. Left out, every space the caller can see is read |
 | | `containerId` | string | No | Older name for `space` |
 | | `query` | string | No | Words to match against subject, attribute, value and reason |
 | | `subject`, `attribute` | string | No | Exact match, in any case |
