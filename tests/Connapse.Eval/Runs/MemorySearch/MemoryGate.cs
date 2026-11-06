@@ -19,7 +19,7 @@ public sealed class MemoryGate(long floorBytes, Func<long> availableBytes, TextW
 
     public static readonly TimeSpan CheckEvery = TimeSpan.FromSeconds(30);
 
-    private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? ((wait, ct) => Task.Delay(wait, ct));
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? Task.Delay;
     private int _holds;
     private int _failedStarts;
     private long _heldTicks;
