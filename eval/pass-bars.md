@@ -143,6 +143,11 @@ again with a reason saying what is new. Three bars, all of which must pass.
   42%, and stop if it passes 42%; an arm stopped early is reported as not run, never scored on part of its tasks.
   Lifted by the user on 2026-11-05, with the meter at 43% and before any agent arm ran: "You can keep running the
   test, i don't really mind." It was a limit on spending, not on measurement, so no bar changes.
+- **Corrections in the planted replay (recorded 2026-11-05, after a two-task smoke run and before any scored run).**
+  CON-244's replay predates the rule that a correction of a team fact must keep every source the old fact cites, so
+  its corrections cited only the new document and the product now refuses them. In this arm a correction cites its
+  target's sources as well as its own. That can only make the stale document easier to cite, so it works against the
+  planted bar. No bar changes.
 - **Reading of the sorting bar (recorded 2026-11-05, after the offline sort was scored and before any agent run).**
   The ticket says restating notes are "dropped" and new facts "kept", which is what happens after the agent reads the
   held reply, not what the cutoff alone holds. Holding a new fact costs little, because the agent sees the passages

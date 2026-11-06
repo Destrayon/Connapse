@@ -172,7 +172,10 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         }
     }
 
-    /// <summary>The same memory, each save going through the real closeness check (CON-245).</summary>
+    /// <summary>
+    /// The same memory, each save going through the real closeness check (CON-245). A correction also cites what its
+    /// target cited, because a correction of a team fact must keep every source; CON-244's replay predates that rule.
+    /// </summary>
     private static async Task<ReplayTally> ReplayCheckedAsync(IServiceProvider services, Guid container, IReadOnlyDictionary<string, string> docMap,
         IReadOnlyList<MemoryOp> ops, IReadOnlySet<string> undocumented, Guid userId, CancellationToken ct)
     {
@@ -182,22 +185,28 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         RememberFact remember = scope.ServiceProvider.GetRequiredService<MemoryOperations>().Remember;
         OperationContext writer = new(McpToolbox.Writer(userId, "memory-search-eval"), OperationSurface.Mcp);
         MemoryCaller caller = new(userId, null, "memory-search-eval");
-        NewMemoryFact Fact(MemoryOp op, string subject, string attribute) => new(subject, attribute, op.Value, Date(op.ValidFrom), null,
-            [.. op.Sources.Select(s => new MemorySource(MemorySourceKind.Document, documentOf[s]))], op.Reason);
+        Dictionary<Guid, IReadOnlyList<string>> cites = [];
+        NewMemoryFact Fact(MemoryOp op, string subject, string attribute, IReadOnlyList<string> sources) => new(subject, attribute, op.Value, Date(op.ValidFrom), null,
+            [.. sources.Select(s => new MemorySource(MemorySourceKind.Document, documentOf[s]))], op.Reason);
 
         return await ReplayThroughCheckAsync(ops, undocumented,
             async (op, subject, attribute, whatIsNew) =>
             {
                 Attempt<MemoryWritten, MemoryStatus> saved = await remember.RunAsync(
-                    writer, MemoryTarget.Space(container.ToString()), Fact(op, subject, attribute), whatIsNew, ct);
+                    writer, MemoryTarget.Space(container.ToString()), Fact(op, subject, attribute, op.Sources), whatIsNew, ct);
                 if (saved.Status == MemoryStatus.CloseToDocuments)
                     return null;
-                return saved.Result?.Fact.Id ?? throw new InvalidOperationException($"{op.Id} was refused: {saved.Status}");
+                Guid id = saved.Result?.Fact.Id ?? throw new InvalidOperationException($"{op.Id} was refused: {saved.Status}");
+                cites[id] = op.Sources;
+                return id;
             },
             async (op, target, subject, attribute) =>
             {
-                MemoryWriteResult result = await memory.CorrectAsync(target, MemoryCorrection.Changed, Fact(op, subject, attribute), caller, true, ct);
-                return result.Fact?.Id ?? throw new InvalidOperationException($"{op.Id} was refused: {result.Error}");
+                List<string> sources = [.. cites[target].Union(op.Sources, StringComparer.Ordinal)];
+                MemoryWriteResult result = await memory.CorrectAsync(target, MemoryCorrection.Changed, Fact(op, subject, attribute, sources), caller, true, ct);
+                Guid id = result.Fact?.Id ?? throw new InvalidOperationException($"{op.Id} was refused: {result.Error}");
+                cites[id] = sources;
+                return id;
             });
     }
 
