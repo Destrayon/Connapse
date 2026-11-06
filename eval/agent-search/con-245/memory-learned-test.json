@@ -1,0 +1,392 @@
+{
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "tasks": 104,
+  "all": {
+    "tasks": 104,
+    "offScore": 0.8173,
+    "onScore": 0.8045,
+    "offSearches": 1.2724,
+    "onSearches": 1.2756
+  },
+  "memorySet": {
+    "tasks": 64,
+    "offScore": 0.7031,
+    "onScore": 0.6823,
+    "offSearches": 1.4375,
+    "onSearches": 1.4167
+  },
+  "holdoutSet": {
+    "tasks": 40,
+    "offScore": 1,
+    "onScore": 1,
+    "offSearches": 1.0083,
+    "onSearches": 1.05
+  },
+  "kinds": {
+    "alias": {
+      "tasks": 16,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.8542,
+      "onSearches": 1.75
+    },
+    "control": {
+      "tasks": 28,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.0119,
+      "onSearches": 1.0714
+    },
+    "correction": {
+      "tasks": 16,
+      "offScore": 0.5625,
+      "onScore": 0.4375,
+      "offSearches": 1.2708,
+      "onSearches": 1.2292
+    },
+    "current": {
+      "tasks": 16,
+      "offScore": 0.25,
+      "onScore": 0.2917,
+      "offSearches": 1,
+      "onSearches": 1.0625
+    },
+    "location": {
+      "tasks": 16,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.625,
+      "onSearches": 1.625
+    },
+    "stale": {
+      "tasks": 12,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1,
+      "onSearches": 1
+    }
+  },
+  "memorySetHalves": {
+    "documented": {
+      "tasks": 64,
+      "offScore": 0.7031,
+      "onScore": 0.6823,
+      "offSearches": 1.4375,
+      "onSearches": 1.4167
+    },
+    "undocumented": {
+      "tasks": 0,
+      "offScore": 0,
+      "onScore": 0,
+      "offSearches": 0,
+      "onSearches": 0
+    }
+  },
+  "comparisons": {
+    "memorySetScore95": {
+      "tasks": 64,
+      "meanDifference": -0.0208,
+      "ci": [
+        -0.0729,
+        0.0156
+      ],
+      "permutationP": 0.5271472852714728,
+      "minimumDetectableEffect": 0.062
+    },
+    "holdoutSetScore90": {
+      "tasks": 40,
+      "meanDifference": 0,
+      "ci": [
+        0,
+        0
+      ],
+      "permutationP": 1,
+      "minimumDetectableEffect": 0
+    },
+    "allScore95": {
+      "tasks": 104,
+      "meanDifference": -0.0128,
+      "ci": [
+        -0.0513,
+        0.0064
+      ],
+      "permutationP": 0.5243475652434757,
+      "minimumDetectableEffect": 0.0381
+    },
+    "answerAccuracy": {
+      "tasks": 104,
+      "meanDifference": -0.0032,
+      "ci": [
+        -0.0385,
+        0.0256
+      ],
+      "permutationP": 0.9979002099790021,
+      "minimumDetectableEffect": 0.0451
+    },
+    "staleCitations": {
+      "tasks": 104,
+      "meanDifference": 0.0128,
+      "ci": [
+        -0.0096,
+        0.0481
+      ],
+      "permutationP": 0.5243475652434757,
+      "minimumDetectableEffect": 0.0381
+    },
+    "runRecall": null,
+    "firstQueryMrr@10": null,
+    "searchCalls": {
+      "tasks": 104,
+      "meanDifference": 0.0032,
+      "ci": [
+        -0.0385,
+        0.0449
+      ],
+      "permutationP": 0.9981001899810019,
+      "minimumDetectableEffect": 0.0592
+    },
+    "toolCalls": {
+      "tasks": 104,
+      "meanDifference": 0.4936,
+      "ci": [
+        0.4006,
+        0.5897
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.1362
+    }
+  },
+  "outcomes": {
+    "off": {
+      "Answered": 312
+    },
+    "on": {
+      "Answered": 312
+    }
+  },
+  "tokens": {
+    "off": null,
+    "on": {
+      "runs": 312,
+      "input": 2054,
+      "cacheWrite": 1789962,
+      "cacheRead": 4187606,
+      "output": 143997,
+      "apiListPriceUsd": 9.0227
+    }
+  },
+  "examples": {
+    "memoryHelped": [
+      {
+        "task": "test-correction-12-s2",
+        "kind": "correction",
+        "question": "What is the encryption key rotation period for Manufacturing?",
+        "expected": "150 days",
+        "offScore": 0,
+        "onScore": 0.3333,
+        "offAnswer": "540 days (Manufacturing IT Equipment and Encryption Policy, issued 2023-06-13)",
+        "onAnswer": "150 days. The 2025 Manufacturing Hardware Lifecycle and Key Management Standard (effective 2025-06-27) calls this the \u0022key renewal interval\u0022. It replaced the 2023 policy, which set 540 days."
+      },
+      {
+        "task": "test-current-05-s2",
+        "kind": "current",
+        "question": "What is the release freeze length before quarter end for Manufacturing?",
+        "expected": "9 days",
+        "offScore": 0,
+        "onScore": 0.3333,
+        "offAnswer": "13 days, per the latest Manufacturing policy (revision LW, issued 2025-11-28). Two older revisions give different numbers: FW (2025-11-17) says 9 days and WC (2024-03-16) says 3 days. I treated the most recently issued one as current.",
+        "onAnswer": "13 days (current revision LW, issued 2025-11-28; it supersedes FW with 9 days and WC with 3 days)."
+      },
+      {
+        "task": "test-current-09-s2",
+        "kind": "current",
+        "question": "What is the refund approval limit for Manufacturing?",
+        "expected": "$7,900",
+        "offScore": 0,
+        "onScore": 0.3333,
+        "offAnswer": "$5,500, from the latest Manufacturing policy (revision SJ, issued 2025-08-24). Two earlier revisions give different figures: LK (2025-08-12) says $7,900 and MG (2025-03-19) says $7,600. I treated the most recently issued revision as current.",
+        "onAnswer": "$5,500 (per the latest Manufacturing policy, revision SJ, issued 2025-08-24; it supersedes earlier revisions LK $7,900 and MG $7,600)."
+      }
+    ],
+    "memoryHurt": [
+      {
+        "task": "test-correction-05-s2",
+        "kind": "correction",
+        "question": "What is the encryption key rotation period for Research?",
+        "expected": "330 days",
+        "offScore": 1,
+        "onScore": 0,
+        "offAnswer": "330 days. The 2025 Research Working Hours and Key Management Standard (effective 2025-01-07) sets the key renewal interval at 330 days. It replaced the 2023 policy, which said 630 days.",
+        "onAnswer": "330 days. The Research Working Hours and Key Management Standard (effective 2025-01-07) calls it the \u0022key renewal interval\u0022. It replaces the 2023 policy, which set 630 days."
+      },
+      {
+        "task": "test-correction-09-s2",
+        "kind": "correction",
+        "question": "What is the backup retention period for Marketing?",
+        "expected": "175 days",
+        "offScore": 1,
+        "onScore": 0.3333,
+        "offAnswer": "175 days. This comes from the Marketing Recruitment and Data Protection Standard, effective 2025-07-16, which calls it the \u0022snapshot keep period\u0022. It replaces the 2023 policy that said 385 days.",
+        "onAnswer": "175 days. This comes from the Marketing Recruitment and Data Protection Standard, effective 2025-07-16, which replaced the 2023 policy that said 385 days."
+      },
+      {
+        "task": "test-correction-02-s2",
+        "kind": "correction",
+        "question": "What is the commuter subsidy for Research?",
+        "expected": "$80 per month",
+        "offScore": 0.3333,
+        "onScore": 0,
+        "offAnswer": "Research\u0027s current commuter (transit) benefit is $80 per month, under the Hybrid Working and Transit Benefits Standard effective 2025-07-11. That standard replaced the 2023 policy, which gave $130 per month.",
+        "onAnswer": "Research\u0027s commuter (transit) benefit is currently $80 per month, under the Hybrid Working and Transit Benefits Standard effective 2025-07-11. That standard replaced the 2023 policy, which set the commuter subsidy at $130 per month."
+      }
+    ]
+  },
+  "offRunsReusedFrom": "eval/agent-search/con-244/memory-learned-test.runs.jsonl",
+  "gate": {
+    "checkedBar": "realistic",
+    "checkedBarMet": true,
+    "verdict": "NO BETTER (DROP)",
+    "memorySetMdeOver015": false,
+    "conforming": true,
+    "diagnosticOnly": [],
+    "passed": true
+  },
+  "session1": {
+    "runs": 228,
+    "meanScore": 0.6667,
+    "outcomes": {
+      "Answered": 228
+    },
+    "memoryWrites": 106,
+    "writesCitingSources": 106,
+    "runsThatWrote": 106,
+    "tokens": {
+      "runs": 228,
+      "input": 2040,
+      "cacheWrite": 1709361,
+      "cacheRead": 7127682,
+      "output": 238760,
+      "apiListPriceUsd": 9.9419
+    }
+  },
+  "saveCheck": {
+    "saveCalls": 320,
+    "stored": 106,
+    "held": 214,
+    "storedWithReason": 96,
+    "runsWithAHeldSave": 214,
+    "reasons": [
+      "Combines the two documents into a direct service-to-template answer and a lookup pattern for other services.",
+      "Maps the reporting service to codename Obsidian (from the overview doc), which the ops notes don\u0027t state.",
+      "Links Atlas to Research, which the policy text doesn\u0027t say.",
+      "Links the Atlas alias to Research via the team charter; the policy doesn\u0027t mention Atlas.",
+      "Notes that the 2023 policy is superseded by the 2025 standard with 5 minutes.",
+      "Maps build farm to codename Calypso (from the overview doc), which the ops notes don\u0027t state.",
+      "Resolves which of three conflicting revisions is current (latest issue date, not revision letters).",
+      "Resolves which of three conflicting revisions is current (FL, newest by issue date).",
+      "Explicitly links the renamed attribute to laptop replacement cycle and states which value is current.",
+      "Synthesis: \u0022audit trail keep window\u0022 in the 2025 standard is the same concept as \u0022log retention period\u0022, so the answer is 510 days.",
+      "Joins the two documents: resolves Mavericks alias to Platform and gives the resulting answer.",
+      "Links the Mavericks alias to Platform via the team charter; the policy doesn\u0027t mention Mavericks.",
+      "Explicitly states which of the two conflicting documents is current; documents use different wording (referral award) so searches may surface the old one first.",
+      "Which revision is current and supersedes the others.",
+      "Notes the 2023 policy 2.25x is superseded by the 2025 standard at 1.4x.",
+      "States explicitly that the extra-hours rate equals the overtime multiplier and that 1.4x is the current answer, not 2.25x.",
+      "Search tip: two-hop lookup, since generic searches don\u0027t rank the right codename in the top results.",
+      "Which revision is current and supersedes the others.",
+      "Records that the 2023 policy was superseded by a newer standard with 55 minutes, using different wording.",
+      "Explicitly states which value is current and that the old 40 min is superseded, mapping attribute rename.",
+      "Notes the 2023 policy was superseded and that wording differs (page response target), so searches for \u0022paging acknowledgement\u0022 surface the outdated doc first.",
+      "Links the Firebirds alias to Marketing via the team charter.",
+      "Combines the two documents: links the Firebirds alias to Marketing\u0027s 1.5x answer, so no need to search both.",
+      "Says which revision is the latest and that revision letters are not chronological.",
+      "States the 2023 30-month value is superseded by the 54-month standard, which uses different wording (\u0022device refresh interval\u0022).",
+      "Says the 2023 30-month policy is superseded, and that the new wording (\u0022device refresh interval\u0022) makes the outdated doc rank first when searching \u0022laptop replacement cycle\u0022.",
+      "Links the Sherpas alias to Facilities via the Facilities team charter; policies don\u0027t mention aliases.",
+      "Resolves which of the three revisions is current by issue date.",
+      "States which of the three revisions is current and that the others are superseded.",
+      "Identifies PB as the latest of three revisions (WW, PV, PB) so it supersedes the others; revision letters don\u0027t indicate order.",
+      "States which revision is the latest by issue date and that letters are not chronological.",
+      "States which revision is the latest/current and that revision letters are not chronological.",
+      "Identifies which of the three revisions is the latest and that no newer standard supersedes it.",
+      "Links the message queue to codename Osprey via the overview doc, and the lookup pattern.",
+      "Maps message queue to codename Osprey (from overview doc), which the ops notes don\u0027t state.",
+      "Links the Anchors alias to Manufacturing via the team charter; the policy docs don\u0027t mention aliases.",
+      "Links the Anchors nickname to Manufacturing and the lookup pattern across the charter and policy documents.",
+      "Links the Sparrows alias to Field Operations",
+      "Resolves the conflict between three revisions: the latest-issued one (DH) is current.",
+      "Links Lighthouse alias to Research via charter; the policy doesn\u0027t mention Lighthouse.",
+      "Links the service name \u0027notification service\u0027 to codename Marigold and the lookup method.",
+      "Links notification service to codename Marigold via the overview doc.",
+      "Links the Ravens alias (Marketing team charter) to the Marketing refund policy.",
+      "Maps the renamed attribute (audit trail keep window) to log retention and states the 285-day value is current, 600 superseded.",
+      "Notes the 2023 doc ranks first for \u0022single-transaction card limit\u0022 because the new doc uses different wording (\u0022per-purchase card cap\u0022); the newer doc is the current one.",
+      "Maps \u0022refund approval limit\u0022 to the renamed term \u0022credit sign-off ceiling\u0022 as the current value.",
+      "The 2023 doc ranks first for \u0022refund approval limit\u0022; the newer standard uses different wording and supersedes it.",
+      "Links \u0027identity service\u0027 to codename Tamarack (from the overview doc) and the lookup method.",
+      "Joins the two docs: identity service -\u003E Tamarack -\u003E CHG-6831 in one fact.",
+      "Maps identity service to codename Tamarack (from the overview doc), which the ops notes don\u0027t state.",
+      "States which revision is the latest by issue date and that letters are not chronological.",
+      "States which revision is latest/current by issue date and that the others are superseded.",
+      "States which of the three conflicting revisions is current (latest issue date, TR).",
+      "Resolves which of three conflicting revisions is current (TR, newest by issue date).",
+      "Links the renamed \u0022remote setup stipend\u0022 to the home-office allowance and says the $1050 figure is superseded, so $700 is the current answer.",
+      "Maps \u0022home-office equipment allowance\u0022 to the renamed \u0022remote setup stipend\u0022 and states $1050 is superseded; search synonyms for replaced policies.",
+      "Equates \u0022remote setup stipend\u0022 with home-office equipment allowance and states $700 is current, not $1050.",
+      "Resolves which of the three revisions is current by issue date.",
+      "The policy register document names VD as the revision in force, which decides among the three revisions.",
+      "Identifies VD as the latest of three revisions (letters don\u0027t indicate order), so 600 days is current.",
+      "Links \u0022feature flag service\u0022 to codename Driftwood (from overview doc) and the lookup method.",
+      "Joins the two docs: feature flag service -\u003E Driftwood -\u003E CHG-6397 in one fact.",
+      "Maps feature flag service to codename Driftwood (from overview doc), which the ops notes don\u0027t state.",
+      "States which of the three revisions is current (LW by latest issue date) and that the others are superseded.",
+      "States which of the three revisions is current (LW, latest issue date) and that the others are superseded.",
+      "Links the Northstar alias to Manufacturing via the team charter; the travel policy doesn\u0027t mention aliases.",
+      "Maps renamed attribute \u0022credential expiry period\u0022 to password rotation interval and states 195 days is current over 300.",
+      "Concludes which of the two documents is current: the Standard (term renamed to credential expiry) supersedes the 2023 policy.",
+      "Links \u0022search cluster\u0022 to codename Juniper (from overview doc), which the runbook passages don\u0027t state.",
+      "Links search cluster to codename Juniper via the overview doc, which the ops note lacks.",
+      "Maps search cluster to codename Juniper (from overview doc), which the ops notes don\u0027t state.",
+      "Maps the Night Owls alias to Finance and gives its deadline.",
+      "Links the Night Owls alias to the Finance policy\u0027s 10-minute deadline; the charter alone doesn\u0027t give the deadline.",
+      "Maps the renamed attribute \u0022data subject reply window\u0022 to \u0022access request response deadline\u0022 and states which value is current.",
+      "Links the \u0022access request response deadline\u0022 wording (2023 doc ranks first) to the newer \u0022data subject reply window\u0022 term, so the answer is 8 days, not 43.",
+      "States which of the three conflicting revisions is current (latest issue date, HV).",
+      "Resolves which of three revisions is current by issue date.",
+      "Concludes which of three conflicting revisions is current (HV, newest by issue date).",
+      "Synthesis: rollover cap is the same concept as carry-over limit, so current answer is 14, not 22.",
+      "States which value is current and that the wording differs (rollover cap = carry-over limit).",
+      "The 2023 doc ranks first for \u0022laptop replacement cycle\u0022 but is superseded; new wording is \u0022device refresh interval\u0022.",
+      "Maps alias Summit to Research via the team charter, which the policy docs don\u0027t say.",
+      "Links \u0022mobile API\u0022 to codename Sorrel (from the overview doc), which the runbook doesn\u0027t state.",
+      "Links mobile API to codename Sorrel via the overview doc.",
+      "Maps mobile API to codename Sorrel (from overview doc), which the ops notes don\u0027t state.",
+      "States which revision is current (SJ, latest issue date) and that the others are superseded.",
+      "Links \u0022billing database\u0022 to codename Halyard (from overview doc), which the runbook doesn\u0027t state.",
+      "Links billing database to codename Halyard via the overview doc.",
+      "Maps billing database to codename Halyard (from overview doc), which the ops notes don\u0027t state.",
+      "Joins the two documents: resolves the Beacons alias to Manufacturing and gives the resulting answer.",
+      "Links the Beacons alias to the Manufacturing policy; the policy doesn\u0027t mention Beacons.",
+      "Links analytics pipeline to codename Fennel via the overview doc, which the ops note lacks.",
+      "Maps analytics pipeline to codename Fennel (from overview doc), which the ops notes don\u0027t state.",
+      "States which of the three conflicting revisions is current (latest issue date, QD) and that revision letters carry no order.",
+      "States which of the three revisions is current and that revision letters don\u0027t indicate order.",
+      "Records that a search for renamed/superseding standards found none for Sales Engineering, so 36 months is current."
+    ]
+  },
+  "memoryGuard": {
+    "floorGb": 8,
+    "holds": 0,
+    "heldSeconds": 0,
+    "failedStarts": 0,
+    "restoredRuns": 180
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 0%)",
+    "atLastRun": "allowed (seven_day 1%)"
+  }
+}

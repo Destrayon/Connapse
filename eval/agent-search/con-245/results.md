@@ -10,8 +10,8 @@ split.
 | Sorting: new facts kept | ≥ 90% | 90.6% (29 of 32) | Met |
 | Planted: M gain | ≥ +0.30, 95% interval above 0 | +0.24 (0.13 to 0.36) | Missed |
 | Planted: H | 90% low end above −0.10 | 0.00 (0.00 to 0.00) | Met |
-| Realistic: M | 95% low end above −0.10 | no valid result yet | Not measured |
-| Realistic: H | 90% low end above −0.10 | no valid result yet | Not measured |
+| Realistic: M | 95% low end above −0.10 | −0.02 (−0.07 to +0.02) | Met |
+| Realistic: H | 90% low end above −0.10 | 0.00 (0.00 to 0.00) | Met |
 
 M is the memory set, the tasks memory can help with. H is the holdout set, which it shouldn't change.
 
@@ -50,7 +50,25 @@ were retried with a reason, 89 were dropped and 19 corrects were rewritten. Undo
 
 The check added a mean 12.2 ms per save.
 
-## Realistic arm: no valid result
+## Realistic arm
+
+Raw output: `memory-learned-test.json` and `memory-learned-test.runs.jsonl`, 104 tasks, 3 repetitions, compared by task
+with CON-244's off runs. All 312 session-2 runs and all 228 session-1 runs reached an answer.
+
+| | Off | On, CON-244 | On, CON-245 |
+|---|---|---|---|
+| M score | 0.703 | 0.609 | 0.682 |
+| M difference | | −0.09 | −0.02 |
+| H score | 1.00 | 0.99 | 1.00 |
+| Corrections | 0.563 | 0.104 | 0.438 |
+| Current value | 0.250 | 0.333 | 0.292 |
+| Aliases, locations, controls, stale | 1.00 | 0.97 to 1.00 | 1.00 |
+
+The bar here is no harm, and it is met. Memory written by agents still doesn't help: M is slightly below off, and the
+report's gate verdict is "no better". The check removed most of CON-244's harm to corrections.
+
+Session-1 agents made 320 saves. The check held 214, agents saved 96 of those again with a reason, and 10 were stored
+first try. So 118 held saves, 55% of them, were dropped.
 
 The first attempt is void, so no bar is read from it. A low-memory stop of the session killed the shell whose console
 the eval had inherited. From then on every `claude` start failed with `0xC0000142`, even with 40 GB free, and the guard
@@ -59,11 +77,9 @@ exits `0xC0000142`, and one with a console of its own starts normally. The earli
 exit code was wrong.
 
 Fixed in the eval: `claude` gets its own console, and 5 failed starts in a row stop the run in place of scoring zeros.
-Repetition 1 is valid and kept. Repetitions 2 and 3 need to run again.
-
-As an early indication only, not a bar result: on repetition 1, M scored 0.672 against the off mean of 0.703, and H
-scored 1.00. In the two session-1 repetitions that ran, agents made 195 saves. The check held 145, 44 were stored with a
-reason, and 6 were stored first try.
+Repetition 1 finished before the failure and is kept from that attempt, on the build without the fix, which changes only
+how `claude` starts. Repetitions 2 and 3 ran again from the checkpoint with no holds and no failed starts. Nothing was
+tuned between them.
 
 ## First tuning, offline, replaced
 
