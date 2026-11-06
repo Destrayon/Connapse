@@ -2,6 +2,25 @@
 
 Bars, splits and the tuning rule were set in `eval/pass-bars.md` (CON-245 section) before any run.
 
+## Sorting after the agent decides (the bar)
+
+Run 2026-11-05 with Sonnet at medium effort on the 222 registered notes; raw output is `memory-sort-agent.json` and
+`memory-sort-agent.runs.jsonl`. The planted and realistic arms have not run: the system stopped the job for low memory
+just after this one ended.
+
+| | Bar | Measured | Result |
+|---|---|---|---|
+| Restating notes dropped | ≥ 80% | 44.4% of the 160 that ran (at most 53.2% of all 190) | Missed |
+| New facts kept | ≥ 90% | 90.6% (29 of 32) | Met |
+
+Thirty learned restating notes never reached an agent: `claude` failed to start (exit `0xC0000142`) as the machine ran
+out of memory. The report's 53.2% counts them as dropped, so 44.4% is the honest figure. Counting them either way, the
+restating bar is missed.
+
+The check held 143 of the 160 restating notes, and agents saved 72 of those again with a reason, so the loss is in the
+second save. By source, 71.6% of planted restating notes were dropped against 43.1% of learned ones (with the 30 counted
+as dropped). The typical reason was that a passage never mentions the subject the note links to it.
+
 ## Sorting (offline, no model calls)
 
 `dotnet run --project tests/Connapse.Eval -- memory-novelty --config hybrid` indexes both CON-244 corpora (late

@@ -1,0 +1,128 @@
+{
+  "config": "hybrid",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "notes": 222,
+  "sorted": 222,
+  "stoppedAt": null,
+  "all": {
+    "restatingDropped": 0.5316,
+    "newKept": 0.9062,
+    "restating": {
+      "notes": 190,
+      "heldFirst": 143,
+      "stored": 89,
+      "storedWithReason": 72,
+      "noAttempt": 30
+    },
+    "new": {
+      "notes": 32,
+      "heldFirst": 9,
+      "stored": 29,
+      "storedWithReason": 6,
+      "noAttempt": 0
+    }
+  },
+  "bySource": {
+    "learned": {
+      "restatingDropped": 0.4309,
+      "newKept": 1,
+      "restating": {
+        "notes": 123,
+        "heldFirst": 90,
+        "stored": 70,
+        "storedWithReason": 67,
+        "noAttempt": 30
+      },
+      "new": {
+        "notes": 0,
+        "heldFirst": 0,
+        "stored": 0,
+        "storedWithReason": 0,
+        "noAttempt": 0
+      }
+    },
+    "planted": {
+      "restatingDropped": 0.7164,
+      "newKept": 0.9062,
+      "restating": {
+        "notes": 67,
+        "heldFirst": 53,
+        "stored": 19,
+        "storedWithReason": 5,
+        "noAttempt": 0
+      },
+      "new": {
+        "notes": 32,
+        "heldFirst": 9,
+        "stored": 29,
+        "storedWithReason": 6,
+        "noAttempt": 0
+      }
+    }
+  },
+  "outcomes": {
+    "Answered": 192,
+    "Error": 30
+  },
+  "tokens": {
+    "runs": 222,
+    "input": 1338,
+    "cacheWrite": 405770,
+    "cacheRead": 2063159,
+    "output": 108397,
+    "apiListPriceUsd": 2.916
+  },
+  "reasons": [
+    {
+      "note": "op-034",
+      "restates": false,
+      "whatIsNew": "Links the subject \u0022message queue\u0022 to the Osprey credential rotation runbook; the passages only describe Osprey\u0027s procedure and never mention the message queue."
+    },
+    {
+      "note": "op-059",
+      "restates": false,
+      "whatIsNew": "The passages never mention \u0022mobile API\u0022; this fact links the mobile API to that document as its regional failover runbook."
+    },
+    {
+      "note": "op-062",
+      "restates": true,
+      "whatIsNew": "Links the subject \u0022customer portal\u0022 to the Mistral document as its scale-up runbook; the passages only describe Mistral\u0027s procedure and never mention the customer portal."
+    },
+    {
+      "note": "op-065",
+      "restates": false,
+      "whatIsNew": "The passage never mentions the VPN gateway; this links the VPN gateway subject to that runbook document."
+    },
+    {
+      "note": "op-091",
+      "restates": true,
+      "whatIsNew": "Links the \u0022reporting service\u0022 subject to this runbook; the passage shown only describes the Obsidian procedure and does not mention the reporting service."
+    },
+    {
+      "note": "op-093",
+      "restates": false,
+      "whatIsNew": "The document never mentions \u0022search cluster\u0022; this links the search cluster to that runbook as its backup-restore reference."
+    },
+    {
+      "note": "op-107",
+      "restates": false,
+      "whatIsNew": "The document never mentions the identity service; this links the identity service to that runbook document as its backup-restore runbook."
+    },
+    {
+      "note": "op-115",
+      "restates": false,
+      "whatIsNew": "The passage never mentions the payments gateway; this records that the payments gateway\u0027s node drain runbook is the \u0022Cobalt ops notes: node drain\u0022 document."
+    }
+  ],
+  "gate": {
+    "restatingDroppedAtLeast": 0.8,
+    "newKeptAtLeast": 0.9,
+    "registeredNotes": 222,
+    "passed": false
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 44%)",
+    "atLastRun": "allowed (seven_day 44%)"
+  }
+}
