@@ -184,11 +184,37 @@ public sealed class ClaudeCliAgent(
     /// </summary>
     public double? StopAtSevenDay { get; init; }
 
+    /// <summary>
+    /// Holds each start while memory is low and starts a run again when claude never reached the model, up to
+    /// <see cref="MemoryGate.MaxStarts"/> starts. Null starts every run at once and scores a failed start.
+    /// </summary>
+    public MemoryGate? Gate { get; init; }
+
     /// <summary>True when <paramref name="limit"/> reports the seven-day window at or above <paramref name="stopAt"/>.</summary>
     public static bool PastStopLine(SubscriptionLimit limit, double? stopAt) =>
         stopAt is double line && limit.Utilization.TryGetValue("seven_day", out double used) && used >= line;
 
     public async Task<AgentRun> RunAsync(IToolbox toolbox, string system, string question, CancellationToken ct)
+    {
+        for (int start = 1; ; start++)
+        {
+            if (Gate is not null)
+                await Gate.WaitForRoomAsync(ct);
+            (AgentRun run, int? failedStart) = await StartAsync(toolbox, system, question, ct);
+            if (Gate is null || failedStart is not int exitCode || start == MemoryGate.MaxStarts)
+                return run;
+            await Gate.RecordFailedStartAsync(exitCode, ct);
+        }
+    }
+
+    /// <summary>
+    /// True when the process ended before the model did anything: no tool call, no rate-limit report, no result. Such a
+    /// run says nothing about the agent, and memory pressure causes it (0xC0000142, the process could not initialize).
+    /// </summary>
+    public static bool NeverStarted(BridgeSession session, CliResult result, ProcessResult process) =>
+        !process.TimedOut && !result.Finished && result.Limit is null && session.Outcome is null && session.Calls.Count == 0;
+
+    private async Task<(AgentRun Run, int? FailedStart)> StartAsync(IToolbox toolbox, string system, string question, CancellationToken ct)
     {
         (string id, BridgeSession session) = bridge.Open(toolbox);
         try
@@ -203,7 +229,7 @@ public sealed class ClaudeCliAgent(
             if (result.Limit is { } reached && PastStopLine(reached, StopAtSevenDay))
                 throw new SubscriptionLimitException(reached);
             RequireSubscription(result, session.Outcome is not null || session.Calls.Count > 0);
-            return Compose(session, result, process);
+            return (Compose(session, result, process), NeverStarted(session, result, process) ? process.ExitCode : null);
         }
         finally
         {

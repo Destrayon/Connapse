@@ -148,6 +148,19 @@ again with a reason saying what is new. Three bars, all of which must pass.
   its corrections cited only the new document and the product now refuses them. In this arm a correction cites its
   target's sources as well as its own. That can only make the stale document easier to cite, so it works against the
   planted bar. No bar changes.
+- **Memory guard (recorded 2026-11-05, after the sort-after-agent run and before any planted or realistic run was
+  scored).** The first attempt at these arms was killed when the machine ran out of memory, so the eval now watches
+  available memory, with no change to agents, tools, tasks or scores.
+  - Before each agent starts, the run holds while under 8 GB is available and goes on by itself when there is room.
+    A hold changes only wall-clock time.
+  - A `claude` process that ends with no tool call, no rate-limit report and no result (for example exit `0xC0000142`)
+    never reached the model, so it is started again, up to 5 starts, and only the fifth failure is scored as an error.
+    CON-244's off runs had no such restarts, which could only favour the memory-on arm by the number of failed starts,
+    so `memoryGuard.failedStarts` is reported with the results, and the logs show each one.
+  - Finished runs go to a checkpoint file. A killed planted run restarts, replays memory the same way (it stops if the
+    replay differs) and continues with the unfinished tasks. A killed realistic run keeps finished repetitions and
+    repeats an unfinished one whole, because session 2 reads session 1's saves from a database that dies with the run.
+    Runs from a repeated repetition are thrown away, never scored. No bar changes.
 - **Reading of the sorting bar (recorded 2026-11-05, after the offline sort was scored and before any agent run).**
   The ticket says restating notes are "dropped" and new facts "kept", which is what happens after the agent reads the
   held reply, not what the cutoff alone holds. Holding a new fact costs little, because the agent sees the passages

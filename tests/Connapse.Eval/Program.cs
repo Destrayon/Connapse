@@ -4,6 +4,7 @@ using Connapse.Eval.Datasets;
 using Connapse.Eval.Model;
 using Connapse.Eval.Reports;
 using Connapse.Eval.Runs;
+using Connapse.Eval.Runs.MemorySearch;
 using Connapse.Eval.Systems;
 
 namespace Connapse.Eval;
@@ -44,11 +45,13 @@ internal static class EvalEntryPoint
                 "memory-search" => await new MemorySearchEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
-                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.Flag("check-saves"), cli.Option("reuse-off")), cts.Token),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.Flag("check-saves"), cli.Option("reuse-off"),
+                    cli.PositiveInt("min-free-gb") ?? MemoryGate.DefaultFloorGb), cts.Token),
                 "memory-learned" => await new MemoryLearnedEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
-                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.Flag("check-saves"), cli.Option("reuse-off")), cts.Token),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.Flag("check-saves"), cli.Option("reuse-off"),
+                    cli.PositiveInt("min-free-gb") ?? MemoryGate.DefaultFloorGb), cts.Token),
                 "memory-novelty" => await new MemoryNoveltyEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "hybrid", cli.Option("out"), cts.Token),
                 "memory-sort-agent" => await new MemorySortAgentEval(paths, http, Console.Out).RunAsync(new MemorySortAgentEval.Options(
@@ -271,7 +274,7 @@ internal static class Commands
               pool     <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
-              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--check-saves] [--reuse-off <runs.jsonl>] [--out <file>]   (memory-search-v1: an agent with and without memory_recall; runs `claude -p` on your Claude subscription)
+              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--check-saves] [--reuse-off <runs.jsonl>] [--min-free-gb 8] [--out <file>]   (memory-search-v1: an agent with and without memory_recall; runs `claude -p` on your Claude subscription)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: session-1 agents write memory, session-2 agents answer related questions with and without it)
               memory-novelty [--config hybrid] [--out <file>]   (CON-245: sorts labelled memory notes into restating and new by how close the container's passages are; no agent)
               memory-sort-agent [--config hybrid] [--model claude-sonnet-5-5] [--effort medium] [--limit-notes N] [--workers 1] [--agent-dir <dir>] [--stop-at 0.42] [--out <file>]   (CON-245: an agent saves each test note through the closeness check; scores restating notes dropped and new facts kept)

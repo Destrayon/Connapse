@@ -43,7 +43,11 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     public const string RegisteredEffort = "medium";
 
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath,
-        string? AgentDir = null, bool CheckSaves = false, string? ReuseOffRuns = null);
+        string? AgentDir = null, bool CheckSaves = false, string? ReuseOffRuns = null, int MinFreeGb = MemoryGate.DefaultFloorGb)
+    {
+        /// <summary>What a restart must share with the run it continues.</summary>
+        public string Conditions => $"{Config} {Split} {Model} {Effort} repetitions {Repetitions} limit {LimitTasks} check {CheckSaves}";
+    }
 
     public sealed record MemoryOp(string Op, string Id, string? Target, string? Subject, string? Attribute, string Value,
         string? ValidFrom, IReadOnlyList<string> Sources, string? Reason);
@@ -63,6 +67,10 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         string agentDir = Path.GetFullPath(options.AgentDir ?? Path.Combine(Path.GetTempPath(), "connapse-memory-search-agent"));
         Directory.CreateDirectory(agentDir);
         RequireNoProjectMemory(agentDir);
+        RunCheckpoint checkpoint = new(RunCheckpoint.PathFor(options.OutPath));
+        checkpoint.RequireSame("conditions", options.Conditions);
+        MemoryGate gate = MemoryGate.ForThisMachine(options.MinFreeGb, log);
+        await gate.WaitForRoomAsync(ct);
 
         DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[Dataset];
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
@@ -88,6 +96,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
                 MemoryNoveltyEval.UndocumentedFacts(File.ReadLines(Path.Combine(root, "tasks.jsonl"))), userId, ct);
         else
             await ReplayAsync(system.Services, container, docMap, ops, new MemoryCaller(userId, null, "memory-search-eval"), ct);
+        if (replay is not null)
+            checkpoint.RequireSame("replay", JsonSerializer.Serialize(replay with { MeanSaveMs = 0 }));
         log.WriteLine($"{corpus.Count} documents indexed, {ops.Count} memory operations replayed");
 
         var principal = McpToolbox.Reader(userId, "memory-search-eval");
@@ -97,7 +107,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         string prompt = SystemPrompt(container);
         await using ToolBridge bridge = new();
         await bridge.StartAsync(ct);
-        ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir);
+        ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir) { Gate = gate };
 
         // Each task's repetitions run Off then On back to back, so drift in the API hits both arms alike.
         bool[] arms = options.ReuseOffRuns is null ? [false, true] : [true];
@@ -108,12 +118,18 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             foreach (KeyValuePair<(string Task, int Rep), (AgentRun Run, RunScore Score)> reused in
                 ReadOffRuns(File.ReadLines(options.ReuseOffRuns), tasks, options.Repetitions))
                 done[(reused.Key.Task, reused.Key.Rep, false)] = reused.Value;
-        int finished = 0;
-        await Parallel.ForEachAsync(jobs, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (job, token) =>
+        static string Key((SearchTask Task, int Rep, bool Memory) job) => $"{(job.Memory ? "on" : "off")}|{job.Task.Id}|{job.Rep}";
+        foreach ((SearchTask Task, int Rep, bool Memory) job in jobs)
+            if (checkpoint.TryGet(Key(job), out (AgentRun Run, RunScore Score) restored))
+                done[(job.Task.Id, job.Rep, job.Memory)] = restored;
+        List<(SearchTask Task, int Rep, bool Memory)> remaining = [.. jobs.Where(j => !done.ContainsKey((j.Task.Id, j.Rep, j.Memory)))];
+        int finished = jobs.Count - remaining.Count;
+        await Parallel.ForEachAsync(remaining, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (job, token) =>
         {
             AgentRun run = await agent.RunAsync(job.Memory ? on : off, prompt, job.Task.Question, token);
             RunScore score = MemorySearchScoring.Score(job.Task, run, index);
             done[(job.Task.Id, job.Rep, job.Memory)] = (run, score);
+            checkpoint.Save(Key(job), run, score, index);
             int n = Interlocked.Increment(ref finished);
             log.WriteLine($"[{n}/{jobs.Count}] {job.Task.Id} rep {job.Rep + 1} {(job.Memory ? "on " : "off")}: " +
                 $"{run.Outcome} score {score.Score} calls {score.ToolCalls}{(run.Error is null ? "" : $" ({run.Error})")} | {agent.LastLimit}");
@@ -126,6 +142,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         JsonObject report = Report(options, results);
         if (replay is not null)
             report["replay"] = JsonSerializer.SerializeToNode(replay);
+        report["memoryGuard"] = gate.Report(checkpoint.Restored);
         report["subscription"] = new JsonObject
         {
             ["atFirstRun"] = agent.FirstLimit?.ToString(),

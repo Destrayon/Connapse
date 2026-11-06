@@ -37,6 +37,10 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         string agentDir = Path.GetFullPath(options.AgentDir ?? Path.Combine(Path.GetTempPath(), "connapse-memory-learned-agent"));
         Directory.CreateDirectory(agentDir);
         MemorySearchEval.RequireNoProjectMemory(agentDir);
+        RunCheckpoint checkpoint = new(RunCheckpoint.PathFor(options.OutPath));
+        checkpoint.RequireSame("conditions", options.Conditions);
+        MemoryGate gate = MemoryGate.ForThisMachine(options.MinFreeGb, log);
+        await gate.WaitForRoomAsync(ct);
 
         DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[Dataset];
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
@@ -54,7 +58,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         await using ConnapseSearchSystem system = await ConnapseSearchSystem.StartAsync(config, paths.WebContentRoot, embeddings, log, null, ct);
         await using ToolBridge bridge = new();
         await bridge.StartAsync(ct);
-        ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir);
+        ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir) { Gate = gate };
         ParallelOptions parallel = new() { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct };
 
         ConcurrentDictionary<(string, int), (AgentRun, RunScore)> learned = new();
@@ -65,9 +69,28 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
                 File.ReadLines(options.ReuseOffRuns), [.. second.Select(t => t.Task)], options.Repetitions))
                 answered[(off.Key.Task, off.Key.Rep, false)] = off.Value;
         List<string> lines = [];
+        // Session 2 reads what session 1 saved into that repetition's container, which a killed run takes with it. So a
+        // repetition is kept whole once it finishes, and a repetition cut short runs again from its first task.
+        DocumentIndex noDocuments = new(new Dictionary<string, string>(), new Dictionary<string, string>());
         for (int rep = 0; rep < options.Repetitions; rep++)
         {
+            if (checkpoint.HasMark(RepetitionDone(rep)))
+            {
+                foreach (LearnedTask t in first)
+                    learned[(t.Task.Id, rep)] = checkpoint.Get(RunKey("learn", t, rep));
+                foreach (LearnedTask t in second)
+                    foreach (bool memory in arms)
+                        answered[(t.Task.Id, rep, memory)] = checkpoint.Get(RunKey(memory ? "on" : "off", t, rep));
+                lines.AddRange(first.Select(t => RunLine(t, rep, "learn", learned[(t.Task.Id, rep)], noDocuments)));
+                foreach (LearnedTask t in second)
+                    foreach (bool memory in arms)
+                        lines.Add(RunLine(t, rep, memory ? "on" : "off", answered[(t.Task.Id, rep, memory)], noDocuments));
+                log.WriteLine($"rep {rep + 1}: kept from the checkpoint");
+                continue;
+            }
+
             // A fresh container and user per repetition, so no repetition sees another's memory.
+            await gate.WaitForRoomAsync(ct);
             string name = $"{Dataset}-r{rep + 1}";
             IndexReport indexed = await system.IndexAsync(new EvalDataset(name, entry.Version, [], corpus, [], new Qrels()), ct);
             (Guid container, IReadOnlyDictionary<string, string> docMap) = system.ContainerOf(name);
@@ -115,6 +138,13 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
             foreach (LearnedTask t in second)
                 foreach (bool memory in arms)
                     lines.Add(RunLine(t, rep, memory ? "on" : "off", answered[(t.Task.Id, rep, memory)], index));
+
+            foreach (LearnedTask t in first)
+                checkpoint.Save(RunKey("learn", t, rep), learned[(t.Task.Id, rep)].Item1, learned[(t.Task.Id, rep)].Item2, earlyIndex);
+            foreach (LearnedTask t in second)
+                foreach (bool memory in arms)
+                    checkpoint.Save(RunKey(memory ? "on" : "off", t, rep), answered[(t.Task.Id, rep, memory)].Item1, answered[(t.Task.Id, rep, memory)].Item2, index);
+            checkpoint.Mark(RepetitionDone(rep));
         }
 
         List<MemorySearchEval.TaskResult> results = [.. second.Select(t => new MemorySearchEval.TaskResult(t.Task,
@@ -125,6 +155,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         report["session1"] = Session1([.. first.SelectMany(t => Enumerable.Range(0, options.Repetitions).Select(r => (t, learned[(t.Task.Id, r)])))]);
         if (options.CheckSaves)
             report["saveCheck"] = SaveCheck([.. first.SelectMany(t => Enumerable.Range(0, options.Repetitions).Select(r => learned[(t.Task.Id, r)].Item1))]);
+        report["memoryGuard"] = gate.Report(checkpoint.Restored);
         report["subscription"] = new JsonObject
         {
             ["atFirstRun"] = agent.FirstLimit?.ToString(),
@@ -139,6 +170,10 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         log.WriteLine(json);
         return (bool)report["gate"]!["passed"]! ? 0 : 3;
     }
+
+    private static string RepetitionDone(int rep) => $"repetition {rep} done";
+
+    private static string RunKey(string arm, LearnedTask t, int rep) => $"{arm}|{t.Task.Id}|{rep}";
 
     /// <summary>
     /// Session 1's instructions: answer, and save what would help with related questions later. With
