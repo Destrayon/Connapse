@@ -85,7 +85,7 @@
 - {Id: CA1303, Title: Do not pass literals as localized parameters, Category: Globalization, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
 - {Id: CA1304, Title: Specify CultureInfo, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1305, Title: Specify IFormatProvider, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
-- {Id: CA1307, Title: Specify StringComparison for clarity, Category: Globalization, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: false}
+- {Id: CA1307, Title: Specify StringComparison for clarity, Category: Globalization, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
 - {Id: CA1308, Title: Normalize strings to uppercase, Category: Globalization, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
 - {Id: CA1309, Title: Use ordinal string comparison, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1310, Title: Specify StringComparison for correctness, Category: Globalization, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
