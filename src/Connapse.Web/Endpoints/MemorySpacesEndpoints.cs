@@ -113,6 +113,7 @@ public static class MemorySpacesEndpoints
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("memorySpaces.star")
         .WithDescription("Star a memory space for yourself, so it lists first. Starring it again changes nothing.")
         .RequireAuthorization("RequireViewer", "Scope:KnowledgeRead");
@@ -129,6 +130,7 @@ public static class MemorySpacesEndpoints
         })
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("memorySpaces.unstar")
         .WithDescription("Remove your star from a memory space. Removing one that isn't there changes nothing.")
         .RequireAuthorization("RequireViewer", "Scope:KnowledgeRead");
