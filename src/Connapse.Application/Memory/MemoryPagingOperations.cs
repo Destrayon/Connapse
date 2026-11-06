@@ -110,16 +110,16 @@ internal static class MemoryPaging
         filter.From?.UtcTicks, filter.To?.UtcTicks, filter.Status,
     ];
 
-    /// <summary>The space named, or the failure: forbidden without read access, invalid when ambiguous, else not found.</summary>
+    /// <summary>The space named, or the failure: forbidden without read access, invalid when refused, else not found.</summary>
     public static async Task<(Guid Space, MemoryCaller Caller, Attempt<T, MemoryStatus>? Failed)> SpaceAsync<T>(
         IContainerStore containers, IOperationAuthorizer authorizer, OperationContext context, string space, CancellationToken ct)
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
             return (default, default!, MemoryRules.Fail<T>(MemoryStatus.Forbidden, "reading memory needs knowledge:read."));
         MemoryCaller caller = MemoryRules.Caller(context.User);
-        (Guid? found, string? ambiguous) = await MemoryRules.ContainerAsync(containers, space, caller, ct);
-        if (ambiguous is not null)
-            return (default, caller, MemoryRules.Fail<T>(MemoryStatus.Invalid, ambiguous, "space"));
+        (Guid? found, string? refused) = await MemoryRules.ContainerAsync(containers, space, caller, ct);
+        if (refused is not null)
+            return (default, caller, MemoryRules.Fail<T>(MemoryStatus.Invalid, refused, "space"));
         return found is { } id
             ? (id, caller, null)
             : (default, caller, MemoryRules.Fail<T>(MemoryStatus.ContainerNotFound, $"Space '{space}' not found."));

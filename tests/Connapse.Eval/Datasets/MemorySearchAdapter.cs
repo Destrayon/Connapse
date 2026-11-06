@@ -3,9 +3,9 @@ using Connapse.Eval.Model;
 namespace Connapse.Eval.Datasets;
 
 /// <summary>
-/// The memory-search tasks (CON-244): a corpus, the memory agents stored about it, and questions an agent answers
-/// with and without <c>memory_recall</c>. They are not a ranking dataset: the memory-search command scores them. The
-/// manifest entry pins their files, so <c>datasets verify --suite memory-search-v1</c> checks them.
+/// The memory-search tasks (CON-244): a corpus, and questions an agent answers with search alone. They are not a
+/// ranking dataset: the memory-search command scores them. The manifest entry pins their files, so
+/// <c>datasets verify --suite memory-search-v1</c> checks them.
 /// </summary>
 public sealed class MemorySearchAdapter : IDatasetAdapter
 {

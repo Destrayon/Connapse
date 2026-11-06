@@ -265,8 +265,8 @@ internal static class Commands
               pool     <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
-              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent with and without memory_recall; runs `claude -p` on your Claude subscription)
-              memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: session-1 agents write memory, session-2 agents answer related questions with and without it)
+              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
+              memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: an agent answering the session-2 questions with search alone, after the late documents)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
 }

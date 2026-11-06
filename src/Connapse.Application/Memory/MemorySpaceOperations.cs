@@ -38,14 +38,12 @@ public enum MemorySpaceStatus
 }
 
 /// <summary>
-/// What kind of place memory lives in: a personal space only its owner sees, a team space everyone sees, or a
-/// documents container that holds facts alongside its files.
+/// What kind of place memory lives in: a personal space only its owner sees, or a team space everyone sees.
 /// </summary>
 public enum MemorySpaceKind
 {
     Personal,
     Team,
-    Container,
 }
 
 /// <summary>How the list is ordered after starred spaces: newest change first, by name, or most facts first.</summary>
@@ -80,7 +78,7 @@ public sealed record MemorySpaceView(
     bool Starred);
 
 /// <summary>How many spaces each tab of the list holds, with the text filter applied and no other.</summary>
-public sealed record MemorySpaceCounts(int All, int Starred, int Personal, int Team, int Containers);
+public sealed record MemorySpaceCounts(int All, int Starred, int Personal, int Team);
 
 /// <summary>A page of spaces, the cursor to the next one (null on the last), and how many match the filters.</summary>
 public sealed record MemorySpacePage(IReadOnlyList<MemorySpaceView> Items, string? NextCursor, int Total, MemorySpaceCounts Counts);
@@ -109,9 +107,7 @@ internal static class MemorySpaceRules
         Fail<T>(MemorySpaceStatus.NotFound, $"Memory space {id} not found");
 
     public static MemorySpaceKind KindOf(Container container) =>
-        container.Kind == ContainerKind.Documents ? MemorySpaceKind.Container
-        : container.Audience == MemoryScope.Personal ? MemorySpaceKind.Personal
-        : MemorySpaceKind.Team;
+        container.Audience == MemoryScope.Personal ? MemorySpaceKind.Personal : MemorySpaceKind.Team;
 
     public static MemorySpaceView View(Container container, int facts, DateTimeOffset updatedAt, bool starred) =>
         new(container.Id, container.Name, container.Description, KindOf(container), facts,
@@ -138,8 +134,8 @@ internal static class MemorySpaceRules
 }
 
 /// <summary>
-/// Every place the caller may see memory in: their personal spaces, every team space, and each documents container
-/// holding a current fact they may see, with per-space counts. Starred spaces come first.
+/// Every place the caller may see memory in: their personal spaces and every team space, with per-space counts.
+/// Starred spaces come first.
 /// </summary>
 [Operation("memorySpaces.list", Scope = MemoryRules.ReadScope, Risk = RiskTier.Read)]
 public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthorizer authorizer, IUserDirectory? people = null)
@@ -150,7 +146,7 @@ public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthori
     /// <summary>
     /// Who a listed space's facts reach, for telling an agent in words: whether the caller may add to the spaces it
     /// sees (every save needs write access, and the personal spaces listed are the caller's own), and how many accounts
-    /// a team space or documents container is shared with (null when that can't be counted).
+    /// a team space is shared with (null when that can't be counted).
     /// </summary>
     public async Task<MemorySpaceAudience> AudienceAsync(OperationContext context, CancellationToken ct = default)
     {
@@ -164,7 +160,7 @@ public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthori
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
             return MemorySpaceRules.Fail<MemorySpacePage>(MemorySpaceStatus.Forbidden, "Listing memory spaces needs knowledge:read.");
         if (query.Kind is { } kind && !Enum.IsDefined(kind))
-            return MemorySpaceRules.Fail<MemorySpacePage>(MemorySpaceStatus.Invalid, "kind must be personal, team or container", "kind");
+            return MemorySpaceRules.Fail<MemorySpacePage>(MemorySpaceStatus.Invalid, "kind must be personal or team", "kind");
         if (!Enum.IsDefined(query.Sort))
             return MemorySpaceRules.Fail<MemorySpacePage>(MemorySpaceStatus.Invalid, "sort must be updated, name or facts", "sort");
         if (query.Limit is < 1 or > MaxLimit)
@@ -182,29 +178,13 @@ public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthori
         }
 
         MemoryCaller viewer = MemoryRules.Caller(context.User);
-        IReadOnlyList<MemorySpaceCandidate> candidates = await spaces.CandidatesAsync(viewer, text, ct);
-
-        // A documents container is listed only when it holds a fact the caller may read. One with a fact citing no
-        // source plainly does; the rest are settled by checking one fact each, and only a denied one costs more.
-        List<string> unknown = [.. candidates
-            .Where(c => c.Container.Kind == ContainerKind.Documents && c.FactsAtLeast == 0)
-            .Select(c => c.Container.Id)];
-        IReadOnlySet<string> holding = new HashSet<string>(StringComparer.Ordinal);
-        if (unknown.Count > 0)
-        {
-            if (await spaces.HoldingReadableAsync(viewer, unknown, ct) is not { } held)
-                return Unchecked();
-            holding = held;
-        }
-        List<MemorySpaceCandidate> listed = [.. candidates.Where(c =>
-            c.Container.Kind != ContainerKind.Documents || c.FactsAtLeast > 0 || holding.Contains(c.Container.Id))];
+        IReadOnlyList<MemorySpaceCandidate> listed = await spaces.CandidatesAsync(viewer, text, ct);
 
         MemorySpaceCounts counts = new(
             listed.Count,
             listed.Count(c => c.Starred),
             listed.Count(c => MemorySpaceRules.KindOf(c.Container) == MemorySpaceKind.Personal),
-            listed.Count(c => MemorySpaceRules.KindOf(c.Container) == MemorySpaceKind.Team),
-            listed.Count(c => MemorySpaceRules.KindOf(c.Container) == MemorySpaceKind.Container));
+            listed.Count(c => MemorySpaceRules.KindOf(c.Container) == MemorySpaceKind.Team));
 
         List<MemorySpaceCandidate> matching = [.. listed
             .Where(c => query.Kind is not { } k || MemorySpaceRules.KindOf(c.Container) == k)
@@ -260,9 +240,8 @@ public sealed class ListMemorySpaces(IMemorySpaceStore spaces, IOperationAuthori
             foreach (MemorySpaceCandidate c in batch)
             {
                 SpaceCursor? key = c.Settled ? Key(c, c.FactsAtLeast, c.UpdatedAtLeast)
-                    : tallies.TryGetValue(c.Container.Id, out MemorySpaceTally? tally)
-                        && (tally.Facts > 0 || c.Container.Kind != ContainerKind.Documents) ? Key(c, tally.Facts, tally.UpdatedAt)
-                    : null; // Gone, no longer visible, or a documents container with nothing left the reader may see.
+                    : tallies.TryGetValue(c.Container.Id, out MemorySpaceTally? tally) ? Key(c, tally.Facts, tally.UpdatedAt)
+                    : null; // Gone, or no longer visible.
                 if (key is not null && AfterCursor(key))
                     placed.Add(key);
             }
@@ -366,8 +345,6 @@ public sealed class CreateMemorySpace(IContainerStore containers, IMemorySpaceSt
                     return Fail(MemorySpaceStatus.Conflict, $"You already have a personal space named '{name}'", "name");
                 created = personal;
                 break;
-            case MemorySpaceKind.Container:
-                return Fail(MemorySpaceStatus.Invalid, "A documents container is made with POST /api/containers; kind must be personal or team", "kind");
             default:
                 return Fail(MemorySpaceStatus.Invalid, "kind is required: personal or team", "kind");
         }
@@ -459,7 +436,7 @@ public sealed class DeleteMemorySpace(IContainerStore containers, IMemorySpaceSt
     }
 }
 
-/// <summary>Stars a space or documents container for the caller alone, so it sorts first in their list.</summary>
+/// <summary>Stars a space for the caller alone, so it sorts first in their list.</summary>
 [Operation("memorySpaces.star", Scope = MemoryRules.ReadScope, Risk = RiskTier.Write)]
 public sealed class StarMemorySpace(IContainerStore containers, IMemorySpaceStore spaces, IOperationAuthorizer authorizer)
 {
@@ -478,8 +455,8 @@ public sealed class UnstarMemorySpace(IContainerStore containers, IMemorySpaceSt
 internal static class MemorySpaceStars
 {
     /// <summary>
-    /// A star is the caller's own preference, so reading is enough; the space must be one they may see, and they must
-    /// be someone a star can belong to.
+    /// A star is the caller's own preference, so reading is enough; the space must be a memory space they may see, and
+    /// they must be someone a star can belong to.
     /// </summary>
     public static async Task<Attempt<bool, MemorySpaceStatus>> SetAsync(
         IContainerStore containers, IOperationAuthorizer authorizer, OperationContext context, Guid spaceId,
@@ -490,8 +467,9 @@ internal static class MemorySpaceStars
         MemoryCaller caller = MemoryRules.Caller(context.User);
         if (!MemoryRules.CanOwn(caller))
             return MemorySpaceRules.Fail<bool>(MemorySpaceStatus.Forbidden, "A star needs a signed-in user or agent to belong to.");
-        if (await containers.GetAsync(spaceId, caller, ct) is null)
-            return MemorySpaceRules.NotFound<bool>(spaceId);
+        (_, Attempt<bool, MemorySpaceStatus>? refused) = await MemorySpaceRules.MemorySpaceAsync<bool>(containers, spaceId, caller, ct);
+        if (refused is not null)
+            return refused;
         await apply(caller);
         return Attempt<bool, MemorySpaceStatus>.Succeed(true);
     }

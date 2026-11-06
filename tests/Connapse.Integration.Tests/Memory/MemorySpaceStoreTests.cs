@@ -99,19 +99,15 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
     private sealed record Listed(Container Container, int Facts, DateTimeOffset UpdatedAt, bool Starred);
 
     /// <summary>
-    /// Every space the viewer may see, the way the list settles them: candidates, then a probe for each documents container
-    /// in doubt, then an exact tally of all of them. Null when access could not be checked.
+    /// Every space the viewer may see, the way the list settles them: candidates, then an exact tally of all of them. Null
+    /// when access could not be checked.
     /// </summary>
     private static async Task<IReadOnlyList<Listed>?> ListAsync(PostgresMemorySpaceStore store, MemoryCaller viewer, string? text)
     {
         IReadOnlyList<MemorySpaceCandidate> candidates = await store.CandidatesAsync(viewer, text);
-        string[] doubtful = [.. candidates.Where(c => c.Container.Kind == ContainerKind.Documents && c.FactsAtLeast == 0).Select(c => c.Container.Id)];
-        if (await store.HoldingReadableAsync(viewer, doubtful) is not { } holding)
+        if (await store.TallyAsync(viewer, [.. candidates.Select(c => c.Container.Id)]) is not { } tallies)
             return null;
-        List<MemorySpaceCandidate> listed = [.. candidates.Where(c => !doubtful.Contains(c.Container.Id) || holding.Contains(c.Container.Id))];
-        if (await store.TallyAsync(viewer, [.. listed.Select(c => c.Container.Id)]) is not { } tallies)
-            return null;
-        return [.. listed.Select(c => new Listed(c.Container, tallies[c.Container.Id].Facts, tallies[c.Container.Id].UpdatedAt, c.Starred))];
+        return [.. candidates.Select(c => new Listed(c.Container, tallies[c.Container.Id].Facts, tallies[c.Container.Id].UpdatedAt, c.Starred))];
     }
 
     private static NewMemoryFact Fact(string value, MemoryScope scope, params MemorySource[] sources) =>
@@ -128,7 +124,6 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
         Guid team = await ContainerAsync($"{tag}-team", ContainerKind.Memory);
         Guid documents = await ContainerAsync($"{tag}-docs", ContainerKind.Documents);
-        Guid emptyDocuments = await ContainerAsync($"{tag}-empty-docs", ContainerKind.Documents);
 
         await memory.RememberAsync(team, Fact("open", MemoryScope.Team), userA);
         await memory.RememberAsync(team, Fact("hidden", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, restricted)), userA);
@@ -142,43 +137,16 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         seenByA.ToDictionary(s => s.Container.Name, s => s.Facts).Should().Equal(new Dictionary<string, int>
         {
             [$"{tag}-team"] = 3,
-            [$"{tag}-docs"] = 1,
             [$"{tag}-own"] = 0,
         });
         seenByB.ToDictionary(s => s.Container.Name, s => s.Facts).Should().Equal(new Dictionary<string, int>
         {
             [$"{tag}-team"] = 1,
-            [$"{tag}-docs"] = 1,
         }, "B can't read the restricted source, A's personal fact is A's, and A's space is A's");
-        seenByA.Should().NotContain(s => s.Container.Id == emptyDocuments.ToString(), "a document container is listed once it holds memory");
+        seenByA.Should().NotContain(s => s.Container.Id == documents.ToString(), "a document container is never a memory space");
         seenByA.Single(s => s.Container.Id == personal.Id).Container.Audience.Should().Be(MemoryScope.Personal);
-        seenByA.Single(s => s.Container.Id == documents.ToString()).Container.Kind.Should().Be(ContainerKind.Documents);
         Listed teamRow = seenByA.Single(s => s.Container.Id == team.ToString());
         teamRow.UpdatedAt.Should().BeOnOrAfter(teamRow.Container.UpdatedAt, "the newest fact moves the space's updated time");
-    }
-
-    [Fact]
-    public async Task List_WithEnded_AddsDocumentContainersWhoseVisibleFactsHaveAllEnded()
-    {
-        string tag = $"spaces-{Guid.NewGuid():N}";
-        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
-        string restricted = Guid.NewGuid().ToString();
-        FakeAccess access = new(new() { [a] = [restricted] });
-        MemoryService memory = Memory(access);
-        MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
-        Guid ended = await ContainerAsync($"{tag}-ended", ContainerKind.Documents);
-        Guid endedRestricted = await ContainerAsync($"{tag}-ended-restricted", ContainerKind.Documents);
-        DateTimeOffset from = DateTimeOffset.UtcNow.AddDays(-10), to = DateTimeOffset.UtcNow.AddDays(-5);
-        NewMemoryFact old = Fact("old", MemoryScope.Team) with { ValidFrom = from, ValidTo = to };
-        NewMemoryFact secret = Fact("secret", MemoryScope.Team, new MemorySource(MemorySourceKind.Document, restricted)) with { ValidFrom = from, ValidTo = to };
-        (await memory.RememberAsync(ended, old, userA)).Fact.Should().NotBeNull();
-        (await memory.RememberAsync(endedRestricted, secret, userA)).Fact.Should().NotBeNull();
-
-        (await Store(access).ListAsync(userA, tag))!.Should().BeEmpty("neither holds a current fact");
-        (await Store(access).ListAsync(userA, tag, withEnded: true))!.Select(s => (s.Container.Name, s.Facts)).Should()
-            .BeEquivalentTo([($"{tag}-ended", 0), ($"{tag}-ended-restricted", 0)]);
-        (await Store(access).ListAsync(userB, tag, withEnded: true))!.Select(s => s.Container.Name).Should()
-            .Equal([$"{tag}-ended"], "B can't read the source the other container's only fact cites");
     }
 
     [Fact]
@@ -329,8 +297,8 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
         MemoryService memory = Memory(access);
         MemoryCaller author = new(writer, null, null);
         Guid team = await ContainerAsync($"{tag}-team", ContainerKind.Memory);
-        Guid onlyA = await ContainerAsync($"{tag}-only-a", ContainerKind.Documents);
-        Guid mixed = await ContainerAsync($"{tag}-mixed", ContainerKind.Documents);
+        Guid onlyA = await ContainerAsync($"{tag}-only-a", ContainerKind.Memory);
+        Guid mixed = await ContainerAsync($"{tag}-mixed", ContainerKind.Memory);
         MemorySource docA = new(MemorySourceKind.Document, forA), docB = new(MemorySourceKind.Document, forB);
         await memory.RememberAsync(team, Fact("open", MemoryScope.Team), author);
         await memory.RememberAsync(team, Fact("a's", MemoryScope.Team, docA), author);
@@ -348,17 +316,17 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
             return page.Items.ToDictionary(i => i.Name[(tag.Length + 1)..], i => i.Facts);
         }
 
-        (await SeenBy(a, new MemorySpaceCounts(3, 0, 0, 1, 2))).Should().Equal(
+        (await SeenBy(a, new MemorySpaceCounts(3, 0, 0, 3))).Should().Equal(
             new Dictionary<string, int> { ["team"] = 2, ["only-a"] = 1, ["mixed"] = 1 });
-        (await SeenBy(b, new MemorySpaceCounts(2, 0, 0, 1, 1))).Should().Equal(
-            new Dictionary<string, int> { ["team"] = 2, ["mixed"] = 1 },
-            "B's checked fact in mixed is hidden, so the whole container is checked and its other fact found");
-        (await SeenBy(c, new MemorySpaceCounts(1, 0, 0, 1, 0))).Should().Equal(
-            new Dictionary<string, int> { ["team"] = 1 }, "every documents fact cites a document C can't read");
+        (await SeenBy(b, new MemorySpaceCounts(3, 0, 0, 3))).Should().Equal(
+            new Dictionary<string, int> { ["team"] = 2, ["only-a"] = 0, ["mixed"] = 1 },
+            "a team space is listed whatever its facts cite, and only the facts B may read are counted");
+        (await SeenBy(c, new MemorySpaceCounts(3, 0, 0, 3))).Should().Equal(
+            new Dictionary<string, int> { ["team"] = 1, ["only-a"] = 0, ["mixed"] = 0 });
     }
 
     [Fact]
-    public async Task List_ChecksOnlyThePagesSourcesAndOneFactPerDocumentsContainer()
+    public async Task List_ChecksOnlyThePagesSources()
     {
         string tag = $"spaces-{Guid.NewGuid():N}";
         MemoryCaller user = new(Guid.NewGuid(), null, null);
@@ -367,12 +335,11 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
             ["a"] = [Guid.NewGuid().ToString(), Guid.NewGuid().ToString()],
             ["b"] = [Guid.NewGuid().ToString()],
             ["c"] = [Guid.NewGuid().ToString()],
-            ["docs"] = [Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), Guid.NewGuid().ToString()],
         };
         MemoryService memory = Memory(new FakeAccess(new() { [user.UserId!.Value] = [.. cites.Values.SelectMany(d => d)] }));
         foreach ((string name, string[] documents) in cites)
         {
-            Guid space = await ContainerAsync($"{tag}-{name}", name == "docs" ? ContainerKind.Documents : ContainerKind.Memory);
+            Guid space = await ContainerAsync($"{tag}-{name}", ContainerKind.Memory);
             foreach (string document in documents)
                 await memory.RememberAsync(space, Fact(document, MemoryScope.Team, new MemorySource(MemorySourceKind.Document, document)), user);
         }
@@ -382,9 +349,8 @@ public class MemorySpaceStoreTests(SharedWebAppFixture fixture) : IAsyncLifetime
             new MemorySpaceQuery(Q: tag, Sort: MemorySpaceSort.Name, Limit: 1))).Result!;
 
         page.Items.Should().ContainSingle().Which.Facts.Should().Be(2);
-        page.Counts.Should().Be(new MemorySpaceCounts(4, 0, 0, 3, 1));
-        access.Asked.Should().BeEquivalentTo([.. cites["a"], cites["docs"][^1]],
-            "only the page's space is counted, and the documents container is settled by its newest fact");
+        page.Counts.Should().Be(new MemorySpaceCounts(3, 0, 0, 3));
+        access.Asked.Should().BeEquivalentTo(cites["a"], "only the page's space is counted");
     }
 
     [Fact]

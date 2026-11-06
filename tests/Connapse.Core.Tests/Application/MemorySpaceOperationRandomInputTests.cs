@@ -31,14 +31,14 @@ public class MemorySpaceOperationRandomInputTests
     private static PolicyAuthorizer Authorizer(bool reader, bool writer) =>
         new(policy => policy switch { Policies.KnowledgeRead => reader, Policies.Writer or Policies.KnowledgeWrite => writer, _ => false });
 
-    /// <summary>A space of any kind: a personal or team memory space, or a documents container.</summary>
-    private static readonly Gen<Container> AnySpace = Gen.Select(Gen.Guid, Gen.String[Gen.Char["ab-1"], 1, 3], Gen.Int[0, 2],
+    /// <summary>A space of either kind: personal or team.</summary>
+    private static readonly Gen<Container> AnySpace = Gen.Select(Gen.Guid, Gen.String[Gen.Char["ab-1"], 1, 3], Gen.Int[0, 1],
         (id, name, kind) => new Container(id.ToString(), $"s{name}x", null, Epoch, Epoch,
-            Kind: kind == 2 ? ContainerKind.Documents : ContainerKind.Memory,
+            Kind: ContainerKind.Memory,
             Audience: kind == 0 ? MemoryScope.Personal : MemoryScope.Team));
 
     private static MemorySpaceKind KindOf(Container c) =>
-        c.Kind == ContainerKind.Documents ? MemorySpaceKind.Container : c.Audience == MemoryScope.Personal ? MemorySpaceKind.Personal : MemorySpaceKind.Team;
+        c.Audience == MemoryScope.Personal ? MemorySpaceKind.Personal : MemorySpaceKind.Team;
 
     /// <summary>A name as a request may give it: valid, padded, upper case, too short, blank, or missing.</summary>
     private static readonly Gen<(string? Name, bool Valid)> AnyName = Gen.OneOf(
@@ -54,14 +54,11 @@ public class MemorySpaceOperationRandomInputTests
 
     /// <summary>
     /// A space as the caller would see it, with the bounds the store gives before checking: up to two facts and two
-    /// minutes either side. A documents container whose every fact is hidden still comes back as a candidate.
+    /// minutes either side.
     /// </summary>
     private sealed record Truth(Container Container, int Facts, DateTimeOffset UpdatedAt, bool Starred, int Below, int Above, int Earlier, int Later)
     {
-        public bool Listed => Container.Kind != ContainerKind.Documents || Facts > 0;
-
-        public MemorySpaceCandidate Candidate => new(Container, Starred, Math.Max(0, Facts - Below),
-            Container.Kind == ContainerKind.Documents ? Math.Max(1, Facts + Above) : Facts + Above,
+        public MemorySpaceCandidate Candidate => new(Container, Starred, Math.Max(0, Facts - Below), Facts + Above,
             UpdatedAt.AddMinutes(-Earlier), UpdatedAt.AddMinutes(Later));
     }
 
@@ -80,10 +77,6 @@ public class MemorySpaceOperationRandomInputTests
             .Returns(call => unchecked_ ? null : truths
                 .Where(t => call.ArgAt<IReadOnlyCollection<string>>(1).Contains(t.Container.Id))
                 .ToDictionary(t => t.Container.Id, t => new MemorySpaceTally(t.Facts, t.UpdatedAt)));
-        store.HoldingReadableAsync(Arg.Any<MemoryCaller>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
-            .Returns(call => unchecked_ ? null : truths
-                .Where(t => call.ArgAt<IReadOnlyCollection<string>>(1).Contains(t.Container.Id) && t.Facts > 0)
-                .Select(t => t.Container.Id).ToHashSet());
         return store;
     }
 
@@ -104,13 +97,12 @@ public class MemorySpaceOperationRandomInputTests
                 var first = await list.RunAsync(Signed(true, OperationSurface.Rest), query);
 
                 MemorySpaceStatus expected = !reader ? MemorySpaceStatus.Forbidden
-                    : kindValue > 2 ? MemorySpaceStatus.Invalid
+                    : kindValue > 1 ? MemorySpaceStatus.Invalid
                     : sortValue > 2 ? MemorySpaceStatus.Invalid
                     : limit is < 1 or > ListMemorySpaces.MaxLimit ? MemorySpaceStatus.InvalidPage
                     : MemorySpaceStatus.Success;
                 // Access goes unchecked only when something had to be checked.
-                bool asked = store.ReceivedCalls().Any(c => c.GetMethodInfo().Name is nameof(IMemorySpaceStore.TallyAsync)
-                    or nameof(IMemorySpaceStore.HoldingReadableAsync));
+                bool asked = store.ReceivedCalls().Any(c => c.GetMethodInfo().Name is nameof(IMemorySpaceStore.TallyAsync));
                 if (expected == MemorySpaceStatus.Success && unchecked_ && asked)
                     expected = MemorySpaceStatus.Unchecked;
                 first.Status.Should().Be(expected);
@@ -121,7 +113,7 @@ public class MemorySpaceOperationRandomInputTests
                     return;
                 }
 
-                List<Truth> listed = [.. truths.Where(t => t.Listed)];
+                List<Truth> listed = [.. truths];
                 // The order, written out: starred first, then the sort's key, then the id.
                 List<Truth> want = [.. listed
                     .Where(x => kind is not { } k || KindOf(x.Container) == k)
@@ -153,8 +145,7 @@ public class MemorySpaceOperationRandomInputTests
                 first.Result!.Counts.Should().Be(new MemorySpaceCounts(
                     listed.Count, listed.Count(x => x.Starred),
                     listed.Count(x => KindOf(x.Container) == MemorySpaceKind.Personal),
-                    listed.Count(x => KindOf(x.Container) == MemorySpaceKind.Team),
-                    listed.Count(x => KindOf(x.Container) == MemorySpaceKind.Container)));
+                    listed.Count(x => KindOf(x.Container) == MemorySpaceKind.Team)));
 
                 // A cursor from one sort is refused by another.
                 if (first.Result.NextCursor is { } issued)

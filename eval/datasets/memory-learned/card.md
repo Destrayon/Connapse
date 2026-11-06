@@ -2,7 +2,8 @@
 
 - **What it tests:** whether memory that an agent writes for itself while answering questions in a container makes
   later, related questions in that container more reliable (CON-244, realistic arm). Nothing is written into memory
-  up front, and every fact a task needs is in some document.
+  up front, and every fact a task needs is in some document. CON-255 removed container memory, so the command now
+  skips session 1 and scores only session-2 agents searching without memory.
 - **Built by** `eval/tools/build_memory_learned.py` (seed 244), which reuses the names, topics and wording of
   `build_memory_search.py`. Everything is made up, and the output is a pure function of the seed.
 - **Corpus** (`corpus.jsonl`, 387 documents): department policies, policy revisions, a policy register and a team

@@ -39,7 +39,7 @@ public sealed record MemorySpacesView(
         string? kind = Get("kind");
         return new MemorySpacesView(
             Get("q"),
-            kind switch { "personal" => MemorySpaceKind.Personal, "team" => MemorySpaceKind.Team, "container" => MemorySpaceKind.Container, _ => null },
+            kind switch { "personal" => MemorySpaceKind.Personal, "team" => MemorySpaceKind.Team, _ => null },
             // Starred is a filter of its own in the pills, so it never shares the address with a kind.
             kind is null && Get("starred") == "true",
             Get("sort") switch { "name" => MemorySpaceSort.Name, "facts" => MemorySpaceSort.Facts, _ => MemorySpaceSort.Updated },
@@ -56,7 +56,6 @@ public sealed record MemorySpacesView(
         {
             MemorySpaceKind.Personal => "personal",
             MemorySpaceKind.Team => "team",
-            MemorySpaceKind.Container => "container",
             _ => null,
         },
         ["starred"] = Starred ? "true" : null,

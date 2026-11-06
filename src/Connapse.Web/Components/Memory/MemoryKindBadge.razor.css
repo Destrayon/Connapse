@@ -11,4 +11,3 @@
 
 .kind-badge-personal { background: color-mix(in srgb, #f59e0b 16%, transparent); color: #fbbf24; }
 .kind-badge-team { background: color-mix(in srgb, #2dd4bf 16%, transparent); color: #2dd4bf; }
-.kind-badge-container { background: var(--accent-muted); color: var(--accent-hover); }

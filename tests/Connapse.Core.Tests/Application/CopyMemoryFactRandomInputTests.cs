@@ -124,7 +124,7 @@ public class CopyMemoryFactRandomInputTests
                         return MemoryStatus.Invalid;
                     if (destination == Destination.Missing)
                         return MemoryStatus.ContainerNotFound;
-                    if (destination == Destination.Personal)
+                    if (destination is Destination.Personal or Destination.Documents)
                         return MemoryStatus.Invalid;
                     if (existing is Existing.Denied or Existing.TooMany)
                         return MemoryStatus.Unchecked;
@@ -143,7 +143,7 @@ public class CopyMemoryFactRandomInputTests
                 MemoryStatus expected = Expected();
                 copied.Status.Should().Be(expected);
                 bool saves = expected == MemoryStatus.Success
-                    || (destination is Destination.TeamSpace or Destination.Documents && existing is Existing.None or Existing.Match
+                    || (destination == Destination.TeamSpace && existing is Existing.None or Existing.Match
                         && (anyway || existing == Existing.None) && reader && writer && source == Source.Personal && version == Version.Current);
                 if (saves)
                     await memory.Received(1).RememberAsync(toId, Arg.Is<NewMemoryFact>(f => f.Value == original.Value && f.Attribute == original.Attribute),

@@ -10,9 +10,8 @@
 
 <PageTitle>Memory - Connapse</PageTitle>
 
-@* Every place the signed-in person's memory lives: their personal spaces, the team spaces and the document containers
-   holding memory they may see. Up to nine show as cards in three sections; past that, a paged table with find, kind
-   filters and sort, its view kept in the page address. *@
+@* Every place the signed-in person's memory lives: their personal spaces and the team spaces. Up to nine show as cards
+   in two sections; past that, a paged table with find, kind filters and sort, its view kept in the page address. *@
 <div class="memory-page-header">
     <div>
         <h1>Memory</h1>
@@ -55,7 +54,7 @@ else if (spacesTotal == 0)
         <p>
             @(audience?.CanAdd == true
                 ? "Make a space, and your agents can save facts to it as they work."
-                : "Team spaces and document containers with memory show here once someone adds facts to them.")
+                : "Team spaces show here once someone makes them.")
         </p>
     </div>
 }
@@ -63,7 +62,6 @@ else if (Cards)
 {
     var personal = items.Where(s => s.Kind == MemorySpaceKind.Personal).ToList();
     var team = items.Where(s => s.Kind == MemorySpaceKind.Team).ToList();
-    var onContainers = items.Where(s => s.Kind == MemorySpaceKind.Container).ToList();
 
     @if (personal.Count > 0)
     {
@@ -95,40 +93,6 @@ else if (Cards)
             </div>
         </section>
     }
-    @if (onContainers.Count > 0)
-    {
-        <section id="memory-section-containers" class="spaces-section">
-            <h2 class="spaces-section-title">
-                <span class="bi-folder kind-container" aria-hidden="true"></span> On document containers
-                <span class="spaces-section-hint">Team only. Seen by people who can read the container and every document a fact cites.</span>
-            </h2>
-            <div class="spaces-panel">
-                <table class="spaces-table">
-                    <thead>
-                        <tr>
-                            <th class="col-star"><span class="visually-hidden">Starred</span></th>
-                            <th>Container</th>
-                            <th class="col-facts">Facts</th>
-                            <th class="col-updated">Updated</th>
-                            <th><span class="visually-hidden">Open</span></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var space in onContainers)
-                        {
-                            <tr data-space-id="@space.Id">
-                                <td class="col-star">@Star(space)</td>
-                                <td>@space.Name</td>
-                                <td class="col-facts">@space.Facts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</td>
-                                <td class="col-updated" title="@Absolute(space.UpdatedAt)">@MemoryFactList.Relative(space.UpdatedAt)</td>
-                                <td class="text-end"><a href="@Href(space)">Open Memory tab <span class="bi-arrow-right" aria-hidden="true"></span></a></td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    }
 }
 else
 {
@@ -145,7 +109,6 @@ else
                 @Pill("starred", "Starred", counts?.Starred, view.Starred, view.FirstPage with { Kind = null, Starred = true })
                 @Pill("personal", "Personal", counts?.Personal, view.Kind == MemorySpaceKind.Personal, view.FirstPage with { Kind = MemorySpaceKind.Personal, Starred = false })
                 @Pill("team", "Team", counts?.Team, view.Kind == MemorySpaceKind.Team, view.FirstPage with { Kind = MemorySpaceKind.Team, Starred = false })
-                @Pill("container", "Containers", counts?.Containers, view.Kind == MemorySpaceKind.Container, view.FirstPage with { Kind = MemorySpaceKind.Container, Starred = false })
             </div>
             <label class="spaces-sort">
                 <span>Sort:</span>
@@ -414,7 +377,7 @@ else
     }
 
     private static string Href(MemorySpaceView space) =>
-        space.Kind == MemorySpaceKind.Container ? $"containers/{space.Id}?tab=memory" : $"memory/{space.Id}";
+        $"memory/{space.Id}";
 
     private static string SortValue(MemorySpaceSort sort) => sort switch
     {
@@ -451,8 +414,7 @@ else
     private static RenderFragment KindBadge(MemorySpaceKind kind) => kind switch
     {
         MemorySpaceKind.Personal => @<span class="kind-badge kind-badge-personal"><span class="bi-lock-fill" aria-hidden="true"></span> Only you</span>,
-        MemorySpaceKind.Team => @<span class="kind-badge kind-badge-team"><span class="bi-people-fill" aria-hidden="true"></span> Team</span>,
-        _ => @<span class="kind-badge kind-badge-container"><span class="bi-folder" aria-hidden="true"></span> Container</span>,
+        _ => @<span class="kind-badge kind-badge-team"><span class="bi-people-fill" aria-hidden="true"></span> Team</span>,
     };
 
     private RenderFragment Pill(string key, string label, int? count, bool active, MemorySpacesView target) =>

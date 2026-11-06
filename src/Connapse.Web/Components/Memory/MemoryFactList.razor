@@ -48,7 +48,7 @@
             <span class="bi-lightbulb memory-empty-icon" aria-hidden="true"></span>
             <p class="memory-empty-title">@(view.All ? "No facts in this memory" : "No current facts")</p>
             <p>
-                Agents add facts here with the memory tools while they work in this container, and cite the
+                Agents add facts here with the memory tools while they work, and cite the
                 documents they learned them from. You'll only see facts whose sources you can read.
             </p>
         </div>
@@ -383,7 +383,7 @@
 }
 
 @code {
-    /// <summary>The memory space (or container) shown, by id or name.</summary>
+    /// <summary>The memory space shown, by id or name.</summary>
     [Parameter, EditorRequired] public string Space { get; set; } = "";
 
     /// <summary>Whether the caller may correct and delete; viewers only read.</summary>

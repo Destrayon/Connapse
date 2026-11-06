@@ -22,20 +22,18 @@ namespace Connapse.Integration.Tests.Memory;
 
 /// <summary>
 /// CON-243: the Memory page's unfiltered spaces list at 200 spaces and 50,000 memories. Its own database, so nothing
-/// another test made is listed. A typical reader may read every source; the worst case is a reader who may read none,
-/// so every documents container's witness is denied and the whole container is checked. Each call is timed once, after a
-/// warm-up.
+/// another test made is listed. A typical reader may read every source; the worst case is a reader who may read none.
+/// Each call is timed once, after a warm-up.
 /// </summary>
 [Trait("Category", "Gate")]
 public class MemorySpaceListLoadTests(ITestOutputHelper output) : IAsyncLifetime
 {
-    private const int TeamSpaces = 180;
-    private const int DocumentContainers = 20;
+    private const int TeamSpaces = 200;
     private const int Facts = 50_000;
 
     // Five facts in the same space cite each document, so each space cites 50 of its own and 50,000 facts cite 10,000.
     private const int FactsPerDocument = 5;
-    private const int DocumentsPerSpace = Facts / (TeamSpaces + DocumentContainers) / FactsPerDocument;
+    private const int DocumentsPerSpace = Facts / TeamSpaces / FactsPerDocument;
 
     private const int PageSize = 50;
 
@@ -86,13 +84,13 @@ public class MemorySpaceListLoadTests(ITestOutputHelper output) : IAsyncLifetime
         await context.GetService<IMigrator>().MigrateAsync();
         context.Database.SetCommandTimeout(TimeSpan.FromMinutes(5));
         DateTime then = DateTime.UtcNow.AddDays(-30);
-        for (int i = 0; i < TeamSpaces + DocumentContainers; i++)
+        for (int i = 0; i < TeamSpaces; i++)
         {
             context.Containers.Add(new ContainerEntity
             {
                 Id = Guid.NewGuid(),
                 Name = $"space-{i:D3}",
-                Kind = i < TeamSpaces ? ContainerKind.Memory : ContainerKind.Documents,
+                Kind = ContainerKind.Memory,
                 CreatedAt = then,
                 UpdatedAt = then,
             });
@@ -108,7 +106,7 @@ public class MemorySpaceListLoadTests(ITestOutputHelper output) : IAsyncLifetime
             SELECT f.id, f.id, s.id, 'subject ' || f.g % 500, 'attribute ' || f.g % 7, 'value ' || f.g,
                    now() - (f.g || ' seconds')::interval, {1}, 1
             FROM facts f JOIN spaces s ON s.n = f.g % {2}
-            """, Facts, Guid.NewGuid(), TeamSpaces + DocumentContainers);
+            """, Facts, Guid.NewGuid(), TeamSpaces);
         await context.Database.ExecuteSqlRawAsync(
             """
             INSERT INTO memory_fact_sources (fact_id, ordinal, kind, ref)
@@ -156,19 +154,18 @@ public class MemorySpaceListLoadTests(ITestOutputHelper output) : IAsyncLifetime
             output.WriteLine($"sort={sort}: typical {typical.TotalMilliseconds:F0} ms, {typicalAsked} documents checked; "
                 + $"worst {worst.TotalMilliseconds:F0} ms, {worstAsked} documents checked");
 
-            page.Total.Should().Be(TeamSpaces + DocumentContainers);
-            page.Counts.Should().Be(new MemorySpaceCounts(TeamSpaces + DocumentContainers, 0, 0, TeamSpaces, DocumentContainers));
-            page.Items.Should().HaveCount(PageSize).And.OnlyContain(v => v.Facts == Facts / (TeamSpaces + DocumentContainers));
-            hidden.Counts.Should().Be(new MemorySpaceCounts(TeamSpaces, 0, 0, TeamSpaces, 0),
-                "a documents container whose every fact cites a hidden document isn't listed");
+            page.Total.Should().Be(TeamSpaces);
+            page.Counts.Should().Be(new MemorySpaceCounts(TeamSpaces, 0, 0, TeamSpaces));
+            page.Items.Should().HaveCount(PageSize).And.OnlyContain(v => v.Facts == Facts / TeamSpaces);
+            hidden.Counts.Should().Be(new MemorySpaceCounts(TeamSpaces, 0, 0, TeamSpaces));
             hidden.Items.Should().OnlyContain(v => v.Facts == 0);
 
-            // A typical reader: the page's documents, and one per documents container to show it holds a readable fact.
-            typicalAsked.Should().Be(PageSize * DocumentsPerSpace + DocumentContainers);
-            // A reader who may read nothing: every witness is denied, so each documents container is checked in full.
-            // By name the page is still all that's counted; by facts or updated every space ties at nothing, so all are.
+            // A typical reader: the page's documents.
+            typicalAsked.Should().Be(PageSize * DocumentsPerSpace);
+            // A reader who may read nothing: by name the page is still all that's counted; by facts or updated every
+            // space ties at nothing, so all are.
             int listedSpaces = sort == MemorySpaceSort.Name ? PageSize : TeamSpaces;
-            worstAsked.Should().Be(DocumentContainers + DocumentContainers * DocumentsPerSpace + listedSpaces * DocumentsPerSpace);
+            worstAsked.Should().Be(listedSpaces * DocumentsPerSpace);
         }
     }
 }

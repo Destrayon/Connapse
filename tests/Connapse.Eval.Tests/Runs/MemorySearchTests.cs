@@ -546,7 +546,6 @@ public class MemorySearchTests
         score.SawGold.Should().BeTrue();
         score.FirstQueryMrr.Should().Be(0.5);
         score.Searches.Should().Be(1);
-        score.MemoryCalls.Should().Be(1);
         score.ToolCalls.Should().Be(2);
     }
 
@@ -572,74 +571,29 @@ public class MemorySearchTests
         MemorySearchScoring.Score(Task(), Run(AgentOutcome.Answered, "270 days", ["Finance Identity Standard.txt"]), Index).Score.Should().Be(1);
     }
 
-    private static PairedComparison C(double mean, double low, double high, double p = 0.01) => new(64, mean, low, high, p, p, 1, 0.1);
-
-    [Fact]
-    public void Decide_ClearWinOnMAndHoldsOnH_IsKeep()
-    {
-        MemorySearchScoring.Decide(C(0.20, 0.08, 0.32), C(-0.02, -0.08, 0.04), C(0.10, 0.03, 0.17)).Should().Be(Verdict.Keep);
-    }
-
-    [Fact]
-    public void Decide_GainBelowPointFifteen_IsNoBetter()
-    {
-        MemorySearchScoring.Decide(C(0.14, 0.05, 0.23), C(0, -0.05, 0.05), C(0.08, 0.02, 0.14)).Should().Be(Verdict.NoBetter);
-    }
-
-    [Fact]
-    public void Decide_PermutationPNotSignificant_IsNoBetter()
-    {
-        MemorySearchScoring.Decide(C(0.20, 0.01, 0.39, p: 0.06), C(0, -0.05, 0.05), C(0.1, 0.0, 0.2)).Should().Be(Verdict.NoBetter);
-    }
-
-    [Fact]
-    public void Decide_WinOnMButHHurtBeyondMargin_IsWorse()
-    {
-        MemorySearchScoring.Decide(C(0.20, 0.08, 0.32), C(-0.06, -0.12, 0.0), C(0.08, 0.01, 0.15)).Should().Be(Verdict.Worse);
-    }
-
-    [Fact]
-    public void Decide_HLowerBoundExactlyAtMargin_IsNotKeep()
-    {
-        MemorySearchScoring.Decide(C(0.20, 0.08, 0.32), C(-0.04, -0.10, 0.02), C(0.08, 0.01, 0.15)).Should().Be(Verdict.Worse);
-    }
-
-    [Fact]
-    public void Decide_AllTasksIntervalBelowZero_IsWorse()
-    {
-        MemorySearchScoring.Decide(C(-0.05, -0.12, 0.02), C(-0.01, -0.06, 0.04), C(-0.06, -0.10, -0.01)).Should().Be(Verdict.Worse);
-    }
-
-    [Fact]
-    public void Decide_TieEverywhere_IsNoBetter()
-    {
-        MemorySearchScoring.Decide(C(0, -0.05, 0.05, p: 1), C(0, -0.05, 0.05, p: 1), C(0, -0.04, 0.04, p: 1)).Should().Be(Verdict.NoBetter);
-    }
-
     private static MemorySearchEval.Options Options(string split = "test", int repetitions = 3, int? limit = null) =>
         new("hybrid", split, "claude-sonnet-5-5", "medium", repetitions, limit, 1, null);
 
-    private static List<MemorySearchEval.TaskResult> KeepResults(int mTasks, int hTasks, int repetitions)
+    private static List<MemorySearchEval.TaskResult> Results(int mTasks, int hTasks, int repetitions)
     {
         List<MemorySearchEval.TaskResult> results = [];
         for (int i = 0; i < mTasks; i++)
-            results.Add(Result(Task() with { Id = $"m-{i}" }, off: 0, on: 1, repetitions));
+            results.Add(Result(Task() with { Id = $"m-{i}" }, 0, repetitions));
         for (int i = 0; i < hTasks; i++)
-            results.Add(Result(Task("control") with { Id = $"h-{i}" }, off: 1, on: 1, repetitions));
+            results.Add(Result(Task("control") with { Id = $"h-{i}" }, 1, repetitions));
         return results;
     }
 
     [Fact]
-    public void Report_RegisteredKeepRun_PassesGateAndListsExamples()
+    public void Report_RegisteredRun_ConformsAndScoresEachSet()
     {
-        var report = MemorySearchEval.Report(Options(), KeepResults(64, 48, 3));
+        var report = MemorySearchEval.Report(Options(), Results(64, 48, 3));
 
-        ((bool)report["gate"]!["conforming"]!).Should().BeTrue();
-        ((bool)report["gate"]!["passed"]!).Should().BeTrue();
-        ((string)report["gate"]!["verdict"]!).Should().Be("KEEP");
-        report["examples"]!["memoryHelped"]!.AsArray().Should().NotBeEmpty();
-        report["examples"]!["memoryHurt"]!.AsArray().Should().BeEmpty();
-        ((double)report["tokens"]!["on"]!["apiListPriceUsd"]!).Should().BeGreaterThan(0);
+        ((bool)report["conforming"]!).Should().BeTrue();
+        ((double)report["all"]!["score"]!).Should().BeApproximately(48.0 / 112, 0.0001);
+        ((double)report["memorySet"]!["score"]!).Should().Be(0);
+        ((double)report["holdoutSet"]!["score"]!).Should().Be(1);
+        ((double)report["tokens"]!["apiListPriceUsd"]!).Should().BeGreaterThan(0);
     }
 
     [Theory]
@@ -647,35 +601,33 @@ public class MemorySearchTests
     [InlineData("test", 1, null, 64, 48)]
     [InlineData("test", 3, 12, 6, 6)]
     [InlineData("test", 3, null, 60, 48)]
-    public void Report_KeepOnAPartialRun_IsDiagnosticOnlyAndDoesNotPass(string split, int repetitions, int? limit, int mTasks, int hTasks)
+    public void Report_PartialRun_IsDiagnosticOnly(string split, int repetitions, int? limit, int mTasks, int hTasks)
     {
-        var report = MemorySearchEval.Report(Options(split, repetitions, limit), KeepResults(mTasks, hTasks, repetitions));
+        var report = MemorySearchEval.Report(Options(split, repetitions, limit), Results(mTasks, hTasks, repetitions));
 
-        ((string)report["gate"]!["verdict"]!).Should().Be("KEEP");
-        ((bool)report["gate"]!["conforming"]!).Should().BeFalse();
-        report["gate"]!["diagnosticOnly"]!.AsArray().Should().NotBeEmpty();
-        ((bool)report["gate"]!["passed"]!).Should().BeFalse();
+        ((bool)report["conforming"]!).Should().BeFalse();
+        report["diagnosticOnly"]!.AsArray().Should().NotBeEmpty();
     }
 
     [Theory]
     [InlineData("hybrid-rerank", "claude-sonnet-5-5", "medium", "config")]
     [InlineData("hybrid", "claude-opus-5-5", "medium", "model")]
     [InlineData("hybrid", "claude-sonnet-5-5", "high", "effort")]
-    public void Report_KeepWithAnUnregisteredSetting_IsDiagnosticOnly(string config, string model, string effort, string reason)
+    public void Report_UnregisteredSetting_IsDiagnosticOnly(string config, string model, string effort, string reason)
     {
         MemorySearchEval.Options options = Options() with { Config = config, Model = model, Effort = effort };
 
-        var report = MemorySearchEval.Report(options, KeepResults(64, 48, 3));
+        var report = MemorySearchEval.Report(options, Results(64, 48, 3));
 
-        ((bool)report["gate"]!["passed"]!).Should().BeFalse();
-        MemorySearchEval.Nonconforming(options, KeepResults(64, 48, 3)).Should().ContainSingle().Which.Should().StartWith(reason);
+        ((bool)report["conforming"]!).Should().BeFalse();
+        MemorySearchEval.Nonconforming(options, Results(64, 48, 3)).Should().ContainSingle().Which.Should().StartWith(reason);
     }
 
     [Fact]
     public void Nonconforming_TaskMissingARun_IsReported()
     {
-        List<MemorySearchEval.TaskResult> results = KeepResults(64, 48, 3);
-        results[0] = results[0] with { On = [.. results[0].On.Take(2)] };
+        List<MemorySearchEval.TaskResult> results = Results(64, 48, 3);
+        results[0] = results[0] with { Runs = [.. results[0].Runs.Take(2)] };
 
         MemorySearchEval.Nonconforming(Options(), results).Should().ContainSingle().Which.Should().Contain("missing runs");
     }
@@ -693,13 +645,12 @@ public class MemorySearchTests
             .Should().NotThrow();
     }
 
-    private static MemorySearchEval.TaskResult Result(SearchTask task, double off, double on, int repetitions = 1)
+    private static MemorySearchEval.TaskResult Result(SearchTask task, double score, int repetitions = 1)
     {
-        (AgentRun, RunScore) Arm(double score) => (
+        (AgentRun, RunScore) Scored() => (
             Run(AgentOutcome.Answered, "a", []),
-            new RunScore(score, false, score > 0, score > 0, score, 1, 2, 0, 100, 10, 50));
-        return new MemorySearchEval.TaskResult(task,
-            [.. Enumerable.Repeat(Arm(off), repetitions)], [.. Enumerable.Repeat(Arm(on), repetitions)]);
+            new RunScore(score, false, score > 0, score > 0, score, 1, 2, 100, 10, 50));
+        return new MemorySearchEval.TaskResult(task, [.. Enumerable.Repeat(Scored(), repetitions)]);
     }
 
     [Fact]
@@ -730,15 +681,12 @@ public class MemorySearchTests
         string root = Path.Combine(RepoRoot(), "eval", "datasets", "memory-search");
         List<SearchTask> tasks = MemorySearchEval.ReadTasks(Path.Combine(root, "tasks.jsonl"));
         var corpus = MemorySearchEval.ReadCorpus(Path.Combine(root, "corpus.jsonl"));
-        List<MemorySearchEval.MemoryOp> ops = MemorySearchEval.ReadMemory(Path.Combine(root, "memory.jsonl"));
         HashSet<string> ids = [.. corpus.Select(d => d.Id)];
 
         tasks.Count(t => t.Split == "test").Should().Be(112);
         tasks.Where(t => t.Split == "test").Count(t => t.InMemorySet).Should().Be(64);
         corpus.Select(d => d.FileName).Should().OnlyHaveUniqueItems();
         tasks.SelectMany(t => t.Gold.Concat(t.Stale)).Should().OnlyContain(id => ids.Contains(id));
-        ops.SelectMany(o => o.Sources).Should().OnlyContain(id => ids.Contains(id));
-        ops.Where(o => o.Op == "correct").Should().OnlyContain(o => ops.Any(t => t.Id == o.Target));
     }
 
     private static string RepoRoot()

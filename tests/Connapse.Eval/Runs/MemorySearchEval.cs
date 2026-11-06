@@ -1,34 +1,25 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Connapse.Core;
-using Connapse.Core.Interfaces;
 using Connapse.Eval.Cli;
 using Connapse.Eval.Datasets;
 using Connapse.Eval.Model;
 using Connapse.Eval.Runs.MemorySearch;
-using Connapse.Eval.Statistics;
 using Connapse.Eval.Systems;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Eval.Runs;
 
 /// <summary>
-/// The memory-search-v1 suite (CON-244): does container memory make agent search better? The same agent answers
-/// each task twice on one Connapse instance, through the MCP server's own tool methods:
-/// <list type="bullet">
-/// <item><b>Off</b>: <c>search_knowledge</c> and <c>get_document</c>, as an agent searches today.</item>
-/// <item><b>On</b>: the same, plus <c>memory_recall</c> over the facts agents stored about the corpus.</item>
-/// </list>
-/// A run scores 1 when the agent cites a gold document and no stale one. The verdict follows the bar in
-/// <c>eval/pass-bars.md</c>, written before any scored run.
+/// The memory-search-v1 suite: how well an agent answers with search alone, through the MCP server's own tool methods
+/// <c>search_knowledge</c> and <c>get_document</c>. CON-244 compared this with container memory, which CON-255 removed,
+/// so this memory-off score is the one to match. A run scores 1 when the agent cites a gold document and no stale one.
+/// The rules are in <c>eval/pass-bars.md</c>, written before any scored run.
 /// </summary>
 public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWriter log)
 {
     public const string Dataset = "memory-search";
 
-    public static readonly string[] OffTools = ["search_knowledge", "get_document"];
-    public static readonly string[] OnTools = [.. OffTools, "memory_recall"];
+    public static readonly string[] SearchTools = ["search_knowledge", "get_document"];
 
     /// <summary>The registered protocol fixes search at its default 10 results in Hybrid mode, so the agent can't change either.</summary>
     public static readonly IReadOnlyDictionary<string, string[]> Pinned = new Dictionary<string, string[]>(StringComparer.Ordinal)
@@ -43,11 +34,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath,
         string? AgentDir = null);
 
-    public sealed record MemoryOp(string Op, string Id, string? Target, string? Subject, string? Attribute, string Value,
-        string? ValidFrom, IReadOnlyList<string> Sources, string? Reason);
-
-    /// <summary>One arm's runs of one task, in repetition order.</summary>
-    public sealed record TaskResult(SearchTask Task, IReadOnlyList<(AgentRun Run, RunScore Score)> Off, IReadOnlyList<(AgentRun Run, RunScore Score)> On);
+    /// <summary>One task's runs, in repetition order.</summary>
+    public sealed record TaskResult(SearchTask Task, IReadOnlyList<(AgentRun Run, RunScore Score)> Runs);
 
     public async Task<int> RunAsync(Options options, CancellationToken ct)
     {
@@ -64,7 +52,6 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         if (options.LimitTasks is int limit)
             tasks = [.. tasks.Take(limit)];
         List<EvalDocument> corpus = ReadCorpus(Path.Combine(root, "corpus.jsonl"));
-        List<MemoryOp> ops = ReadMemory(Path.Combine(root, "memory.jsonl"));
 
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, "connapse", options.Config);
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
@@ -72,40 +59,38 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         IndexReport indexed = await system.IndexAsync(new EvalDataset(Dataset, entry.Version, [], corpus, [], new Qrels()), ct);
         (Guid container, IReadOnlyDictionary<string, string> docMap) = system.ContainerOf(Dataset);
         RequireCompleteIndex(indexed, corpus.Count, docMap.Count);
+        log.WriteLine($"{corpus.Count} documents indexed");
 
-        Guid userId = Guid.NewGuid();
-        await ReplayAsync(system.Services, container, docMap, ops, new MemoryCaller(userId, null, "memory-search-eval"), ct);
-        log.WriteLine($"{corpus.Count} documents indexed, {ops.Count} memory operations replayed");
-
-        var principal = McpToolbox.Reader(userId, "memory-search-eval");
-        McpToolbox off = new(system.Services, principal, OffTools, Pinned);
-        McpToolbox on = new(system.Services, principal, OnTools, Pinned);
+        McpToolbox tools = new(system.Services, McpToolbox.Reader(Guid.NewGuid(), "memory-search-eval"), SearchTools, Pinned);
         DocumentIndex index = new(docMap, corpus.ToDictionary(d => d.Id, d => d.FileName!, StringComparer.Ordinal));
-        string prompt = SystemPrompt(container);
         await using ToolBridge bridge = new();
         await bridge.StartAsync(ct);
         ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir);
+        await AnswerAndReportAsync(agent, tools, SystemPrompt(container), tasks, index, options, RegisteredTasks, log, ct);
+        return 0;
+    }
 
-        // Each task's repetitions run Off then On back to back, so drift in the API hits both arms alike.
-        List<(SearchTask Task, int Rep, bool Memory)> jobs =
-            [.. tasks.SelectMany(t => Enumerable.Range(0, options.Repetitions).SelectMany(r => new[] { (t, r, false), (t, r, true) }))];
-        ConcurrentDictionary<(string, int, bool), (AgentRun, RunScore)> done = new();
+    /// <summary>Runs every task's repetitions, then writes the report and, with <c>--out</c>, its run log.</summary>
+    public static async Task AnswerAndReportAsync(ClaudeCliAgent agent, McpToolbox tools, string prompt, IReadOnlyList<SearchTask> tasks, DocumentIndex index,
+        Options options, int registeredTasks, TextWriter log, CancellationToken ct)
+    {
+        List<(SearchTask Task, int Rep)> jobs = [.. tasks.SelectMany(t => Enumerable.Range(0, options.Repetitions).Select(r => (t, r)))];
+        ConcurrentDictionary<(string, int), (AgentRun, RunScore)> done = new();
         int finished = 0;
         await Parallel.ForEachAsync(jobs, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (job, token) =>
         {
-            AgentRun run = await agent.RunAsync(job.Memory ? on : off, prompt, job.Task.Question, token);
+            AgentRun run = await agent.RunAsync(tools, prompt, job.Task.Question, token);
             RunScore score = MemorySearchScoring.Score(job.Task, run, index);
-            done[(job.Task.Id, job.Rep, job.Memory)] = (run, score);
+            done[(job.Task.Id, job.Rep)] = (run, score);
             int n = Interlocked.Increment(ref finished);
-            log.WriteLine($"[{n}/{jobs.Count}] {job.Task.Id} rep {job.Rep + 1} {(job.Memory ? "on " : "off")}: " +
+            log.WriteLine($"[{n}/{jobs.Count}] {job.Task.Id} rep {job.Rep + 1}: " +
                 $"{run.Outcome} score {score.Score} calls {score.ToolCalls}{(run.Error is null ? "" : $" ({run.Error})")} | {agent.LastLimit}");
         });
 
         List<TaskResult> results = [.. tasks.Select(t => new TaskResult(t,
-            [.. Enumerable.Range(0, options.Repetitions).Select(r => done[(t.Id, r, false)])],
-            [.. Enumerable.Range(0, options.Repetitions).Select(r => done[(t.Id, r, true)])]))];
+            [.. Enumerable.Range(0, options.Repetitions).Select(r => done[(t.Id, r)])]))];
 
-        JsonObject report = Report(options, results);
+        JsonObject report = Report(options, results, registeredTasks);
         report["subscription"] = new JsonObject
         {
             ["atFirstRun"] = agent.FirstLimit?.ToString(),
@@ -118,59 +103,31 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             await File.WriteAllLinesAsync(Path.ChangeExtension(options.OutPath, ".runs.jsonl"), RunLines(results, index), ct);
         }
         log.WriteLine(json);
-        return (bool)report["gate"]!["passed"]! ? 0 : 3;
     }
 
-    /// <summary>The same instructions for both arms; they name the container and never mention memory.</summary>
+    /// <summary>The agent's instructions; they name the container and never mention memory.</summary>
     public static string SystemPrompt(Guid container) =>
         $"You answer questions about a company's internal documents, stored in the Connapse container with ID {container}. " +
         "Use the tools to find the document that answers the question, and read a document in full with get_document " +
         "when a search result is not enough. When you are sure, call the answer tool with a short answer and the " +
         $"DocumentId of each document your answer relies on. You may make at most {AgentContract.MaxToolCalls} tool calls before answering.";
 
-    /// <summary>The agents' memory, written as they wrote it: each fact cites its source documents.</summary>
-    public static async Task ReplayAsync(IServiceProvider services, Guid container, IReadOnlyDictionary<string, string> docMap,
-        IReadOnlyList<MemoryOp> ops, MemoryCaller caller, CancellationToken ct)
-    {
-        Dictionary<string, string> documentOf = docMap.ToDictionary(p => p.Value, p => p.Key, StringComparer.Ordinal);
-        await using AsyncServiceScope scope = services.CreateAsyncScope();
-        IMemoryService memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
-        Dictionary<string, (Guid Fact, string Subject, string Attribute)> written = new(StringComparer.Ordinal);
-        foreach (MemoryOp op in ops)
-        {
-            (string subject, string attribute) = op.Op == "remember"
-                ? (op.Subject!, op.Attribute!)
-                : (written[op.Target!].Subject, written[op.Target!].Attribute);
-            var fact = new NewMemoryFact(subject, attribute, op.Value, Date(op.ValidFrom), null,
-                [.. op.Sources.Select(s => new MemorySource(MemorySourceKind.Document, documentOf[s]))], op.Reason);
-            MemoryWriteResult result = op.Op == "remember"
-                ? await memory.RememberAsync(container, fact, caller, ct)
-                : await memory.CorrectAsync(written[op.Target!].Fact, MemoryCorrection.Changed, fact, caller, true, ct);
-            if (result.Fact is null)
-                throw new InvalidOperationException($"{op.Id} was refused: {result.Error}");
-            written[op.Id] = (result.Fact.Id, subject, attribute);
-        }
-    }
-
-    /// <summary>The pre-registered run: every test task, three repetitions per arm. Only this run can pass the gate.</summary>
+    /// <summary>The pre-registered run: every test task, three repetitions. Any other run is diagnostic only.</summary>
     public const int RegisteredTasks = 112;
     public const int RegisteredRepetitions = 3;
 
-    /// <summary>
-    /// Stops before any agent runs when a document failed to index: memory could still hand the agent that
-    /// document's id while search can never return it, which would favour the On arm.
-    /// </summary>
+    /// <summary>Stops before any agent runs when a document failed to index, because search could never return it.</summary>
     public static void RequireCompleteIndex(IndexReport report, int corpusDocuments, int mappedDocuments)
     {
         if (report.Failed > 0 || mappedDocuments != corpusDocuments)
             throw new InvalidOperationException(
                 $"{report.Failed} of {corpusDocuments} documents failed to index and {mappedDocuments} have a Connapse id "
-                + $"({string.Join(", ", report.FailedDocumentIds.Take(10))}); the arms are compared only on a complete corpus.");
+                + $"({string.Join(", ", report.FailedDocumentIds.Take(10))}); scores are comparable only on a complete corpus.");
     }
 
     /// <summary>
     /// Stops before any agent runs when a CLAUDE.md could reach the agents: Claude Code loads one from its working folder
-    /// and every folder above it, so it would reach both arms.
+    /// and every folder above it.
     /// </summary>
     public static void RequireNoProjectMemory(string agentDir)
     {
@@ -199,7 +156,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             reasons.Add($"{results.Count} tasks, not {registeredTasks}");
         if (options.Repetitions != RegisteredRepetitions)
             reasons.Add($"{options.Repetitions} repetitions, not {RegisteredRepetitions}");
-        int incomplete = results.Count(r => r.Off.Count != options.Repetitions || r.On.Count != options.Repetitions);
+        int incomplete = results.Count(r => r.Runs.Count != options.Repetitions);
         if (incomplete > 0)
             reasons.Add($"{incomplete} tasks are missing runs");
         return reasons;
@@ -210,12 +167,6 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         List<string> nonconforming = Nonconforming(options, results, registeredTasks);
         List<TaskResult> m = [.. results.Where(r => r.Task.InMemorySet)];
         List<TaskResult> h = [.. results.Where(r => !r.Task.InMemorySet)];
-        PairedComparison? mCompare = Compare(m, s => s.Score);
-        PairedComparison? hCompare90 = Compare(h, s => s.Score, 0.90);
-        PairedComparison? allCompare = Compare(results, s => s.Score);
-        Verdict? verdict = mCompare is not null && hCompare90 is not null && allCompare is not null
-            ? MemorySearchScoring.Decide(mCompare, hCompare90, allCompare)
-            : null;
 
         JsonObject kinds = [];
         foreach (string kind in results.Select(r => r.Task.Kind).Distinct().Order(StringComparer.Ordinal))
@@ -239,68 +190,34 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             ["holdoutSet"] = Group(h),
             ["kinds"] = kinds,
             ["memorySetHalves"] = halves,
-            ["comparisons"] = new JsonObject
+            ["measures"] = new JsonObject
             {
-                ["memorySetScore95"] = Comparison(mCompare),
-                ["holdoutSetScore90"] = Comparison(hCompare90),
-                ["allScore95"] = Comparison(allCompare),
-                ["answerAccuracy"] = Comparison(Compare(results, s => s.AnswerRight ? 1 : 0)),
-                ["staleCitations"] = Comparison(Compare(results, s => s.CitedStale ? 1 : 0)),
-                ["runRecall"] = Comparison(Compare(results, s => s.SawGold ? 1 : 0)),
-                ["firstQueryMrr@10"] = Comparison(Compare(results, s => s.FirstQueryMrr)),
-                ["searchCalls"] = Comparison(Compare(results, s => s.Searches)),
-                ["toolCalls"] = Comparison(Compare(results, s => s.ToolCalls)),
+                ["answerAccuracy"] = TaskMean(results, s => s.AnswerRight ? 1 : 0),
+                ["staleCitations"] = TaskMean(results, s => s.CitedStale ? 1 : 0),
+                ["runRecall"] = TaskMean(results, s => s.SawGold ? 1 : 0),
+                ["firstQueryMrr@10"] = TaskMean(results, s => s.FirstQueryMrr),
+                ["searchCalls"] = TaskMean(results, s => s.Searches),
+                ["toolCalls"] = TaskMean(results, s => s.ToolCalls),
             },
-            ["outcomes"] = new JsonObject
-            {
-                ["off"] = Outcomes(results.SelectMany(r => r.Off)),
-                ["on"] = Outcomes(results.SelectMany(r => r.On)),
-            },
-            ["tokens"] = new JsonObject
-            {
-                ["off"] = Tokens(results.SelectMany(r => r.Off)),
-                ["on"] = Tokens(results.SelectMany(r => r.On)),
-            },
-            ["examples"] = new JsonObject
-            {
-                ["memoryHelped"] = Examples(results, better: true),
-                ["memoryHurt"] = Examples(results, better: false),
-            },
-            ["gate"] = new JsonObject
-            {
-                ["verdict"] = verdict is { } v ? MemorySearchScoring.Label(v) : "not scored (fewer than 2 tasks in a set)",
-                ["memorySetMdeOver015"] = mCompare is null ? null : mCompare.MinimumDetectableEffect > 0.15,
-                ["conforming"] = nonconforming.Count == 0,
-                ["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]),
-                ["passed"] = verdict == Verdict.Keep && nonconforming.Count == 0,
-            },
+            ["outcomes"] = Outcomes(results.SelectMany(r => r.Runs)),
+            ["tokens"] = Tokens(results.SelectMany(r => r.Runs)),
+            ["conforming"] = nonconforming.Count == 0,
+            ["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]),
         };
     }
 
     private static double Mean(IEnumerable<(AgentRun Run, RunScore Score)> runs, Func<RunScore, double> measure) =>
         runs.Select(r => measure(r.Score)).DefaultIfEmpty(0).Average();
 
-    private static PairedComparison? Compare(IReadOnlyList<TaskResult> group, Func<RunScore, double> measure, double level = 0.95) =>
-        group.Count < 2
-            ? null
-            : PairedStats.Compare([.. group.Select(r => Mean(r.Off, measure))], [.. group.Select(r => Mean(r.On, measure))], confidenceLevel: level);
+    /// <summary>A measure averaged per task, then over the tasks, so every task counts the same.</summary>
+    private static double TaskMean(IReadOnlyList<TaskResult> group, Func<RunScore, double> measure) =>
+        Round(group.Select(r => Mean(r.Runs, measure)).DefaultIfEmpty(0).Average());
 
     private static JsonObject Group(IReadOnlyList<TaskResult> group) => new()
     {
         ["tasks"] = group.Count,
-        ["offScore"] = Round(group.Select(r => Mean(r.Off, s => s.Score)).DefaultIfEmpty(0).Average()),
-        ["onScore"] = Round(group.Select(r => Mean(r.On, s => s.Score)).DefaultIfEmpty(0).Average()),
-        ["offSearches"] = Round(group.Select(r => Mean(r.Off, s => s.Searches)).DefaultIfEmpty(0).Average()),
-        ["onSearches"] = Round(group.Select(r => Mean(r.On, s => s.Searches)).DefaultIfEmpty(0).Average()),
-    };
-
-    private static JsonNode? Comparison(PairedComparison? c) => c is null ? null : new JsonObject
-    {
-        ["tasks"] = c.N,
-        ["meanDifference"] = Round(c.MeanDifference),
-        ["ci"] = new JsonArray(Round(c.CiLow), Round(c.CiHigh)),
-        ["permutationP"] = c.PermutationP,
-        ["minimumDetectableEffect"] = Round(c.MinimumDetectableEffect),
+        ["score"] = TaskMean(group, s => s.Score),
+        ["searches"] = TaskMean(group, s => s.Searches),
     };
 
     private static JsonObject Outcomes(IEnumerable<(AgentRun Run, RunScore Score)> runs)
@@ -312,7 +229,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     }
 
     /// <summary>Token totals, and what they would cost at API list price; the run itself is billed to the subscription.</summary>
-    internal static JsonObject Tokens(IEnumerable<(AgentRun Run, RunScore Score)> runs)
+    private static JsonObject Tokens(IEnumerable<(AgentRun Run, RunScore Score)> runs)
     {
         List<TokenUsage> usage = [.. runs.Select(r => r.Run.Usage)];
         TokenUsage total = usage.Aggregate(TokenUsage.Zero, (a, b) => a.Add(b));
@@ -327,59 +244,32 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         };
     }
 
-    /// <summary>The tasks memory moved most, either way, with what each arm answered and cited first.</summary>
-    private static JsonArray Examples(IReadOnlyList<TaskResult> results, bool better)
-    {
-        IEnumerable<TaskResult> moved = results
-            .Select(r => (Result: r, Delta: Mean(r.On, s => s.Score) - Mean(r.Off, s => s.Score)))
-            .Where(x => better ? x.Delta > 0 : x.Delta < 0)
-            .OrderByDescending(x => Math.Abs(x.Delta))
-            .ThenBy(x => x.Result.Task.Id, StringComparer.Ordinal)
-            .Take(3)
-            .Select(x => x.Result);
-        return [.. moved.Select(r => (JsonNode)new JsonObject
-        {
-            ["task"] = r.Task.Id,
-            ["kind"] = r.Task.Kind,
-            ["question"] = r.Task.Question,
-            ["expected"] = r.Task.Answer,
-            ["offScore"] = Round(Mean(r.Off, s => s.Score)),
-            ["onScore"] = Round(Mean(r.On, s => s.Score)),
-            ["offAnswer"] = r.Off[0].Run.Answer,
-            ["onAnswer"] = r.On[0].Run.Answer,
-        })];
-    }
-
     private static IEnumerable<string> RunLines(IReadOnlyList<TaskResult> results, DocumentIndex index)
     {
         foreach (TaskResult r in results)
-            foreach ((string arm, IReadOnlyList<(AgentRun Run, RunScore Score)> runs) in new[] { ("off", r.Off), ("on", r.On) })
-                for (int i = 0; i < runs.Count; i++)
+            for (int i = 0; i < r.Runs.Count; i++)
+            {
+                (AgentRun run, RunScore score) = r.Runs[i];
+                yield return new JsonObject
                 {
-                    (AgentRun run, RunScore score) = runs[i];
-                    yield return new JsonObject
+                    ["task"] = r.Task.Id,
+                    ["rep"] = i + 1,
+                    ["outcome"] = run.Outcome.ToString(),
+                    ["score"] = score.Score,
+                    ["answer"] = run.Answer,
+                    ["cited"] = new JsonArray([.. run.Cited.Select(c => (JsonNode?)(index.Resolve(c) ?? c))]),
+                    ["calls"] = new JsonArray([.. run.Calls.Select(c => (JsonNode?)new JsonObject
                     {
-                        ["task"] = r.Task.Id,
-                        ["arm"] = arm,
-                        ["rep"] = i + 1,
-                        ["outcome"] = run.Outcome.ToString(),
-                        ["score"] = score.Score,
-                        ["answer"] = run.Answer,
-                        ["cited"] = new JsonArray([.. run.Cited.Select(c => (JsonNode?)(index.Resolve(c) ?? c))]),
-                        ["calls"] = new JsonArray([.. run.Calls.Select(c => (JsonNode?)new JsonObject
-                        {
-                            ["tool"] = c.Name,
-                            ["input"] = JsonSerializer.SerializeToNode(c.Input),
-                            ["output"] = c.Output,
-                        })]),
-                        ["error"] = run.Error,
-                    }.ToJsonString();
-                }
+                        ["tool"] = c.Name,
+                        ["input"] = JsonSerializer.SerializeToNode(c.Input),
+                        ["output"] = c.Output,
+                    })]),
+                    ["error"] = run.Error,
+                }.ToJsonString();
+            }
     }
 
     private static double Round(double x) => Math.Round(x, 4);
-
-    private static DateTimeOffset? Date(string? text) => text is null ? null : MemoryEval.Dates(text)[0];
 
     public static List<SearchTask> ReadTasks(string path) =>
         [.. File.ReadLines(path).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).Select(t => new SearchTask(
@@ -395,9 +285,4 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
                 FileName = ConnapseSearchSystem.SafeFileName((string)d["title"]!) + ".txt",
                 Folder = "/",
             })];
-
-    public static List<MemoryOp> ReadMemory(string path) =>
-        [.. File.ReadLines(path).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).Select(o => new MemoryOp(
-            (string)o["op"]!, (string)o["id"]!, (string?)o["target"], (string?)o["subject"], (string?)o["attribute"],
-            (string)o["value"]!, (string?)o["validFrom"], [.. o["sources"]!.AsArray().Select(s => (string)s!)], (string?)o["reason"]))];
 }

@@ -141,30 +141,17 @@ public class MemoryContainerPagesTests : IDisposable
     }
 
     [Fact]
-    public void ContainerPage_DocumentsContainer_KeepsFilesFirstWithUpload()
+    public void ContainerPage_DocumentsContainer_KeepsFilesFirstWithUploadAndHasNoMemoryTab()
     {
         var docs = Seed("docs", ContainerKind.Documents);
 
         var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, docs.Id));
 
         cut.WaitForAssertion(() => cut.Find("#fileDropZone"));
-        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Memory", "Settings");
+        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Settings");
+        cut.FindAll("#memory-tab").Should().BeEmpty();
         cut.Find("#fileUploadInput");
         cut.FindAll("#memory-container-note").Should().BeEmpty();
-    }
-
-    [Fact]
-    public void ContainerPage_DocumentsContainerMemoryTab_IsLabelledTeamMemory()
-    {
-        var docs = Seed("docs", ContainerKind.Documents);
-        var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, docs.Id));
-        cut.WaitForAssertion(() => cut.Find("#memory-tab"));
-
-        cut.Find("#memory-tab").Click();
-
-        cut.WaitForAssertion(() => cut.Find("#memory-team-note").TextContent.Should().Contain("Team memory")
-            .And.Contain("every document a fact cites"));
-        cut.Find("#memory-personal-pointer a").GetAttribute("href").Should().Be("memory");
     }
 
     [Fact]

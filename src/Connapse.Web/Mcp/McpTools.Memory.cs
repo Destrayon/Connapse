@@ -11,7 +11,7 @@ using ModelContextProtocol.Server;
 namespace Connapse.Web.Mcp;
 
 /// <summary>
-/// Agent memory: facts with dates and sources, kept in a container. Writing needs write access; reading shows a fact
+/// Agent memory: facts with dates and sources, kept in a memory space. Writing needs write access; reading shows a fact
 /// only when the caller can read every source it cites. Answers are JSON data under a fixed notice, never prose an
 /// agent could take as instructions.
 /// </summary>
@@ -31,20 +31,19 @@ public partial class McpTools
     /// <summary>The test an agent applies to pick where a fact goes, in the save tool's description and its missing-space error.</summary>
     internal const string SaveTest =
         "Save to a personal space if it is about the user, their preferences or their own work; to a team space if it "
-        + "would be true and useful for others; to a document container if you learned it from that container's "
-        + "documents. If unsure, ask.";
+        + "would be true and useful for others. If unsure, ask.";
 
     /// <summary>How many spaces the missing-space error names before pointing at memory_spaces for the rest.</summary>
     internal const int SpacesNamedInError = 20;
 
     [McpServerTool(Name = "memory_spaces", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("List the memory spaces you can use: your personal spaces (only you see them), team spaces (everyone in this Connapse sees them) and document containers that hold memory. Each comes with its id, name, kind, description, whether you can add to it, and who sees it. Call this before saving to pick a `space` for memory_remember. At most 100 are returned; pass `name` to find others.")]
+     Description("List the memory spaces you can use: your personal spaces (only you see them) and team spaces (everyone in this Connapse sees them). Each comes with its id, name, kind, description, whether you can add to it, and who sees it. Call this before saving to pick a `space` for memory_remember. At most 100 are returned; pass `name` to find others.")]
     public static async Task<string> MemorySpaces(
         ListMemorySpaces spaces,
         IHttpContextAccessor http,
         [Description("Only spaces whose name or description contains this text")] string? name = null,
-        [Description("Only this kind: \"personal\", \"team\" or \"container\"")] string? kind = null,
+        [Description("Only this kind: \"personal\" or \"team\"")] string? kind = null,
         CancellationToken ct = default)
     {
         MemorySpaceKind? only = null;
@@ -52,7 +51,7 @@ public partial class McpTools
         {
             if (!Enum.TryParse(kind.Trim(), ignoreCase: true, out MemorySpaceKind parsed) || !Enum.IsDefined(parsed)
                 || int.TryParse(kind.Trim(), out _))
-                return "Error: kind must be \"personal\", \"team\" or \"container\".";
+                return "Error: kind must be \"personal\" or \"team\".";
             only = parsed;
         }
 
@@ -110,7 +109,7 @@ public partial class McpTools
         [Description("Date it stopped being true, if it already has")] string? validTo = null,
         [Description("Sources: document IDs, or link node IDs as \"node:<id>\"")] string[]? sources = null,
         [Description("Why or how it was learned, e.g. the ticket that made the change")] string? reason = null,
-        [Description("Older name for a container to save to; use `space` instead. A fact citing no sources saved this way goes to your own `<container>-personal` space")] string? containerId = null,
+        [Description("Older name for the space to save to; use `space` instead. A fact citing no sources saved this way goes to your own `<space>-personal` space")] string? containerId = null,
         CancellationToken ct = default)
     {
         MemoryTarget target;
@@ -164,13 +163,12 @@ public partial class McpTools
     }
 
     private static string SpaceKind(Connapse.Core.Container space) =>
-        space.Kind == ContainerKind.Documents ? "container" : space.Audience == MemoryScope.Personal ? "personal" : "team";
+        space.Audience == MemoryScope.Personal ? "personal" : "team";
 
     private static string SpaceLabel(MemorySpaceKind kind) => kind switch
     {
         MemorySpaceKind.Personal => "personal: only you see it",
-        MemorySpaceKind.Team => "team: everyone in this Connapse sees it",
-        _ => "document container: everyone in this Connapse sees its memory",
+        _ => "team: everyone in this Connapse sees it",
     };
 
     /// <summary>Where a fact went and who sees it, in plain words, so a save redirected to a personal space says so.</summary>
@@ -181,7 +179,7 @@ public partial class McpTools
         audience = space.Audience,
         note = space.Audience == MemoryScope.Personal
             ? $"Saved to '{space.Name}': only you see it. Recall it from '{space.Name}'."
-            : $"Saved to '{space.Name}', {(space.Kind == ContainerKind.Documents ? "a document container" : "a team space")}: "
+            : $"Saved to '{space.Name}', a team space: "
                 + "everyone in this Connapse can see it, except that a fact citing documents is shown only to people who can read all of them.",
     };
 
@@ -193,7 +191,7 @@ public partial class McpTools
         IHttpContextAccessor http,
         [Description("ID of the fact to replace (from memory_recall)")] string factId,
         [Description("The new value")] string value,
-        [Description("Optional and not needed: the fact is found by its id in every space and container you can see, and the correction stays where the fact is")] string? containerId = null,
+        [Description("Optional and not needed: the fact is found by its id in every space you can see, and the correction stays where the fact is")] string? containerId = null,
         [Description("\"changed\" (default) or \"wrong\"")] string? kind = null,
         [Description("Date the new value took effect (required for changed)")] string? validFrom = null,
         [Description("Date the new value stopped being true, if it has")] string? validTo = null,
@@ -229,7 +227,7 @@ public partial class McpTools
         ForgetFact forget,
         IHttpContextAccessor http,
         [Description("ID of the fact to delete")] string factId,
-        [Description("Optional and not needed: the fact is found by its id in every space and container you can see")] string? containerId = null,
+        [Description("Optional and not needed: the fact is found by its id in every space you can see")] string? containerId = null,
         CancellationToken ct = default)
     {
         var forgotten = await forget.RunAsync(Mcp(http), containerId, factId, ct);

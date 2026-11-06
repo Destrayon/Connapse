@@ -34,7 +34,7 @@ public class MemoryFactListTests : IDisposable
         ctx.AddAuthorization().SetAuthorized("pat").SetClaims(new Claim(ClaimTypes.NameIdentifier, Me.ToString()));
         var containers = ContainerStoreFakes.Create();
         containers.GetAsync(Container, Arg.Any<CancellationToken>())
-            .Returns(new Container(Container.ToString(), "halcyon", null, DateTime.UtcNow, DateTime.UtcNow));
+            .Returns(new Container(Container.ToString(), "halcyon", null, DateTime.UtcNow, DateTime.UtcNow, Kind: ContainerKind.Memory));
         var authorizer = Substitute.For<IOperationAuthorizer>();
         authorizer.AllowsAsync(default!, default!).ReturnsForAnyArgs(true);
         ctx.Services.AddSingleton(containers);

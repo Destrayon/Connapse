@@ -36,12 +36,12 @@ public class McpToolsMemorySpacesTests
     };
 
     private static Container Space(string name, MemorySpaceKind kind) => new(Guid.NewGuid().ToString(), name, $"{name} notes", Epoch, Epoch,
-        Kind: kind == MemorySpaceKind.Container ? ContainerKind.Documents : ContainerKind.Memory,
+        Kind: ContainerKind.Memory,
         Audience: kind == MemorySpaceKind.Personal ? MemoryScope.Personal : MemoryScope.Team);
 
     private void Lists(params Container[] spaces)
     {
-        _spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+        _spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(spaces.Select((s, i) => new MemorySpaceSummary(s, 1, new DateTimeOffset(Epoch).AddMinutes(-i), false)).ToList());
         // The spaces list reads candidates whose bounds already meet, so it needs no source check.
         _spaces.CandidatesAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
@@ -65,7 +65,7 @@ public class McpToolsMemorySpacesTests
     [Fact]
     public async Task MemorySpaces_EverySpace_SaysKindWhetherICanAddAndWhoSeesIt()
     {
-        Lists(Space("my-memory", MemorySpaceKind.Personal), Space("on-call", MemorySpaceKind.Team), Space("handbook", MemorySpaceKind.Container));
+        Lists(Space("my-memory", MemorySpaceKind.Personal), Space("on-call", MemorySpaceKind.Team), Space("handbook", MemorySpaceKind.Team));
         IUserDirectory people = Substitute.For<IUserDirectory>();
         people.ListAsync(0, 0, Arg.Any<CancellationToken>()).Returns(new DirectoryPage([], 14));
 
@@ -79,7 +79,7 @@ public class McpToolsMemorySpacesTests
         spaces["my-memory"].GetProperty("whoSees").GetString().Should().Be("only you");
         spaces["on-call"].GetProperty("kind").GetString().Should().Be("team");
         spaces["on-call"].GetProperty("whoSees").GetString().Should().Be("everyone in this Connapse, 14 people");
-        spaces["handbook"].GetProperty("kind").GetString().Should().Be("container");
+        spaces["handbook"].GetProperty("kind").GetString().Should().Be("team");
         spaces["handbook"].GetProperty("description").GetString().Should().Be("handbook notes");
         spaces.Values.Should().OnlyContain(s => s.GetProperty("canAdd").GetBoolean());
     }
@@ -125,7 +125,7 @@ public class McpToolsMemorySpacesTests
     [InlineData("1")]
     public async Task MemorySpaces_UnknownKind_IsRefusedAndReadsNothing(string kind)
     {
-        (await McpTools.MemorySpaces(List(), Signed, kind: kind)).Should().Be("Error: kind must be \"personal\", \"team\" or \"container\".");
+        (await McpTools.MemorySpaces(List(), Signed, kind: kind)).Should().Be("Error: kind must be \"personal\" or \"team\".");
         _spaces.ReceivedCalls().Should().BeEmpty();
     }
 
@@ -141,7 +141,7 @@ public class McpToolsMemorySpacesTests
     [Theory]
     [InlineData(MemorySpaceKind.Personal, 5, "only you")]
     [InlineData(MemorySpaceKind.Team, 1, "everyone in this Connapse, 1 person")]
-    [InlineData(MemorySpaceKind.Container, 2, "everyone in this Connapse, 2 people")]
+    [InlineData(MemorySpaceKind.Team, 2, "everyone in this Connapse, 2 people")]
     public void WhoSees_EachKind_IsPlainWords(MemorySpaceKind kind, int accounts, string expected) =>
         McpTools.WhoSees(kind, accounts).Should().Be(expected);
 
@@ -220,7 +220,7 @@ public class McpToolsMemorySpacesTests
     [Fact]
     public async Task MemoryRemember_OnlyContainerId_SavesTheOldWay()
     {
-        Container docs = Space("handbook", MemorySpaceKind.Container);
+        Container docs = Space("handbook", MemorySpaceKind.Team);
         _containers.GetByNameAsync("handbook", Arg.Any<CancellationToken>()).Returns(docs);
         _memory.RememberAsync(Arg.Any<Guid>(), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
             .Returns(c => new MemoryWriteResult(Fact(c.ArgAt<Guid>(0), MemoryScope.Team), null, null));
@@ -229,7 +229,31 @@ public class McpToolsMemorySpacesTests
             sources: [Guid.NewGuid().ToString()], containerId: "handbook");
 
         JsonDocument.Parse(result).RootElement.GetProperty("savedTo").GetProperty("note").GetString().Should().StartWith(
-            "Saved to 'handbook', a document container: everyone in this Connapse can see it");
+            "Saved to 'handbook', a team space: everyone in this Connapse can see it");
+    }
+
+    [Fact]
+    public async Task MemoryRemember_DocumentContainer_IsRefusedAndSavesNothing()
+    {
+        Container docs = new(Guid.NewGuid().ToString(), "handbook", null, Epoch, Epoch);
+        _containers.GetByNameAsync("handbook", Arg.Any<CancellationToken>()).Returns(docs);
+
+        string result = await McpTools.MemoryRemember(Remember(), List(), Signed, "Halcyon", "database", "x", containerId: "handbook");
+
+        result.Should().StartWith("Error: ");
+        await _memory.DidNotReceive().RememberAsync(Arg.Any<Guid>(), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MemoryRecall_DocumentContainer_IsRefusedAndReadsNothing()
+    {
+        Container docs = new(Guid.NewGuid().ToString(), "handbook", null, Epoch, Epoch);
+        _containers.GetByNameAsync("handbook", Arg.Any<CancellationToken>()).Returns(docs);
+
+        string result = await McpTools.MemoryRecall(Recall(), Signed, space: "handbook");
+
+        result.Should().StartWith("Error: ");
+        await _memory.DidNotReceive().RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -262,7 +286,7 @@ public class McpToolsMemorySpacesTests
     [Fact]
     public async Task MemoryTimeline_ContainerIdAlone_PagesThatSpaceNewestFirstAndShowsEachPageInDateOrder()
     {
-        Container docs = Space("handbook", MemorySpaceKind.Container);
+        Container docs = Space("handbook", MemorySpaceKind.Team);
         _containers.GetByNameAsync("handbook", Arg.Any<CancellationToken>()).Returns(docs);
         Guid id = Guid.Parse(docs.Id);
         _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
@@ -270,7 +294,7 @@ public class McpToolsMemorySpacesTests
 
         JsonElement root = JsonDocument.Parse(await McpTools.MemoryTimeline(Recall(), Signed, subject: "Halcyon", containerId: "handbook")).RootElement;
 
-        root.GetProperty("facts")[0].GetProperty("space").GetProperty("kind").GetString().Should().Be("container");
+        root.GetProperty("facts")[0].GetProperty("space").GetProperty("kind").GetString().Should().Be("team");
         root.GetProperty("facts").EnumerateArray().Select(f => f.GetProperty("recordedAt").GetDateTimeOffset().Minute).Should().Equal(1, 9);
         root.TryGetProperty("nextCursor", out _).Should().BeFalse();
         await _memory.Received(1).ListAsync(id, Arg.Is<MemoryFactFilter>(f => f.Subject == "Halcyon" && f.Status == MemoryFactStatus.All),
@@ -487,20 +511,6 @@ public class McpToolsMemorySpacesTests
         string json = await McpTools.MemoryRecall(Recall(), Signed);
         JsonDocument.Parse(json).RootElement.GetProperty("note").GetString().Should().Be(
             "Read the 100 most recently changed spaces; 3 more were not read. Name a `space` to read one of them.");
-    }
-
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, true)]
-    public async Task SpacesAsync_Unnamed_ListsSpacesWithEndedFactsOnlyWhenTheReadReachesPastNow(bool history, bool withEnded)
-    {
-        Lists(Space("team-a", MemorySpaceKind.Team));
-        _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(new MemoryRecall([]));
-
-        await Recall().SpacesAsync(McpContext(), null, new MemoryQuery(Guid.Empty, History: history));
-        await Recall().SpacesAsync(McpContext(), null, new MemoryQuery(Guid.Empty, AsOf: history ? DateTimeOffset.UnixEpoch : null));
-
-        await _spaces.Received(2).ListAsync(Arg.Any<MemoryCaller>(), null, withEnded, Arg.Any<CancellationToken>());
     }
 
     [Fact]

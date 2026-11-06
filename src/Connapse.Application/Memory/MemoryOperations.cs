@@ -32,9 +32,8 @@ public enum MemoryStatus
 }
 
 /// <summary>
-/// A fact written, and the one it replaced when it was a correction. <see cref="SavedTo"/> is the space or container
-/// a new fact went into, which for an old-style save without sources is the caller's own personal space rather than the
-/// container named.
+/// A fact written, and the one it replaced when it was a correction. <see cref="SavedTo"/> is the space a new fact went
+/// into, which for an old-style save without sources is the caller's own personal space rather than the space named.
 /// </summary>
 public sealed record MemoryWritten(MemoryFact Fact, MemoryFact? Replaced, Container? SavedTo = null);
 
@@ -58,35 +57,40 @@ internal static class MemoryRules
     public const string MyMemory = "my-memory";
 
     /// <summary>
-    /// The managed container or memory space named by id or name, as <paramref name="viewer"/> may see it, or null.
-    /// Only containers resolve, so memory never lands in a synced source (GitHub, Jira, ...); someone else's personal
-    /// space reads as missing. A name both a team container and one of the viewer's personal spaces use is refused,
-    /// with both ids, since personal names are only unique per owner.
+    /// The memory space named by id or name, as <paramref name="viewer"/> may see it, or null. Only memory containers
+    /// resolve: naming a document container is refused, and someone else's personal space reads as missing. A name a
+    /// team space and one of the viewer's personal spaces both use is refused, with both ids, since personal names are
+    /// only unique per owner; a document container sharing a space's name doesn't count.
     /// </summary>
-    public static async Task<(Container? Found, string? Ambiguous)> SpaceAsync(
+    public static async Task<(Container? Found, string? Refused)> SpaceAsync(
         IContainerStore containers, string? idOrName, MemoryCaller viewer, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(idOrName))
             return (null, null);
         ContainerKey key = ContainerKey.Parse(idOrName.Trim());
         if (key.Id is Guid id)
-            return (await containers.GetAsync(id, viewer, ct), null);
+        {
+            Container? found = await containers.GetAsync(id, viewer, ct);
+            return found is null || found.Kind == ContainerKind.Memory ? (found, null) : (null, NotASpace(found));
+        }
         IReadOnlyList<Container> named = await containers.FindByNameAsync(key.Name!.ToLowerInvariant(), viewer, ct);
-        return named.Count > 1
-            ? (null, $"'{named[0].Name}' names both a team space or container ({named[0].Id}) and your personal space "
-                + $"({named[1].Id}). Name the one you mean by id.")
-            : (named.FirstOrDefault(), null);
+        List<Container> matches = [.. named.Where(c => c.Kind == ContainerKind.Memory)];
+        if (matches.Count > 1)
+            return (null, $"'{matches[0].Name}' names both a team space ({matches[0].Id}) and your personal space "
+                + $"({matches[1].Id}). Name the one you mean by id.");
+        return matches.Count == 0 && named.Count > 0 ? (null, NotASpace(named[0])) : (matches.FirstOrDefault(), null);
     }
 
+    private static string NotASpace(Container container) =>
+        $"'{container.Name}' is a document container, and those don't hold memory. Use a personal or team space.";
     /// <summary>
-    /// The id of the container or space named, as <see cref="SpaceAsync"/> resolves it, or the refusal when the name
-    /// is ambiguous. Both null: not found.
+    /// The id of the space named, as <see cref="SpaceAsync"/> resolves it, or the refusal. Both null: not found.
     /// </summary>
-    public static async Task<(Guid? Id, string? Ambiguous)> ContainerAsync(
+    public static async Task<(Guid? Id, string? Refused)> ContainerAsync(
         IContainerStore containers, string? idOrName, MemoryCaller viewer, CancellationToken ct)
     {
-        (Container? found, string? ambiguous) = await SpaceAsync(containers, idOrName, viewer, ct);
-        return (found is not null && Guid.TryParse(found.Id, out Guid id) ? id : null, ambiguous);
+        (Container? found, string? refused) = await SpaceAsync(containers, idOrName, viewer, ct);
+        return (found is not null && Guid.TryParse(found.Id, out Guid id) ? id : null, refused);
     }
 
     /// <summary>
@@ -126,7 +130,7 @@ internal static class MemoryRules
         await authorizer.AllowsAsync(context.User, Policies.Writer) && await authorizer.AllowsAsync(context.User, Policies.KnowledgeWrite);
 
     public static Attempt<T, MemoryStatus> WriteContainerNotFound<T>(string? containerId) =>
-        Fail<T>(MemoryStatus.ContainerNotFound, $"Container '{containerId}' not found. Memory lives in containers, not in synced sources.");
+        Fail<T>(MemoryStatus.ContainerNotFound, $"Space '{containerId}' not found. Memory lives in personal and team spaces.");
 
     public static Attempt<T, MemoryStatus> FactNotFound<T>(string? factId) =>
         Fail<T>(MemoryStatus.FactNotFound, $"Fact '{factId}' not found.");
@@ -144,9 +148,9 @@ internal static class MemoryRules
 }
 
 /// <summary>
-/// Stores one fact in a memory space or container, personal or team. Named as a space, the space decides: a personal
-/// space's facts are personal and everything else's team, and asking for the other is refused. Named the old way, by
-/// <c>containerId</c>, a fact citing no sources is personal and goes to the caller's <c>&lt;container&gt;-personal</c>
+/// Stores one fact in a memory space, personal or team. Named as a space, the space decides: a personal space's facts
+/// are personal and a team space's team, and asking for the other is refused. Named the old way, by
+/// <c>containerId</c>, a fact citing no sources is personal and goes to the caller's <c>&lt;space&gt;-personal</c>
 /// space, so an old client never shares a fact by accident. The writer must be able to read every source it cites.
 /// Either scope needs write access; read-only callers can only recall.
 /// </summary>
@@ -173,11 +177,11 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
         // my-memory always means the caller's own space, even when a team space or container has that name, since
         // the tools offer it as the private place to save; the team one is still reachable by id.
         bool myMemory = target.IsSpace && string.Equals(target.IdOrName?.Trim(), MemoryRules.MyMemory, StringComparison.OrdinalIgnoreCase);
-        (Container? named, string? ambiguous) = myMemory
+        (Container? named, string? refused) = myMemory
             ? (null, null)
             : await MemoryRules.SpaceAsync(containers, target.IdOrName, caller, ct);
-        if (ambiguous is not null)
-            return Invalid(ambiguous, field);
+        if (refused is not null)
+            return Invalid(refused, field);
         if (myMemory)
         {
             if (!MemoryRules.CanOwn(caller))
@@ -193,11 +197,11 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
         if (fact.Scope is { } requested && requested != scope)
             return requested == MemoryScope.Personal
                 ? Invalid(await PersonalRefusedAsync(named, caller, ct), "scope")
-                : Invalid($"'{named.Name}' is a personal space, so only you see what is saved there. Save team memory to a team space or container.", "scope");
+                : Invalid($"'{named.Name}' is a personal space, so only you see what is saved there. Save team memory to a team space.", "scope");
         if (scope == MemoryScope.Team && named.Audience == MemoryScope.Personal)
-            return Invalid($"'{named.Name}' is a personal space, so only you see what is saved there. Save team memory to a team space or container.", "scope");
+            return Invalid($"'{named.Name}' is a personal space, so only you see what is saved there. Save team memory to a team space.", "scope");
         if (scope == MemoryScope.Team && !cites && !target.IsSpace)
-            return Invalid("saving team memory that cites no sources needs `space` naming a team space or container, so sharing it is a choice.", "scope");
+            return Invalid("saving team memory that cites no sources needs `space` naming a team space, so sharing it is a choice.", "scope");
 
         Container saveTo = named;
         if (scope == MemoryScope.Personal && named.Audience == MemoryScope.Team)
@@ -212,16 +216,15 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
         return MemoryRules.Written(await memory.RememberAsync(Guid.Parse(saveTo.Id), fact with { Scope = scope }, caller, ct), saveTo);
     }
 
-    /// <summary>Why personal memory can't go in a team space or container, and which of the caller's own spaces it can go in.</summary>
+    /// <summary>Why personal memory can't go in a team space, and which of the caller's own spaces it can go in.</summary>
     private async Task<string> PersonalRefusedAsync(Container named, MemoryCaller caller, CancellationToken ct)
     {
-        string what = named.Kind == ContainerKind.Memory ? "a team space" : "a document container, whose memory is team memory";
         List<string> own = (await containers.ListAsync(0, ListContainers.MaxTake, caller, ct))
             .Where(c => c.Audience == MemoryScope.Personal).Select(c => c.Name).ToList();
         string where = own.Count > 0
             ? $"Save it to one of your personal spaces: {string.Join(", ", own)}."
             : $"You have no personal space yet: save it to space \"{MemoryRules.MyMemory}\" and it is made for you.";
-        return $"'{named.Name}' is {what}, so everyone can see what is saved there. {where}";
+        return $"'{named.Name}' is a team space, so everyone can see what is saved there. {where}";
     }
 }
 
@@ -288,7 +291,7 @@ public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer autho
 }
 
 /// <summary>
-/// Reads facts from a container's memory, each only when the caller can read every source it cites. When access
+/// Reads facts from a memory space, each only when the caller can read every source it cites. When access
 /// cannot be checked, nothing is shown.
 /// </summary>
 [Operation("memory.recall", Scope = MemoryRules.ReadScope, Risk = RiskTier.Read)]
@@ -313,9 +316,9 @@ public sealed class RecallMemory(
 
         if (!string.IsNullOrWhiteSpace(space))
         {
-            (Container? named, string? ambiguous) = await MemoryRules.SpaceAsync(containers, space, caller, ct);
-            if (ambiguous is not null)
-                return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, ambiguous, "space");
+            (Container? named, string? refused) = await MemoryRules.SpaceAsync(containers, space, caller, ct);
+            if (refused is not null)
+                return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, refused, "space");
             if (named is null || !Guid.TryParse(named.Id, out Guid id))
                 return MemoryRules.Fail<SpacedRecall>(MemoryStatus.ContainerNotFound, $"Space '{space}' not found. memory_spaces lists the ones you can use.");
             MemoryRecall one = await memory.RecallAsync(query with { ContainerId = id }, caller, ct);
@@ -328,7 +331,7 @@ public sealed class RecallMemory(
             return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, "name the space to read.", "space");
         bool beyondCurrent = query.History || query.AsOf is not null || query.ChangedFrom is not null
             || query.ChangedTo is not null || query.ChainId is not null;
-        IReadOnlyList<MemorySpaceSummary>? listed = await spaces.ListAsync(caller, null, beyondCurrent, ct);
+        IReadOnlyList<MemorySpaceSummary>? listed = await spaces.ListAsync(caller, null, ct);
         if (listed is null)
             return Unchecked();
 
@@ -364,9 +367,9 @@ public sealed class RecallMemory(
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
             return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Forbidden, "reading memory needs knowledge:read.");
         MemoryCaller caller = MemoryRules.Caller(context.User);
-        (Container? named, string? ambiguous) = await MemoryRules.SpaceAsync(containers, space, caller, ct);
-        if (ambiguous is not null)
-            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, ambiguous, "space");
+        (Container? named, string? refused) = await MemoryRules.SpaceAsync(containers, space, caller, ct);
+        if (refused is not null)
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, refused, "space");
         if (named is null || !Guid.TryParse(named.Id, out Guid id))
             return MemoryRules.Fail<SpacedRecall>(MemoryStatus.ContainerNotFound, $"Space '{space}' not found. memory_spaces lists the ones you can use.");
         if (MemoryPaging.Refusal(listing.Filter) is { } refusal)
@@ -400,11 +403,11 @@ public sealed class RecallMemory(
         if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
             return MemoryRules.Fail<IReadOnlyList<RecalledFact>>(MemoryStatus.Forbidden, "reading memory needs knowledge:read.");
         MemoryCaller caller = MemoryRules.Caller(context.User);
-        (Guid? found, string? ambiguous) = await MemoryRules.ContainerAsync(containers, containerId, caller, ct);
-        if (ambiguous is not null)
-            return MemoryRules.Fail<IReadOnlyList<RecalledFact>>(MemoryStatus.Invalid, ambiguous, "containerId");
+        (Guid? found, string? refused) = await MemoryRules.ContainerAsync(containers, containerId, caller, ct);
+        if (refused is not null)
+            return MemoryRules.Fail<IReadOnlyList<RecalledFact>>(MemoryStatus.Invalid, refused, "containerId");
         if (found is not { } container)
-            return MemoryRules.Fail<IReadOnlyList<RecalledFact>>(MemoryStatus.ContainerNotFound, $"Container '{containerId}' not found.");
+            return MemoryRules.Fail<IReadOnlyList<RecalledFact>>(MemoryStatus.ContainerNotFound, $"Space '{containerId}' not found.");
 
         MemoryRecall recall = await memory.RecallAsync(query with { ContainerId = container }, caller, ct);
         return recall.Denied

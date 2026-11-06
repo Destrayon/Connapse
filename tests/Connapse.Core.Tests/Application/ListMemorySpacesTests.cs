@@ -11,8 +11,8 @@ using NSubstitute;
 namespace Connapse.Core.Tests.Application;
 
 /// <summary>
-/// CON-243: the spaces list checks access only for the spaces that could land on the page, and one fact per documents
-/// container whose presence is in doubt. Each test names the spaces the store is asked to check.
+/// CON-243: the spaces list checks access only for the spaces that could land on the page. Each test names the spaces
+/// the store is asked to check.
 /// </summary>
 [Trait("Category", "Unit")]
 public class ListMemorySpacesTests
@@ -23,12 +23,12 @@ public class ListMemorySpacesTests
         [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())], "test")), OperationSurface.Rest);
 
     /// <summary>A space, its exact values, and the bounds the store gives before checking.</summary>
-    private sealed record Space(string Name, int Facts, int AtLeast, int AtMost, ContainerKind Kind = ContainerKind.Memory, int Minutes = 0)
+    private sealed record Space(string Name, int Facts, int AtLeast, int AtMost, int Minutes = 0)
     {
         public string Id { get; } = Guid.NewGuid().ToString();
 
         public MemorySpaceCandidate Candidate => new(
-            new Container(Id, Name, null, Epoch.UtcDateTime, Epoch.UtcDateTime, Kind: Kind),
+            new Container(Id, Name, null, Epoch.UtcDateTime, Epoch.UtcDateTime, Kind: ContainerKind.Memory),
             false, AtLeast, AtMost, Epoch.AddMinutes(Minutes), Epoch.AddMinutes(Minutes));
     }
 
@@ -38,11 +38,7 @@ public class ListMemorySpacesTests
 
         public List<IReadOnlyCollection<string>> Tallied { get; } = [];
 
-        public List<IReadOnlyCollection<string>> Probed { get; } = [];
-
         public bool TallyFails { get; init; }
-
-        public bool ProbeFails { get; init; }
 
         public IReadOnlySet<string> Gone { get; init; } = new HashSet<string>();
 
@@ -57,13 +53,6 @@ public class ListMemorySpacesTests
                     Tallied.Add([.. ids]);
                     return TallyFails ? null : spaces.Where(s => ids.Contains(s.Id) && !Gone.Contains(s.Id))
                         .ToDictionary(s => s.Id, s => new MemorySpaceTally(s.Facts, Epoch.AddMinutes(s.Minutes)));
-                });
-            Fake.HoldingReadableAsync(Arg.Any<MemoryCaller>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
-                .Returns(call =>
-                {
-                    IReadOnlyCollection<string> ids = call.ArgAt<IReadOnlyCollection<string>>(1);
-                    Probed.Add([.. ids]);
-                    return ProbeFails ? null : spaces.Where(s => ids.Contains(s.Id) && s.Facts > 0).Select(s => s.Id).ToHashSet();
                 });
             return this;
         }
@@ -159,45 +148,6 @@ public class ListMemorySpacesTests
     }
 
     [Fact]
-    public async Task RunAsync_DocumentsContainers_ProbesOnlyThoseInDoubtAndDropsHiddenOnes()
-    {
-        Space certain = new("certain", 4, 1, 4, ContainerKind.Documents);
-        Space readable = new("readable", 2, 0, 3, ContainerKind.Documents);
-        Space hidden = new("hidden", 0, 0, 3, ContainerKind.Documents);
-        Space team = new("team", 0, 0, 0);
-        Store store = new Store(certain, readable, hidden, team).Ready();
-
-        var page = await List(store).RunAsync(Reader, new MemorySpaceQuery(Kind: MemorySpaceKind.Team));
-
-        store.Probed.Should().ContainSingle().Which.Should().BeEquivalentTo([readable.Id, hidden.Id]);
-        page.Result!.Counts.Should().Be(new MemorySpaceCounts(3, 0, 0, 1, 2), "a container whose every fact is hidden isn't listed");
-        page.Result.Items.Select(i => i.Name).Should().Equal("team");
-        page.Result.Total.Should().Be(1);
-        store.AllTallied.Should().BeEmpty("the only space shown is settled");
-    }
-
-    [Fact]
-    public async Task RunAsync_NoDocumentsInDoubt_ProbesNothing()
-    {
-        Store store = new Store(new Space("team", 1, 1, 1)).Ready();
-
-        (await List(store).RunAsync(Reader, new MemorySpaceQuery())).Succeeded.Should().BeTrue();
-
-        store.Probed.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task RunAsync_ProbeUnchecked_FailsWithNoCounts()
-    {
-        Store store = new Store(new Space("docs", 1, 0, 1, ContainerKind.Documents)) { ProbeFails = true }.Ready();
-
-        var page = await List(store).RunAsync(Reader, new MemorySpaceQuery());
-
-        page.Status.Should().Be(MemorySpaceStatus.Unchecked);
-        store.Tallied.Should().BeEmpty();
-    }
-
-    [Fact]
     public async Task RunAsync_TallyUnchecked_FailsWithNoCounts()
     {
         Store store = new Store(new Space("team", 1, 0, 1)) { TallyFails = true }.Ready();
@@ -220,20 +170,6 @@ public class ListMemorySpacesTests
     }
 
     [Fact]
-    public async Task RunAsync_DocumentsEmptiedAfterTheProbe_IsLeftOffThePage()
-    {
-        // The probe sees a readable fact, then the page tally finds none: it expired or its source was hidden in between.
-        Space emptied = new("emptied", 0, 0, 2, ContainerKind.Documents), team = new("team", 0, 0, 1);
-        Store store = new Store(emptied, team).Ready();
-        store.Fake.HoldingReadableAsync(Arg.Any<MemoryCaller>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
-            .Returns(new HashSet<string> { emptied.Id });
-
-        var page = await List(store).RunAsync(Reader, new MemorySpaceQuery(Sort: MemorySpaceSort.Name));
-
-        page.Result!.Items.Select(i => i.Name).Should().Equal("team");
-    }
-
-    [Fact]
     public async Task RunAsync_NothingListed_ChecksNothing()
     {
         Store store = new Store().Ready();
@@ -243,6 +179,5 @@ public class ListMemorySpacesTests
         page.Result!.Items.Should().BeEmpty();
         page.Result.NextCursor.Should().BeNull();
         store.Tallied.Should().BeEmpty();
-        store.Probed.Should().BeEmpty();
     }
 }

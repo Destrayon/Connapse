@@ -10,8 +10,7 @@ public sealed record MemorySpaceSummary(Container Container, int Facts, DateTime
 /// <summary>
 /// A space the viewer may see, with what is known before any source is checked. A current fact in the viewer's scope
 /// that cites no source is always readable, so it sets the lower bounds; every current fact in their scope sets the
-/// upper ones. The exact <see cref="MemorySpaceTally"/> lies between them. A documents container is a candidate only when it holds a current fact in the viewer's scope; it is
-/// listed only once one of them is readable, which is certain when <see cref="FactsAtLeast"/> is above zero.
+/// upper ones. The exact <see cref="MemorySpaceTally"/> lies between them.
 /// </summary>
 public sealed record MemorySpaceCandidate(
     Container Container,

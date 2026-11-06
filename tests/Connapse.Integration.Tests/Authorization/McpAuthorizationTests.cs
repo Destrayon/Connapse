@@ -132,7 +132,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             string second = await UploadAsync(http, full, "second.txt");
             string third = await UploadAsync(http, full, "third.txt", "/probe");
             var remembered = await agent.CallToolAsync("memory_remember",
-                new Dictionary<string, object?> { ["containerId"] = full, ["subject"] = "probe", ["attribute"] = "kept", ["value"] = "yes" });
+                new Dictionary<string, object?> { ["space"] = "my-memory", ["subject"] = "probe", ["attribute"] = "kept", ["value"] = "yes" });
             JsonElement saved = JsonDocument.Parse(Text(remembered)).RootElement;
             string fact = saved.GetProperty("remembered").GetProperty("id").GetString()!;
             // CON-235: a fact citing nothing goes to the caller's own personal space, so it is forgotten from there.

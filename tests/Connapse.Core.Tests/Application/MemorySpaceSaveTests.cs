@@ -58,17 +58,24 @@ public class MemorySpaceSaveTests
     }
 
     [Fact]
-    public async Task Remember_PersonalOnDocumentContainer_IsRefusedNamingTheCallersSpaces()
+    public async Task Remember_DocumentContainer_IsRefusedAndSavesNothing()
     {
         Container docs = Space("handbook", MemoryScope.Team, ContainerKind.Documents);
-        Have(docs, Space("my-memory", MemoryScope.Personal), Space("drafts", MemoryScope.Personal), Space("team-notes", MemoryScope.Team));
+        Have(docs);
 
-        var written = await _remember.RunAsync(Alice, MemoryTarget.Space("handbook"), Fact(MemoryScope.Personal));
+        var bySpace = await _remember.RunAsync(Alice, MemoryTarget.Space("handbook"), Fact());
+        var bySpaceId = await _remember.RunAsync(Alice, MemoryTarget.Space(docs.Id), Fact(cites: true));
+        var byContainerId = await _remember.RunAsync(Alice, MemoryTarget.Container(docs.Id), Fact(cites: true));
+        var byContainerName = await _remember.RunAsync(Alice, MemoryTarget.Container("handbook"), Fact());
 
-        written.Status.Should().Be(MemoryStatus.Invalid);
-        written.Field.Should().Be("scope");
-        written.Detail.Should().Contain("document container").And.Contain("my-memory, drafts").And.NotContain("team-notes");
+        new[] { bySpace, bySpaceId, byContainerId, byContainerName }.Should().AllSatisfy(written =>
+        {
+            written.Status.Should().Be(MemoryStatus.Invalid);
+            written.Detail.Should().Contain("is a document container");
+        });
         _memory.ReceivedCalls().Should().BeEmpty();
+        await _containers.DidNotReceive().EnsurePersonalSpaceAsync(
+            Arg.Any<MemoryCaller>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -114,10 +121,10 @@ public class MemorySpaceSaveTests
     [Fact]
     public async Task Remember_OldStyleWithoutSources_GoesToThePersonalSpaceForThatContainer()
     {
-        Container docs = Space("handbook", MemoryScope.Team, ContainerKind.Documents);
-        Have(docs);
+        Container team = Space("handbook", MemoryScope.Team);
+        Have(team);
 
-        var written = await _remember.RunAsync(Alice, docs.Id, Fact());
+        var written = await _remember.RunAsync(Alice, team.Id, Fact());
 
         written.Succeeded.Should().BeTrue();
         written.Result!.SavedTo!.Name.Should().Be("handbook-personal");

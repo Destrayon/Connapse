@@ -25,7 +25,7 @@ public class MemoryOperationRandomInputTests
         Gen.Enum<OperationSurface>().Select(s => new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), s));
 
     private static readonly Gen<Container> AnyContainer = Gen.Select(Gen.Guid, Gen.String[Gen.Char["ab-1"], 2, 4],
-        (id, name) => new Container(id.ToString(), $"c{name}x", null, Epoch, Epoch));
+        (id, name) => new Container(id.ToString(), $"c{name}x", null, Epoch, Epoch, Kind: ContainerKind.Memory));
 
     /// <summary>How a call names the container: its id, its name in any case and spacing, a stranger's id, another name, or blank.</summary>
     private static Gen<(string Key, bool Names)> KeyFor(Container container) => Gen.OneOf(
@@ -122,6 +122,8 @@ public class MemoryOperationRandomInputTests
                     if (scope is { } asked && (int)asked > 1)
                         return (MemoryStatus.Invalid, null, default, null);
                     Container? space = resolves ? container : null;
+                    if (space?.Kind == ContainerKind.Documents)
+                        return (MemoryStatus.Invalid, null, default, null);
                     string? made = null;
                     if (space is null && asSpace && myMemory)
                     {
@@ -352,7 +354,7 @@ public class MemoryOperationRandomInputTests
                 var (((caller, reader, listed, unchecked_, deniedAt, limit), history, ranked, deniedAny), counts) = sample;
                 var world = new World(reader, writer: false, new Container(Guid.NewGuid().ToString(), "unused", null, Epoch, Epoch), exists: false);
                 IMemorySpaceStore spaces = Substitute.For<IMemorySpaceStore>();
-                spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+                spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
                     .Returns(unchecked_ ? null : listed);
 
                 // Each space answers its own facts, recorded at distinct times; one may be unable to check access.

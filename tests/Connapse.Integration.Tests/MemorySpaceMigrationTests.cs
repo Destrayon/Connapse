@@ -6,6 +6,7 @@ using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Containers;
 using Connapse.Storage.Data;
+using Connapse.Storage.Data.Entities;
 using Connapse.Storage.Memory;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -32,6 +33,9 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
 {
     /// <summary>The last migration before memory moves into spaces.</summary>
     private const string BeforeMove = "20261104183245_AddMemorySpaces";
+
+    /// <summary>The last migration before facts saved in document containers are deleted.</summary>
+    private const string BeforeDelete = "20261104204230_MemoryPagingIndexes";
 
     private const short Personal = (short)MemoryScope.Personal;
     private const short Team = (short)MemoryScope.Team;
@@ -207,7 +211,7 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         foreach (MemoryCaller reader in Readers())
             before[reader.Name ?? "nobody"] = await ViewAsync(reader);
 
-        await MigrateAsync();
+        await MigrateAsync(BeforeDelete);
 
         foreach (MemoryCaller reader in Readers())
         {
@@ -251,7 +255,7 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
 
         // Running it again moves nothing.
         await context.Database.ExecuteSqlRawAsync("DELETE FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" LIKE '%_MoveMemoryIntoSpaces'");
-        await MigrateAsync();
+        await MigrateAsync(BeforeDelete);
         (await FactContainersAsync()).Should().BeEquivalentTo(places);
     }
 
@@ -261,7 +265,7 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         await MigrateAsync(BeforeMove);
         Guid halcyon = await ContainerAsync("halcyon");
         Guid[] alices = await ChainAsync(halcyon, (_alice, null, Personal, null));
-        await MigrateAsync();
+        await MigrateAsync(BeforeDelete);
         Guid moved = (await FactContainersAsync())[alices[0]];
         moved.Should().NotBe(halcyon, "the fact moved into Alice's space");
 
@@ -304,7 +308,7 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
             await lockRoot.ExecuteScalarAsync();
         }
 
-        Task migration = MigrateAsync();
+        Task migration = MigrateAsync(BeforeDelete);
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(1));
         await using (var watch = new NpgsqlConnection(_postgres.GetConnectionString()))
         {
@@ -363,7 +367,7 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         }
 
         Stopwatch watch = Stopwatch.StartNew();
-        await MigrateAsync();
+        await MigrateAsync(BeforeDelete);
         watch.Stop();
         output.WriteLine($"50,000 facts migrated in {watch.Elapsed.TotalSeconds:F1} s");
 
@@ -371,6 +375,42 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         (await check.MemoryFacts.CountAsync(f => f.ContainerId == big)).Should().Be(5000, "only team facts stay");
         (await check.Containers.CountAsync(c => c.Audience == MemoryScope.Personal)).Should().Be(50);
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromMinutes(2), "a 50,000-fact container moves in under 2 minutes");
+    }
+
+    [Fact]
+    public async Task Migrate_FactsInDocumentContainers_AreDeletedAndPersonalAndTeamFactsAreUntouched()
+    {
+        await MigrateAsync(BeforeDelete);
+        Guid handbook = await ContainerAsync("handbook");
+        Guid onCall = await ContainerAsync("on-call", kind: "memory");
+        Guid alicesSpace = await ContainerAsync("my-memory", kind: "memory", ownerUser: _alice);
+
+        await ChainAsync(handbook, (_bob, null, Team, _shared), (_alice, null, Team, _shared));
+        await ChainAsync(handbook, (null, null, Personal, null));
+        Guid[] teamFacts = await ChainAsync(onCall, (_bob, null, Team, _shared), (_alice, null, Team, _restricted));
+        Guid[] personalFacts = await ChainAsync(alicesSpace, (_alice, null, Personal, null));
+        await StarAsync(handbook, _alice);
+        await StarAsync(onCall, _alice);
+
+        await MigrateAsync();
+
+        await using var context = new KnowledgeDbContext(Options());
+        Dictionary<Guid, Guid> left = await FactContainersAsync();
+        left.Should().BeEquivalentTo(teamFacts.Select(id => KeyValuePair.Create(id, onCall))
+            .Concat(personalFacts.Select(id => KeyValuePair.Create(id, alicesSpace))).ToDictionary());
+        (await context.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM memory_fact_sources").SingleAsync())
+            .Should().Be(2, "the cited sources of the kept team facts stay");
+        (await context.Set<MemorySpaceStarEntity>().AsNoTracking().Select(s => s.ContainerId).ToListAsync())
+            .Should().Equal(onCall);
+        (await context.Containers.AsNoTracking().Select(c => c.Id).ToListAsync())
+            .Should().BeEquivalentTo([handbook, onCall, alicesSpace], "only the facts go, never the container");
+    }
+
+    private async Task StarAsync(Guid container, Guid user)
+    {
+        await using var context = new KnowledgeDbContext(Options());
+        await context.Database.ExecuteSqlRawAsync(
+            "INSERT INTO memory_space_stars (container_id, user_id) VALUES ({0}, {1})", container, user);
     }
 
     private static OperationContext As(Guid user) =>

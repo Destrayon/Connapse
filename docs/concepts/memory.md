@@ -7,7 +7,7 @@ audience: user
 
 # About agent memory
 
-An AI agent forgets everything when its session ends. Agent memory gives it somewhere to keep what it learned, such as which database a service uses or who leads a project, so the next session can start from it. Agents use six MCP tools: `memory_spaces`, `memory_remember`, `memory_recall`, `memory_correct`, `memory_forget` and `memory_timeline`. People manage spaces over the REST API at `/api/memory/spaces`, and see a document container's memory on its **Memory** tab.
+An AI agent forgets everything when its session ends. Agent memory gives it somewhere to keep what it learned, such as which database a service uses or who leads a project, so the next session can start from it. Agents use six MCP tools: `memory_spaces`, `memory_remember`, `memory_recall`, `memory_correct`, `memory_forget` and `memory_timeline`. People manage spaces on the **Memory** page and over the REST API at `/api/memory/spaces`.
 
 ## What a fact is
 
@@ -20,17 +20,17 @@ A fact is one statement in three parts: a subject, an attribute and a value, suc
 
 ## Where memory lives: spaces
 
-Every fact is saved in a **space**, and the space decides who will see it. There are three kinds:
+Every fact is saved in a **space**, and the space decides who will see it. There are two kinds:
 
-| | Personal space | Team space | Document container |
-|---|---|---|---|
-| What belongs there | Facts about the user, their preferences or their own work | Facts that are true and useful for others | Facts learned from that container's documents |
-| Who sees it | Only its owner, and the agents acting for them | Everyone in this Connapse | Everyone in this Connapse |
-| Its facts are | Personal | Team | Team |
+| | Personal space | Team space |
+|---|---|---|
+| What belongs there | Facts about the user, their preferences or their own work | Facts that are true and useful for others |
+| Who sees it | Only its owner, and the agents acting for them | Everyone in this Connapse |
+| Its facts are | Personal | Team |
 
 Everyone who can save memory has a personal space called `my-memory`, made the first time they or their agent save to it. A space's kind is fixed when it is made, because its audience is what tells an agent who will read a fact. To share a personal fact, save it again in a team space.
 
-A source can't hold memory, because Connapse doesn't write into the systems sources read from.
+A document container holds documents and can't hold memory, so a save or read that names one is refused. A source can't hold memory either, because Connapse doesn't write into the systems sources read from.
 
 ## How an agent chooses a space
 
@@ -38,11 +38,11 @@ An agent calls `memory_spaces` once per session. It lists each space the caller 
 
 `memory_remember` requires a `space`. The tool's description gives the agent this test:
 
-> Save to a personal space if it is about the user, their preferences or their own work; to a team space if it would be true and useful for others; to a document container if you learned it from that container's documents. If unsure, ask.
+> Save to a personal space if it is about the user, their preferences or their own work; to a team space if it would be true and useful for others. If unsure, ask.
 
 A save that names no space is refused, and the error lists the caller's spaces so the agent can pick one or ask. A successful save says in plain words who will see the fact, for example "Saved to 'on-call', a team space: everyone in this Connapse can see it". Agents relay this to the user, so a wrong choice is caught at once.
 
-Older agents name a container with `containerId` instead of `space`. That still works, with one safeguard: a fact saved that way that cites no sources goes to the caller's own `<container>-personal` space, so an old client never shares a fact by accident. Sharing a fact with no sources always needs an explicit team `space`.
+Older agents name a memory container with `containerId` instead of `space`. That still works, with one safeguard: a fact saved that way that cites no sources goes to the caller's own `<container>-personal` space, so an old client never shares a fact by accident. Sharing a fact with no sources always needs an explicit team `space`.
 
 ## How an agent reads memory
 

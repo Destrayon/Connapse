@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using Connapse.Eval.Statistics;
 
 namespace Connapse.Eval.Runs.MemorySearch;
 
@@ -8,20 +7,17 @@ public sealed record SearchTask(
     string Id, string Kind, string Split, bool? Documented, string Question,
     IReadOnlyList<string> Gold, IReadOnlyList<string> Stale, string Answer, string? StaleAnswer)
 {
-    /// <summary>Set M, where memory should help; the rest (control and stale) are set H.</summary>
+    /// <summary>Set M, the tasks CON-244 expected memory to help; the rest (control and stale) are set H.</summary>
     public bool InMemorySet => Kind is "current" or "alias" or "correction" or "location";
 }
 
-/// <summary>What one run earned: the gated score and the reported measures.</summary>
+/// <summary>What one run earned: the score and the reported measures.</summary>
 public sealed record RunScore(
     double Score, bool CitedStale, bool AnswerRight, bool SawGold, double FirstQueryMrr,
-    int Searches, int ToolCalls, int MemoryCalls, long InputTokens, long OutputTokens, long CacheReadTokens);
-
-public enum Verdict { Keep, Worse, NoBetter }
+    int Searches, int ToolCalls, long InputTokens, long OutputTokens, long CacheReadTokens);
 
 /// <summary>
-/// Turns what an agent cited and saw into dataset ids, and scores runs and arms by the CON-244 bar in
-/// <c>eval/pass-bars.md</c>.
+/// Turns what an agent cited and saw into dataset ids, for scoring runs by the CON-244 rule in <c>eval/pass-bars.md</c>.
 /// </summary>
 public sealed partial class DocumentIndex
 {
@@ -70,7 +66,6 @@ public sealed partial class DocumentIndex
 public static class MemorySearchScoring
 {
     public const string Search = "search_knowledge";
-    public const string Recall = "memory_recall";
 
     public static RunScore Score(SearchTask task, AgentRun run, DocumentIndex index)
     {
@@ -87,7 +82,7 @@ public static class MemorySearchScoring
         double mrr = firstSearch is null ? 0 : ReciprocalRank(index.Ranked(firstSearch.Output), task.Gold, 10);
 
         return new RunScore(score, stale, answerRight, sawGold, mrr,
-            run.Calls.Count(c => c.Name == Search), run.Calls.Count, run.Calls.Count(c => c.Name == Recall),
+            run.Calls.Count(c => c.Name == Search), run.Calls.Count,
             run.Usage.Input, run.Usage.Output, run.Usage.CacheRead);
     }
 
@@ -98,25 +93,4 @@ public static class MemorySearchScoring
                 return 1.0 / (i + 1);
         return 0;
     }
-
-    /// <summary>
-    /// The bar's verdict from the paired On − Off task scores: <paramref name="m"/> at 95%,
-    /// <paramref name="h90"/> (set H at 90%) and <paramref name="all"/> (every task at 95%).
-    /// </summary>
-    public static Verdict Decide(PairedComparison m, PairedComparison h90, PairedComparison all)
-    {
-        bool mWins = m.MeanDifference >= 0.15 && m.CiLow > 0 && m.PermutationP < 0.05;
-        bool hHolds = h90.CiLow > -0.10;
-        if (mWins && hHolds)
-            return Verdict.Keep;
-        bool worse = all.CiHigh < 0 || (h90.MeanDifference < 0 && h90.CiLow <= -0.10);
-        return worse ? Verdict.Worse : Verdict.NoBetter;
-    }
-
-    public static string Label(Verdict verdict) => verdict switch
-    {
-        Verdict.Keep => "KEEP",
-        Verdict.Worse => "WORSE (DROP)",
-        _ => "NO BETTER (DROP)",
-    };
 }

@@ -1,7 +1,8 @@
 # memory-search
 
 - **What it tests:** whether a container's memory helps an agent find the right document in that container
-  (CON-244). The same agent searches with and without `memory_recall`; everything else is fixed.
+  (CON-244). The same agent searches with and without `memory_recall`; everything else is fixed. CON-255 removed
+  container memory, so the command now runs only the search arm and nothing reads `memory.jsonl`, kept as the record.
 - **Built by** `eval/tools/build_memory_search.py` (seed 244). Every department, team, system, person and value is
   made up. The output is a pure function of the seed.
 - **Corpus** (`corpus.jsonl`, 364 short documents): policies of 12 departments on 30 topics, team charters, system

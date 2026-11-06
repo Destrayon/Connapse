@@ -1,6 +1,6 @@
 ---
 title: "Tutorial: connect Claude to Connapse"
-description: Give Claude Code its own Connapse key, connect it over MCP, and have it build, search and remember facts from a container.
+description: Give Claude Code its own Connapse key, connect it over MCP, and have it build and search a container and remember what it learned.
 type: tutorial
 audience: user
 ---
@@ -78,16 +78,16 @@ Claude calls `search_knowledge` and answers from the passage, naming `retries.md
 Agent memory keeps facts between sessions. Ask Claude:
 
 ```text
-Remember in the agent-notes container that our retry policy uses exponential backoff with jitter, citing retries.md as the source.
+Remember in my-memory that our retry policy uses exponential backoff with jitter, citing retries.md as the source.
 ```
 
-Claude calls `memory_remember` with the subject, an attribute such as `retry policy`, the value, and the document ID of `retries.md`. Now quit Claude Code, start it again so it has no memory of this conversation, and ask:
+`my-memory` is your personal space, which Connapse makes the first time it is used. Claude calls `memory_remember` with the subject, an attribute such as `retry policy`, the value, and the document ID of `retries.md`. Now quit Claude Code, start it again so it has no memory of this conversation, and ask:
 
 ```text
-What do you remember in agent-notes about our retry policy?
+What do you remember in my-memory about our retry policy?
 ```
 
-Claude calls `memory_recall` and answers with the fact, its date, its author `claude-code` and its source `/retries.md`. Notice that the fact came from Connapse, not from the conversation. Because it cites `retries.md`, only people who can read that file see it. [About agent memory](../concepts/memory.md) explains why.
+Claude calls `memory_recall` and answers with the fact, its date, its author `claude-code` and its source `/retries.md`. Notice that the fact came from Connapse, not from the conversation. It is in a personal space, so only its owner and the agents acting for them see it, and because it cites `retries.md`, they also need to be able to read that file. [About agent memory](../concepts/memory.md) explains why.
 
 ## Approve a delete
 

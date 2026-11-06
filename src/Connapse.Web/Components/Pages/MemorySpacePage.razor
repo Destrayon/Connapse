@@ -8,12 +8,10 @@
 @inject GetContainer GetSpace
 @inject MemorySpaceOperations Spaces
 @inject AuthenticationStateProvider AuthStateProvider
-@inject NavigationManager Navigation
 
 <PageTitle>@(space?.Name ?? "Memory") - Connapse</PageTitle>
 
-@* One memory space: who can see it, whether the person may add to it, and its facts in the shared paged list. A
-   document container's memory is its Memory tab, so a link to one here goes there. *@
+@* One memory space: who can see it, whether the person may add to it, and its facts in the shared paged list. *@
 <div class="space-header">
     <nav class="breadcrumb-nav" aria-label="breadcrumb">
         <a href="memory" class="breadcrumb-link">Memory</a>
@@ -85,17 +83,12 @@ else
         viewer = context.User.IsInRole("Viewer");
         audience ??= await Spaces.List.AudienceAsync(context);
         var read = await GetSpace.RunAsync(context, ContainerKey.Parse(Space));
-        if (!read.Succeeded)
+        if (!read.Succeeded || read.Result!.Kind != ContainerKind.Memory)
         {
-            // Someone else's personal space reads as missing, the same as one that isn't there.
-            loadError = read.Status == ContainerStatus.NotFound
+            // Someone else's personal space reads as missing, the same as one that isn't there, or a document container.
+            loadError = read.Succeeded || read.Status == ContainerStatus.NotFound
                 ? "This memory space doesn't exist, or you can't see it."
                 : read.Detail ?? "The space couldn't be read.";
-            return;
-        }
-        if (read.Result!.Kind == ContainerKind.Documents)
-        {
-            Navigation.NavigateTo($"containers/{read.Result.Id}?tab=memory", replace: true);
             return;
         }
         space = read.Result;

@@ -247,13 +247,14 @@ public class MemorySpacePageTests : IDisposable
     }
 
     [Fact]
-    public void Render_DocumentContainer_GoesToItsMemoryTab()
+    public void Render_DocumentContainer_ReadsAsMissing()
     {
         Container docs = Space("halcyon", ContainerKind.Documents, MemoryScope.Team);
         containers.GetAsync(Guid.Parse(docs.Id), Arg.Any<CancellationToken>()).Returns(docs);
 
-        Render(docs.Id);
+        var cut = Render(docs.Id);
 
-        Navigation.Uri.Should().Be($"http://localhost/containers/{docs.Id}?tab=memory");
+        cut.WaitForAssertion(() => cut.Find("#memory-space-missing").TextContent.Should().Contain("doesn't exist, or you can't see it"));
+        Navigation.Uri.Should().NotContain("tab=memory");
     }
 }

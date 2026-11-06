@@ -11,11 +11,11 @@ namespace Connapse.Application.Memory;
 /// </summary>
 public sealed record MemoryCopyPlan(RecalledFact Current, Container Destination, RecalledFact? Existing);
 
-/// <summary>A fact copied to a team space or container: the new team fact, and the personal version it was copied from.</summary>
+/// <summary>A fact copied to a team space: the new team fact, and the personal version it was copied from.</summary>
 public sealed record MemoryCopied(MemoryFact Copy, Guid CopiedFrom, Container SavedTo);
 
 /// <summary>
-/// Copies the current version of a fact in the caller's own personal space to a team space or document container.
+/// Copies the current version of a fact in the caller's own personal space to a team space.
 /// Only that version goes, as a new fact with a new id whose author is the copier, and it is saved the normal way, so
 /// the copier must still read every document it cites. The personal fact is left as it was, and the two are not
 /// linked. A destination already holding a current fact with the same subject and attribute is refused unless
@@ -28,13 +28,13 @@ public sealed class CopyMemoryFact(
     /// <summary>The most facts with the copied fact's subject looked through for one with the same attribute.</summary>
     private const int ExistingScan = 500;
 
-    /// <summary>Team spaces and document containers the caller can copy to, A to Z; empty when they can't write.</summary>
+    /// <summary>Team spaces the caller can copy to, A to Z; empty when they can't write.</summary>
     public async Task<IReadOnlyList<Container>> DestinationsAsync(OperationContext context, CancellationToken ct = default)
     {
         if (!await MemoryRules.WriterAsync(authorizer, context))
             return [];
         IReadOnlyList<Container> all = await containers.ListAsync(0, ListContainers.MaxTake, MemoryRules.Caller(context.User), ct);
-        return [.. all.Where(c => c.Audience == MemoryScope.Team).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)];
+        return [.. all.Where(c => c.Kind == ContainerKind.Memory && c.Audience == MemoryScope.Team).OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>What a copy of <paramref name="factId"/> to <paramref name="destination"/> would hold, without copying.</summary>
@@ -65,14 +65,14 @@ public sealed class CopyMemoryFact(
             return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Invalid,
                 "this fact has a newer version citing a source you can't read, so it can't be copied.", "id");
 
-        (Container? to, string? ambiguous) = await MemoryRules.SpaceAsync(containers, destination, caller, ct);
-        if (ambiguous is not null)
-            return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Invalid, ambiguous, "destination");
+        (Container? to, string? refused) = await MemoryRules.SpaceAsync(containers, destination, caller, ct);
+        if (refused is not null)
+            return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Invalid, refused, "destination");
         if (to is null)
             return MemoryRules.WriteContainerNotFound<MemoryCopyPlan>(destination);
         if (to.Audience != MemoryScope.Team)
             return MemoryRules.Fail<MemoryCopyPlan>(MemoryStatus.Invalid,
-                $"'{to.Name}' is a personal space. Copy to a team space or a document container.", "destination");
+                $"'{to.Name}' is a personal space. Copy to a team space.", "destination");
 
         (bool checkedAll, RecalledFact? existing) = await ExistingAsync(Guid.Parse(to.Id), current.Fact, caller, ct);
         if (!checkedAll)

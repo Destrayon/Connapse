@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Connapse.Web.Endpoints;
 
 /// <summary>
-/// Memory spaces (CON-240): the places memory lives, as the caller may see them — their personal spaces, every team
-/// space, and each documents container holding memory — with create, rename, delete and per-person stars.
+/// Memory spaces (CON-240): the places memory lives, as the caller may see them — their personal spaces and every team
+/// space — with create, rename, delete and per-person stars.
 /// </summary>
 public static class MemorySpacesEndpoints
 {
@@ -39,7 +39,7 @@ public static class MemorySpacesEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memorySpaces.list")
-        .WithDescription("List the memory spaces you may see, starred first (?kind=personal|team|container&q=&starred=true&sort=updated|name|facts&limit=50&cursor=). "
+        .WithDescription("List the memory spaces you may see, starred first (?kind=personal|team&q=&starred=true&sort=updated|name|facts&limit=50&cursor=). "
             + "Each row counts the current facts you may see in it; the counts cover every kind for the same q.")
         .RequireAuthorization("RequireViewer", "Scope:KnowledgeRead");
 
@@ -59,7 +59,7 @@ public static class MemorySpacesEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("memorySpaces.create")
-        .WithDescription("Make a memory space. kind is personal (yours alone) or team (everyone with access); a documents container is made with POST /api/containers.")
+        .WithDescription("Make a memory space. kind is personal (yours alone) or team (everyone with access).")
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         // PATCH /api/memory/spaces/{spaceId} - Rename a memory space or change its description
@@ -114,7 +114,7 @@ public static class MemorySpacesEndpoints
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("memorySpaces.star")
-        .WithDescription("Star a memory space or documents container for yourself, so it lists first. Starring it again changes nothing.")
+        .WithDescription("Star a memory space for yourself, so it lists first. Starring it again changes nothing.")
         .RequireAuthorization("RequireViewer", "Scope:KnowledgeRead");
 
         // DELETE /api/memory/spaces/{spaceId}/star - Remove your star

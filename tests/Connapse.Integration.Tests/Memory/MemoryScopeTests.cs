@@ -59,7 +59,7 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
         var factory = _scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
         Guid container = Guid.NewGuid();
         await using var db = await factory.CreateDbContextAsync();
-        db.Containers.Add(new ContainerEntity { Id = container, Name = $"scope-{Guid.NewGuid():N}" });
+        db.Containers.Add(new ContainerEntity { Id = container, Name = $"scope-{Guid.NewGuid():N}", Kind = ContainerKind.Memory });
         await db.SaveChangesAsync();
         return container;
     }
