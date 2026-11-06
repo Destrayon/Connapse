@@ -232,9 +232,10 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 /// Replaces a fact and keeps the old one in history: <see cref="MemoryCorrection.Changed"/> ends it where the new
 /// value starts, <see cref="MemoryCorrection.Wrong"/> supersedes it. A fact the caller cannot see reads as missing.
 /// The new version keeps the fact's scope and stays in the fact's space. Correcting needs write access, whatever the scope.
+/// A fact left in a document container reads as missing too, since those don't hold memory.
 /// </summary>
 [Operation("memory.correct", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class CorrectFact(IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class CorrectFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
 {
     /// <param name="containerId">
     /// Ignored: the fact is found by id in every space and container the caller can see, so a fact moved into a space
@@ -254,6 +255,9 @@ public sealed class CorrectFact(IMemoryService memory, IOperationAuthorizer auth
             return MemoryRules.FactNotFound<MemoryWritten>(factId);
         if (!Enum.IsDefined(kind))
             return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Invalid, "kind must be \"changed\" or \"wrong\".", "kind");
+        if (await memory.SpaceOfAsync(id, ct) is { } spaceId
+            && await containers.GetAsync(spaceId, caller, ct) is { Kind: not ContainerKind.Memory })
+            return MemoryRules.FactNotFound<MemoryWritten>(factId);
 
         return MemoryRules.Written(await memory.CorrectAsync(id, kind, replacement, caller, teamWriter: true, ct));
     }

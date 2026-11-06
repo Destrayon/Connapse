@@ -183,7 +183,7 @@ public class MemoryOperationRandomInputTests
                     .Returns(world.Answers(failure, id));
 
                 // The container key is ignored: a fact is found by id wherever it lives, even after it moved into a space.
-                var written = await new CorrectFact(world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text, kind, AFact);
+                var written = await new CorrectFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, key.Key, factId.Text, kind, AFact);
 
                 MemoryStatus expected = !(writer && reader) ? MemoryStatus.Forbidden
                     : !factId.IsId ? MemoryStatus.FactNotFound
@@ -191,7 +191,7 @@ public class MemoryOperationRandomInputTests
                     : StatusOf(failure);
                 written.Status.Should().Be(expected);
                 bool reached = writer && reader && factId.IsId && kindValue <= 1;
-                world.Memory.ReceivedCalls().Should().HaveCount(reached ? 1 : 0);
+                world.Memory.ReceivedCalls().Should().HaveCount(reached ? 2 : 0, "where the fact is, then the correction");
                 world.Containers.ReceivedCalls().Should().BeEmpty();
             }, iter: 1000);
 

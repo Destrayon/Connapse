@@ -270,7 +270,7 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         moved.Should().NotBe(halcyon, "the fact moved into Alice's space");
 
         MemoryService service = Service();
-        var correct = new CorrectFact(service, new AllowAll());
+        var correct = new CorrectFact(Containers(), service, new AllowAll());
         var forget = new ForgetFact(service, new AllowAll());
         OperationContext alice = As(_alice), bob = As(_bob);
         var replacement = new NewMemoryFact("Halcyon", "database", "PostgreSQL 17", DateTimeOffset.UtcNow.AddDays(1), null, null);

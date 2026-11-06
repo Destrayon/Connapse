@@ -507,11 +507,14 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             saved.Should().StartWith("Error: ").And.Contain("document container");
         }
 
+        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), http, planted.ToString(), "x", validFrom: "2026-01-01");
+        corrected.Should().StartWith("Error: ").And.Contain("not found").And.NotContain(Value);
+
         (await McpTools.MemoryRecall(recall, http, query: Value)).Should().NotContain(Value, "an unnamed read covers spaces only");
         (await Sp.GetRequiredService<IKnowledgeSearch>().SearchAsync(Value,
             new SearchOptions(TopK: 20, Mode: SearchMode.Keyword, UserId: _writer))).Hits.Should().BeEmpty("search reads documents, never facts");
         await using var check = await Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
-        (await check.MemoryFacts.CountAsync(f => f.ContainerId == documents)).Should().Be(1, "a refused save stores nothing");
+        (await check.MemoryFacts.CountAsync(f => f.ContainerId == documents)).Should().Be(1, "a refused save or correction stores nothing");
     }
 
     [Fact]
