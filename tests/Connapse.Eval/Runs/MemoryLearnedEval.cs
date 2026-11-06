@@ -59,6 +59,11 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
 
         ConcurrentDictionary<(string, int), (AgentRun, RunScore)> learned = new();
         ConcurrentDictionary<(string, int, bool), (AgentRun, RunScore)> answered = new();
+        bool[] arms = options.ReuseOffRuns is null ? [false, true] : [true];
+        if (options.ReuseOffRuns is not null)
+            foreach (KeyValuePair<(string Task, int Rep), (AgentRun Run, RunScore Score)> off in MemorySearchEval.ReadOffRuns(
+                File.ReadLines(options.ReuseOffRuns), [.. second.Select(t => t.Task)], options.Repetitions))
+                answered[(off.Key.Task, off.Key.Rep, false)] = off.Value;
         List<string> lines = [];
         for (int rep = 0; rep < options.Repetitions; rep++)
         {
@@ -71,7 +76,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
 
             McpToolbox learn = new(system.Services, McpToolbox.Writer(userId, "memory-learned-eval"), LearnTools, MemorySearchEval.Pinned);
             DocumentIndex earlyIndex = new(docMap, fileNames);
-            string learnPrompt = LearnPrompt(container);
+            string learnPrompt = LearnPrompt(container, options.CheckSaves);
             int n1 = 0;
             int r = rep;
             await Parallel.ForEachAsync(first, parallel, async (t, token) =>
@@ -95,7 +100,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
             McpToolbox off = new(system.Services, reader, MemorySearchEval.OffTools, MemorySearchEval.Pinned);
             McpToolbox on = new(system.Services, reader, MemorySearchEval.OnTools, MemorySearchEval.Pinned);
             string prompt = MemorySearchEval.SystemPrompt(container);
-            List<(LearnedTask Task, bool Memory)> jobs = [.. second.SelectMany(t => new[] { (t, false), (t, true) })];
+            List<(LearnedTask Task, bool Memory)> jobs = [.. second.SelectMany(t => arms.Select(memory => (t, memory)))];
             int n2 = 0;
             await Parallel.ForEachAsync(jobs, parallel, async (job, token) =>
             {
@@ -108,7 +113,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
 
             lines.AddRange(first.Select(t => RunLine(t, rep, "learn", learned[(t.Task.Id, rep)], earlyIndex)));
             foreach (LearnedTask t in second)
-                foreach (bool memory in new[] { false, true })
+                foreach (bool memory in arms)
                     lines.Add(RunLine(t, rep, memory ? "on" : "off", answered[(t.Task.Id, rep, memory)], index));
         }
 
@@ -116,8 +121,10 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
             [.. Enumerable.Range(0, options.Repetitions).Select(r => answered[(t.Task.Id, r, false)])],
             [.. Enumerable.Range(0, options.Repetitions).Select(r => answered[(t.Task.Id, r, true)])]))];
 
-        JsonObject report = MemorySearchEval.Report(options, results, RegisteredTasks);
+        JsonObject report = MemorySearchEval.Report(options, results, RegisteredTasks, realistic: true);
         report["session1"] = Session1([.. first.SelectMany(t => Enumerable.Range(0, options.Repetitions).Select(r => (t, learned[(t.Task.Id, r)])))]);
+        if (options.CheckSaves)
+            report["saveCheck"] = SaveCheck([.. first.SelectMany(t => Enumerable.Range(0, options.Repetitions).Select(r => learned[(t.Task.Id, r)].Item1))]);
         report["subscription"] = new JsonObject
         {
             ["atFirstRun"] = agent.FirstLimit?.ToString(),
@@ -133,12 +140,15 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         return (bool)report["gate"]!["passed"]! ? 0 : 3;
     }
 
-    /// <summary>Session 1's instructions: answer, and save what would help with related questions later.</summary>
-    public static string LearnPrompt(Guid container) =>
+    /// <summary>
+    /// Session 1's instructions: answer, and save what would help with related questions later. With
+    /// <paramref name="saveInContainer"/> saves name the container as their space, so the closeness check covers them (CON-245).
+    /// </summary>
+    public static string LearnPrompt(Guid container, bool saveInContainer = false) =>
         $"You answer questions about a company's internal documents, stored in the Connapse container with ID {container}. " +
         "Use the tools to find the document that answers the question, and read a document in full with get_document " +
         "when a search result is not enough. Other agents will later answer related questions in this container and can " +
-        "recall what you save. Before you answer, save with memory_remember what you worked out that would help someone " +
+        $"recall what you save. Before you answer, save with memory_remember{(saveInContainer ? $", using space \"{container}\"," : "")} what you worked out that would help someone " +
         "answer related questions about these documents, citing the documents it came from, and use memory_correct when " +
         "something you recalled turns out to be wrong. When you are sure, call the answer tool with a short answer and the " +
         $"DocumentId of each document your answer relies on. You may make at most {AgentContract.MaxToolCalls} tool calls before answering.";
@@ -195,6 +205,22 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         };
     }
 
+    /// <summary>What the closeness check did to session 1's saves: how many were held, and the reasons agents gave to save again.</summary>
+    public static JsonObject SaveCheck(IReadOnlyList<AgentRun> runs)
+    {
+        List<ToolTrace> saves = [.. runs.SelectMany(r => r.Calls).Where(c => c.Name == "memory_remember")];
+        List<string> reasons = [.. saves.Where(c => Saved(c.Output)).Select(MemorySortAgentEval.WhatIsNew).Where(r => r is { Length: > 0 }).Select(r => r!)];
+        return new JsonObject
+        {
+            ["saveCalls"] = saves.Count,
+            ["stored"] = saves.Count(c => Saved(c.Output)),
+            ["held"] = saves.Count(c => MemorySortAgentEval.IsHeld(c.Output)),
+            ["storedWithReason"] = reasons.Count,
+            ["runsWithAHeldSave"] = runs.Count(r => r.Calls.Any(c => c.Name == "memory_remember" && MemorySortAgentEval.IsHeld(c.Output))),
+            ["reasons"] = new JsonArray([.. reasons.Select(r => (JsonNode?)r)]),
+        };
+    }
+
     private static string RunLine(LearnedTask t, int rep, string arm, (AgentRun Run, RunScore Score) result, DocumentIndex index) =>
         new JsonObject
         {
@@ -211,6 +237,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
             {
                 ["tool"] = c.Name,
                 ["input"] = JsonSerializer.SerializeToNode(c.Input),
+                ["output"] = WriteTools.Contains(c.Name, StringComparer.Ordinal) ? c.Output : null,
             })]),
             ["error"] = result.Run.Error,
         }.ToJsonString();

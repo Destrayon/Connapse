@@ -126,12 +126,15 @@ public sealed class MemorySortAgentEval(RepoPaths paths, HttpClient http, TextWr
         List<ToolTrace> stored = [.. remembers.Where(c => MemoryLearnedEval.Saved(c.Output))];
         return new Sorted(
             remembers.Count > 0,
-            remembers.Count > 0 && remembers[0].Output.StartsWith("Error: Not saved", StringComparison.Ordinal),
+            remembers.Count > 0 && IsHeld(remembers[0].Output),
             stored.Count > 0,
             stored.Any(c => WhatIsNew(c) is { Length: > 0 }));
     }
 
-    private static string? WhatIsNew(ToolTrace call) =>
+    /// <summary>Whether a <c>memory_remember</c> came back held by the closeness check.</summary>
+    public static bool IsHeld(string output) => output.StartsWith("Error: Not saved", StringComparison.Ordinal);
+
+    public static string? WhatIsNew(ToolTrace call) =>
         call.Input.TryGetValue("whatIsNew", out JsonElement v) && v.ValueKind == JsonValueKind.String ? v.GetString()?.Trim() : null;
 
     public static JsonObject Report(Options options, int noteCount, IReadOnlyList<(MemoryNoveltyEval.Note Note, AgentRun Run)> runs, SubscriptionLimit? stoppedAt)

@@ -141,6 +141,8 @@ again with a reason saying what is new. Three bars, all of which must pass.
   reasons, kinds as in CON-244, and the check's added latency per save.
 - **Budget.** The two agent arms are about 900 runs. They run only while the seven-day subscription meter is below
   42%, and stop if it passes 42%; an arm stopped early is reported as not run, never scored on part of its tasks.
+  Lifted by the user on 2026-11-05, with the meter at 43% and before any agent arm ran: "You can keep running the
+  test, i don't really mind." It was a limit on spending, not on measurement, so no bar changes.
 - **Reading of the sorting bar (recorded 2026-11-05, after the offline sort was scored and before any agent run).**
   The ticket says restating notes are "dropped" and new facts "kept", which is what happens after the agent reads the
   held reply, not what the cutoff alone holds. Holding a new fact costs little, because the agent sees the passages

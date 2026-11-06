@@ -220,6 +220,14 @@ public sealed class MemoryNoveltyEval(RepoPaths paths, HttpClient http, TextWrit
         return notes;
     }
 
+    /// <summary>The memory operations a task labels undocumented: what the documents don't say, so only memory can answer.</summary>
+    public static HashSet<string> UndocumentedFacts(IEnumerable<string> taskLines) =>
+    [
+        .. taskLines.Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject())
+            .Where(t => (string)t["kind"]! is "alias" or "current" or "location" && (bool?)t["documented"] == false)
+            .SelectMany(t => t["facts"]!.AsArray().Select(f => (string)f!)),
+    ];
+
     /// <summary>Every session-1 <c>memory_remember</c> in the CON-244 realistic run; each restates a document.</summary>
     public static List<Note> LearnedNotes(IEnumerable<string> runLines)
     {

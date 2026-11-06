@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Connapse.Application;
+using Connapse.Application.Memory;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Eval.Cli;
@@ -41,10 +43,16 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     public const string RegisteredEffort = "medium";
 
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath,
-        string? AgentDir = null);
+        string? AgentDir = null, bool CheckSaves = false, string? ReuseOffRuns = null);
 
     public sealed record MemoryOp(string Op, string Id, string? Target, string? Subject, string? Attribute, string Value,
         string? ValidFrom, IReadOnlyList<string> Sources, string? Reason);
+
+    /// <summary>What the closeness check did to the replayed memory (CON-245). <c>Rewritten</c> counts corrects whose target was dropped.</summary>
+    public sealed record ReplayTally(int Saves, int Held, int Retried, int Dropped, int Rewritten, double MeanSaveMs);
+
+    /// <summary>The reason a held undocumented note is saved again with, standing in for the agent that knows it.</summary>
+    public const string ReplayReason = "The documents don't state this; it was learned outside them.";
 
     /// <summary>One arm's runs of one task, in repetition order.</summary>
     public sealed record TaskResult(SearchTask Task, IReadOnlyList<(AgentRun Run, RunScore Score)> Off, IReadOnlyList<(AgentRun Run, RunScore Score)> On);
@@ -74,7 +82,12 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         RequireCompleteIndex(indexed, corpus.Count, docMap.Count);
 
         Guid userId = Guid.NewGuid();
-        await ReplayAsync(system.Services, container, docMap, ops, new MemoryCaller(userId, null, "memory-search-eval"), ct);
+        ReplayTally? replay = null;
+        if (options.CheckSaves)
+            replay = await ReplayCheckedAsync(system.Services, container, docMap, ops,
+                MemoryNoveltyEval.UndocumentedFacts(File.ReadLines(Path.Combine(root, "tasks.jsonl"))), userId, ct);
+        else
+            await ReplayAsync(system.Services, container, docMap, ops, new MemoryCaller(userId, null, "memory-search-eval"), ct);
         log.WriteLine($"{corpus.Count} documents indexed, {ops.Count} memory operations replayed");
 
         var principal = McpToolbox.Reader(userId, "memory-search-eval");
@@ -87,9 +100,14 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir);
 
         // Each task's repetitions run Off then On back to back, so drift in the API hits both arms alike.
+        bool[] arms = options.ReuseOffRuns is null ? [false, true] : [true];
         List<(SearchTask Task, int Rep, bool Memory)> jobs =
-            [.. tasks.SelectMany(t => Enumerable.Range(0, options.Repetitions).SelectMany(r => new[] { (t, r, false), (t, r, true) }))];
+            [.. tasks.SelectMany(t => Enumerable.Range(0, options.Repetitions).SelectMany(r => arms.Select(memory => (t, r, memory))))];
         ConcurrentDictionary<(string, int, bool), (AgentRun, RunScore)> done = new();
+        if (options.ReuseOffRuns is not null)
+            foreach (KeyValuePair<(string Task, int Rep), (AgentRun Run, RunScore Score)> reused in
+                ReadOffRuns(File.ReadLines(options.ReuseOffRuns), tasks, options.Repetitions))
+                done[(reused.Key.Task, reused.Key.Rep, false)] = reused.Value;
         int finished = 0;
         await Parallel.ForEachAsync(jobs, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (job, token) =>
         {
@@ -106,6 +124,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             [.. Enumerable.Range(0, options.Repetitions).Select(r => done[(t.Id, r, true)])]))];
 
         JsonObject report = Report(options, results);
+        if (replay is not null)
+            report["replay"] = JsonSerializer.SerializeToNode(replay);
         report["subscription"] = new JsonObject
         {
             ["atFirstRun"] = agent.FirstLimit?.ToString(),
@@ -115,7 +135,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         if (options.OutPath is not null)
         {
             await File.WriteAllTextAsync(options.OutPath, json + "\n", ct);
-            await File.WriteAllLinesAsync(Path.ChangeExtension(options.OutPath, ".runs.jsonl"), RunLines(results, index), ct);
+            await File.WriteAllLinesAsync(Path.ChangeExtension(options.OutPath, ".runs.jsonl"), RunLines(results, index, arms), ct);
         }
         log.WriteLine(json);
         return (bool)report["gate"]!["passed"]! ? 0 : 3;
@@ -151,6 +171,124 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             written[op.Id] = (result.Fact.Id, subject, attribute);
         }
     }
+
+    /// <summary>The same memory, each save going through the real closeness check (CON-245).</summary>
+    private static async Task<ReplayTally> ReplayCheckedAsync(IServiceProvider services, Guid container, IReadOnlyDictionary<string, string> docMap,
+        IReadOnlyList<MemoryOp> ops, IReadOnlySet<string> undocumented, Guid userId, CancellationToken ct)
+    {
+        Dictionary<string, string> documentOf = docMap.ToDictionary(p => p.Value, p => p.Key, StringComparer.Ordinal);
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        IMemoryService memory = scope.ServiceProvider.GetRequiredService<IMemoryService>();
+        RememberFact remember = scope.ServiceProvider.GetRequiredService<MemoryOperations>().Remember;
+        OperationContext writer = new(McpToolbox.Writer(userId, "memory-search-eval"), OperationSurface.Mcp);
+        MemoryCaller caller = new(userId, null, "memory-search-eval");
+        NewMemoryFact Fact(MemoryOp op, string subject, string attribute) => new(subject, attribute, op.Value, Date(op.ValidFrom), null,
+            [.. op.Sources.Select(s => new MemorySource(MemorySourceKind.Document, documentOf[s]))], op.Reason);
+
+        return await ReplayThroughCheckAsync(ops, undocumented,
+            async (op, subject, attribute, whatIsNew) =>
+            {
+                Attempt<MemoryWritten, MemoryStatus> saved = await remember.RunAsync(
+                    writer, MemoryTarget.Space(container.ToString()), Fact(op, subject, attribute), whatIsNew, ct);
+                if (saved.Status == MemoryStatus.CloseToDocuments)
+                    return null;
+                return saved.Result?.Fact.Id ?? throw new InvalidOperationException($"{op.Id} was refused: {saved.Status}");
+            },
+            async (op, target, subject, attribute) =>
+            {
+                MemoryWriteResult result = await memory.CorrectAsync(target, MemoryCorrection.Changed, Fact(op, subject, attribute), caller, true, ct);
+                return result.Fact?.Id ?? throw new InvalidOperationException($"{op.Id} was refused: {result.Error}");
+            });
+    }
+
+    /// <summary>
+    /// The pre-registered replay: a held remember is saved again with a reason only when its task labels it undocumented,
+    /// and otherwise dropped; a correct whose target was dropped becomes a remember of the new value under the target's
+    /// subject and attribute, checked the same way. <paramref name="remember"/> returns null when the save was held.
+    /// </summary>
+    public static async Task<ReplayTally> ReplayThroughCheckAsync(IReadOnlyList<MemoryOp> ops, IReadOnlySet<string> undocumented,
+        Func<MemoryOp, string, string, string?, Task<Guid?>> remember, Func<MemoryOp, Guid, string, string, Task<Guid>> correct)
+    {
+        Dictionary<string, (Guid? Fact, string Subject, string Attribute)> seen = new(StringComparer.Ordinal);
+        int saves = 0, held = 0, retried = 0, dropped = 0, rewritten = 0;
+        System.Diagnostics.Stopwatch saving = new();
+
+        async Task<Guid?> SaveAsync(MemoryOp op, string subject, string attribute, string? whatIsNew)
+        {
+            saves++;
+            saving.Start();
+            Guid? fact = await remember(op, subject, attribute, whatIsNew);
+            saving.Stop();
+            return fact;
+        }
+
+        foreach (MemoryOp op in ops)
+        {
+            bool isRemember = op.Op == "remember";
+            (Guid? target, string subject, string attribute) = isRemember ? (null, op.Subject!, op.Attribute!) : seen[op.Target!];
+            if (target is Guid stored)
+            {
+                seen[op.Id] = (await correct(op, stored, subject, attribute), subject, attribute);
+                continue;
+            }
+            if (!isRemember)
+                rewritten++;
+            Guid? saved = await SaveAsync(op, subject, attribute, null);
+            if (saved is null)
+            {
+                held++;
+                if (undocumented.Contains(op.Id))
+                {
+                    retried++;
+                    saved = await SaveAsync(op, subject, attribute, ReplayReason);
+                }
+                if (saved is null)
+                    dropped++;
+            }
+            seen[op.Id] = (saved, subject, attribute);
+        }
+        return new ReplayTally(saves, held, retried, dropped, rewritten, saves == 0 ? 0 : Math.Round(saving.Elapsed.TotalMilliseconds / saves, 1));
+    }
+
+    /// <summary>
+    /// CON-244's off runs as this run's off arm, paired by task and repetition. Those files keep tool inputs but not
+    /// always outputs, so run recall, first-query MRR and tokens are unknown here and the report leaves them out.
+    /// </summary>
+    public static Dictionary<(string Task, int Rep), (AgentRun Run, RunScore Score)> ReadOffRuns(
+        IEnumerable<string> runLines, IReadOnlyCollection<SearchTask> tasks, int repetitions)
+    {
+        Dictionary<string, SearchTask> byId = tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+        Dictionary<(string, int), (AgentRun, RunScore)> runs = [];
+        foreach (JsonObject line in runLines.Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()))
+        {
+            int rep = (int)line["rep"]! - 1;
+            if ((string)line["arm"]! != "off" || rep >= repetitions || !byId.TryGetValue((string)line["task"]!, out SearchTask? task))
+                continue;
+            AgentOutcome outcome = Enum.Parse<AgentOutcome>((string)line["outcome"]!);
+            string? answer = (string?)line["answer"];
+            List<string> cited = [.. line["cited"]!.AsArray().Select(c => (string)c!)];
+            List<ToolTrace> calls = [.. line["calls"]!.AsArray().Select(c => new ToolTrace((string)c!["tool"]!,
+                c["input"].Deserialize<Dictionary<string, JsonElement>>() ?? [], ""))];
+            bool answerRight = outcome == AgentOutcome.Answered && answer is not null
+                && MemoryEval.Named(answer, task.Answer) >= 0
+                && (task.StaleAnswer is null || MemoryEval.Named(answer, task.StaleAnswer) < 0);
+            RunScore score = new((double)line["score"]!, task.Stale.Any(cited.Contains), answerRight, false, 0,
+                calls.Count(c => c.Name == MemorySearchScoring.Search), calls.Count, 0, 0, 0, 0);
+            runs[(task.Id, rep)] = (new AgentRun(outcome, answer, cited, calls, TokenUsage.Zero, 0, (string?)line["error"]), score);
+        }
+        foreach (SearchTask task in tasks)
+            for (int rep = 0; rep < repetitions; rep++)
+                if (!runs.ContainsKey((task.Id, rep)))
+                    throw new InvalidOperationException($"No reusable off run for {task.Id} repetition {rep + 1}.");
+        return runs;
+    }
+
+    /// <summary>
+    /// CON-245's bars in <c>eval/pass-bars.md</c>. Planted: M gains at least 0.30 with its 95% interval above 0.
+    /// Realistic: M's 95% interval stays above -0.10. Both: H's 90% interval stays above -0.10.
+    /// </summary>
+    public static bool MeetsCheckedBar(bool realistic, PairedComparison m, PairedComparison h90) =>
+        h90.CiLow > -0.10 && (realistic ? m.CiLow > -0.10 : m.MeanDifference >= 0.30 && m.CiLow > 0);
 
     /// <summary>The pre-registered run: every test task, three repetitions per arm. Only this run can pass the gate.</summary>
     public const int RegisteredTasks = 112;
@@ -205,7 +343,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         return reasons;
     }
 
-    public static JsonObject Report(Options options, IReadOnlyList<TaskResult> results, int registeredTasks = RegisteredTasks)
+    public static JsonObject Report(Options options, IReadOnlyList<TaskResult> results, int registeredTasks = RegisteredTasks, bool realistic = false)
     {
         List<string> nonconforming = Nonconforming(options, results, registeredTasks);
         List<TaskResult> m = [.. results.Where(r => r.Task.InMemorySet)];
@@ -216,6 +354,9 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         Verdict? verdict = mCompare is not null && hCompare90 is not null && allCompare is not null
             ? MemorySearchScoring.Decide(mCompare, hCompare90, allCompare)
             : null;
+        bool? barMet = options.CheckSaves && mCompare is not null && hCompare90 is not null ? MeetsCheckedBar(realistic, mCompare, hCompare90) : null;
+        bool passed = options.CheckSaves ? barMet == true : verdict == Verdict.Keep;
+        bool offReused = options.ReuseOffRuns is not null;
 
         JsonObject kinds = [];
         foreach (string kind in results.Select(r => r.Task.Kind).Distinct().Order(StringComparer.Ordinal))
@@ -246,8 +387,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
                 ["allScore95"] = Comparison(allCompare),
                 ["answerAccuracy"] = Comparison(Compare(results, s => s.AnswerRight ? 1 : 0)),
                 ["staleCitations"] = Comparison(Compare(results, s => s.CitedStale ? 1 : 0)),
-                ["runRecall"] = Comparison(Compare(results, s => s.SawGold ? 1 : 0)),
-                ["firstQueryMrr@10"] = Comparison(Compare(results, s => s.FirstQueryMrr)),
+                ["runRecall"] = offReused ? null : Comparison(Compare(results, s => s.SawGold ? 1 : 0)),
+                ["firstQueryMrr@10"] = offReused ? null : Comparison(Compare(results, s => s.FirstQueryMrr)),
                 ["searchCalls"] = Comparison(Compare(results, s => s.Searches)),
                 ["toolCalls"] = Comparison(Compare(results, s => s.ToolCalls)),
             },
@@ -258,7 +399,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             },
             ["tokens"] = new JsonObject
             {
-                ["off"] = Tokens(results.SelectMany(r => r.Off)),
+                ["off"] = offReused ? null : Tokens(results.SelectMany(r => r.Off)),
                 ["on"] = Tokens(results.SelectMany(r => r.On)),
             },
             ["examples"] = new JsonObject
@@ -266,13 +407,16 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
                 ["memoryHelped"] = Examples(results, better: true),
                 ["memoryHurt"] = Examples(results, better: false),
             },
+            ["offRunsReusedFrom"] = options.ReuseOffRuns,
             ["gate"] = new JsonObject
             {
+                ["checkedBar"] = options.CheckSaves ? (realistic ? "realistic" : "planted") : null,
+                ["checkedBarMet"] = barMet,
                 ["verdict"] = verdict is { } v ? MemorySearchScoring.Label(v) : "not scored (fewer than 2 tasks in a set)",
                 ["memorySetMdeOver015"] = mCompare is null ? null : mCompare.MinimumDetectableEffect > 0.15,
                 ["conforming"] = nonconforming.Count == 0,
                 ["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]),
-                ["passed"] = verdict == Verdict.Keep && nonconforming.Count == 0,
+                ["passed"] = passed && nonconforming.Count == 0,
             },
         };
     }
@@ -350,10 +494,10 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         })];
     }
 
-    private static IEnumerable<string> RunLines(IReadOnlyList<TaskResult> results, DocumentIndex index)
+    private static IEnumerable<string> RunLines(IReadOnlyList<TaskResult> results, DocumentIndex index, bool[] arms)
     {
         foreach (TaskResult r in results)
-            foreach ((string arm, IReadOnlyList<(AgentRun Run, RunScore Score)> runs) in new[] { ("off", r.Off), ("on", r.On) })
+            foreach ((string arm, IReadOnlyList<(AgentRun Run, RunScore Score)> runs) in arms.Select(memory => memory ? ("on", r.On) : ("off", r.Off)))
                 for (int i = 0; i < runs.Count; i++)
                 {
                     (AgentRun run, RunScore score) = runs[i];
