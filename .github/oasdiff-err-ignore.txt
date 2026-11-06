@@ -42,3 +42,5 @@ GET /api/sources removed the required property `items/items/summary` from the re
 POST /api/sources removed the required property `summary` from the response with the `201` status
 GET /api/sources/{sourceId} removed the required property `summary` from the response with the `200` status
 PATCH /api/sources/{sourceId} removed the required property `summary` from the response with the `200` status
+GET /api/memory/spaces removed the required property `counts/containers` from the response with the `200` status
+POST /api/memory/spaces removed the enum value `Container` of the request property `kind/oneOf[#/components/schemas/MemorySpaceKind]/`
