@@ -22,6 +22,8 @@ public sealed class ProcessRunner : IProcessRunner
     public async Task<ProcessResult> RunAsync(ProcessStartInfo start, TimeSpan timeout, CancellationToken ct)
     {
         start.UseShellExecute = false;
+        // Its own hidden console: on Windows a child that inherits a console which has since closed exits 0xC0000142.
+        start.CreateNoWindow = true;
         start.RedirectStandardInput = true;
         start.RedirectStandardOutput = true;
         start.RedirectStandardError = true;
@@ -201,15 +203,18 @@ public sealed class ClaudeCliAgent(
             if (Gate is not null)
                 await Gate.WaitForRoomAsync(ct);
             (AgentRun run, int? failedStart) = await StartAsync(toolbox, system, question, ct);
-            if (Gate is null || failedStart is not int exitCode || start == MemoryGate.MaxStarts)
+            if (Gate is null || failedStart is not int exitCode)
                 return run;
+            if (start == MemoryGate.MaxStarts)
+                throw new InvalidOperationException(
+                    $"claude failed to start {MemoryGate.MaxStarts} times in a row: {run.Error}. The run stops here because a process that never reached the model says nothing about the agent; finished tasks stay in the checkpoint.");
             await Gate.RecordFailedStartAsync(exitCode, ct);
         }
     }
 
     /// <summary>
     /// True when the process ended before the model did anything: no tool call, no rate-limit report, no result. Such a
-    /// run says nothing about the agent, and memory pressure causes it (0xC0000142, the process could not initialize).
+    /// run says nothing about the agent (0xC0000142, the process could not initialize).
     /// </summary>
     public static bool NeverStarted(BridgeSession session, CliResult result, ProcessResult process) =>
         !process.TimedOut && !result.Finished && result.Limit is null && session.Outcome is null && session.Calls.Count == 0;

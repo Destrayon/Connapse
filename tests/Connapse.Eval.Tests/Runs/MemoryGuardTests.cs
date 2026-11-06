@@ -125,12 +125,24 @@ public class MemoryGuardTests
     }
 
     [Fact]
-    public async Task RunAsync_ClaudeNeverStarts_ScoresTheErrorAfterTheLastStart()
+    public async Task RunAsync_ClaudeNeverStarts_StopsTheRunInsteadOfScoringAZero()
     {
-        (AgentRun run, int starts) = await RunAgent(Gate(100), NeverStarted());
+        MemoryGate gate = Gate(100);
 
-        starts.Should().Be(MemoryGate.MaxStarts);
-        run.Outcome.Should().Be(AgentOutcome.Error);
+        await FluentActions.Awaiting(() => RunAgent(gate, NeverStarted())).Should().ThrowAsync<InvalidOperationException>().WithMessage("*failed to start*");
+
+        gate.FailedStarts.Should().Be(MemoryGate.MaxStarts - 1);
+    }
+
+    [Fact]
+    public async Task ProcessRunner_StartsAProcess_GivesItAConsoleOfItsOwn()
+    {
+        ProcessStartInfo start = new("dotnet") { ArgumentList = { "--version" } };
+
+        ProcessResult result = await new ProcessRunner().RunAsync(start, TimeSpan.FromMinutes(1), CancellationToken.None);
+
+        start.CreateNoWindow.Should().BeTrue();
+        result.ExitCode.Should().Be(0);
     }
 
     [Fact]

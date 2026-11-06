@@ -14,7 +14,7 @@ public sealed class MemoryGate(long floorBytes, Func<long> availableBytes, TextW
 {
     public const int DefaultFloorGb = 8;
 
-    /// <summary>Starts one run gets before a failure to start is scored as the run's error.</summary>
+    /// <summary>Starts one task gets before the whole run stops, so a host that can't start agents scores nothing.</summary>
     public const int MaxStarts = 5;
 
     public static readonly TimeSpan CheckEvery = TimeSpan.FromSeconds(30);

@@ -1,0 +1,278 @@
+{
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "tasks": 112,
+  "all": {
+    "tasks": 112,
+    "offScore": 0.7024,
+    "onScore": 0.8393,
+    "offSearches": 1.9077,
+    "onSearches": 1.2827
+  },
+  "memorySet": {
+    "tasks": 64,
+    "offScore": 0.4792,
+    "onScore": 0.7187,
+    "offSearches": 2.5833,
+    "onSearches": 1.4792
+  },
+  "holdoutSet": {
+    "tasks": 48,
+    "offScore": 1,
+    "onScore": 1,
+    "offSearches": 1.0069,
+    "onSearches": 1.0208
+  },
+  "kinds": {
+    "alias": {
+      "tasks": 16,
+      "offScore": 0.5,
+      "onScore": 0.9583,
+      "offSearches": 4.2083,
+      "onSearches": 1.6042
+    },
+    "control": {
+      "tasks": 40,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.0083,
+      "onSearches": 1.025
+    },
+    "correction": {
+      "tasks": 16,
+      "offScore": 0.2917,
+      "onScore": 0.2708,
+      "offSearches": 1.2292,
+      "onSearches": 1.1875
+    },
+    "current": {
+      "tasks": 16,
+      "offScore": 0.5,
+      "onScore": 0.6458,
+      "offSearches": 1,
+      "onSearches": 1
+    },
+    "location": {
+      "tasks": 16,
+      "offScore": 0.625,
+      "onScore": 1,
+      "offSearches": 3.8958,
+      "onSearches": 2.125
+    },
+    "stale": {
+      "tasks": 8,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1,
+      "onSearches": 1
+    }
+  },
+  "memorySetHalves": {
+    "documented": {
+      "tasks": 32,
+      "offScore": 0.8646,
+      "onScore": 0.8333,
+      "offSearches": 1.3854,
+      "onSearches": 1.3125
+    },
+    "undocumented": {
+      "tasks": 32,
+      "offScore": 0.0938,
+      "onScore": 0.6042,
+      "offSearches": 3.7812,
+      "onSearches": 1.6458
+    }
+  },
+  "comparisons": {
+    "memorySetScore95": {
+      "tasks": 64,
+      "meanDifference": 0.2396,
+      "ci": [
+        0.1302,
+        0.3646
+      ],
+      "permutationP": 0.0005999400059994001,
+      "minimumDetectableEffect": 0.1657
+    },
+    "holdoutSetScore90": {
+      "tasks": 48,
+      "meanDifference": 0,
+      "ci": [
+        0,
+        0
+      ],
+      "permutationP": 1,
+      "minimumDetectableEffect": 0
+    },
+    "allScore95": {
+      "tasks": 112,
+      "meanDifference": 0.1369,
+      "ci": [
+        0.0744,
+        0.2173
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.0995
+    },
+    "answerAccuracy": {
+      "tasks": 112,
+      "meanDifference": 0.0387,
+      "ci": [
+        0.006,
+        0.0923
+      ],
+      "permutationP": 0.09779022097790221,
+      "minimumDetectableEffect": 0.0601
+    },
+    "staleCitations": {
+      "tasks": 112,
+      "meanDifference": -0.0179,
+      "ci": [
+        -0.0625,
+        0.0089
+      ],
+      "permutationP": 0.40315968403159685,
+      "minimumDetectableEffect": 0.0486
+    },
+    "runRecall": null,
+    "firstQueryMrr@10": null,
+    "searchCalls": {
+      "tasks": 112,
+      "meanDifference": -0.625,
+      "ci": [
+        -0.9613,
+        -0.374
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.4129
+    },
+    "toolCalls": {
+      "tasks": 112,
+      "meanDifference": -0.1875,
+      "ci": [
+        -0.5,
+        0.0506
+      ],
+      "permutationP": 0.1827817218278172,
+      "minimumDetectableEffect": 0.388
+    }
+  },
+  "outcomes": {
+    "off": {
+      "Answered": 335,
+      "NoAnswer": 1
+    },
+    "on": {
+      "Answered": 336
+    }
+  },
+  "tokens": {
+    "off": null,
+    "on": {
+      "runs": 336,
+      "input": 2254,
+      "cacheWrite": 1282156,
+      "cacheRead": 4139468,
+      "output": 163813,
+      "apiListPriceUsd": 7.1852
+    }
+  },
+  "examples": {
+    "memoryHelped": [
+      {
+        "task": "test-alias-04",
+        "kind": "alias",
+        "question": "What is the password rotation interval for the Bluebird team?",
+        "expected": "30 days",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find an answer. No document in the container mentions a \u0022Bluebird\u0022 team, so there is no password rotation interval for it. The closest names are Research\u0027s alias \u0022Firebirds\u0022 and Field Operations\u0027 \u0022Harbor\u0022 and \u0022Ravens\u0022. Please check whether Bluebird is a different name or another team\u0027s alias. If you tell me the department, I can look up its rotation interval.",
+        "onAnswer": "30 days. Bluebird is the chat nickname for the Marketing team, per a memory note sourced to the Marketing team charter. The Marketing Access Control Policy sets its password rotation interval at 30 days. I didn\u0027t open the charter itself to confirm the nickname."
+      },
+      {
+        "task": "test-alias-06",
+        "kind": "alias",
+        "question": "What is the single-transaction card limit for the Northstar team?",
+        "expected": "$4,000",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find a card limit for a \u0022Northstar\u0022 team. No document in the container mentions Northstar. None of the team charters list it as a team name or alias. The charters that do list aliases give names like Night Owls, Rocketeers, Atlas, Compass, Harbor and Ravens. The single-transaction card limits I found are for Security ($4,000), Platform ($12,500), Manufacturing ($4,500) and Sales Engineering ($11,000). If Northstar is another name for one of those teams, tell me which one and I can confirm the limit.",
+        "onAnswer": "I couldn\u0027t confirm this. No document mentions a \u0022Northstar\u0022 team. A memory note says Northstar is Security, but the Security charter it cites doesn\u0027t contain that name. It lists only the aliases Night Owls and Rocketeers. If Northstar does mean Security, the single-transaction card limit is $4,000. Treat that as unverified."
+      },
+      {
+        "task": "test-alias-07",
+        "kind": "alias",
+        "question": "What is the home-office equipment allowance for the Voyagers team?",
+        "expected": "$400",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find a \u0022Voyagers\u0022 team in the documents, so I can\u0027t give its home-office equipment allowance. The team charters list aliases for Research (Firebirds), Finance (Lanterns), Marketing (Sherpas, Beacons), Security (Night Owls, Rocketeers), Platform (Atlas, Compass) and Field Operations (Harbor, Ravens). None of them mention Voyagers. The charters for Data Science, Facilities, Legal and Sales Engineering list no aliases. Customer Success appeared in the searches only as a policy and charter title, so I didn\u0027t see its charter text. If you can tell me which department Voyagers is, I can look up that department\u0027s allowance.",
+        "onAnswer": "If Voyagers is the Facilities team, the allowance is $400. The documents don\u0027t confirm that. No policy is titled \u0022Voyagers\u0022. The only link is a memory note saying Voyagers is Facilities\u0027 chat nickname, and the cited Facilities charter doesn\u0027t mention \u0022Voyagers\u0022. Please confirm the mapping."
+      }
+    ],
+    "memoryHurt": [
+      {
+        "task": "test-alias-02",
+        "kind": "alias",
+        "question": "What is the backup retention period for the Harbor team?",
+        "expected": "217 days",
+        "offScore": 1,
+        "onScore": 0.3333,
+        "offAnswer": "The Harbor team is the Field Operations team. Its backup retention period is 217 days.",
+        "onAnswer": "217 days. The Harbor team is also known as Field Operations, and the Field Operations Backup Policy sets its backup retention period at 217 days."
+      },
+      {
+        "task": "test-correction-10",
+        "kind": "correction",
+        "question": "What is the backup retention period for Security?",
+        "expected": "294 days",
+        "offScore": 1,
+        "onScore": 0.3333,
+        "offAnswer": "Security\u0027s current backup (snapshot) retention period is 294 days, per the Security Data Protection Standard effective 2025-07-02. That standard replaced the 2023 Security Backup Policy, which said 35 days.",
+        "onAnswer": "294 days. The Security Data Protection Standard (effective 2025-07-02) replaced the 2023 Security Backup Policy, which said 35 days. The standard calls it the \u0022snapshot keep period\u0022 instead of \u0022backup retention period\u0022."
+      },
+      {
+        "task": "test-correction-16",
+        "kind": "correction",
+        "question": "What is the encryption key rotation period for Data Science?",
+        "expected": "60 days",
+        "offScore": 1,
+        "onScore": 0.3333,
+        "offAnswer": "60 days. The Data Science Key Management Standard (effective 2025-12-04) replaces the 2023 Encryption Policy, which said 390 days.",
+        "onAnswer": "60 days. The Data Science Key Management Standard (effective 2025-12-04) replaces the 2023 Encryption Policy, which said 390 days. It calls this the \u0022key renewal interval\u0022."
+      }
+    ]
+  },
+  "offRunsReusedFrom": "eval/agent-search/con-244/memory-search-test.runs.jsonl",
+  "gate": {
+    "checkedBar": "planted",
+    "checkedBarMet": false,
+    "verdict": "KEEP",
+    "memorySetMdeOver015": true,
+    "conforming": true,
+    "diagnosticOnly": [],
+    "passed": false
+  },
+  "replay": {
+    "Saves": 164,
+    "Held": 100,
+    "Retried": 11,
+    "Dropped": 89,
+    "Rewritten": 19,
+    "MeanSaveMs": 12.2
+  },
+  "memoryGuard": {
+    "floorGb": 8,
+    "holds": 0,
+    "heldSeconds": 0,
+    "failedStarts": 0,
+    "restoredRuns": 0
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 44%)",
+    "atLastRun": "allowed (seven_day 45%)"
+  }
+}

@@ -161,6 +161,18 @@ again with a reason saying what is new. Three bars, all of which must pass.
     replay differs) and continues with the unfinished tasks. A killed realistic run keeps finished repetitions and
     repeats an unfinished one whole, because session 2 reads session 1's saves from a database that dies with the run.
     Runs from a repeated repetition are thrown away, never scored. No bar changes.
+- **Memory guard corrected (recorded 2026-11-06, after the planted arm was scored and the realistic attempt failed).**
+  The guard note above blamed `0xC0000142` on low memory, which was wrong. A low-memory stop of the session killed the
+  shell whose console the eval had inherited, and every `claude` started after that exited `0xC0000142`, even with 40 GB
+  free (reproduced with a small test: a child of a closed console fails that way, and one with a console of its own
+  doesn't). The realistic attempt scored 159 of its 312 session-2 runs as errors at 0, so its report is void and no bar
+  is read from it. Only agent starts change:
+  - `claude` now always gets a console of its own (`CreateNoWindow`).
+  - After 5 failed starts the run stops and scores nothing, in place of scoring an error, so a host that can't start
+    agents can't produce a report. The planted arm had no failed starts, so this doesn't touch its result.
+  - Repetition 1 of the realistic attempt finished before the stop and stays in the checkpoint. Repetition 2 stopped part
+    way and repetition 3 never ran, so both run again whole, under the existing rule for a repeated repetition. Nothing
+    was tuned, and no bar changes.
 - **Reading of the sorting bar (recorded 2026-11-05, after the offline sort was scored and before any agent run).**
   The ticket says restating notes are "dropped" and new facts "kept", which is what happens after the agent reads the
   held reply, not what the cutoff alone holds. Holding a new fact costs little, because the agent sees the passages
