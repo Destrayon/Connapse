@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Results whose scores tie are ordered by document path, so re-indexing gives the same ranking (CON-152, CON-158)
 
 ### Fixed
+- Upgrading deletes the AWS SSO and Cognito settings left behind when those sign-ins were removed, client secrets included. Delete the old client in AWS too: clearing the copy here does not revoke it (#448)
 - Audit entries for actions taken by agents were dropped; they are now recorded under the user the agent acts for
 - Changing one link-search setting on a container no longer resets its other search settings (CON-157)
 - A newly built vector index is used right away instead of being skipped on stale table statistics (CON-34)
