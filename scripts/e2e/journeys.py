@@ -663,9 +663,20 @@ def memory(c, t):
         A("GET", "/api/memory/facts/{id}/history", id=fid).json["total"] >= 1, "no versions"))
     r("Memory", "copy a personal fact to the team space", lambda: A(
         "POST", "/api/memory/facts/{id}/copy", 200, body={"destination": team, "anyway": True}, id=fid))
-    r("Memory", "delete a space (dry run)", lambda: A(
-        "DELETE", "/api/memory/spaces/{spaceId}", 200, query={"dryRun": "true"}, spaceId=sid))
-    r("Memory", "delete a space", lambda: A("DELETE", "/api/memory/spaces/{spaceId}", 200, spaceId=sid))
+    def preview():
+        p = A("DELETE", "/api/memory/spaces/{spaceId}", 200, query={"dryRun": "true"}, spaceId=sid).json
+        t.expect(p["deleted"] is False and p["facts"] >= 1, f"dry run reported {p}")
+        t.expect(A("GET", "/api/memory/spaces/{id}/facts/count", id=sid).json["count"] >= 1, "dry run removed the facts")
+
+    def delete():
+        d = A("DELETE", "/api/memory/spaces/{spaceId}", 200, spaceId=sid).json
+        t.expect(d["deleted"] is True, f"delete reported {d}")
+        listed = A("GET", "/api/memory/spaces", query={"kind": "team", "limit": 100}).json["items"]
+        t.expect(all(s["id"] != sid for s in listed), "deleted space still listed")
+        A("GET", "/api/memory/spaces/{id}/facts", 404, id=sid)
+
+    r("Memory", "delete a space (dry run) keeps it and its facts", preview)
+    r("Memory", "delete a space removes it and its facts", delete)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────────────────────────
