@@ -75,7 +75,7 @@ public class SourceScopeSummaryTests
     }
 
     [Fact]
-    public void Describe_FilesystemScope_ShowsTheSubPath()
+    public void Describe_SftpScope_ShowsTheSubPath()
     {
         SourceScopeSummary.Describe("""{"subPath":"team/docs"}""")
             .Should().Be("team/docs");

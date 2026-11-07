@@ -30,18 +30,10 @@ public class AzureBlobConnectorUnitTests
     }
 
     [Fact] public void Type_IsAzureBlob() => Make().Type.Should().Be(ConnectorType.AzureBlob);
-    [Fact] public void SupportsLiveWatch_False() => Make().SupportsLiveWatch.Should().BeFalse();
 
     [Fact]
     public void ResolveJobPath_JoinsUnderPrefix()
         => Make().ResolveJobPath("q1.pdf").Should().Be("reports/q1.pdf");
-
-    [Fact]
-    public async Task WatchAsync_Throws()
-    {
-        var act = async () => { await foreach (var _ in Make().WatchAsync()) { } };
-        await act.Should().ThrowAsync<NotSupportedException>();
-    }
 
     [Fact]
     public async Task ReadFileAsync_OutOfPrefixPath_ThrowsUnauthorizedAccessException()

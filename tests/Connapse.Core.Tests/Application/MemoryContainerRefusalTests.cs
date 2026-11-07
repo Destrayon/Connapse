@@ -32,7 +32,7 @@ public class MemoryContainerRefusalTests
         "'agent-notes' is an agent memory container: it holds memory facts, not documents. "
         + "Use the memory tools (memory_remember, memory_recall) on it instead.";
 
-    private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containers = ContainerStoreFakes.Create();
     private readonly IOperationAuthorizer _authorizer = new PolicyAuthorizer(_ => true);
     private readonly IAuditLogger _audit = Substitute.For<IAuditLogger>();
 
@@ -40,6 +40,13 @@ public class MemoryContainerRefusalTests
     {
         _containers.GetAsync(MemoryId, Arg.Any<CancellationToken>()).Returns(Memory);
         _containers.GetByNameAsync(Memory.Name, Arg.Any<CancellationToken>()).Returns(Memory);
+    }
+
+    private static IOptionsMonitor<UploadSettings> UploadLimit()
+    {
+        IOptionsMonitor<UploadSettings> settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        settings.CurrentValue.Returns(new UploadSettings());
+        return settings;
     }
 
     private static FileUpload File() => new("a.md", new MemoryStream(Encoding.UTF8.GetBytes("hi")));
@@ -52,7 +59,7 @@ public class MemoryContainerRefusalTests
         var types = Substitute.For<IFileTypeValidator>();
         types.IsSupported(Arg.Any<string>()).Returns(true);
 
-        var uploaded = await new UploadFile(_containers, storage, types, uploads, _authorizer).RunAsync(Caller, MemoryId, File());
+        var uploaded = await new UploadFile(_containers, storage, types, uploads, _authorizer, UploadLimit()).RunAsync(Caller, MemoryId, File());
 
         uploaded.Status.Should().Be(FileStatus.MemoryContainer);
         uploaded.Detail.Should().Be(Message);
@@ -68,7 +75,7 @@ public class MemoryContainerRefusalTests
         var types = Substitute.For<IFileTypeValidator>();
         types.IsSupported(Arg.Any<string>()).Returns(true);
 
-        var uploaded = await new BulkUploadFiles(_containers, storage, types, uploads, _authorizer).RunAsync(Caller, MemoryId, [File()]);
+        var uploaded = await new BulkUploadFiles(_containers, storage, types, uploads, _authorizer, UploadLimit()).RunAsync(Caller, MemoryId, [File()]);
 
         uploaded.Status.Should().Be(FileStatus.MemoryContainer);
         uploaded.Detail.Should().Be(Message);

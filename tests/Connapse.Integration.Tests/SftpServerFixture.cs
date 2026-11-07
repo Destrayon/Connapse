@@ -87,6 +87,9 @@ public sealed class SftpServerFixture : IAsyncLifetime
     public Task CreateDirectoryAsync(string sftpPath) =>
         ExecAsync($"mkdir -p '{Home}{sftpPath}' && chown -R {Username} '{Home}{sftpPath}'");
 
+    /// <summary>Removes a directory and everything in it, named as the client sees it.</summary>
+    public Task DeleteDirectoryAsync(string sftpPath) => ExecAsync($"rm -rf '{Home}{sftpPath}'");
+
     /// <summary>Writes a file, named as the client sees it.</summary>
     public Task WriteFileAsync(string sftpPath, string content) =>
         ExecAsync(

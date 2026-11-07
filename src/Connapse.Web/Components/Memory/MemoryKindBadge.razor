@@ -1,0 +1,18 @@
+@using Connapse.Core
+@* A memory space's kind as a small coloured badge: personal or team. *@
+@if (Kind == MemoryScope.Personal)
+{
+    <span class="kind-badge kind-badge-personal"><span class="bi-lock-fill" aria-hidden="true"></span> @(Label ?? "Personal")</span>
+}
+else
+{
+    <span class="kind-badge kind-badge-team"><span class="bi-people-fill" aria-hidden="true"></span> Team</span>
+}
+
+@code {
+    /// <summary>Who the space is for.</summary>
+    [Parameter] public MemoryScope Kind { get; set; }
+
+    /// <summary>Words for a personal badge; "Personal" when unset.</summary>
+    [Parameter] public string? Label { get; set; }
+}

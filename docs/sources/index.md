@@ -41,7 +41,6 @@ Connapse doesn't accept pasted cloud keys. Each provider signs in with the ident
 | GitHub | An installation of the GitHub App, with hour-long installation tokens | Done by GitHub |
 | Atlassian | A service account's OAuth client credentials, stored encrypted | Replace the secret in Connapse |
 | Custom source | A token from your custom source server, stored encrypted | Replace the token in Connapse |
-| Filesystem | The account the Connapse server runs as | Nothing to rotate |
 | SFTP | An SSH private key, stored encrypted | Replace the key in Connapse |
 
 ### Allowed locations and roots
@@ -49,13 +48,13 @@ Connapse doesn't accept pasted cloud keys. Each provider signs in with the ident
 Every source that shares a connection presents the same identity to the remote system, so the remote can't tell them apart. A connection's allowlist is where you say which parts any of its sources may index:
 
 - `allowedLocations` on S3 and Azure connections lists buckets or containers, optionally with a prefix such as `shared-docs/public/`. A prefix entry allows only sources at or below it.
-- `allowedRoot` on Filesystem and SFTP connections names the one directory sources may use.
+- `allowedRoot` on SFTP connections names the one directory sources may use.
 
 An S3 or Azure connection with no `allowedLocations` allows anything the identity can reach and logs a warning at each sync. A list whose entries are all blank allows nothing.
 
-For Filesystem connections, `Sources:Security:AllowedFilesystemRoots` limits which roots administrators may pick at all. See [Index a filesystem or SFTP server](filesystem-and-sftp.md).
-
 ## Sources
+
+To index a folder that keeps changing, on your computer or another machine, use an [SFTP source](sftp.md). For a folder you only need once, [upload it from the browser](uploads-and-minio.md#upload-a-folder).
 
 A source names what to index inside a connection: a bucket and prefix, a folder, a repository, a space or a project. Its `scope` is a typed object whose `type` names the provider:
 
@@ -63,7 +62,6 @@ A source names what to index inside a connection: a bucket and prefix, a folder,
 |---|---|---|
 | `s3` | `bucketName` | `prefix` |
 | `azureBlob` | `containerName` | `prefix` |
-| `filesystem` | | `subPath`, `includePatterns`, `excludePatterns` |
 | `sftp` | | `subPath`, `includePatterns`, `excludePatterns` |
 | `github` | `owner`, `repo`, `kind` | `includePatterns`, `excludePatterns`, `includeComments`, `includeCommentAuthors`, `excludeCommentAuthors` |
 | `confluence` | `spaceId` | `includeAttachments`, `maxAttachmentMb` |
@@ -85,7 +83,7 @@ Deleting a source removes its indexed documents. The content in the remote syste
 | Provider | Indexes | Per-user permissions |
 |---|---|---|
 | [Uploads](uploads-and-minio.md) | Files uploaded to a container | None: every user's role applies to every container |
-| [Filesystem and SFTP](filesystem-and-sftp.md) | Files under a folder | None: everyone who can search the source sees every file |
+| [SFTP](sftp.md) | Files under a folder on a machine Connapse reaches over SSH | None: everyone who can search the source sees every file |
 | [Amazon S3](aws-setup.md) | Objects in a bucket, under an optional prefix | S3 Access Grants, through IAM Identity Center |
 | [Azure Blob Storage](azure-setup.md) | Blobs in a container, under an optional prefix | Azure RBAC and Data Lake ACLs, through Microsoft Entra sign-in |
 | [GitHub](github-setup.md) | A repository's Markdown files, or its issues and pull requests | The reader's access to the repository, through a linked GitHub account |

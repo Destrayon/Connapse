@@ -141,8 +141,6 @@ public class GitHubRepositoryFormTests
             Guid.NewGuid(), request.Name, request.Description, request.ConnectionId, request.ScopeJson,
             DateTime.UtcNow, DateTime.UtcNow, Provider: request.Provider);
 
-        var security = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
-        security.CurrentValue.Returns(new SourceSecuritySettings());
         var gitHub = Substitute.For<IOptionsMonitor<GitHubSourceSettings>>();
         gitHub.CurrentValue.Returns(new GitHubSourceSettings());
         var azure = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
@@ -155,7 +153,7 @@ public class GitHubRepositoryFormTests
         var scopes = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         var factory = new ConnectorFactory(
-            security, gitHub, Substitute.For<ISshHostKeyStore>(),
+            gitHub, Substitute.For<ISshHostKeyStore>(),
             new ConnapseAwsCredentials(scopes, NullLogger<ConnapseAwsCredentials>.Instance),
             new ConnapseAzureCredentials(azure), http, NullLogger<ConnectorFactory>.Instance,
             new GitHubCredentialPool(new ConnapseGitHubApp(scopes, http, NullLogger<ConnapseGitHubApp>.Instance), scopes));

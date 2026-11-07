@@ -1,0 +1,88 @@
+<section id="folder-upload-panel" class="folder-upload" aria-live="polite">
+    @switch (Progress.Stage)
+    {
+        case FolderUploadProgress.Reading:
+            <div class="folder-upload-line">
+                <span class="folder-upload-title">Reading the folder: @Progress.Found.ToString("N0") files found</span>
+                <button class="btn btn-sm btn-outline-secondary" id="folder-upload-cancel" @onclick="OnCancel">Cancel</button>
+            </div>
+            break;
+
+        case FolderUploadProgress.Confirm:
+            <div class="folder-upload-line">
+                <span class="folder-upload-title">This folder has @Progress.Total.ToString("N0") files, which will take a while. Upload them all?</span>
+                <button class="btn btn-sm btn-primary" id="folder-upload-start" @onclick="OnConfirm">Upload all</button>
+                <button class="btn btn-sm btn-outline-secondary" id="folder-upload-cancel" @onclick="OnCancel">Cancel</button>
+            </div>
+            break;
+
+        case FolderUploadProgress.Uploading:
+            <div class="folder-upload-line">
+                <span class="folder-upload-title">Uploading: @Done.ToString("N0") of @Progress.Total.ToString("N0") files</span>
+                @if (Progress.Failed > 0)
+                {
+                    <span class="folder-upload-failed">@FailedText</span>
+                }
+                <button class="btn btn-sm btn-outline-secondary" id="folder-upload-cancel" @onclick="OnCancel">Cancel</button>
+            </div>
+            <div class="folder-upload-bar" role="progressbar" aria-valuenow="@Percent" aria-valuemin="0" aria-valuemax="100">
+                <div class="folder-upload-fill" style="width: @Percent%"></div>
+            </div>
+            @if (Progress.Waiting)
+            {
+                <p class="folder-upload-note">The server asked to slow down, so the upload is waiting before it continues.</p>
+            }
+            break;
+
+        default:
+            <div class="folder-upload-line">
+                <span class="folder-upload-title" id="folder-upload-result">@ResultText</span>
+                @if (Progress.Failed > 0)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" id="folder-upload-download" @onclick="OnDownload">Download the list</button>
+                }
+                <button class="btn btn-sm btn-outline-secondary" id="folder-upload-dismiss" @onclick="OnDismiss">Dismiss</button>
+            </div>
+            @if (Progress.StoppedBecause is not null)
+            {
+                <p class="folder-upload-note" id="folder-upload-stopped">@Progress.StoppedBecause</p>
+            }
+            @if (Failures.Count > 0)
+            {
+                <ul class="folder-upload-failures">
+                    @foreach (FolderUploadFailure failure in Failures)
+                    {
+                        <li>
+                            <code>@failure.Path</code>
+                            <span>@failure.Error</span>
+                        </li>
+                    }
+                </ul>
+                @if (Progress.Failed > Failures.Count)
+                {
+                    <p class="folder-upload-note">Showing the first @Failures.Count.ToString("N0") of @Progress.Failed.ToString("N0"). The download has them all.</p>
+                }
+            }
+            break;
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public required FolderUploadProgress Progress { get; set; }
+    [Parameter] public IReadOnlyList<FolderUploadFailure> Failures { get; set; } = [];
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnDismiss { get; set; }
+    [Parameter] public EventCallback OnDownload { get; set; }
+
+    private int Done => Progress.Succeeded + Progress.Failed;
+
+    private int Percent => Progress.Total == 0 ? 0 : (int)(Done * 100L / Progress.Total);
+
+    private string FailedText => Progress.Failed == 1 ? "1 failed" : $"{Progress.Failed:N0} failed";
+
+    private string ResultText => (Progress.Cancelled ? "Cancelled: " : "")
+        + $"{Progress.Succeeded:N0} of {Progress.Total:N0} files uploaded"
+        + (Progress.Failed > 0 ? $", {FailedText}." : ".")
+        + (Progress.Succeeded > 0 ? " They can be searched once they finish processing." : "");
+}

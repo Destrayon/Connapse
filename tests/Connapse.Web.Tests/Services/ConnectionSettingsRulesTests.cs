@@ -40,7 +40,7 @@ public class ConnectionSettingsRulesTests
     [InlineData("not json")]
     public async Task Check_ConfigNotAnObject_IsRefused(string configJson)
     {
-        SettingsCheck check = await Rules().CheckAsync("box", ConnectionProvider.Filesystem, new ConnectionSettings(configJson), null);
+        SettingsCheck check = await Rules().CheckAsync("box", ConnectionProvider.Sftp, new ConnectionSettings(configJson), null);
 
         check.Error.Should().Be("config must be a JSON object of the provider's settings.");
         check.Field.Should().Be("config");
@@ -49,9 +49,9 @@ public class ConnectionSettingsRulesTests
     [Fact]
     public async Task Check_FormRuleBroken_SaysWhichRule()
     {
-        SettingsCheck check = await Rules().CheckAsync("box", ConnectionProvider.Filesystem, new ConnectionSettings("{}"), null);
+        SettingsCheck check = await Rules().CheckAsync("box", ConnectionProvider.Sftp, new ConnectionSettings("{}"), null);
 
-        check.Error.Should().Be("Choose an allowed root.");
+        check.Error.Should().Be("A host is required.");
         check.Field.Should().Be("config");
     }
 

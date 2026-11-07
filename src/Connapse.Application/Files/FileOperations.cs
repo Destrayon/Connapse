@@ -44,6 +44,9 @@ public enum FileStatus
     [Failure(400, "unsupported-file-type", "Unsupported file type")]
     UnsupportedType,
 
+    [Failure(413, "file-too-large", "File too large")]
+    TooLarge,
+
     [Failure(400, "container-not-writable", "Container not writable")]
     NotWritable,
 
@@ -454,7 +457,8 @@ public sealed class RetryFile(IContainerStore containers, IDocumentStore documen
 
 /// <summary>Every file operation in one place, for the file browser.</summary>
 public sealed class FileOperations(
-    ListFiles list, GetFile get, GetFileLinks links, GetFileContent content, DeleteFile delete, BulkDeleteFiles bulkDelete, CheckFileReindex reindexCheck, RetryFile retry)
+    ListFiles list, GetFile get, GetFileLinks links, GetFileContent content, DeleteFile delete, BulkDeleteFiles bulkDelete, CheckFileReindex reindexCheck, RetryFile retry,
+    UploadFile upload)
 {
     public ListFiles List { get; } = list;
 
@@ -471,4 +475,6 @@ public sealed class FileOperations(
     public CheckFileReindex ReindexCheck { get; } = reindexCheck;
 
     public RetryFile Retry { get; } = retry;
+
+    public UploadFile Upload { get; } = upload;
 }

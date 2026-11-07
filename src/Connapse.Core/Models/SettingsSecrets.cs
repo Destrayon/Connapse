@@ -14,6 +14,15 @@ public static class SettingsSecrets
     /// <summary>The string properties saying where a secret is sent: the provider and every address (a URL or an endpoint).</summary>
     public static IReadOnlyList<PropertyInfo> DestinationsOf(Type type) => Strings(type, "Provider", "Url", "Endpoint");
 
+    /// <summary>The string properties holding an address: a URL or an endpoint.</summary>
+    public static IReadOnlyList<PropertyInfo> AddressesOf(Type type) => Strings(type, AddressSuffixes);
+
+    /// <summary>Whether a setting's name, or a configuration key ending in it, is an address.</summary>
+    public static bool IsAddress(string name) =>
+        AddressSuffixes.Any(s => name.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] AddressSuffixes = ["Url", "Endpoint"];
+
     private static List<PropertyInfo> Strings(Type type, params string[] suffixes) =>
         type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.PropertyType == typeof(string) && p.CanWrite

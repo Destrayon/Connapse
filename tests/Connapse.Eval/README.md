@@ -116,6 +116,33 @@ from the GitHub and Jira APIs. Built locally (needs `gh` signed in; about 15 min
 
 - Scores break down by `kind:` and by `hops:1` / `hops:2`. Questions and how they were made: `eval/datasets/links-*/card.md`.
 
+## Memory and search
+
+`memory-search` and `memory-learned` score how well a Claude agent answers with search alone, through the real MCP
+tools `search_knowledge` and `get_document`. A run scores 1 when the agent cites the current document and no
+superseded one. CON-244 compared these runs with container memory, which CON-255 removed because it did no better,
+so these memory-off scores are the ones to match; the rules and results are in `eval/pass-bars.md`. `memory-search`
+registers 112 test tasks; `memory-learned` registers its 104 session-2 test tasks, after uploading the late
+documents. Any other run, or fewer than 3 repetitions, is marked diagnostic only. The run stops before any agent
+starts if a document fails to index.
+
+Each agent is a headless Claude Code session (`claude -p`) signed in with your Claude subscription, so `claude`
+must be on the PATH and logged in. The eval serves its tools to the session as a loopback MCP server and starts
+Claude Code with no built-in tools, no settings, CLAUDE.md, skills or plugins, and with `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` removed, so usage comes out of the subscription. The report's
+`subscription` section shows the rate-limit windows at the first and last run, and `tokens.apiListPriceUsd` is
+what the same tokens would cost at API list price. If the subscription limit is reached, the run stops. Try
+`--split dev --repetitions 1` first:
+
+    dotnet run --project tests/Connapse.Eval -- memory-search --split test --out eval/runs/memory-search.json
+    MEMORY_SEARCH_SPLIT=dev eval/tools/run_light.sh memory-search
+
+- Options: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`), `--repetitions` (default 3),
+  `--workers` (default 1), `--limit-tasks`, `--agent-dir` (the empty folder Claude Code runs in; default under the
+  temp folder). Every agent run, with its tool calls, lands in `<out>.runs.jsonl`.
+- Tasks and corpus, and how they were made: `eval/datasets/memory-search/card.md` and
+  `eval/datasets/memory-learned/card.md`.
+
 ## Files and reports
 
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.

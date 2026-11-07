@@ -50,6 +50,16 @@
       "risk": "destructive",
       "scope": "knowledge:write"
     },
+    "DELETE /api/memory/spaces/{spaceId:guid}": {
+      "requires": "editor",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
+    "DELETE /api/memory/spaces/{spaceId:guid}/star": {
+      "requires": "viewer",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
     "DELETE /api/sources/{sourceId:guid}": {
       "requires": "admin",
       "risk": "destructive",
@@ -231,6 +241,31 @@
       "scope": "knowledge:read"
     },
     "GET /api/containers/{containerId:guid}/stats": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/facts/{id}/history": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/{id}/facts": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/{id}/facts/count": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/spaces/{id}/subjects": {
       "requires": "viewer",
       "risk": "read",
       "scope": "knowledge:read"
@@ -470,6 +505,11 @@
       "risk": "read",
       "scope": null
     },
+    "GET /health/ready": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
     "GET /oauth/clients/cli.json": {
       "requires": "anonymous",
       "risk": "read",
@@ -550,6 +590,16 @@
       "risk": "read",
       "scope": null
     },
+    "GET,POST /memory": {
+      "requires": "user",
+      "risk": "write",
+      "scope": null
+    },
+    "GET,POST /memory/{Space}": {
+      "requires": "user",
+      "risk": "write",
+      "scope": null
+    },
     "GET,POST /not-found": {
       "requires": "anonymous",
       "risk": "read",
@@ -605,6 +655,11 @@
       "risk": "read",
       "scope": null
     },
+    "PATCH /api/memory/spaces/{spaceId:guid}": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "PATCH /api/sources/{sourceId:guid}": {
       "requires": "admin",
       "risk": "write",
@@ -656,6 +711,16 @@
       "scope": "knowledge:read"
     },
     "POST /api/containers/{containerId:guid}/sync": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/memory/facts/{id}/copy": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/memory/spaces/": {
       "requires": "editor",
       "risk": "write",
       "scope": "knowledge:write"
@@ -854,6 +919,11 @@
       "requires": "admin",
       "risk": "write",
       "scope": "admin:sources"
+    },
+    "PUT /api/memory/spaces/{spaceId:guid}/star": {
+      "requires": "viewer",
+      "risk": "write",
+      "scope": "knowledge:read"
     },
     "PUT /api/settings/{category}": {
       "requires": "admin",
@@ -1063,6 +1133,11 @@
       "risk": "read"
     },
     "memory_timeline": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "memory_spaces": {
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"

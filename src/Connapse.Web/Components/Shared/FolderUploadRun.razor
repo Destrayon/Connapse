@@ -1,0 +1,135 @@
+@* The page's side of a folder upload. The run itself lives in fileDrop.js, so it outlives this component. *@
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@using Connapse.Web.Services
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject IFileTypeValidator FileTypes
+@inject IngestionProgressNotifier ProgressNotifier
+
+@if (busy)
+{
+    <div class="alert alert-warning alert-dismissible m-3" id="folder-upload-busy">
+        Another folder is still uploading. Wait for it to finish, then try this one again.
+        <button type="button" class="btn-close" aria-label="Close" @onclick="() => busy = false"></button>
+    </div>
+}
+@if (progress is not null)
+{
+    <FolderUploadPanel Progress="progress" Failures="failures"
+                       OnCancel="@(() => CallModule("cancelFolderUpload"))"
+                       OnConfirm="@(() => CallModule("confirmFolderUpload"))"
+                       OnDownload="@(() => CallModule("downloadFolderUploadFailures"))"
+                       OnDismiss="Dismiss" />
+}
+
+@code {
+    private static readonly System.Text.Json.JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
+
+    private readonly List<FolderUploadFailure> failures = [];
+    private FolderUploadProgress? progress;
+    private bool busy;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<FolderUploadRun>? selfRef;
+
+    [Parameter, EditorRequired] public required string ContainerId { get; set; }
+
+    /// <summary>Raised once when a run ends, because its files have landed.</summary>
+    [Parameter] public EventCallback OnFinished { get; set; }
+
+    /// <summary>Raised when any file finishes processing while a run is on show. A folder's files are mostly in subfolders, so the page has no row to match them to.</summary>
+    [Parameter] public EventCallback OnFileSettled { get; set; }
+
+    protected override void OnInitialized() => ProgressNotifier.StatusChanged += OnStatusChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDrop.js");
+        selfRef = DotNetObjectReference.Create(this);
+        await module.InvokeVoidAsync("attachFolderUploadPanel", selfRef, ContainerId);
+    }
+
+    [JSInvokable]
+    public string[] GetSupportedExtensions() => FileTypes.SupportedExtensions.ToArray();
+
+    [JSInvokable]
+    public async Task UpdateFolderUpload(string progressJson)
+    {
+        FolderUploadProgress? update = System.Text.Json.JsonSerializer.Deserialize<FolderUploadProgress>(progressJson, Json);
+        if (update is null) return;
+
+        bool justFinished = update.Stage == FolderUploadProgress.Finished && progress?.Stage != FolderUploadProgress.Finished;
+        progress = update;
+        busy = false;
+        // Failures follow a finished report, and a page reopened after the run gets them again.
+        if (update.Stage == FolderUploadProgress.Finished)
+            failures.Clear();
+
+        await InvokeAsync(async () =>
+        {
+            if (justFinished)
+            {
+                await OnFinished.InvokeAsync();
+                await OnFileSettled.InvokeAsync();
+            }
+            StateHasChanged();
+        });
+    }
+
+    [JSInvokable]
+    public async Task AddFolderUploadFailures(string failuresJson)
+    {
+        List<FolderUploadFailure>? added = System.Text.Json.JsonSerializer.Deserialize<List<FolderUploadFailure>>(failuresJson, Json);
+        if (added is null) return;
+
+        failures.AddRange(added);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task ShowFolderUploadBusy()
+    {
+        busy = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async void OnStatusChanged(DocumentStatusChangedEvent change)
+    {
+        if (progress is null || change.Status is not (DocumentStatus.Ready or DocumentStatus.FailedRetryable or DocumentStatus.FailedPermanent))
+            return;
+        try
+        {
+            await InvokeAsync(() => OnFileSettled.InvokeAsync());
+        }
+        catch (Exception)
+        {
+            // async void — swallow to keep the Blazor circuit alive
+        }
+    }
+
+    private async Task CallModule(string function)
+    {
+        if (module is not null)
+            await module.InvokeVoidAsync(function);
+    }
+
+    private async Task Dismiss()
+    {
+        await CallModule("dismissFolderUpload");
+        progress = null;
+        failures.Clear();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ProgressNotifier.StatusChanged -= OnStatusChanged;
+        if (module is not null)
+        {
+            try { await module.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+        }
+        selfRef?.Dispose();
+    }
+}

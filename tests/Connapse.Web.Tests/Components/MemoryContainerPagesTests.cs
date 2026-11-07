@@ -28,7 +28,7 @@ public class MemoryContainerPagesTests : IDisposable
     private static readonly DateTime Epoch = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private readonly BunitContext ctx = new();
-    private readonly IContainerStore containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore containers = ContainerStoreFakes.Create();
     private readonly IDocumentStore documents = Substitute.For<IDocumentStore>();
     private readonly IFolderStore folders = Substitute.For<IFolderStore>();
 
@@ -40,6 +40,8 @@ public class MemoryContainerPagesTests : IDisposable
         authorizer.AllowsAsync(default!, default!).ReturnsForAnyArgs(true);
         var memory = Substitute.For<IMemoryService>();
         memory.RecallAsync(default!, default!).ReturnsForAnyArgs(new MemoryRecall([]));
+        memory.ListAsync(default, default!, default, default, default, default!).ReturnsForAnyArgs(new MemoryFactPage([], null));
+        memory.CountAsync(default, default!, default!).ReturnsForAnyArgs(new MemoryFactCount(0, false));
         var models = Substitute.For<VectorModelDiscovery>(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance);
         models.GetModelsAsync(default, default).ReturnsForAnyArgs(new List<EmbeddingModelInfo>());
@@ -72,21 +74,7 @@ public class MemoryContainerPagesTests : IDisposable
     }
 
     [Fact]
-    public void CreateDialog_Opened_OffersBothTypesWithDocumentsChosen()
-    {
-        containers.ListAsync(default, default, default).ReturnsForAnyArgs([]);
-        var cut = ctx.Render<Home>();
-
-        cut.Find(".container-list-header button").Click();
-
-        cut.Find("#kind-documents").GetAttribute("aria-checked").Should().Be("true");
-        cut.Find("#kind-memory").GetAttribute("aria-checked").Should().Be("false");
-        cut.Find("#kind-memory").TextContent.Should().Contain("Agent memory");
-        cut.Find("#container-kind-note").TextContent.Should().Contain("storage Connapse owns");
-    }
-
-    [Fact]
-    public void CreateDialog_AgentMemoryPicked_CreatesAMemoryContainer()
+    public void CreateDialog_Created_MakesADocumentContainerWithNoTypeChoice()
     {
         containers.ListAsync(default, default, default).ReturnsForAnyArgs([]);
         containers.CreateAsync(default!, default).ReturnsForAnyArgs(c => new Container(Guid.NewGuid().ToString(),
@@ -94,28 +82,14 @@ public class MemoryContainerPagesTests : IDisposable
         var cut = ctx.Render<Home>();
         cut.Find(".container-list-header button").Click();
 
-        cut.Find("#kind-memory").Click();
-        cut.Find("#kind-memory").GetAttribute("aria-checked").Should().Be("true");
-        cut.Find("#container-kind-note").TextContent.Should().Contain("memory_remember");
-        cut.Find("input[placeholder='my-project']").Input("agent-notes");
+        cut.FindAll("[role=radio]").Should().BeEmpty("memory spaces are made on the Memory page, not here");
+        cut.Markup.Should().NotContain("Agent memory");
+        cut.Find("#container-kind-note").TextContent.Should().Contain("storage Connapse owns");
+        cut.Find("input[placeholder='my-project']").Input("project-docs");
         cut.Find(".modal-footer-custom .btn-primary").Click();
 
         cut.WaitForAssertion(() => containers.Received(1).CreateAsync(
-            new CreateContainerRequest("agent-notes", null, ContainerKind.Memory), Arg.Any<CancellationToken>()));
-    }
-
-    [Fact]
-    public void CreateDialog_ReopenedAfterPickingMemory_StartsBackOnDocuments()
-    {
-        containers.ListAsync(default, default, default).ReturnsForAnyArgs([]);
-        var cut = ctx.Render<Home>();
-        cut.Find(".container-list-header button").Click();
-        cut.Find("#kind-memory").Click();
-
-        cut.Find(".modal-footer-custom .btn-outline-secondary").Click();
-        cut.Find(".container-list-header button").Click();
-
-        cut.Find("#kind-documents").GetAttribute("aria-checked").Should().Be("true");
+            new CreateContainerRequest("project-docs", null, ContainerKind.Documents), Arg.Any<CancellationToken>()));
     }
 
     [Fact]
@@ -167,15 +141,27 @@ public class MemoryContainerPagesTests : IDisposable
     }
 
     [Fact]
-    public void ContainerPage_DocumentsContainer_KeepsFilesFirstWithUpload()
+    public void ContainerPage_DocumentsContainer_KeepsFilesFirstWithUploadAndHasNoMemoryTab()
     {
         var docs = Seed("docs", ContainerKind.Documents);
 
         var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, docs.Id));
 
         cut.WaitForAssertion(() => cut.Find("#fileDropZone"));
-        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Memory", "Settings");
+        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Settings");
+        cut.FindAll("#memory-tab").Should().BeEmpty();
         cut.Find("#fileUploadInput");
         cut.FindAll("#memory-container-note").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ContainerPage_MemoryContainer_HasNoTeamMemoryLabel()
+    {
+        var memory = Seed("agent-notes", ContainerKind.Memory);
+
+        var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, memory.Id));
+
+        cut.WaitForAssertion(() => cut.Find("#memory-empty"));
+        cut.FindAll("#memory-team-note").Should().BeEmpty();
     }
 }

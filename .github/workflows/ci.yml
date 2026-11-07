@@ -16,6 +16,12 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
+# MSBuild reads this as a property, so every build in this workflow, the ones outside the shared build
+# action included (code-quality, mcp-conformance), copies only linux-x64's native libraries (CON-246,
+# Directory.Build.targets).
+env:
+  RuntimeAssetsFor: linux-x64
+
 jobs:
   # Tests run in three size tiers (epic #783, #788), split into parallel jobs (#789). Small is
   # Category=Unit with no Size trait: no Docker, no models, no child processes. Medium is the slower
@@ -53,6 +59,14 @@ jobs:
       if: always()
 
     # The CI scripts' own tests: the shard planner decides which tests every PR runs where.
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Test the browser's folder upload
+      if: success() || failure()
+      run: node --test --test-timeout=8000 tests/Connapse.Web.Js/folderUpload.test.mjs
+
     - name: Test the CI scripts
       if: success() || failure()
       run: python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
@@ -134,6 +148,11 @@ jobs:
       uses: actions/checkout@v4
 
     - uses: ./.github/actions/free-disk
+
+    # FolderUploadTests sends a real folder with the browser's own code under Node.
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
 
     # The test fixtures' container images, pulled while the build runs. Testcontainers otherwise pulls them
     # inside the test step, where a slow registry looked like slow tests (CON-127: one MinIO pull took 78 s

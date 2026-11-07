@@ -8,6 +8,7 @@ using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 using CsCheck;
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Application;
@@ -28,7 +29,7 @@ public class UploadRandomInputTests
         Gen.Enum<OperationSurface>().Select(s => new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), s));
 
     /// <summary>What a file to upload is like: one that passes, one each rule refuses, and one storage fails.</summary>
-    public enum Kind { Good, TooLong, BadName, Traversal, TooDeep, Unsupported, Empty, StorageFails }
+    public enum Kind { Good, TooLong, BadName, Traversal, TooDeep, Unsupported, Empty, TooLarge, StorageFails }
 
     private static readonly Gen<string?> AnyFolder = Gen.Int[0, 2].Select(i => i switch { 0 => null, 1 => "/docs", _ => (string?)"docs/sub/" });
 
@@ -40,9 +41,12 @@ public class UploadRandomInputTests
         Kind.TooDeep => new($"f{n}.txt", Bytes(), string.Join('/', Enumerable.Repeat("d", ValidationConstants.MaxPathDepth + 1))),
         Kind.Unsupported => new($"f{n}.xyz", Bytes(), folder),
         Kind.Empty => new($"f{n}.txt", new MemoryStream(), folder),
+        Kind.TooLarge => new($"f{n}.txt", new MemoryStream(new byte[MaxFileBytes + 1]), folder),
         Kind.StorageFails => new($"fail{n}.txt", Bytes(), folder),
         _ => new($"f{n}.md", Bytes(), folder),
     };
+
+    private const int MaxFileBytes = 64;
 
     private static MemoryStream Bytes() => new(Encoding.UTF8.GetBytes("hello"));
 
@@ -53,20 +57,23 @@ public class UploadRandomInputTests
         Kind.Traversal or Kind.TooDeep => (FileStatus.Invalid, "path"),
         Kind.Unsupported => (FileStatus.UnsupportedType, "fileName"),
         Kind.Empty => (FileStatus.Invalid, "content"),
+        Kind.TooLarge => (FileStatus.TooLarge, "content"),
         _ => null,
     };
 
     private sealed class World
     {
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
         public readonly IManagedStorageProvider Storage = Substitute.For<IManagedStorageProvider>();
         public readonly IFileTypeValidator Types = Substitute.For<IFileTypeValidator>();
         public readonly IUploadService Uploads = Substitute.For<IUploadService>();
+        public readonly IOptionsMonitor<UploadSettings> Settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
         public readonly PolicyAuthorizer Authorizer;
 
         public World(bool writer, bool exists, bool writable)
         {
             Authorizer = new PolicyAuthorizer(policy => policy == Policies.Writer && writer);
+            Settings.CurrentValue.Returns(new UploadSettings { MaxFileBytes = MaxFileBytes });
             Containers.GetAsync(Here, Arg.Any<CancellationToken>()).Returns(exists ? new Container(Here.ToString(), "here", null, Epoch, Epoch) : null);
             Storage.CreateConnector(Here.ToString()).Returns(_ => writable ? Substitute.For<IWritableConnector>() : Substitute.For<IConnector>());
             Types.IsSupported(Arg.Any<string>()).Returns(c => c.Arg<string>().EndsWith(".md", StringComparison.Ordinal) || c.Arg<string>().EndsWith(".txt", StringComparison.Ordinal));
@@ -102,7 +109,7 @@ public class UploadRandomInputTests
                 var world = new World(writer, exists, writable);
                 var file = File(kind, folder, 0);
 
-                var uploaded = await new UploadFile(world.Containers, world.Storage, world.Types, world.Uploads, world.Authorizer).RunAsync(caller, Here, file);
+                var uploaded = await new UploadFile(world.Containers, world.Storage, world.Types, world.Uploads, world.Authorizer, world.Settings).RunAsync(caller, Here, file);
 
                 var refusal = Refusal(kind);
                 FileStatus expected = !writer ? FileStatus.Forbidden
@@ -143,7 +150,7 @@ public class UploadRandomInputTests
                 var world = new World(writer, exists, writable);
                 var files = kinds.Select((k, i) => File(k, folder, i)).ToList();
 
-                var uploaded = await new BulkUploadFiles(world.Containers, world.Storage, world.Types, world.Uploads, world.Authorizer).RunAsync(caller, Here, files);
+                var uploaded = await new BulkUploadFiles(world.Containers, world.Storage, world.Types, world.Uploads, world.Authorizer, world.Settings).RunAsync(caller, Here, files);
 
                 FileStatus expected = !writer ? FileStatus.Forbidden
                     : files.Count is 0 or > BulkUploadFiles.MaxFiles ? FileStatus.Invalid

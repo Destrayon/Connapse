@@ -30,28 +30,11 @@ public class ConnectorCapabilityTests
 
     [Theory]
     [InlineData(typeof(S3Connector))]
-    [InlineData(typeof(FilesystemConnector))]
     [InlineData(typeof(SftpConnector))]
     public void ExternalConnectors_AreNotWritable(Type connectorType)
     {
         typeof(IWritableConnector).IsAssignableFrom(connectorType)
             .Should().BeFalse("external storage is mirrored, never mutated through Connapse");
-    }
-
-    /// <summary>
-    /// SFTP has no change notification of any kind, so claiming live watch would put the sync
-    /// engine on a path that cannot work. It must say so, and WatchAsync must refuse rather
-    /// than return an empty sequence that looks like a quiet remote.
-    /// </summary>
-    [Fact]
-    public void SftpConnector_DoesNotClaimLiveWatch()
-    {
-        var connector = new SftpConnector(new SftpConnectorConfig { Host = "h", AllowedRoot = "/srv" });
-
-        connector.SupportsLiveWatch.Should().BeFalse();
-
-        Action act = () => connector.WatchAsync();
-        act.Should().Throw<NotSupportedException>();
     }
 
     /// <summary>

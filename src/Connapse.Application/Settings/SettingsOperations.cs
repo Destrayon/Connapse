@@ -145,13 +145,13 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
     public override Type Type => typeof(T);
 
     internal override async Task<object> InEffectAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct) =>
-        await store.GetAsync<T>(Key, ct) ?? configured.Current<T>();
+        InEffect(await store.GetAsync<T>(Key, ct), configured);
 
     // A copy, so the configured value other readers share is never changed.
     internal override async Task<(object Settings, string Version)> ReadAsync(ISettingsStore store, IConfiguredSettings configured, CancellationToken ct)
     {
         var (stored, revision) = await store.GetWithRevisionAsync<T>(Key, ct);
-        var settings = WithoutSecrets(stored ?? configured.Current<T>());
+        var settings = WithoutSecrets(InEffect(stored, configured));
         return (settings, VersionOf(settings, stored is null ? null : revision));
     }
 
@@ -161,12 +161,14 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
     {
         var (saved, revision) = await store.UpdateWithRevisionAsync<T>(Key, (stored, storedRevision) =>
         {
+            var incoming = (T)settings;
+            if (stored is not null)
+                KeepSavedAddresses(incoming, stored, configured);
             // A secret left out keeps the one in effect: stored, or configured when nothing is stored yet, as a
             // first save of a value read from GET would otherwise erase a key that came from configuration.
-            var current = stored ?? configured.Current<T>();
+            var current = InEffect(stored, configured);
             if (expectedVersions is not null && !expectedVersions.Contains(VersionOf(current, stored is null ? null : storedRevision)))
                 throw new SettingsChangedException();
-            var incoming = (T)settings;
             foreach (var secret in Secrets)
             {
                 if (secret.GetValue(incoming) is null && unsent == UnsentSecrets.Keep)
@@ -176,8 +178,42 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
             }
             return incoming;
         }, ct);
-        return (saved, VersionOf(saved, revision));
+        return (saved, VersionOf(WithDeploymentAddresses(saved, configured), revision));
     }
+
+    private T InEffect(T? stored, IConfiguredSettings configured) =>
+        stored is null ? configured.Current<T>() : WithDeploymentAddresses(stored, configured);
+
+    /// <summary>
+    /// <paramref name="stored"/> with the addresses the deployment replaces, as configuration reads them (see
+    /// <see cref="DeploymentAddresses"/>). Without this a read would show the saved address while another is in use.
+    /// Only ever given stored settings, a copy of their own: configured ones already have these addresses.
+    /// </summary>
+    private T WithDeploymentAddresses(T stored, IConfiguredSettings configured)
+    {
+        foreach (var address in SettingsSecrets.AddressesOf(typeof(T)))
+            if (Replacement(address, stored, configured) is { } replacement)
+                address.SetValue(stored, replacement);
+        return stored;
+    }
+
+    /// <summary>
+    /// Puts the saved address back wherever <paramref name="incoming"/> only repeats the deployment's, as a save of
+    /// another field does because reads show that address. It would otherwise replace the saved one for good. Run
+    /// this before <paramref name="stored"/> gets the deployment's addresses.
+    /// </summary>
+    private void KeepSavedAddresses(T incoming, T stored, IConfiguredSettings configured)
+    {
+        foreach (var address in SettingsSecrets.AddressesOf(typeof(T)))
+            if (Replacement(address, incoming, configured) is { } replacement && replacement == (string?)address.GetValue(incoming))
+                address.SetValue(incoming, address.GetValue(stored));
+    }
+
+    private string? Replacement(PropertyInfo address, T settings, IConfiguredSettings configured) =>
+        DeploymentAddresses.Replacing(
+            DeploymentAddresses.KeyOf(Key, address.Name),
+            key => (string?)Destinations.FirstOrDefault(d => key.EndsWith($":{d.Name}", StringComparison.OrdinalIgnoreCase))?.GetValue(settings),
+            configured.DeploymentValue);
 
     internal override object? Parse(JsonElement body) => JsonSerializer.Deserialize<T>(body.GetRawText(), Json);
 }

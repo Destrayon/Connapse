@@ -3,7 +3,7 @@ namespace Connapse.Core;
 /// <summary>
 /// Deployment settings for GitHub sources.
 /// <para>
-/// Configuration-only, like <see cref="SourceSecuritySettings"/>: where the process keeps its
+/// Configuration-only: where the process keeps its
 /// git mirrors is a property of the host, not something an API caller should be able to point
 /// somewhere else.
 /// </para>

@@ -171,7 +171,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | Method | Path | Scope | Description |
 |--------|------|-------|-------------|
 | `GET` | `/api/v1/connections` | `admin:sources` | List connections by name (?skip=0&take=50, optionally ?provider=S3). |
-| `POST` | `/api/v1/connections` | `admin:sources` | Create a filesystem, SFTP, S3, Azure Blob, GitHub or custom connection. |
+| `POST` | `/api/v1/connections` | `admin:sources` | Create an SFTP, S3, Azure Blob, GitHub or custom connection. |
 | `GET` | `/api/v1/connections/{connectionId}` | `admin:sources` | Get a connection's settings, health and sync state. |
 | `PATCH` | `/api/v1/connections/{connectionId}` | `admin:sources` | Rename a connection or change its settings. |
 | `DELETE` | `/api/v1/connections/{connectionId}` | `admin:sources` | Delete a connection that no source uses. |
@@ -208,7 +208,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 
 | Method | Path | Scope | Description |
 |--------|------|-------|-------------|
-| `POST` | `/api/containers/{containerId}/files` | — | Upload one or more files to a container |
+| `POST` | `/api/containers/{containerId}/files` | — | Upload one or more files to a container. `path` is the folder for all of them; `paths`, one folder per file in the order of `files`, sends each to its own folder and reports each in place. Each file can be up to `MaxFileBytes`; over it, the answer is a [`file-too-large`](../problems.md#file-too-large) problem. |
 | `GET` | `/api/containers/{containerId}/files` | `knowledge:read` | List files and folders at a path within a container (?skip=0&take=50) |
 | `GET` | `/api/containers/{containerId}/files/{fileId}` | `knowledge:read` | Get file details including indexing status |
 | `GET` | `/api/containers/{containerId}/files/{fileId}/links` | `knowledge:read` | List the files in this container that a file links to and that link to it, leaving out any the caller can't read. 503 `links-access-unchecked` when access can't be checked. |

@@ -427,14 +427,14 @@ def providers(c, t):
 # ── Connections and sources ──────────────────────────────────────────────────────────────────────
 
 def connectors(c, t):
-    """Connections and sources: Filesystem, SFTP and Custom, synced and searched"""
+    """Connections and sources: SFTP and Custom, synced and searched"""
     A, r = c.admin, t.record
-    for p in ("Filesystem", "Sftp", "Custom", "S3", "AzureBlob", "GitHub", "Atlassian"):
+    for p in ("Sftp", "Custom", "S3", "AzureBlob", "GitHub", "Atlassian"):
         r("Sources", f"scope schema {p}", lambda p=p: A("GET", "/api/v1/sources/scope-schema/{provider}", provider=p))
     r("Errors", "scope schema for an unknown provider -> 404", lambda: A(
         "GET", "/api/v1/sources/scope-schema/{provider}", 404, provider="Nope"))
     r("Errors", "connection with no provider config -> 400 invalid-connection", lambda: A.problem(
-        "POST", "/api/v1/connections", 400, "invalid-connection", body={"name": f"bad-{c.run}", "provider": "Filesystem", "config": {}}))
+        "POST", "/api/v1/connections", 400, "invalid-connection", body={"name": f"bad-{c.run}", "provider": "Sftp", "config": {}}))
     r("Errors", "missing connection -> 404 connection-not-found", lambda: A.problem(
         "GET", "/api/v1/connections/{connectionId}", 404, "connection-not-found", connectionId=MISSING))
     r("Errors", "missing source -> 404 source-not-found", lambda: A.problem(
@@ -442,7 +442,6 @@ def connectors(c, t):
 
     key = (c.work / "sftp" / "id_ed25519").read_text()
     plans = [
-        ("Filesystem", {"allowedRoot": "/data/fs"}, {}, {"type": "filesystem", "subPath": "guides"}, "falconctl"),
         ("Sftp", {"host": "sftp", "port": 22, "username": "e2e", "allowedRoot": "/upload"}, {"privateKey": key},
          {"type": "sftp", "subPath": "docs"}, "heron"),
         ("Custom", {"baseUrl": "http://custom-source:8080"}, {"token": "change-me-example-token"},
@@ -465,12 +464,8 @@ def connector(c, t, provider, config, secret, scope, word):
     conn = created["connection"]
     cid = conn["id"]
     r(area, "get the connection", lambda: A("GET", "/api/v1/connections/{connectionId}", connectionId=cid))
-    if provider == "Filesystem":
-        r(area, "test the connection -> 400 invalid-connection (nothing to test)", lambda: A.problem(
-            "POST", "/api/v1/connections/{connectionId}/test", 400, "invalid-connection", body={}, connectionId=cid))
-    else:
-        r(area, "test the connection", lambda: t.expect(A(
-            "POST", "/api/v1/connections/{connectionId}/test", 200, body={}, connectionId=cid).json["success"], "test did not succeed"))
+    r(area, "test the connection", lambda: t.expect(A(
+        "POST", "/api/v1/connections/{connectionId}/test", 200, body={}, connectionId=cid).json["success"], "test did not succeed"))
     r(area, "discover", lambda: A("GET", "/api/v1/connections/{connectionId}/discover", (200, 400), connectionId=cid))
     r(area, "rename the connection", lambda: A(
         "PATCH", "/api/v1/connections/{connectionId}", 200, body={"name": name + "-r", "config": config}, connectionId=cid))
@@ -683,16 +678,21 @@ def cli(c, t):
     r("CLI", "agent delete --yes", lambda: run("agent", "delete", ag, "--yes"))
     r("CLI", "connection list", lambda: run("connection", "list"))
     r("CLI", "source list", lambda: run("source", "list"))
-    r("CLI", "source scope-schema", lambda: run("source", "scope-schema", "Filesystem"))
-    cn = f"e2e-cli-fs-{c.run}"
-    r("CLI", "connection create", lambda: run("connection", "create", cn, "--provider", "Filesystem",
-                                              "--config", json.dumps({"allowedRoot": "/data/fs"})))
+    r("CLI", "source scope-schema", lambda: run("source", "scope-schema", "Sftp"))
+    cn = f"e2e-cli-sftp-{c.run}"
+    sftp = {"host": "sftp", "port": 22, "username": "e2e", "allowedRoot": "/upload"}
+    r("CLI", "connection create", lambda: run("connection", "create", cn, "--provider", "Sftp", "--config", json.dumps(sftp)))
     r("CLI", "connection get", lambda: run("connection", "get", cn))
-    # A Filesystem connection has nothing to test, so the CLI should show the 400 problem and exit 1.
-    r("CLI", "connection test shows the problem (exit 1)", lambda: run("connection", "test", cn, code=1, want="nothing to test"))
+    # The CLI creates a connection without a key, so the CLI should show the 400 problem and exit 1.
+    r("CLI", "connection test shows the problem (exit 1)", lambda: run("connection", "test", cn, code=1, want="no stored key"))
+    r("CLI", "give the connection its key", lambda: c.admin(
+        "PUT", "/api/v1/connections/{connectionId}/secret", 200, body={"privateKey": (c.work / "sftp" / "id_ed25519").read_text()},
+        connectionId=next(x["id"] for x in c.admin("GET", "/api/v1/connections", query={"provider": "Sftp", "take": 200}).json["items"]
+                          if x["name"] == cn)))
+    r("CLI", "connection test", lambda: run("connection", "test", cn))
     r("CLI", "connection update", lambda: run("connection", "update", cn, "--name", cn))
     sn = f"{cn}-src"
-    r("CLI", "source create", lambda: run("source", "create", sn, "--connection", cn, "--scope", json.dumps({"type": "filesystem"})))
+    r("CLI", "source create", lambda: run("source", "create", sn, "--connection", cn, "--scope", json.dumps({"type": "sftp"})))
     r("CLI", "source get", lambda: run("source", "get", sn))
     r("CLI", "source sync", lambda: run("source", "sync", sn))
     r("CLI", "source stats", lambda: run("source", "stats", sn))

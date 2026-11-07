@@ -165,6 +165,40 @@ public class SamlLinkConfirmationTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Confirm_WithSimultaneousRequests_LetsExactlyOneSucceed()
+    {
+        // The same code in several requests at once, as a double-submitted redirect would send it.
+        const int requests = 8;
+        Guid admin = AdminUserId();
+        string directoryUserId = $"dir-{Guid.NewGuid():N}";
+        string code = Confirmations().Start(new PendingIdentityLink(
+            admin, directoryUserId, "admin-person", null));
+
+        using var client = AdminClientNoRedirect();
+        try
+        {
+            HttpResponseMessage[] responses = await Task.WhenAll(
+                Enumerable.Range(0, requests).Select(_ => ConfirmAsync(client, code)));
+
+            string[] outcomes = responses
+                .Select(response => response.Headers.Location!.OriginalString)
+                .ToArray();
+
+            outcomes.Should().ContainSingle(outcome => outcome == "/profile/integrations");
+            outcomes.Where(outcome => outcome != "/profile/integrations")
+                .Should().HaveCount(requests - 1)
+                .And.OnlyContain(outcome => outcome.Contains("error=aws_unknown_request"));
+            (await LinkedDirectoryUserIdAsync(admin)).Should().Be(directoryUserId);
+        }
+        finally
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var store = scope.ServiceProvider.GetRequiredService<AwsIdentityLinkStore>();
+            await store.DeleteAsync(admin);
+        }
+    }
+
+    [Fact]
     public async Task Confirm_Twice_SavesOnlyOnce()
     {
         Guid admin = AdminUserId();

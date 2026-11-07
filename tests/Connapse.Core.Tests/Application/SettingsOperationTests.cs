@@ -78,7 +78,11 @@ public partial class SettingsOperationTests
     {
         public readonly Dictionary<Type, object> Values = [];
 
+        public readonly Dictionary<string, string> Deployment = new(StringComparer.OrdinalIgnoreCase);
+
         public T Current<T>() where T : class, new() => (T)(Values.TryGetValue(typeof(T), out var v) ? v : Values[typeof(T)] = new T());
+
+        public string? DeploymentValue(string key) => Deployment.GetValueOrDefault(key);
     }
 
     private sealed class World

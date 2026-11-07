@@ -1,6 +1,7 @@
-// Connect a folder: add a filesystem connection on the shared folder compose.demo.yml mounts, add a source on it,
-// sync it, then search what it synced. Run setup-owner.mjs (or the quickstart shot) first. A rerun first removes the
-// source and connection an earlier take made.
+// Connect a folder: add an SFTP connection to the server compose.demo.yml starts, add a source on it, sync it, then
+// search what it synced. Run setup-owner.mjs (or the quickstart shot) first and set DEMO_SFTP_KEY to the server's
+// private key. A rerun first removes the source and connection an earlier take made.
+import { readFileSync } from 'node:fs';
 import { startRecording, signIn, BASE, OWNER } from '../lib.mjs';
 
 const CONNECTION = 'team-share';
@@ -31,11 +32,12 @@ r.mark('connections');
 await r.click(page.getByRole('button', { name: 'Add connection' }));
 await r.type(page.locator('#connection-name'), CONNECTION, 40);
 await r.moveTo(page.locator('select').first());
-await page.locator('select').first().selectOption('Filesystem');
+await page.locator('select').first().selectOption('Sftp');
 await r.pause(500);
-const root = page.locator('select').nth(1);
-await r.moveTo(root);
-await root.selectOption('/data/shared');
+await r.type(page.getByPlaceholder('files.example.com'), 'demo-sftp', 40);
+await r.type(page.getByPlaceholder('connapse', { exact: true }), 'demo', 40);
+await r.type(page.getByPlaceholder('/srv/knowledge'), '/shared', 40);
+await page.locator('#sftp-key').fill(readFileSync(process.env.DEMO_SFTP_KEY, 'utf8'));
 await r.pause(500);
 await r.click(page.getByRole('button', { name: 'Create connection' }));
 await page.getByText(`Connection '${CONNECTION}' created`).waitFor();

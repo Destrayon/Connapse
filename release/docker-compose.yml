@@ -1,12 +1,102 @@
 services:
+  # Runs once on each start and exits; postgres, minio and web wait for it. It gives each password a
+  # value: one set in .env, else the one already in the secrets volume, else the old default if the
+  # data already exists (an install from before this service, whose database still has that password),
+  # else a new random one. Backups must include the secrets volume, or the data can't be opened.
+  setup:
+    image: pgvector/pgvector:pg17
+    user: "0"
+    restart: "no"
+    network_mode: none
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        umask 077
+        out=/connapse-secrets
+        mkdir -p "$$out/postgres" "$$out/minio" "$$out/web"
+        chmod 755 "$$out"
+
+        random() { head -c "$$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+
+        save() { printf '%s' "$$2" > "$$1.new"; mv "$$1.new" "$$1"; }
+
+        settle() {
+          file=$$1 chosen=$$2 old=$$3 bytes=$$4 first=$$5
+          if [ -n "$$chosen" ]; then
+            save "$$file" "$$chosen"
+          elif [ -s "$$file" ]; then
+            :
+          elif [ -n "$$old" ]; then
+            echo "Connapse setup: existing data found, so $$file keeps the old default value."
+            save "$$file" "$$old"
+          elif [ -n "$$first" ]; then
+            save "$$file" "$$first"
+          else
+            save "$$file" "$$(random "$$bytes")"
+          fi
+        }
+
+        old_db=
+        old_user=
+        old_password=
+        if [ -f /var/lib/postgresql/data/PG_VERSION ]; then old_db=connapse_dev; fi
+        # format.json, not the .minio.sys folder: the MinIO image ships that folder, so Docker copies it
+        # into a new volume when the container is created, before this runs.
+        if [ -f /minio-data/.minio.sys/format.json ]; then
+          old_user=connapse_dev
+          old_password=connapse_dev_secret
+        fi
+
+        # The DEV_ values come from docker-compose.dev.yml and only fill an empty volume, so they never replace a saved secret.
+        settle "$$out/postgres/password" "$${POSTGRES_PASSWORD:-}" "$$old_db" 32 "$${DEV_POSTGRES_PASSWORD:-}"
+        settle "$$out/minio/user" "$${MINIO_ROOT_USER:-}" "$$old_user" 8 "$${DEV_MINIO_ROOT_USER:-}"
+        settle "$$out/minio/password" "$${MINIO_ROOT_PASSWORD:-}" "$$old_password" 20 "$${DEV_MINIO_ROOT_PASSWORD:-}"
+
+        for file in postgres/password minio/user minio/password; do
+          if [ ! -s "$$out/$$file" ]; then
+            echo "Connapse setup: $$file is empty." >&2
+            exit 1
+          fi
+        done
+
+        # Quoted, with any " doubled, so a password with ; or " in it can't break the connection string.
+        pw=$$(sed 's/"/""/g' "$$out/postgres/password")
+        save "$$out/web/ConnectionStrings__DefaultConnection" \
+          "Host=postgres;Database=connapse;Username=connapse;Password=\"$$pw\""
+        save "$$out/web/Knowledge__Storage__MinIO__AccessKey" "$$(cat "$$out/minio/user")"
+        save "$$out/web/Knowledge__Storage__MinIO__SecretKey" "$$(cat "$$out/minio/password")"
+
+        chown -R postgres:postgres "$$out/postgres"
+        chown -R 1654:1654 "$$out/web"
+        chmod 400 "$$out"/web/*
+        chmod 500 "$$out/web"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
+    volumes:
+      - secrets:/connapse-secrets
+      - pgdata:/var/lib/postgresql/data:ro
+      - miniodata:/minio-data:ro
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+
   postgres:
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_DB: connapse
       POSTGRES_USER: connapse
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /connapse-secrets/postgres/password
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - secrets:/connapse-secrets:ro
+    depends_on:
+      setup:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U connapse -d connapse"]
       interval: 5s
@@ -31,10 +121,16 @@ services:
     user: "0"
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER_FILE: /connapse-secrets/minio/user
+      MINIO_ROOT_PASSWORD_FILE: /connapse-secrets/minio/password
     volumes:
       - miniodata:/data
+      - secrets:/connapse-secrets:ro
+    depends_on:
+      # MinIO reads its password only at start, so it restarts when setup reruns with a new one.
+      setup:
+        condition: service_completed_successfully
+        restart: true
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -48,14 +144,30 @@ services:
           memory: 256M
           cpus: "0.5"
 
-  ollama:
+  # What CONNAPSE_LOCAL_MODEL=on|off picks for the ollama service below. Off runs none of it and
+  # downloads nothing; Compose has no other way for a setting to switch a service on or off.
+  local-model-on:
     image: ollama/ollama
+    profiles:
+      - never-started
+    scale: 1
+    pull_policy: missing
+
+  local-model-off:
+    image: ollama/ollama
+    profiles:
+      - never-started
+    scale: 0
+    pull_policy: never
+
+  ollama:
+    extends:
+      service: local-model-${CONNAPSE_LOCAL_MODEL:-on}
+    profiles: !reset []
     environment:
       OLLAMA_HOST: "0.0.0.0"
     volumes:
       - ollamadata:/root/.ollama
-    profiles:
-      - with-ollama
     # backend is internal (no internet); frontend lets `ollama pull` download models. No ports are published.
     networks:
       - backend
@@ -66,13 +178,15 @@ services:
           memory: 4G
           cpus: "2.0"
 
-  # Optional local reranker: a cross-encoder that re-scores the top search candidates. Start it with
-  # `--profile with-reranker`, then set Search → Reranker to Cross-Encoder in Settings. For an NVIDIA
+  # Optional local reranker: a cross-encoder that re-scores the top search candidates. Switch it on with
+  # COMPOSE_PROFILES=with-reranker in .env; searches then use it. For an NVIDIA
   # GPU, set RERANKER_IMAGE to a CUDA build (e.g. ghcr.io/huggingface/text-embeddings-inference:89-1.9
   # for RTX 40) and add a GPU reservation.
   reranker:
     image: ${RERANKER_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
-    command: ["--model-id", "Alibaba-NLP/gte-reranker-modernbert-base", "--max-client-batch-size", "128"]
+    # The 2048-token cap keeps warm-up inside 2G: uncapped, it runs one 8192-token input and is killed even at
+    # 3.5G. Chunks are far shorter, and --auto-truncate cuts any longer input instead of rejecting it.
+    command: ["--model-id", "Alibaba-NLP/gte-reranker-modernbert-base", "--max-client-batch-size", "128", "--max-batch-tokens", "2048", "--auto-truncate"]
     volumes:
       - rerankerdata:/data
     profiles:
@@ -92,24 +206,42 @@ services:
     ports:
       - "5001:8080"
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=connapse;Username=connapse;Password=${POSTGRES_PASSWORD}"
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       Knowledge__Storage__MinIO__Endpoint: "minio:9000"
-      Knowledge__Storage__MinIO__AccessKey: "${MINIO_ROOT_USER}"
-      Knowledge__Storage__MinIO__SecretKey: "${MINIO_ROOT_PASSWORD}"
       Knowledge__Storage__MinIO__UseSSL: "false"
       Knowledge__Embedding__BaseUrl: "${Knowledge__Embedding__BaseUrl:-http://ollama:11434}"
+      Knowledge__Embedding__Provider:
+      Knowledge__Embedding__Model:
+      Knowledge__Embedding__Dimensions:
+      Knowledge__Embedding__ApiKey:
+      Knowledge__Embedding__OpenAiApiKey:
+      Knowledge__Embedding__OpenAiBaseUrl:
+      Knowledge__Embedding__AzureEndpoint:
+      Knowledge__Embedding__AzureApiKey:
+      Knowledge__Embedding__AzureDeploymentName:
       Knowledge__Search__CrossEncoderBaseUrl: "${Knowledge__Search__CrossEncoderBaseUrl:-http://reranker:80}"
+      Connapse__LocalModel__Address: "http://ollama:11434"
+      Connapse__LocalModel__Switch: ${CONNAPSE_LOCAL_MODEL:-on}
+      Connapse__Extras: ${COMPOSE_PROFILES:-}
+      CONNAPSE_SECRETS_DIR: /connapse-secrets/web
       CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL:-}
       CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD:-}
-      Identity__Jwt__Secret: ${Identity__Jwt__Secret}
+      Identity__Jwt__Secret: ${Identity__Jwt__Secret:-}
     volumes:
       - appdata:/app/appdata
+      - secrets:/connapse-secrets:ro
     depends_on:
+      # The app reads its secrets only at start, so it restarts when setup reruns with new ones.
+      setup:
+        condition: service_completed_successfully
+        restart: true
       postgres:
         condition: service_healthy
       minio:
         condition: service_healthy
+      ollama:
+        condition: service_started
+        required: false
     networks:
       - frontend
       - backend
@@ -129,6 +261,7 @@ volumes:
   ollamadata:
   rerankerdata:
   appdata:
+  secrets:
 
 networks:
   frontend:

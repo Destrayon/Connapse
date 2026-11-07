@@ -42,3 +42,9 @@ GET /api/sources removed the required property `items/items/summary` from the re
 POST /api/sources removed the required property `summary` from the response with the `201` status
 GET /api/sources/{sourceId} removed the required property `summary` from the response with the `200` status
 PATCH /api/sources/{sourceId} removed the required property `summary` from the response with the `200` status
+GET /api/memory/spaces removed the required property `counts/containers` from the response with the `200` status
+POST /api/memory/spaces removed the enum value `Container` of the request property `kind/oneOf[#/components/schemas/MemorySpaceKind]/`
+POST /api/sources removed the enum value `Filesystem` of the request property `provider/oneOf[#/components/schemas/ConnectionProvider]/`
+POST /api/sources removed `#/components/schemas/SourceScopeFilesystemFolderScope` from the `scope` request property `oneOf` list
+GET /api/v1/connections removed the enum value `Filesystem` from the `query` request parameter `provider`
+POST /api/v1/connections removed the enum value `Filesystem` of the request property `provider/oneOf[#/components/schemas/ConnectionProvider]/`

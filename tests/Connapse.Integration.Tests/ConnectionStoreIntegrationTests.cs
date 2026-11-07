@@ -117,7 +117,7 @@ public class ConnectionStoreIntegrationTests(SharedWebAppFixture fixture)
         var store = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
 
         var request = new CreateConnectionRequest(
-            $"fs-{Guid.NewGuid():N}"[..24], ConnectionProvider.Filesystem, """{"root":"/data"}""", Secret: null);
+            $"sftp-{Guid.NewGuid():N}"[..24], ConnectionProvider.Sftp, """{"allowedRoot":"/data"}""", Secret: null);
         var created = await store.CreateAsync(request, createdByUserId: null);
 
         string? secret = await store.GetSecretAsync(created.Id);

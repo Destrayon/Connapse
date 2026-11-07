@@ -247,12 +247,11 @@ public class CustomSourceConnectorTests
     }
 
     [Fact]
-    public void Connector_IsReadOnlyAndNotWatchable()
+    public void Connector_IsReadOnly()
     {
         CustomSourceConnector connector = Connector();
 
         connector.Type.Should().Be(ConnectorType.Custom);
-        connector.SupportsLiveWatch.Should().BeFalse();
         connector.ResolveJobPath("/a/a.md").Should().Be("/a/a.md");
     }
 

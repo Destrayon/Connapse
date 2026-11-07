@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.0")
+                .HasAnnotation("ProductVersion", "10.0.7")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -265,6 +265,12 @@ namespace Connapse.Storage.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<string>("Audience")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("audience");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -287,6 +293,14 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(128)")
                         .HasColumnName("name");
 
+                    b.Property<Guid?>("OwnerAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_agent_id");
+
+                    b.Property<Guid?>("OwnerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_user_id");
+
                     b.Property<JsonDocument>("SettingsOverridesJson")
                         .HasColumnType("jsonb")
                         .HasColumnName("settings_overrides");
@@ -301,9 +315,20 @@ namespace Connapse.Storage.Migrations
 
                     b.HasIndex("Name")
                         .IsUnique()
-                        .HasDatabaseName("ix_containers_name");
+                        .HasDatabaseName("ix_containers_name")
+                        .HasFilter("audience = 'team'");
 
-                    b.ToTable("containers", (string)null);
+                    b.HasIndex("OwnerUserId", "OwnerAgentId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_containers_personal_name")
+                        .HasFilter("audience = 'personal'");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("OwnerUserId", "OwnerAgentId", "Name"), false);
+
+                    b.ToTable("containers", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_containers_audience_owner", "(audience = 'team' AND owner_user_id IS NULL AND owner_agent_id IS NULL) OR (audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))");
+                        });
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.CustomLinkRemovalEntity", b =>
@@ -773,6 +798,12 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("replaces_id");
 
+                    b.Property<short>("Scope")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0)
+                        .HasColumnName("scope");
+
                     b.Property<NpgsqlTsVector>("SearchVector")
                         .IsRequired()
                         .ValueGeneratedOnAddOrUpdate()
@@ -806,13 +837,19 @@ namespace Connapse.Storage.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ChainId")
-                        .HasDatabaseName("idx_memory_facts_chain");
-
                     b.HasIndex("SearchVector")
                         .HasDatabaseName("idx_memory_facts_fts");
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "GIN");
+
+                    b.HasIndex("ChainId", "RecordedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("idx_memory_facts_chain");
+
+                    b.HasIndex("ContainerId", "RecordedAt", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("idx_memory_facts_current")
+                        .HasFilter("superseded_at IS NULL");
 
                     b.HasIndex("ContainerId", "Subject", "Attribute")
                         .HasDatabaseName("idx_memory_facts_key");
@@ -843,6 +880,46 @@ namespace Connapse.Storage.Migrations
                     b.HasKey("FactId", "Ordinal");
 
                     b.ToTable("memory_fact_sources", (string)null);
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemorySpaceStarEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("AgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agent_id");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTimeOffset>("StarredAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starred_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContainerId", "UserId", "AgentId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_memory_space_stars_owner");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("ContainerId", "UserId", "AgentId"), false);
+
+                    b.ToTable("memory_space_stars", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_memory_space_stars_owner", "(user_id IS NULL) <> (agent_id IS NULL)");
+                        });
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.ProviderCredentialEntity", b =>
@@ -1167,6 +1244,15 @@ namespace Connapse.Storage.Migrations
                     b.HasOne("Connapse.Storage.Data.Entities.MemoryFactEntity", null)
                         .WithMany("Sources")
                         .HasForeignKey("FactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemorySpaceStarEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

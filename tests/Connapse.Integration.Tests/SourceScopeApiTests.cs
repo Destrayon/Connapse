@@ -62,7 +62,7 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
         {
             name = ShortName("wrong"),
             connectionId,
-            scope = new { type = "filesystem", subPath = "notes" },
+            scope = new { type = "sftp", subPath = "notes" },
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -74,6 +74,9 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
     [Theory]
     [InlineData("""{"name":"n","scope":{"type":"trello","boardId":"1"}}""")]
     [InlineData("""{"name":"n","scope":{"bucketName":"b"}}""")]
+    [InlineData("""{"name":"n","scope":{"type":"filesystem","subPath":"notes"}}""")]
+    [InlineData("""{"name":"n","provider":"Filesystem"}""")]
+    [InlineData("""{"name":"n","provider":1}""")]
     public async Task CreateSource_WithUnreadableScope_IsABadRequest(string json)
     {
         var response = await Admin.PostAsync("/api/sources", new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
@@ -104,7 +107,6 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
     {
         { "S3", ["s3"] },
         { "AzureBlob", ["azureBlob"] },
-        { "Filesystem", ["filesystem"] },
         { "Sftp", ["sftp"] },
         { "GitHub", ["github"] },
         { "Atlassian", ["jira", "confluence"] },
@@ -124,10 +126,12 @@ public class SourceScopeApiTests(SharedWebAppFixture fixture)
         listed.Should().AllSatisfy(k => k.GetProperty("schema").GetProperty("properties").EnumerateObject().Should().NotBeEmpty());
     }
 
-    [Fact]
-    public async Task ScopeSchema_UnknownProvider_IsNotFound()
+    [Theory]
+    [InlineData("trello")]
+    [InlineData("Filesystem")]
+    public async Task ScopeSchema_UnknownProvider_IsNotFound(string provider)
     {
-        var response = await Admin.GetAsync("/api/v1/sources/scope-schema/trello");
+        var response = await Admin.GetAsync($"/api/v1/sources/scope-schema/{provider}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }

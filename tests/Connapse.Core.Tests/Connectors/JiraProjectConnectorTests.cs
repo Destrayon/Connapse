@@ -2516,8 +2516,6 @@ public sealed class JiraProjectConnectorTests : IDisposable
     /// <param name="product">The connection's product; null writes none, which is a Confluence site.</param>
     private static (ConnectorFactory Factory, Connection Connection) Factory(string? product = "jira")
     {
-        var security = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
-        security.CurrentValue.Returns(new SourceSecuritySettings());
         var gitHub = Substitute.For<IOptionsMonitor<GitHubSourceSettings>>();
         gitHub.CurrentValue.Returns(new GitHubSourceSettings());
         var azure = Substitute.For<IOptionsMonitor<AzureProviderSettings>>();
@@ -2531,7 +2529,7 @@ public sealed class JiraProjectConnectorTests : IDisposable
         var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
         var factory = new ConnectorFactory(
-            security, gitHub, Substitute.For<ISshHostKeyStore>(),
+            gitHub, Substitute.For<ISshHostKeyStore>(),
             new ConnapseAwsCredentials(scopeFactory, NullLogger<ConnapseAwsCredentials>.Instance),
             new ConnapseAzureCredentials(azure),
             httpClients, NullLogger<ConnectorFactory>.Instance,

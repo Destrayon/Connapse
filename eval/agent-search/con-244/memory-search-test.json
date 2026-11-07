@@ -1,0 +1,254 @@
+{
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "tasks": 112,
+  "all": {
+    "tasks": 112,
+    "offScore": 0.7024,
+    "onScore": 0.9494,
+    "offSearches": 1.9077,
+    "onSearches": 1.2857
+  },
+  "memorySet": {
+    "tasks": 64,
+    "offScore": 0.4792,
+    "onScore": 0.9115,
+    "offSearches": 2.5833,
+    "onSearches": 1.3854
+  },
+  "holdoutSet": {
+    "tasks": 48,
+    "offScore": 1,
+    "onScore": 1,
+    "offSearches": 1.0069,
+    "onSearches": 1.1528
+  },
+  "kinds": {
+    "alias": {
+      "tasks": 16,
+      "offScore": 0.5,
+      "onScore": 1,
+      "offSearches": 4.2083,
+      "onSearches": 1.8958
+    },
+    "control": {
+      "tasks": 40,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1.0083,
+      "onSearches": 1.1833
+    },
+    "correction": {
+      "tasks": 16,
+      "offScore": 0.2917,
+      "onScore": 0.7083,
+      "offSearches": 1.2292,
+      "onSearches": 1
+    },
+    "current": {
+      "tasks": 16,
+      "offScore": 0.5,
+      "onScore": 0.9375,
+      "offSearches": 1,
+      "onSearches": 1.0625
+    },
+    "location": {
+      "tasks": 16,
+      "offScore": 0.625,
+      "onScore": 1,
+      "offSearches": 3.8958,
+      "onSearches": 1.5833
+    },
+    "stale": {
+      "tasks": 8,
+      "offScore": 1,
+      "onScore": 1,
+      "offSearches": 1,
+      "onSearches": 1
+    }
+  },
+  "memorySetHalves": {
+    "documented": {
+      "tasks": 32,
+      "offScore": 0.8646,
+      "onScore": 0.9583,
+      "offSearches": 1.3854,
+      "onSearches": 1.0833
+    },
+    "undocumented": {
+      "tasks": 32,
+      "offScore": 0.0938,
+      "onScore": 0.8646,
+      "offSearches": 3.7812,
+      "onSearches": 1.6875
+    }
+  },
+  "comparisons": {
+    "memorySetScore95": {
+      "tasks": 64,
+      "meanDifference": 0.4323,
+      "ci": [
+        0.3125,
+        0.5417
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.1647
+    },
+    "holdoutSetScore90": {
+      "tasks": 48,
+      "meanDifference": 0,
+      "ci": [
+        0,
+        0
+      ],
+      "permutationP": 1,
+      "minimumDetectableEffect": 0
+    },
+    "allScore95": {
+      "tasks": 112,
+      "meanDifference": 0.247,
+      "ci": [
+        0.1756,
+        0.3274
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.1097
+    },
+    "answerAccuracy": {
+      "tasks": 112,
+      "meanDifference": 0.0536,
+      "ci": [
+        0.0119,
+        0.1042
+      ],
+      "permutationP": 0.0313968603139686,
+      "minimumDetectableEffect": 0.0676
+    },
+    "staleCitations": {
+      "tasks": 112,
+      "meanDifference": -0.122,
+      "ci": [
+        -0.1875,
+        -0.0714
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.0821
+    },
+    "runRecall": {
+      "tasks": 112,
+      "meanDifference": 0.0565,
+      "ci": [
+        0.0238,
+        0.1101
+      ],
+      "permutationP": 0.007599240075992401,
+      "minimumDetectableEffect": 0.0579
+    },
+    "firstQueryMrr@10": {
+      "tasks": 112,
+      "meanDifference": -0.0021,
+      "ci": [
+        -0.0087,
+        0.0014
+      ],
+      "permutationP": 0.3711628837116288,
+      "minimumDetectableEffect": 0.0067
+    },
+    "searchCalls": {
+      "tasks": 112,
+      "meanDifference": -0.622,
+      "ci": [
+        -0.9732,
+        -0.3631
+      ],
+      "permutationP": 0.00019998000199980003,
+      "minimumDetectableEffect": 0.426
+    },
+    "toolCalls": {
+      "tasks": 112,
+      "meanDifference": 0.5506,
+      "ci": [
+        0.1756,
+        0.8363
+      ],
+      "permutationP": 0.0023997600239976003,
+      "minimumDetectableEffect": 0.4651
+    }
+  },
+  "outcomes": {
+    "off": {
+      "Answered": 335,
+      "NoAnswer": 1
+    },
+    "on": {
+      "Answered": 336
+    }
+  },
+  "tokens": {
+    "off": {
+      "runs": 336,
+      "input": 2544,
+      "cacheWrite": 1413495,
+      "cacheRead": 5036522,
+      "output": 195962,
+      "apiListPriceUsd": 8.1223
+    },
+    "on": {
+      "runs": 336,
+      "input": 2346,
+      "cacheWrite": 1707162,
+      "cacheRead": 5060647,
+      "output": 209067,
+      "apiListPriceUsd": 9.4301
+    }
+  },
+  "examples": {
+    "memoryHelped": [
+      {
+        "task": "test-alias-04",
+        "kind": "alias",
+        "question": "What is the password rotation interval for the Bluebird team?",
+        "expected": "30 days",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find an answer. No document in the container mentions a \u0022Bluebird\u0022 team, so there is no password rotation interval for it. The closest names are Research\u0027s alias \u0022Firebirds\u0022 and Field Operations\u0027 \u0022Harbor\u0022 and \u0022Ravens\u0022. Please check whether Bluebird is a different name or another team\u0027s alias. If you tell me the department, I can look up its rotation interval.",
+        "onAnswer": "I couldn\u0027t confirm this. No document names a \u0022Bluebird\u0022 team. One memory note says Bluebird is Marketing\u0027s nickname, but the charter it cites doesn\u0027t say that. It lists Marketing\u0027s nicknames as Sherpas and Beacons. If Bluebird does mean Marketing, the Marketing Access Control Policy sets the password rotation interval at 30 days."
+      },
+      {
+        "task": "test-alias-06",
+        "kind": "alias",
+        "question": "What is the single-transaction card limit for the Northstar team?",
+        "expected": "$4,000",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find a card limit for a \u0022Northstar\u0022 team. No document in the container mentions Northstar. None of the team charters list it as a team name or alias. The charters that do list aliases give names like Night Owls, Rocketeers, Atlas, Compass, Harbor and Ravens. The single-transaction card limits I found are for Security ($4,000), Platform ($12,500), Manufacturing ($4,500) and Sales Engineering ($11,000). If Northstar is another name for one of those teams, tell me which one and I can confirm the limit.",
+        "onAnswer": "I couldn\u0027t confirm this. No document mentions a \u0022Northstar\u0022 team. One memory note says Northstar is the Security team\u0027s chat nickname, but the charter it cites doesn\u0027t say that. The charter lists only \u0022Night Owls\u0022 and \u0022Rocketeers\u0022. If Northstar does mean Security, the limit is $4,000 (Security Corporate Cards Policy, issued 2024-04-09), but that link is unverified."
+      },
+      {
+        "task": "test-alias-07",
+        "kind": "alias",
+        "question": "What is the home-office equipment allowance for the Voyagers team?",
+        "expected": "$400",
+        "offScore": 0,
+        "onScore": 1,
+        "offAnswer": "I couldn\u0027t find a \u0022Voyagers\u0022 team in the documents, so I can\u0027t give its home-office equipment allowance. The team charters list aliases for Research (Firebirds), Finance (Lanterns), Marketing (Sherpas, Beacons), Security (Night Owls, Rocketeers), Platform (Atlas, Compass) and Field Operations (Harbor, Ravens). None of them mention Voyagers. The charters for Data Science, Facilities, Legal and Sales Engineering list no aliases. Customer Success appeared in the searches only as a policy and charter title, so I didn\u0027t see its charter text. If you can tell me which department Voyagers is, I can look up that department\u0027s allowance.",
+        "onAnswer": "Probably $400, but I couldn\u0027t confirm it. No document mentions a \u0022Voyagers\u0022 team. The only link is a memory note saying Voyagers is a nickname for Facilities. The charter that note cites doesn\u0027t say that. If Voyagers is Facilities, the Facilities Remote Work Policy (issued 2025-12-28) sets the home-office equipment allowance at $400."
+      }
+    ],
+    "memoryHurt": []
+  },
+  "gate": {
+    "verdict": "KEEP",
+    "memorySetMdeOver015": true,
+    "conforming": true,
+    "diagnosticOnly": [],
+    "passed": true
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 34%)",
+    "atLastRun": "allowed (seven_day 36%)"
+  }
+}

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <rect width="900" height="470" rx="14" fill="#ffffff"/>
+  <text x="450" y="42" text-anchor="middle" font-size="22" font-weight="600" fill="#1f2333">Every memory is personal or team</text>
+
+  <!-- column headers -->
+  <rect x="250" y="66" width="310" height="58" rx="10" fill="#efe9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="405" y="92" text-anchor="middle" font-size="18" font-weight="600" fill="#4c1d95">Personal</text>
+  <text x="405" y="113" text-anchor="middle" font-size="13" fill="#4c1d95">"Pat prefers short answers"</text>
+  <rect x="575" y="66" width="305" height="58" rx="10" fill="#e3f2ec" stroke="#0f9d6b" stroke-width="1.5"/>
+  <text x="727" y="92" text-anchor="middle" font-size="18" font-weight="600" fill="#065f46">Team</text>
+  <text x="727" y="113" text-anchor="middle" font-size="13" fill="#065f46">"Halcyon runs PostgreSQL 15"</text>
+
+  <!-- rows -->
+  <g font-size="15" fill="#1f2333">
+    <rect x="20" y="138" width="860" height="72" rx="8" fill="#f6f7fb"/>
+    <text x="36" y="170" font-weight="600">Who can save it</text>
+    <text x="36" y="191" font-size="13" fill="#5b6070">remember, correct, forget</text>
+    <text x="265" y="170">Write access only</text>
+    <text x="265" y="191" font-size="13" fill="#5b6070">(knowledge:write)</text>
+    <text x="590" y="170">Write access only</text>
+    <text x="590" y="191" font-size="13" fill="#5b6070">(knowledge:write)</text>
+
+    <rect x="20" y="218" width="860" height="72" rx="8" fill="#ffffff" stroke="#e4e6ee"/>
+    <text x="36" y="250" font-weight="600">Who can see it</text>
+    <text x="36" y="271" font-size="13" fill="#5b6070">on the Memory page</text>
+    <text x="265" y="250">Only its author and</text>
+    <text x="265" y="271">the author's own agents</text>
+    <text x="590" y="250">Everyone in this Connapse who can read</text>
+    <text x="590" y="271">every document it cites</text>
+
+    <rect x="20" y="298" width="860" height="72" rx="8" fill="#f6f7fb"/>
+    <text x="36" y="330" font-weight="600">Who can search it</text>
+    <text x="36" y="351" font-size="13" fill="#5b6070">memory_recall</text>
+    <text x="265" y="330">Only its author</text>
+    <text x="265" y="351" font-size="13" fill="#5b6070">(read access is enough)</text>
+    <text x="590" y="330">The same people who can see it</text>
+    <text x="590" y="351" font-size="13" fill="#5b6070">(read access is enough)</text>
+
+    <rect x="20" y="378" width="860" height="72" rx="8" fill="#fff7e6" stroke="#f0b429"/>
+    <text x="36" y="410" font-weight="600">Read-only users</text>
+    <text x="36" y="431" font-size="13" fill="#5b6070">Viewers and read-only keys</text>
+    <text x="265" y="410" fill="#9b1c1c">✕ Can't save any memory</text>
+    <text x="265" y="431" font-size="13" fill="#5b6070">so they add no memory compute</text>
+    <text x="590" y="410" fill="#9b1c1c">✕ Can't save</text>
+    <text x="590" y="431" fill="#065f46">✓ Can search and read team memory</text>
+  </g>
+</svg>

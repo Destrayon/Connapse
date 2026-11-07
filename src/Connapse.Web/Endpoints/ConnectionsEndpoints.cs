@@ -206,7 +206,7 @@ public static class ConnectionsEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status502BadGateway)
         .WithName("connections.create")
-        .WithDescription("Create a filesystem, SFTP, S3, Azure Blob, GitHub or custom connection. Its settings are checked "
+        .WithDescription("Create an SFTP, S3, Azure Blob, GitHub or custom connection. Its settings are checked "
             + "as the Connections page checks them: a GitHub installation the App still has, an S3 bucket's region, a custom "
             + "source server that accepts its token. Never returns the secret.");
 

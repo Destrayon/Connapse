@@ -6,6 +6,13 @@ public enum MemorySourceKind { Document = 0, Node = 1 }
 /// <summary>One thing a fact was learned from. <paramref name="Ref"/> is a document id or a link node id.</summary>
 public sealed record MemorySource(MemorySourceKind Kind, string Ref);
 
+/// <summary>
+/// Who sees a fact. <see cref="Personal"/>: only its author, meaning the user and the agents acting for that user (an
+/// agent with no user: that agent). <see cref="Team"/>: everyone who can read the container. Either way a reader must
+/// also be able to read every source the fact cites.
+/// </summary>
+public enum MemoryScope { Personal = 0, Team = 1 }
+
 /// <summary>A source as a reader is shown it, with the document's name when it is one.</summary>
 public sealed record ShownMemorySource(MemorySourceKind Kind, string Ref, string? Title);
 
@@ -13,13 +20,21 @@ public sealed record ShownMemorySource(MemorySourceKind Kind, string Ref, string
 /// Who wrote a fact or is asking for one. <paramref name="UserId"/> is the person (for an agent, the user it acts
 /// for), set by the server from the authenticated caller, never from a request body.
 /// </summary>
-public sealed record MemoryCaller(Guid? UserId, Guid? AgentId, string? Name);
+public sealed record MemoryCaller(Guid? UserId, Guid? AgentId, string? Name)
+{
+    /// <summary>
+    /// Whether this caller counts as <paramref name="author"/>: the same user, or, for an author with no user, the same
+    /// agent also acting for no user.
+    /// </summary>
+    public bool IsAuthorOf(MemoryCaller author) =>
+        author.UserId is { } user ? UserId == user : UserId is null && author.AgentId is { } agent && AgentId == agent;
+}
 
 /// <summary>
 /// One fact as memory holds it. <paramref name="ValidFrom"/> and <paramref name="ValidTo"/> are when it was true
 /// in the world (null: open); <paramref name="RecordedAt"/> and <paramref name="SupersededAt"/> are when memory
 /// held it (superseded: a correction said it was wrong). Every fact of one correction chain shares
-/// <paramref name="ChainId"/>, which is what forgetting deletes.
+/// <paramref name="ChainId"/>, which is what forgetting deletes. <paramref name="Scope"/> is stored on each version.
 /// </summary>
 public sealed record MemoryFact(
     Guid Id,
@@ -35,17 +50,28 @@ public sealed record MemoryFact(
     Guid? ReplacesId,
     string? Reason,
     MemoryCaller Author,
-    IReadOnlyList<MemorySource> Sources);
+    IReadOnlyList<MemorySource> Sources,
+    MemoryScope Scope = MemoryScope.Personal);
 
-/// <summary>A fact to write. Dates are when it became (and stopped being) true; null means not known or still open.</summary>
+/// <summary>
+/// A fact to write. Dates are when it became (and stopped being) true; null means not known or still open.
+/// <paramref name="Sources"/> null means none were given: a new fact has none, and a correction keeps the old fact's.
+/// <paramref name="Scope"/> null on a new fact means the scope its sources gave before scopes existed (team with
+/// sources, personal without); a correction always keeps the old fact's scope.
+/// </summary>
 public sealed record NewMemoryFact(
     string Subject,
     string Attribute,
     string Value,
     DateTimeOffset? ValidFrom,
     DateTimeOffset? ValidTo,
-    IReadOnlyList<MemorySource> Sources,
-    string? Reason = null);
+    IReadOnlyList<MemorySource>? Sources,
+    string? Reason = null,
+    MemoryScope? Scope = null)
+{
+    /// <summary>The scope a new fact is saved with.</summary>
+    public MemoryScope ScopeOrDefault => Scope ?? (Sources is { Count: > 0 } ? MemoryScope.Team : MemoryScope.Personal);
+}
 
 /// <summary>
 /// How a correction treats the fact it replaces. <see cref="Changed"/>: the world changed, so the old fact ends
@@ -73,8 +99,8 @@ public sealed record MemoryQuery(
     Guid? ChainId = null);
 
 /// <summary>
-/// A fact as one reader may see it. Only facts whose every source the reader can read are returned; a fact with no
-/// sources only to the user who wrote it.
+/// A fact as one reader may see it. Only facts whose every source the reader can read are returned, and a personal
+/// fact only to its author.
 /// </summary>
 public sealed record RecalledFact(MemoryFact Fact, IReadOnlyList<ShownMemorySource> Sources);
 
@@ -90,5 +116,8 @@ public sealed record MemoryWriteResult(MemoryFact? Fact, MemoryFact? Replaced, s
     public static MemoryWriteResult Failed(string error, MemoryWriteFailure failure = MemoryWriteFailure.Invalid) => new(null, null, error, failure);
 }
 
-/// <summary>Why a write was refused: the fact named is missing (or hidden), the write is invalid, or access could not be checked.</summary>
-public enum MemoryWriteFailure { None = 0, Invalid = 1, NotFound = 2, Unchecked = 3 }
+/// <summary>
+/// Why a write was refused: the fact named is missing (or hidden), the write is invalid, access could not be checked,
+/// or the caller lacks the write access a team fact needs.
+/// </summary>
+public enum MemoryWriteFailure { None = 0, Invalid = 1, NotFound = 2, Unchecked = 3, Forbidden = 4 }

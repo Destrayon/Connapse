@@ -1,8 +1,6 @@
 using Connapse.Core;
 using Connapse.Web.Services;
 using FluentAssertions;
-using Microsoft.Extensions.Options;
-using NSubstitute;
 
 namespace Connapse.Core.Tests.Sources;
 
@@ -16,16 +14,7 @@ namespace Connapse.Core.Tests.Sources;
 [Trait("Size", "Medium")]
 public class SourceScopePreflightTests
 {
-    private static SourceScopePreflight Build(params string[] allowedFilesystemRoots)
-    {
-        var monitor = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
-        monitor.CurrentValue.Returns(new SourceSecuritySettings
-        {
-            AllowedFilesystemRoots = allowedFilesystemRoots
-        });
-
-        return new SourceScopePreflight(monitor);
-    }
+    private static SourceScopePreflight Build() => new();
 
     private static Connection Conn(ConnectionProvider provider, string? configJson) => new(
         Id: Guid.NewGuid(),
@@ -117,82 +106,6 @@ public class SourceScopePreflightTests
         act.Should().NotThrow();
     }
 
-    [Fact]
-    public void Check_FilesystemWithoutAnAllowedRoot_IsRefused()
-    {
-        var connection = Conn(ConnectionProvider.Filesystem, "{}");
-
-        Build().Check(connection, """{"subPath":"a"}""").IsRefused.Should().BeTrue();
-    }
-
-    [Fact]
-    public void Check_FilesystemSubPathEscapingTheRoot_IsRefused()
-    {
-        string root = Path.Combine(Path.GetTempPath(), $"preflight-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-
-        try
-        {
-            var connection = Conn(ConnectionProvider.Filesystem,
-                $$"""{"allowedRoot":{{System.Text.Json.JsonSerializer.Serialize(root)}}}""");
-
-            var result = Build(root).Check(connection, """{"subPath":"../../etc"}""");
-
-            result.IsRefused.Should().BeTrue();
-            result.Error.Should().Contain("outside");
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void Check_FilesystemRootOutsideTheDeploymentAllowlist_IsRefused()
-    {
-        string permitted = Path.Combine(Path.GetTempPath(), $"permitted-{Guid.NewGuid():N}");
-        string other = Path.Combine(Path.GetTempPath(), $"other-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(permitted);
-        Directory.CreateDirectory(other);
-
-        try
-        {
-            var connection = Conn(ConnectionProvider.Filesystem,
-                $$"""{"allowedRoot":{{System.Text.Json.JsonSerializer.Serialize(other)}}}""");
-
-            var result = Build(permitted).Check(connection, """{"subPath":""}""");
-
-            result.IsRefused.Should().BeTrue();
-            result.Error.Should().Contain(SourceSecuritySettings.SectionName);
-        }
-        finally
-        {
-            Directory.Delete(permitted, recursive: true);
-            Directory.Delete(other, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void Check_FilesystemWithNoDeploymentAllowlist_IsAcceptedWithAWarning()
-    {
-        string root = Path.Combine(Path.GetTempPath(), $"unbounded-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-
-        try
-        {
-            var connection = Conn(ConnectionProvider.Filesystem,
-                $$"""{"allowedRoot":{{System.Text.Json.JsonSerializer.Serialize(root)}}}""");
-
-            var result = Build().Check(connection, """{"subPath":""}""");
-
-            result.IsRefused.Should().BeFalse();
-            result.Warning.Should().Contain(SourceSecuritySettings.SectionName);
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
     // ── Malformed connection configuration ─────────────────────────────────
 
     /// <summary>
@@ -203,7 +116,7 @@ public class SourceScopePreflightTests
     /// </summary>
     [Theory]
     [InlineData(ConnectionProvider.S3, """{"bucketName":"b"}""")]
-    [InlineData(ConnectionProvider.Filesystem, """{"subPath":"docs"}""")]
+    [InlineData(ConnectionProvider.Sftp, """{"subPath":"docs"}""")]
     public void Check_MalformedConnectionConfig_IsRefused(ConnectionProvider provider, string scope)
     {
         var result = Build().Check(Conn(provider, "{not valid json"), scope);
@@ -363,17 +276,4 @@ public class SourceScopePreflightTests
             .IsRefused.Should().BeTrue();
     }
 
-    /// <summary>
-    /// The deployment's local allowed-roots setting governs the machine Connapse runs on. An
-    /// SFTP root names a directory on somebody else's, so it must not be judged against it —
-    /// doing so would refuse every remote path that happens not to exist locally.
-    /// </summary>
-    [Fact]
-    public void Check_SftpRoot_IsNotJudgedAgainstTheLocalAllowedRoots()
-    {
-        var preflight = Build("/srv/only-this-local-path");
-
-        preflight.Check(Conn(ConnectionProvider.Sftp, SftpConn), """{"subPath":"Connapse"}""")
-            .IsRefused.Should().BeFalse();
-    }
 }

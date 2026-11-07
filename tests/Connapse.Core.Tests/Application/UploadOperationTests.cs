@@ -6,6 +6,7 @@ using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using FluentAssertions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace Connapse.Core.Tests.Application;
@@ -25,16 +26,18 @@ public class UploadOperationTests
     private static readonly OperationContext Caller = new(
         new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, User.ToString())], "test")), OperationSurface.Rest);
 
-    private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
+    private readonly IContainerStore _containers = ContainerStoreFakes.Create();
     private readonly IManagedStorageProvider _storage = Substitute.For<IManagedStorageProvider>();
     private readonly IFileTypeValidator _types = Substitute.For<IFileTypeValidator>();
     private readonly IUploadService _uploads = Substitute.For<IUploadService>();
     private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();
     private readonly IWritableConnector _connector = Substitute.For<IWritableConnector, IDisposable>();
+    private readonly IOptionsMonitor<UploadSettings> _settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
 
     public UploadOperationTests()
     {
         _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+        _settings.CurrentValue.Returns(new UploadSettings());
         _containers.GetAsync(Here, Arg.Any<CancellationToken>()).Returns(new Container(Here.ToString(), "here", null, Epoch, Epoch));
         _storage.CreateConnector(Here.ToString()).Returns(_connector);
         _types.IsSupported(Arg.Any<string>()).Returns(c => !c.Arg<string>().EndsWith(".xyz", StringComparison.Ordinal));
@@ -42,9 +45,9 @@ public class UploadOperationTests
         _uploads.UploadAsync(Arg.Any<UploadRequest>(), Arg.Any<CancellationToken>()).Returns(new UploadResult(true, "doc-1", "job-1"));
     }
 
-    private UploadFile Upload() => new(_containers, _storage, _types, _uploads, _authorizer);
+    private UploadFile Upload() => new(_containers, _storage, _types, _uploads, _authorizer, _settings);
 
-    private BulkUploadFiles BulkUpload() => new(_containers, _storage, _types, _uploads, _authorizer);
+    private BulkUploadFiles BulkUpload() => new(_containers, _storage, _types, _uploads, _authorizer, _settings);
 
     private static FileUpload File(string name = "a.md", string? path = null) => new(name, new MemoryStream(Encoding.UTF8.GetBytes("hi")), path);
 

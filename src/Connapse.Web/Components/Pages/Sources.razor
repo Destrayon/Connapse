@@ -46,6 +46,9 @@
             <p class="text-muted mb-0">
                 External systems Connapse keeps in step with. Their contents are searchable but not
                 browsable — Connapse mirrors this data, it does not own it.
+                To index a folder that keeps changing, connect its machine over SFTP on
+                <a href="connections">Connections</a>. For a one-off folder, upload it to a
+                <a href="">container</a>.
             </p>
         </div>
         @if (isAdmin)
@@ -561,25 +564,15 @@
                             <div id="source-prefix-help" class="form-text">Narrows the source to a subtree. Everything below it is indexed.</div>
                         </div>
                     }
-                    @* SFTP shares this branch rather than getting its own. Its scope is the same
-                       shape — a subpath beneath the connection's root, plus patterns — and that
-                       was a deliberate choice when the provider was designed, so that this form,
-                       the preflight, and the scope summary each gained a case rather than a
-                       parallel implementation. *@
-                    else if (selectedProvider is ConnectionProvider.Filesystem or ConnectionProvider.Sftp)
+                    else if (selectedProvider is ConnectionProvider.Sftp)
                     {
                         <div class="mb-3">
                             <label class="form-label">Sub-path (optional)</label>
                             <input class="form-control font-monospace" @bind="form.SubPath"
-                                   placeholder="@(selectedProvider is ConnectionProvider.Sftp ? "Documents" : "team-a")" />
+                                   placeholder="Documents" />
                             <div class="form-text">
                                 Resolved beneath the connection's allowed root. Leave empty for the root itself.
-                                @if (selectedProvider is ConnectionProvider.Sftp)
-                                {
-                                    <text>
-                                        Resolved on the remote server, so a symlink cannot lead outside the root.
-                                    </text>
-                                }
+                                Resolved on the remote server, so a symlink cannot lead outside the root.
                             </div>
                         </div>
 
@@ -1201,7 +1194,7 @@
         customDraft = await DraftForConnectionAsync(SelectedConnection);
 
         // The scope fields differ per provider, so anything typed for the previous one is now
-        // meaningless — carrying a bucket name over into a filesystem source would write a key
+        // meaningless — carrying a bucket name over into an SFTP source would write a key
         // the connector never reads.
         form.Container = null;
         form.Prefix = null;
@@ -1612,7 +1605,7 @@
         try
         {
             // Inside the try, not above it. Both of these can throw — ToScopeJson refuses a
-            // provider it does not know, and the preflight's filesystem branch rejects a blank
+            // provider it does not know, and the preflight's SFTP branch rejects a blank
             // allowed root — and an exception escaping an async event handler tears down the
             // Blazor circuit, which is the outcome the handlers below exist to prevent.
             //

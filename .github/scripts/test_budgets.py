@@ -19,12 +19,23 @@ wall (starting dotnet test and the test hosts, finding the assemblies) doesn't s
 runner, so dividing the whole wall by a low factor inflated it: #931's 14 s on a 0.45x runner read
 as 31.2 s and failed. No run under the limit is pushed over it.
 
+That floor only works while the reference is a median runner's (CON-250). Written once on 2026-10-25
+and never re-timed, by 2026-11-04 it read main's typical runner at 0.80: the tests had got faster,
+not the runners. Every runner up to 1.25x a typical one then read below 1 and got no relief, and
+#1133's run 41957977547, on a runner about 1.3x a typical one, read 1.01 and failed at 30.8 s. A
+reference written from main's runs reads main's runners as faster within a week (one from the oldest 12 of 28
+runs read the newest 12 at 0.89), so the nightly reads main's latest runs against it with
+--check-reference and fails once their median factor leaves MIN_DRIFT..MAX_DRIFT, with a refreshed
+reference attached to commit.
+
 Usage:
   test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds 22 --max-wall-seconds 30 \
       --reference .github/test-timings/small-reference.json
   test_budgets.py --tier Large --trx large-tests.trx            # no time limits, but every project must report
   test_budgets.py --trx small-tests.trx --write-reference .github/test-timings/small-reference.json RUN_DIR...
       # each RUN_DIR a downloaded test-results-small artifact; several runs, so the reference is a median runner
+  test_budgets.py --trx small-tests.trx --check-reference .github/test-timings/small-reference.json RUN_DIR...
+      # main's latest runs, newest first; fails when the reference no longer reads them as a median runner
 """
 import argparse
 import glob
@@ -65,6 +76,7 @@ MIN_MATCHED_SHARE = 0.8
 
 # The slowest of the runs the reference came from was 1.26x a median runner (CON-87). A factor above
 # this is read as this: past it, slower tests are the code's, not the runner's.
+# Re-timed on 2026-11-04 (CON-250), main's slowest of 28 runs read 1.37 and #1133's failed one 1.36.
 MAX_FACTOR = 1.5
 
 # A faster runner than the reference's is read as the reference's: the fixed part of its wall would
@@ -73,6 +85,20 @@ MIN_FACTOR = 1.0
 
 # A reference is a median runner's only if it comes from several runners.
 MIN_REFERENCE_RUNS = 5
+
+# main's latest runs must read a median factor inside this band against the reference (CON-250).
+# GitHub hands out two kinds of runner, about 0.7x and 1.2x a median one, so the median of 15 runs moved
+# from 1.00 to 1.17 against a fresh reference; the stale one read 0.80 to 0.89. Below the band, slow
+# runners get no relief from the floor at MIN_FACTOR; above it, slower code reads as slower runners.
+MIN_DRIFT = 0.9
+MAX_DRIFT = 1.25
+
+# Fewer runs than this can't tell a stale reference from a lucky draw of runners.
+MIN_DRIFT_RUNS = 10
+
+# More runs than this timing too few of the reference's tests means main's test list has moved away from
+# it, which turns the PR check's relief off just as surely; one or two are a crashed or cancelled run.
+MAX_DRIFT_LEFT_OUT = 2
 
 
 def durations(paths: list[str]) -> dict[str, float]:
@@ -112,6 +138,17 @@ def write_reference(out: str, trx_name: str, run_dirs: list[str]) -> dict[str, f
     return reference
 
 
+def reference_drift(reference: dict[str, float], trx_name: str, run_dirs: list[str]) -> tuple[float, list[float]]:
+    """The median runner factor of these runs against the reference, and each run's: about 1 while the
+    reference is a median runner's. A run that timed too few of its tests says nothing and is left out."""
+    factors = []
+    for d in run_dirs:
+        factor, matched = runner_factor(durations(glob.glob(f"{d}/**/{trx_name}", recursive=True)), reference)
+        if matched >= max(MIN_MATCHED, MIN_MATCHED_SHARE * len(reference)):
+            factors.append(factor)
+    return (statistics.median(factors) if factors else 0.0), factors
+
+
 def results(trx_name: str, projects: list[str]):
     """Every test result in the tier, plus the projects that wrote no TRX for it.
 
@@ -146,8 +183,29 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--solution", default="Connapse.slnx", help="where the expected test projects are listed")
     p.add_argument("--reference", help="per-test durations on a median runner; the wall limit is read on that runner")
     p.add_argument("--write-reference", help="write a reference from the run directories given, and check nothing")
-    p.add_argument("runs", nargs="*", help="with --write-reference: downloaded test-results artifacts, one per run")
+    p.add_argument("--check-reference", help="read the run directories given against this reference, and check nothing else")
+    p.add_argument("runs", nargs="*", help="with --write-reference or --check-reference: downloaded test-results artifacts, one per run")
     a = p.parse_args(argv)
+
+    if a.check_reference:
+        reference = json.loads(pathlib.Path(a.check_reference).read_text(encoding="utf-8"))
+        median, factors = reference_drift(reference, a.trx, a.runs)
+        print(f"{a.check_reference} reads {len(factors)} of {len(a.runs)} runs at a median runner factor of {median:.2f}: "
+              + ", ".join(f"{f:.2f}" for f in factors))
+        if len(a.runs) - len(factors) > MAX_DRIFT_LEFT_OUT:
+            print(f"::error::{len(a.runs) - len(factors)} of {len(a.runs)} runs timed too few of the reference's tests: "
+                  f"main's test list has moved away from it; refresh it with --write-reference from recent runs' artifacts")
+            return 1
+        if len(factors) < MIN_DRIFT_RUNS:
+            print(f"::error::only {len(factors)} runs timed enough of the reference's tests, and telling a stale reference "
+                  f"needs {MIN_DRIFT_RUNS}; refresh it with --write-reference from recent runs' artifacts")
+            return 1
+        if not MIN_DRIFT <= median <= MAX_DRIFT:
+            print(f"::error::{a.check_reference} reads main's runs at {median:.2f}, outside {MIN_DRIFT:g} to {MAX_DRIFT:g}: "
+                  f"it no longer describes a median runner, so the Small wall's slow-runner relief is off; refresh it "
+                  f"with --write-reference from recent runs' artifacts")
+            return 1
+        return 0
 
     if a.write_reference:
         try:

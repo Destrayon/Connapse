@@ -27,6 +27,8 @@ The embedding model turns each chunk of text into a vector, which vector search 
 
 New uploads and syncs use the new model from now on.
 
+On a Compose server the Ollama **Base URL** comes from the deployment, and a value saved here doesn't replace it. See [Where settings come from](../reference/configuration.md#where-settings-come-from).
+
 ### 2. Re-embed what's already there
 
 After the save, the tab shows **Legacy vectors detected.** with the number of documents still on a previous model. Choose:

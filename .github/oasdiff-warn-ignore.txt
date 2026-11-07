@@ -1,2 +1,9 @@
 POST /api/containers/{containerId}/files added the new required request property `files`
 PUT /api/containers/{containerId}/settings removed the request property `summary`
+POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeAzureBlobContainerScope]/allOf[#/components/schemas/SourceScope]/type`
+POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeConfluenceSpaceScope]/allOf[#/components/schemas/SourceScope]/type`
+POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeCustomSourceScope]/allOf[#/components/schemas/SourceScope]/type`
+POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeGitHubRepositoryScope]/allOf[#/components/schemas/SourceScope]/type`
+POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeJiraProjectScope]/allOf[#/components/schemas/SourceScope]/type`
+POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeS3BucketScope]/allOf[#/components/schemas/SourceScope]/type`
+POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeSftpFolderScope]/allOf[#/components/schemas/SourceScope]/type`

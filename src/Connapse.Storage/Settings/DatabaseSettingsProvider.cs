@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Connapse.Core;
 using Connapse.Storage.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -7,11 +8,13 @@ namespace Connapse.Storage.Settings;
 
 /// <summary>
 /// Configuration provider that loads settings from the database.
-/// Database settings override appsettings.json values.
+/// Database settings override appsettings.json values, environment variables and command-line
+/// arguments, except an address the deployment set: see <see cref="DeploymentAddresses"/>.
 /// </summary>
 public class DatabaseSettingsProvider : ConfigurationProvider
 {
     private readonly Action<DbContextOptionsBuilder> _optionsAction;
+    private readonly Func<string, string?>? _deploymentValue;
 
     /// <summary>One load or reload at a time: see <see cref="Load"/> and <see cref="Reload"/>.</summary>
     private readonly Lock _reloadGate = new();
@@ -30,10 +33,16 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         ["azuread"] = "Identity:AzureAd",
     };
 
-    public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction)
+    /// <param name="optionsAction">Configures the context that reads the settings table.</param>
+    /// <param name="deploymentValue">The value of a key set by environment variable or command line, if any.</param>
+    public DatabaseSettingsProvider(Action<DbContextOptionsBuilder> optionsAction, Func<string, string?>? deploymentValue = null)
     {
         _optionsAction = optionsAction;
+        _deploymentValue = deploymentValue;
     }
+
+    /// <summary>The value of <paramref name="key"/> set by environment variable or command line, if any.</summary>
+    public string? DeploymentValue(string key) => _deploymentValue?.Invoke(key);
 
     /// <summary>
     /// Whether the most recent <see cref="Load"/> read the settings table.
@@ -90,6 +99,14 @@ public class DatabaseSettingsProvider : ConfigurationProvider
                     ? mapped
                     : $"Knowledge:{setting.Category}";
                 FlattenJsonElement(data, prefix, setting.Values.RootElement);
+            }
+
+            // Written over rather than removed: an empty value in a later source would otherwise win.
+            foreach (string key in data.Keys.ToList())
+            {
+                string? address = DeploymentAddresses.Replacing(key, k => data.GetValueOrDefault(k), DeploymentValue);
+                if (address is not null)
+                    data[key] = address;
             }
 
             Data = data;

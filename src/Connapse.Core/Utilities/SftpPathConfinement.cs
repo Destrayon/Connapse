@@ -28,12 +28,10 @@ public interface ISftpRealPathResolver
 /// <summary>
 /// Confines a remote path beneath an SFTP connection's allowed root.
 /// <para>
-/// A separate implementation from <see cref="PathConfinement"/>, and it has to be.
-/// <see cref="PathConfinement"/> calls <c>Directory.Exists</c>, <c>File.Exists</c> and
-/// <c>FileSystemInfo.ResolveLinkTarget</c> — local filesystem I/O. Handed a remote path
-/// those either return false or resolve something on the machine running Connapse, which
-/// silently degrades confinement to a lexical prefix check. That is precisely the bug #365
-/// fixed for local paths, and reusing the local helper here would reintroduce it remotely.
+/// Never resolved locally. <c>Directory.Exists</c>, <c>File.Exists</c> and
+/// <c>FileSystemInfo.ResolveLinkTarget</c> are local filesystem I/O: handed a remote path
+/// they either return false or resolve something on the machine running Connapse, which
+/// silently degrades confinement to a lexical prefix check.
 /// </para>
 /// <para>
 /// So resolution happens on the server, through <c>SSH_FXP_REALPATH</c>: <c>..</c> segments
@@ -65,9 +63,8 @@ public static class SftpPathConfinement
         if (string.IsNullOrWhiteSpace(relative))
             return await ResolveWithinAsync(resolver, root, root, ct);
 
-        // An absolute relative path is refused rather than honoured. This mirrors
-        // PathConfinement.CombineWithin: treating it as a path under the root would hand back
-        // somewhere else on the server entirely.
+        // An absolute relative path is refused rather than honoured: treating it as a path
+        // under the root would hand back somewhere else on the server entirely.
         if (relative.StartsWith(Separator))
             return null;
 

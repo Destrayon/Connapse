@@ -52,6 +52,48 @@ jobs:
         name: test-results-large
         path: '**/*.trx'
 
+  # The Small wall's slow-runner relief needs .github/test-timings/small-reference.json to describe main's
+  # median runner, and main's tests drift away from it within a week (CON-250). Main's latest 15 green runs
+  # are read against it; past the drift band this fails, with a refreshed reference attached to commit.
+  # Failed runs count too: CI uploads the Small results either way, and a stale reference shows first as
+  # main's slow runners failing the budget. Only the last 14 days', so old runs can't vouch for it.
+  small-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download main's latest Small results
+      run: |
+        mkdir -p runs
+        since=$(date -u -d '14 days ago' +%F)
+        for id in $(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&created=%3E%3D$since&per_page=40" \
+            -q '.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure") | .id'); do
+          gh run download "$id" --repo "${{ github.repository }}" --name test-results-small --dir "runs/$id" || { rm -rf "runs/$id"; continue; }
+          [ "$(find runs -mindepth 1 -maxdepth 1 -type d | wc -l)" -ge 15 ] && break
+        done
+        echo "$(find runs -mindepth 1 -maxdepth 1 -type d | wc -l) runs downloaded"
+
+    - name: Check the reference still reads main as a median runner
+      run: python3 .github/scripts/test_budgets.py --trx small-tests.trx --check-reference .github/test-timings/small-reference.json runs/*/
+
+    - name: Write a refreshed reference
+      if: failure()
+      run: python3 .github/scripts/test_budgets.py --trx small-tests.trx --write-reference small-reference.json runs/*/
+
+    - name: Upload the refreshed reference
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: small-reference
+        path: small-reference.json
+
   # Schemathesis_NoServerErrors (epic #783, Phase 3.2, CON-53): generated requests for every operation in
   # docs/api/openapi.json against the app as it ships, and none may get a 5xx. Never on a PR: it sends
   # thousands of requests and builds the image. Both containers are capped: the app by docker-compose.yml's
@@ -62,18 +104,13 @@ jobs:
     timeout-minutes: 30
     env:
       CONNAPSE_ADMIN_EMAIL: admin@schemathesis.connapse.io
-      # Ollama, the embedding service search calls, sits behind this profile (CON-207).
-      COMPOSE_PROFILES: with-ollama
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     # A fresh password and JWT secret for each run, so nothing reusable is written down. The rate limits
     # are raised past what one run sends: at the shipped limits most operations only ever got a 429, so
-    # the logic behind them went untested. Ollama, the embedding service search calls, sits behind the
-    # with-ollama profile, which the job turns on: without it the web container can't resolve ollama:11434
-    # and every search of a container that exists fails (CON-207). Everything else is the compose file
-    # as it ships.
+    # the logic behind them went untested. Everything else is the compose file as it ships.
     - name: Start the app
       run: |
         password="Nightly-$(openssl rand -hex 12)!"
@@ -114,6 +151,8 @@ jobs:
           echo "::warning::ollama pull failed (try $attempt of 5); retrying in ${wait} s"
           sleep "$wait"
         done
+        # Until the app has seen the model, a search answers 503 on purpose, which this job counts as a failure.
+        timeout 120 bash -c 'until curl -fsS http://localhost:5001/health/ready > /dev/null; do sleep 2; done'
 
     - name: Sign in
       run: |

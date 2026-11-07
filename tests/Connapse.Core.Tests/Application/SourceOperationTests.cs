@@ -222,11 +222,11 @@ public class SourceOperationTests
     {
         var source = OnS3Connection("""{"bucketName":"b"}""");
 
-        var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Scope: new FilesystemFolderScope("notes")));
+        var updated = await Update().RunAsync(Caller, source.Id, new UpdateSourceRequest(Scope: new SftpFolderScope("notes")));
 
         updated.Status.Should().Be(SourceWriteStatus.Invalid);
         updated.Field.Should().Be("scope");
-        updated.Detail.Should().Contain("\"filesystem\"").And.Contain("\"s3\"");
+        updated.Detail.Should().Contain("\"sftp\"").And.Contain("\"s3\"");
         await _sources.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!);
     }
 
@@ -268,10 +268,20 @@ public class SourceOperationTests
     public async Task Create_TypedScopeWithoutAConnection_IsRefusedBeforeAnythingIsStored()
     {
         var created = await Create().RunAsync(Caller,
-            new NewSource("fs", ConnectionId: null, Provider: ConnectionProvider.Filesystem, Scope: new FilesystemFolderScope("notes")));
+            new NewSource("sftp", ConnectionId: null, Provider: ConnectionProvider.Sftp, Scope: new SftpFolderScope("notes")));
 
         created.Status.Should().Be(SourceWriteStatus.Invalid);
         created.Field.Should().Be("connectionId");
+        await _sources.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Create_ProviderNumberNoLongerInUse_IsRefusedBeforeAnythingIsStored()
+    {
+        var created = await Create().RunAsync(Caller, new NewSource("old", ConnectionId: null, Provider: (ConnectionProvider)1));
+
+        created.Status.Should().Be(SourceWriteStatus.Invalid);
+        created.Field.Should().Be("provider");
         await _sources.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
     }
 
@@ -304,7 +314,7 @@ public class SourceOperationTests
 
     private Connection OnConnection()
     {
-        var connection = new Connection(Guid.NewGuid(), "fs", ConnectionProvider.Filesystem, "{}", null, DateTime.UtcNow, DateTime.UtcNow);
+        var connection = new Connection(Guid.NewGuid(), "sftp", ConnectionProvider.Sftp, "{}", null, DateTime.UtcNow, DateTime.UtcNow);
         _connections.GetAsync(connection.Id, Arg.Any<CancellationToken>()).Returns(connection);
         return connection;
     }

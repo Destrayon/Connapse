@@ -22,7 +22,7 @@ namespace Connapse.Core.Tests.Connectors;
 [Trait("Size", "Medium")]
 public class SourceConnectorFactoryTests
 {
-    private readonly IConnectorFactory _factory = BuildFactory(new SourceSecuritySettings());
+    private readonly IConnectorFactory _factory = BuildFactory();
 
     /// <summary>
     /// Captures log entries so the grace-path warning can be asserted. Written by hand rather
@@ -45,19 +45,10 @@ public class SourceConnectorFactoryTests
             Entries.Where(e => e.Level == LogLevel.Warning).Select(e => e.Message);
     }
 
-    /// <summary>
-    /// Builds a factory with the given source-security policy. Defaults to no configured
-    /// allowlist, which is the unrestricted-with-a-warning path, so these tests keep covering
-    /// recombination rather than the allowlist.
-    /// </summary>
     private static ConnectorFactory BuildFactory(
-        SourceSecuritySettings settings,
         ILogger<ConnectorFactory>? logger = null,
         ISshHostKeyStore? hostKeyStore = null)
     {
-        var monitor = Substitute.For<IOptionsMonitor<SourceSecuritySettings>>();
-        monitor.CurrentValue.Returns(settings);
-
         // A credential provider over an empty container: nothing is configured, so it falls back to
         // the SDK chain exactly as an unconfigured deployment does. The substitute returns null for
         // every read (including GetRolesAnywhereMaterialAsync), which is that unconfigured state.
@@ -83,7 +74,6 @@ public class SourceConnectorFactoryTests
         atlassianOptions.CurrentValue.Returns(new AtlassianSourceSettings { StateDirectory = "/var/atlassian" });
 
         return new ConnectorFactory(
-            monitor,
             gitHubOptions,
             hostKeyStore ?? Substitute.For<ISshHostKeyStore>(),
             new ConnapseAwsCredentials(scopeFactory, NullLogger<ConnapseAwsCredentials>.Instance),
@@ -147,21 +137,6 @@ public class SourceConnectorFactoryTests
     }
 
     [Fact]
-    public void Create_FilesystemSource_CombinesRootAndSubPath()
-    {
-        var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/data"}""");
-        var source = MakeSource(connection.Id, """{"subPath":"team","includePatterns":["*.md"]}""");
-
-        var connector = (FilesystemConnector)_factory.Create(source, connection);
-
-        connector.Type.Should().Be(ConnectorType.Filesystem);
-        connector.Config.RootPath.Should().Be(
-            Path.GetFullPath(Path.Combine("/data", "team")),
-            "the source is confined to its subPath beneath the connection's root");
-        connector.Config.IncludePatterns.Should().BeEquivalentTo(["*.md"]);
-    }
-
-    [Fact]
     public void Create_SourceConnector_IsNeverWritable()
     {
         var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
@@ -184,20 +159,6 @@ public class SourceConnectorFactoryTests
 
         act.Should().Throw<ArgumentException>()
             .WithMessage("*does not own*");
-    }
-
-    [Fact]
-    public void Create_FilesystemSubPathEscapingRoot_Throws()
-    {
-        // A source scope must not be able to reach outside the root its connection declares —
-        // that root is the security boundary an admin configured.
-        var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/data"}""");
-        var source = MakeSource(connection.Id, """{"subPath":"../etc"}""");
-
-        Action act = () => _factory.Create(source, connection);
-
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*outside*");
     }
 
     [Fact]
@@ -230,12 +191,12 @@ public class SourceConnectorFactoryTests
     [Fact]
     public void Create_CloudSourceWithNoAllowedLocations_IsAcceptedAndWarns()
     {
-        // Same one-release grace as the filesystem root allowlist: #350 backfilled existing
+        // One release of grace: #350 backfilled existing
         // cloud containers into connections that declare no locations. The warning is
         // asserted because it is the only signal an operator gets before this becomes
         // deny-by-default — silently permitting would be indistinguishable from working.
         var logger = new RecordingLogger<ConnectorFactory>();
-        var factory = BuildFactory(new SourceSecuritySettings(), logger);
+        var factory = BuildFactory(logger);
 
         var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
         var source = MakeSource(connection.Id, """{"bucketName":"anything"}""");
@@ -252,7 +213,7 @@ public class SourceConnectorFactoryTests
         // A connector is built every sync cycle. Warning each time would emit one line per
         // source every five minutes and bury the message it exists to deliver.
         var logger = new RecordingLogger<ConnectorFactory>();
-        var factory = BuildFactory(new SourceSecuritySettings(), logger);
+        var factory = BuildFactory(logger);
 
         var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
         var source = MakeSource(connection.Id, """{"bucketName":"anything"}""");
@@ -269,76 +230,13 @@ public class SourceConnectorFactoryTests
     {
         // Deduplication must not hide a second unrestricted bucket behind the first.
         var logger = new RecordingLogger<ConnectorFactory>();
-        var factory = BuildFactory(new SourceSecuritySettings(), logger);
+        var factory = BuildFactory(logger);
 
         var connection = MakeConnection(ConnectionProvider.S3, """{"region":"eu-west-1"}""");
         factory.Create(MakeSource(connection.Id, """{"bucketName":"first"}"""), connection);
         factory.Create(MakeSource(connection.Id, """{"bucketName":"second"}"""), connection);
 
         logger.Warnings.Should().HaveCount(2);
-    }
-
-    [Fact]
-    public void Create_FilesystemRootOutsideTheAllowlist_Throws()
-    {
-        // The allowlist bounds what the root itself may be. Link resolution bounds where a
-        // source may reach from there. Neither substitutes for the other: this is the control
-        // that stops allowedRoot: "/".
-        var factory = BuildFactory(new SourceSecuritySettings
-        {
-            AllowedFilesystemRoots = [Path.Combine(Path.GetTempPath(), "connapse-permitted")]
-        });
-
-        var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/"}""");
-        var source = MakeSource(connection.Id, "{}");
-
-        Action act = () => factory.Create(source, connection);
-
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*AllowedFilesystemRoots*");
-    }
-
-    [Fact]
-    public void Create_FilesystemRootInsideTheAllowlist_IsAccepted()
-    {
-        string permitted = Path.Combine(Path.GetTempPath(), $"connapse-allow-{Guid.NewGuid():N}");
-        string root = Path.Combine(permitted, "team");
-        Directory.CreateDirectory(root);
-
-        try
-        {
-            var factory = BuildFactory(new SourceSecuritySettings { AllowedFilesystemRoots = [permitted] });
-
-            // A root nested inside a permitted entry is allowed — operators configure the
-            // parent once rather than enumerating every source directory.
-            var connection = MakeConnection(ConnectionProvider.Filesystem, $$"""{"allowedRoot":{{JsonSerializer.Serialize(root)}}}""");
-            var source = MakeSource(connection.Id, "{}");
-
-            factory.Create(source, connection).Type.Should().Be(ConnectorType.Filesystem);
-        }
-        finally
-        {
-            Directory.Delete(permitted, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void Create_FilesystemRootWithNoAllowlistConfigured_IsAcceptedAndWarns()
-    {
-        // Deliberately permissive for one release: #350 backfilled existing filesystem
-        // containers into connections, so enforcing immediately would break every upgrade
-        // until an operator edited configuration.
-        var logger = new RecordingLogger<ConnectorFactory>();
-        var factory = BuildFactory(new SourceSecuritySettings(), logger);
-
-        var connection = MakeConnection(ConnectionProvider.Filesystem, """{"allowedRoot":"/data"}""");
-        var source = MakeSource(connection.Id, "{}");
-
-        factory.Create(source, connection).Type.Should().Be(ConnectorType.Filesystem);
-
-        logger.Warnings.Should().ContainSingle()
-            .Which.Should().Contain("AllowedFilesystemRoots",
-                "the warning must name the setting an operator has to configure");
     }
 
     [Fact]

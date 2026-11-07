@@ -46,6 +46,8 @@ Migrations run when the app starts and only go forward, so the backup in step 2 
 - **The Azure Blob connector and Azure AD sign-in were rebuilt** (#480, #505). The `Identity__AzureAd__*` and `Identity__AwsSso__*` settings are no longer read. Set Azure up again under **Admin → Providers → Azure**, following [Azure setup](docs/sources/azure-setup.md).
 - **Linked AWS and Azure accounts are deleted** by the upgrade (#480). Each person links again under **Profile → Integrations**.
 - **The MinIO image changed** to `cgr.dev/chainguard/minio`, running as root so it can read the volume the old image wrote (#538). See step 4 above.
+- **Compose ships no default passwords**, and only `web` publishes a port from `docker-compose.yml`; `docker-compose.dev.yml` now binds to `127.0.0.1`. An existing install keeps its data and passwords. The `with-ollama` profile is gone: Ollama starts by default, so a hosted-provider install sets `CONNAPSE_LOCAL_MODEL=off`. `docker-compose.yml` uses the prebuilt image unless you add `--build`. See [Upgrade Connapse](docs/self-host/upgrade.md#moving-to-the-one-command-start) (CON-263)
+- **An address set by environment variable or command line now beats the saved one**, so a value saved outside Docker can no longer point a Compose server at `localhost`. This covers settings under `Knowledge:` ending in `Url` or `Endpoint`; the Ollama and TEI addresses other providers share apply only while one of those is the saved provider. An Ollama or TEI address saved on a Compose server has to move to `docker-compose.override.yml`. Every other saved setting still beats the deployment (#399, CON-260)
 - **The CLI moved to its own repository** (#304), and the old CLI sign-in routes `/cli/authorize` and `/api/v1/auth/cli/exchange` are removed (#286). Install [connapse-cli](https://github.com/Destrayon/connapse-cli); it reads the same `~/.connapse/credentials.json`, so `connapse auth login` once is enough.
 
 **Tokens, scopes and sign-in** (#1063)
@@ -84,11 +86,17 @@ These change what a search returns rather than making a call fail.
 - **PDFs are read by layout by default** (#654). Indexing is slower and each parser host can use about 800 MB more memory. A parser with less than about 900 MB reads PDFs without the layout model and logs a warning, so give `web` the memory in step 4. Set **Settings → Upload → PdfTextMode** (`Knowledge__Upload__PdfTextMode`) to `ContentOrder` for the faster reading.
 - **Embeddings for models that expect prefixes, such as the default `nomic-embed-text`, now get them** (#560). Search keeps working on old vectors until a reindex moves them over. Turn `UseModelPrefixes` off to keep the old embeddings.
 
-**Only for servers built from `main` between May and October 2026**
+**Only for servers built from `main` between May and November 2026**
 
 - **Folder summaries are removed and deleted on upgrade** (#1073). Their endpoints answer 404, the `summary` settings category and `Hangfire:SummaryWorkerCount` are gone, and `container_list` and `container_describe` no longer return summaries. No release ever shipped them.
+- **Filesystem sources are removed** (CON-265, #393), because SFTP reaches a machine's folders and works in Docker and on hosted servers. **The upgrade deletes every Filesystem connection and source, along with everything indexed from them, and this can't be undone.** To keep searching those folders, add them again over SFTP with [Connect this computer](docs/sources/sftp.md), or use folder upload for a one-off folder. The API and agent tools refuse the `Filesystem` provider and the `filesystem` scope, and `Sources:Security:AllowedFilesystemRoots` is no longer read.
+- **Memory on documents containers is removed** (CON-255), because agents answered no better with it than without it (0.68 with a check on what they saved and 0.61 without, against 0.70 with memory off). Memory lives only in personal and team spaces. A migration deletes every fact and star on documents containers, including facts shared with the team there, **which can't be undone**, so back up the database before upgrading if you need them. Facts already in personal and team spaces are untouched. Naming a documents container in `memory_remember`, `memory_recall`, `memory_timeline` or the memory REST routes is refused, `GET /api/memory/spaces` drops `kind=container` and `counts.containers`, and the Memory tab on documents containers is gone.
 
 ### Added
+
+**Setup and uploads**
+- One-command start: `docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y` gives a working Connapse with search ready, with nothing to clone and no file to edit. The first start makes random database and file storage passwords and keeps them in a `secrets` volume, the embedding model downloads on its own, and until it finishes search answers `503` with [`model-not-ready`](docs/problems.md#model-not-ready), the layout shows progress and uploads wait. `GET /health/ready` reports the same state. `CONNAPSE_LOCAL_MODEL=off` keeps Ollama from downloading or starting, and `COMPOSE_PROFILES=with-reranker` turns the reranker on, both from `.env` (CON-263)
+- Upload a whole folder from the browser: choose or drop a folder and everything inside it uploads with its subfolder paths, and the files that fail are listed. `POST /api/containers/{id}/files` takes `paths`, one folder per file (CON-257)
 
 **Sources and permissions**
 - Connections, sources and providers replace connector containers, with a **Providers**, **Connections** and **Sources** page and the `/api/sources` and `/api/v1/connections` routes (#348, #368, #371, #372, #418)
@@ -141,6 +149,8 @@ These change what a search returns rather than making a call fail.
 - The LLM settings tab says that no feature uses these settings yet (#1074)
 
 ### Fixed
+- Upgrading deletes the AWS SSO and Cognito settings left behind when those sign-ins were removed, client secrets included. Delete the old client in AWS too: clearing the copy here does not revoke it (#448)
+- Files up to the upload limit can really be uploaded: anything over about 30 MB used to fail as a connection error, whatever the limit said. The server, the upload form, folder upload and the admin setting now share `MaxFileBytes`, a file over it gets a clear refusal (`413`, `file-too-large`), and a large upload is held on disk rather than in memory. A reverse proxy needs a body limit 1 MiB above `MaxFileBytes`, so the nginx example now says `257m` (CON-266)
 - Audit entries for actions taken by agents were dropped; they are now recorded under the user the agent acts for
 - Changing one link-search setting on a container no longer resets its other search settings (CON-157)
 - A newly built vector index is used right away instead of being skipped on stale table statistics (CON-34)

@@ -27,6 +27,9 @@ public enum SearchStatus
 
     [Failure(409, "memory-container", "Agent memory container")]
     MemoryContainer,
+
+    [Failure(503, "model-not-ready", "Search isn't ready yet")]
+    ModelNotReady,
 }
 
 /// <summary>Which kind of scope a search may name.</summary>
@@ -73,7 +76,7 @@ public sealed record SearchRequest(
 [Operation("search.knowledge", Scope = Scope, Risk = RiskTier.Read)]
 public sealed class SearchKnowledge(
     IContainerStore containers, ISourceStore sources, ISourceVisibility visibility, IKnowledgeSearch search,
-    IOptionsMonitor<SearchSettings> settings, IOperationAuthorizer authorizer)
+    IOptionsMonitor<SearchSettings> settings, IOperationAuthorizer authorizer, ILocalModelMonitor? localModel = null)
 {
     public const string Scope = "knowledge:read";
 
@@ -119,6 +122,11 @@ public sealed class SearchKnowledge(
             return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.EmbeddingsUnavailable,
                 mismatch.Message + " Keyword mode still works meanwhile.");
         }
+        catch (EmbeddingUnavailableException) when (localModel?.Current is { HoldsEmbedding: true } waiting)
+        {
+            return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.ModelNotReady,
+                waiting.Explanation + " Keyword mode works meanwhile.");
+        }
         catch (EmbeddingUnavailableException)
         {
             return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.EmbeddingsUnavailable,
@@ -156,7 +164,7 @@ public sealed class SearchKnowledge(
 
         if (Guid.TryParse(scope.IdOrName, out var id))
         {
-            if (containersAllowed && await containers.GetAsync(id, ct) is { } byId)
+            if (containersAllowed && await containers.GetAsync(id, ContainerRules.Viewer(context), ct) is { } byId)
                 return (id, true, MemoryOf(byId));
             if (!sourcesAllowed)
                 return null;
@@ -173,7 +181,7 @@ public sealed class SearchKnowledge(
 
         // Names are stored lower case.
         string name = scope.IdOrName.ToLowerInvariant();
-        if (containersAllowed && await containers.GetByNameAsync(name, ct) is { } container)
+        if (containersAllowed && (await containers.FindByNameAsync(name, ContainerRules.Viewer(context), ct)).FirstOrDefault() is { } container)
             return Guid.TryParse(container.Id, out var containerId) ? (containerId, true, MemoryOf(container)) : null;
         if (!sourcesAllowed)
             return null;

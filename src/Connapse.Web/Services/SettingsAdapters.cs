@@ -3,6 +3,7 @@ using Connapse.Application.Settings;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.ConnectionTesters;
+using Connapse.Storage.Settings;
 using Connapse.Storage.Vectors;
 using Hangfire;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,8 @@ public sealed class ConfiguredSettings(IServiceProvider services) : IConfiguredS
 {
     public T Current<T>() where T : class, new() =>
         services.GetService<IOptionsMonitor<T>>()?.CurrentValue ?? new T();
+
+    public string? DeploymentValue(string key) => services.GetService<DatabaseSettingsProvider>()?.DeploymentValue(key);
 }
 
 /// <summary>Drops the session the runtime's AWS credential holds, so the next AWS call resolves the stored credential.</summary>

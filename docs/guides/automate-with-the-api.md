@@ -45,20 +45,21 @@ REST routes take the container's id; `GET /api/containers/by-name/runbooks` look
 
 ### 2. Add a connection and a source
 
-A connection says how Connapse signs in to a system, and each source on it picks what to read. This example reads a folder on the Connapse host; each [source page](../sources/index.md) has the body for its provider.
+A connection says how Connapse signs in to a system, and each source on it picks what to read. This example reads a folder over SFTP; each [source page](../sources/index.md) has the body for its provider.
 
 ```bash
 curl -X POST http://localhost:5001/api/v1/connections \
   -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
-  -d '{ "name": "knowledge-share", "provider": "Filesystem", "config": { "allowedRoot": "/srv/knowledge" } }'
+  -d '{ "name": "knowledge-share", "provider": "Sftp", "privateKey": "$SSH_PRIVATE_KEY",
+        "config": { "host": "files.example.com", "port": 22, "username": "connapse", "allowedRoot": "/srv/knowledge" } }'
 
 curl -X POST http://localhost:5001/api/sources \
   -H "X-Api-Key: $TOKEN" -H "Content-Type: application/json" \
   -d '{ "name": "handbook", "connectionId": "CONNECTION_ID", "syncIntervalSeconds": 600,
-        "scope": { "type": "filesystem", "subPath": "handbook", "includePatterns": ["*.md"] } }'
+        "scope": { "type": "sftp", "subPath": "handbook", "includePatterns": ["*.md"] } }'
 ```
 
-The connection call returns `{ "connection": { "id": ... }, "note": ... }`, so `connection.id` is the `CONNECTION_ID` the source call uses; the source call returns the source itself, whose `id` is `SOURCE_ID`. `POST /api/v1/connections/CONNECTION_ID/test` checks that Connapse can sign in to an SFTP, S3, Azure Blob, GitHub or custom connection. A Filesystem connection has nothing to test and answers `400`. Send `scope`, not the deprecated `scopeJson` string. The source syncs on its interval; to start one cycle now and search it:
+The connection call returns `{ "connection": { "id": ... }, "note": ... }`, so `connection.id` is the `CONNECTION_ID` the source call uses; the source call returns the source itself, whose `id` is `SOURCE_ID`. `POST /api/v1/connections/CONNECTION_ID/test` checks that Connapse can sign in to an SFTP, S3, Azure Blob, GitHub or custom connection. Send `scope`, not the deprecated `scopeJson` string. The source syncs on its interval; to start one cycle now and search it:
 
 ```bash
 curl -X POST http://localhost:5001/api/sources/SOURCE_ID/sync -H "X-Api-Key: $TOKEN"

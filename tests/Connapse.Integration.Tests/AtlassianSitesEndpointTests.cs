@@ -440,8 +440,8 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
         using (var scope = _fixture.Factory.Services.CreateScope())
         {
             await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-                new CreateConnectionRequest($"list-not-atlassian-{Guid.NewGuid():N}"[..28], ConnectionProvider.Filesystem,
-                    "{\"allowedRoots\":[\"/tmp\"]}", null), null);
+                new CreateConnectionRequest($"list-not-atlassian-{Guid.NewGuid():N}"[..28], ConnectionProvider.Sftp,
+                    "{\"allowedRoot\":\"/tmp\"}", null), null);
         }
 
         var response = await _fixture.AdminClient.GetAsync(Sites);
@@ -554,7 +554,7 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
     {
         using var scope = _fixture.Factory.Services.CreateScope();
         var other = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-            new CreateConnectionRequest("delete-not-atlassian", ConnectionProvider.Filesystem, "{\"allowedRoots\":[\"/tmp\"]}", null), null);
+            new CreateConnectionRequest("delete-not-atlassian", ConnectionProvider.Sftp, "{\"allowedRoot\":\"/tmp\"}", null), null);
 
         (await _fixture.AdminClient.DeleteAsync($"{Sites}/{other.Id}?confirmName=delete-not-atlassian"))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -603,8 +603,8 @@ public sealed class AtlassianSitesEndpointTests : IAsyncLifetime
     {
         using var scope = _fixture.Factory.Services.CreateScope();
         var other = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-            new CreateConnectionRequest("spaces-not-atlassian", ConnectionProvider.Filesystem,
-                "{\"allowedRoots\":[\"/tmp\"]}", null), null);
+            new CreateConnectionRequest("spaces-not-atlassian", ConnectionProvider.Sftp,
+                "{\"allowedRoot\":\"/tmp\"}", null), null);
 
         var response = await _fixture.AdminClient.GetAsync($"{Sites}/{other.Id}/spaces");
 

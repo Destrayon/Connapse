@@ -88,7 +88,7 @@ nothing was started; the running cycle picks up the changes.
 ## provider-not-found
 
 The provider named in the path isn't one Connapse has. Providers are named as the API writes them, such as
-`S3`, `AzureBlob`, `Filesystem`, `Sftp`, `GitHub`, `Atlassian` and `Custom`, in any case.
+`S3`, `AzureBlob`, `Sftp`, `GitHub`, `Atlassian` and `Custom`, in any case.
 
 ## invalid-audit-filter
 
@@ -135,20 +135,51 @@ folders, search, reindexing, syncing and document settings don't apply to it. Us
 
 ## memory-fact-not-found
 
-No fact in that container's memory has that id, or the caller can't see it. A fact is visible only
-when the caller can read every source it cites (one citing none, only to the user who wrote it), so
-a hidden fact and a missing one read the same.
+No fact in any space the caller can see has that id, or the caller can't see it. A fact is visible only
+to its space's audience (a personal space's owner, or everyone for a team space or container), and of them
+only to callers who can read every source it cites, so a hidden fact and a missing one read the same.
 
 ## invalid-memory
 
 The memory write was refused: `subject`, `attribute` or `value` is missing or too long, `validTo` isn't
-after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, or a
-cited source doesn't exist or can't be read by the writer. The detail says which.
+after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, a
+cited source doesn't exist or can't be read by the writer, or the `space` names only a documents container or
+is ambiguous. A name other than `my-memory` used by
+one of your personal spaces and by a team space is ambiguous; pass the id instead. The detail
+says which.
+
+## memory-fact-exists
+
+The team space or container you're copying to already has a current fact with the same subject and attribute,
+so the copy was refused rather than leave two that may disagree. The detail names the fact already there.
+Nothing in the destination was changed. Send the copy again with `anyway: true` to copy it as well.
 
 ## memory-access-unchecked
 
-Connapse couldn't check whether the caller may read the facts' sources, so it showed or wrote nothing
-rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
+Connapse couldn't check whether the caller may read the facts' sources, so it showed, wrote or deleted
+nothing rather than guess. Try again; if it keeps happening, the check against the cited documents is failing.
+
+## memory-space-not-found
+
+No memory space or container has that id or name, or it is someone else's personal space, which reads the
+same as a missing one. Over MCP, `memory_spaces` lists the spaces you can use.
+
+## invalid-memory-space
+
+The memory space request was refused: the name is missing or isn't 2 to 128 characters of lowercase letters,
+digits and hyphens (not starting or ending with a hyphen), a new space's `kind` isn't `personal` or `team`, an
+edit names neither a new name nor a description, or a list's `kind` or `sort` isn't one it takes. `field` names
+the input at fault.
+
+## memory-space-conflict
+
+That name is taken. Team spaces share one namespace with documents containers; a personal space's name only
+has to differ from your other personal spaces.
+
+## memory-space-is-container
+
+The id names a documents container, not a memory space. Documents containers hold no memory; rename or
+delete one through `/api/containers`.
 
 ## embeddings-unavailable
 
@@ -156,6 +187,13 @@ The search needed the query embedded, and the embedding service (Ollama by defau
 out, or refused the request. Nothing is wrong with the request: retry once the service is back, or search
 in `Keyword` mode, which doesn't use it. A scope the caller may not know exists still reads as
 `search-scope-not-found`.
+
+## model-not-ready
+
+The search needed the query embedded, and the search model isn't ready. Compose's own Ollama is still downloading
+it, or the download keeps failing, or the local model is switched off and no provider is set up. `detail` says
+which, and `GET /health/ready` reports the same state with a percentage. Try again after `Retry-After` seconds,
+or search in `Keyword` mode, which doesn't use the model.
 
 ## settings-category-not-found
 
@@ -183,7 +221,10 @@ when `containerId` isn't a container's id. `field` names the input at fault.
 ## invalid-page
 
 The page asked for is out of range: `skip` must be 0 or more, and `take` between 1 and 200. For the
-audit log, `before` must be a `nextBefore` value the endpoint returned.
+audit log, `before` must be a `nextBefore` value the endpoint returned. For the memory spaces list,
+`limit` must be between 1 and 100 and `cursor` a `nextCursor` it returned for the same `kind`, `q`, `starred`
+and `sort`. For `memory_recall` and `memory_timeline`, `cursor` must be a `nextCursor` the same tool returned
+for the same `space` and filters.
 
 ## approval-not-signed-in
 
@@ -239,7 +280,14 @@ not read is answered exactly as a missing one, so a request can't learn that it 
 
 A file request asked for something it can't do: a bulk delete names between 1 and 100 file ids, and a bulk
 upload between 1 and 100 files. An uploaded file needs a name of at most 255 characters with no folder in it, a
-folder path with no `..` and at most 50 levels, and some content. The `field` member names the input at fault.
+folder path with no `..` and at most 50 levels, and some content. `paths`, when sent, names one folder per file.
+The `field` member names the input at fault.
+
+## file-too-large
+
+The file, or the request carrying it, is over the upload limit, and the detail gives both sizes. The limit is
+`MaxFileBytes` in the upload settings, 256 MiB by default. A request may be 1 MiB over the limit, for the form
+around the file. In a bulk upload, a file over the limit is reported in its place and the rest are still uploaded.
 
 ## file-not-ready
 

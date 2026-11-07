@@ -40,6 +40,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # The file behind the one-command start: `docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y`.
+  # Each release pins its own image, because `latest` also moves on prereleases. The `compose` tag moves only
+  # on a stable release. The name overlay keeps the project name `connapse` whichever folder someone runs from.
+  publish-compose:
+    name: Publish the compose file
+    runs-on: ubuntu-latest
+    needs: [build-docker]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pin this release's image
+        run: sed -i 's/CONNAPSE_VERSION:-latest/CONNAPSE_VERSION:-${{ github.ref_name }}/' release/docker-compose.yml
+
+      - name: Publish for this version
+        run: docker compose -f release/docker-compose.yml -f release/compose-name.yml publish ghcr.io/destrayon/connapse:compose-${{ github.ref_name }} -y
+
+      - name: Publish as the current stable release
+        if: ${{ !contains(github.ref_name, '-') }}
+        run: docker compose -f release/docker-compose.yml -f release/compose-name.yml publish ghcr.io/destrayon/connapse:compose -y
+
   package-release:
     name: Package release zip
     runs-on: ubuntu-latest
@@ -52,17 +81,20 @@ jobs:
       - name: Create release zip
         run: |
           mkdir -p dist
-          cp release/docker-compose.yml dist/docker-compose.yml
+          sed 's/CONNAPSE_VERSION:-latest/CONNAPSE_VERSION:-${{ github.ref_name }}/' release/docker-compose.yml > dist/docker-compose.yml
           cp release/.env.example dist/.env.example
           cp release/README.md dist/README.md
           cd dist
           zip ../connapse-docker-${{ github.ref_name }}.zip docker-compose.yml .env.example README.md
+          cp docker-compose.yml ../docker-compose.yml
 
       - name: Upload release zip artifact
         uses: actions/upload-artifact@v4
         with:
           name: connapse-docker
-          path: connapse-docker-${{ github.ref_name }}.zip
+          path: |
+            connapse-docker-${{ github.ref_name }}.zip
+            docker-compose.yml
           retention-days: 1
 
       # The REST API's shape at this tag (#857). A tag can point at a commit CI never checked, so the
@@ -93,7 +125,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [package-release]
+    needs: [package-release, publish-compose]
 
     steps:
       - name: Download all artifacts
@@ -110,16 +142,16 @@ jobs:
           body: |
             ## Docker (recommended)
 
-            Download `connapse-docker-${{ github.ref_name }}.zip`, extract it, then:
+            One command, with no file to edit (Compose 2.34 or later):
 
             ```bash
-            cp .env.example .env
-            # Edit .env — set passwords, admin credentials, and JWT secret
-            docker compose up -d
+            docker compose -f oci://ghcr.io/destrayon/connapse:compose-${{ github.ref_name }} up -d -y
             ```
 
-            Open [http://localhost:5001](http://localhost:5001) and log in with your admin credentials.
-            See `README.md` inside the zip for full setup instructions.
+            With an older Compose, download `docker-compose.yml` from this release and run `docker compose up -d` next to it.
+
+            Open [http://localhost:5001](http://localhost:5001) and create the Owner account.
+            `connapse-docker-${{ github.ref_name }}.zip` holds the same file, an example `.env` and a `README.md`.
 
             **Docker image**: `ghcr.io/destrayon/connapse:${{ github.ref_name }}`
 

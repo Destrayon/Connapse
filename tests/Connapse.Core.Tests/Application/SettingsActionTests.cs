@@ -25,7 +25,7 @@ public partial class SettingsOperationTests
         public readonly ReindexStateService Runs = new();
         public readonly IIngestionQueue Queue = Substitute.For<IIngestionQueue>();
         public readonly IConnectionTests Tests = Substitute.For<IConnectionTests>();
-        public readonly IContainerStore Containers = Substitute.For<IContainerStore>();
+        public readonly IContainerStore Containers = ContainerStoreFakes.Create();
 
         public Actions(bool admin = true)
         {
@@ -368,6 +368,33 @@ public partial class SettingsOperationTests
         actions.Tests.TestAsync(kind, Arg.Do<object>(s => given = s), Arg.Any<TimeSpan?>(), Arg.Any<CancellationToken>())
             .Returns(ConnectionTestResult.CreateSuccess("connected"));
         return () => given;
+    }
+
+    [Fact]
+    public async Task Test_KeyLeftOutAtTheAddressTheDeploymentSet_UsesTheSavedKey()
+    {
+        // The page shows the deployment's address, so that is the address a test sends back.
+        var actions = new Actions();
+        actions.World.Configured.Deployment["Knowledge:llm:OpenAiBaseUrl"] = "https://deployed.example/v1";
+        await actions.World.Store.SaveAsync("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "https://api.openai.com/v1", OpenAiApiKey = "saved" });
+        var given = Given(actions, ConnectionTesterKind.OpenAiLlm);
+
+        await actions.Test().RunAsync(Caller, TestOf("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "https://deployed.example/v1", Model = "gpt-4.1" }));
+
+        given().Should().BeOfType<LlmSettings>().Which.OpenAiApiKey.Should().Be("saved");
+    }
+
+    [Fact]
+    public async Task Test_KeyLeftOutAtTheSavedAddressTheDeploymentReplaced_SendsNoKey()
+    {
+        var actions = new Actions();
+        actions.World.Configured.Deployment["Knowledge:llm:OpenAiBaseUrl"] = "https://deployed.example/v1";
+        await actions.World.Store.SaveAsync("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "https://api.openai.com/v1", OpenAiApiKey = "saved" });
+        var given = Given(actions, ConnectionTesterKind.OpenAiLlm);
+
+        await actions.Test().RunAsync(Caller, TestOf("llm", new LlmSettings { Provider = "OpenAI", OpenAiBaseUrl = "https://api.openai.com/v1", Model = "gpt-4.1" }));
+
+        given().Should().BeOfType<LlmSettings>().Which.OpenAiApiKey.Should().BeNull("the key follows the address in effect, not the one in the row");
     }
 
     [Fact]

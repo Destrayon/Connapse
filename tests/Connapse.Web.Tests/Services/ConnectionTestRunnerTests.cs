@@ -138,7 +138,6 @@ public class ConnectionTestRunnerTests
     }
 
     [Theory]
-    [InlineData(ConnectionProvider.Filesystem, "provider")]
     [InlineData(ConnectionProvider.Atlassian, "provider")]
     public async Task Test_ProviderWithNothingToTestHere_IsRefused(ConnectionProvider provider, string field)
     {

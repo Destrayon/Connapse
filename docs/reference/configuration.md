@@ -17,10 +17,35 @@ Connapse reads settings from these places, and a later one wins over an earlier 
 2. `appsettings.<Environment>.json`, where the environment is `ASPNETCORE_ENVIRONMENT`
 3. User secrets (development only)
 4. Environment variables
-5. The `settings` table in PostgreSQL, which is what the **Settings** and **Providers** pages save to
-6. Command-line arguments
+5. Command-line arguments
+6. The `settings` table in PostgreSQL, which is what the **Settings** and **Providers** pages save to
 
-A value saved on the **Settings** page therefore beats the same setting in an environment variable. To go back to the environment variable, reset that settings group on the page or with `DELETE /api/v1/settings/{category}`.
+A value saved on the **Settings** page therefore beats the same setting in an environment variable or on the command line. To go back to the deployment's value, reset that settings group on the page or with `DELETE /api/v1/settings/{category}`.
+
+Addresses are the exception, because a saved address goes stale when the server moves. An environment variable or command-line argument that sets an address beats the saved address. This covers every setting under `Knowledge:` whose name ends in `Url` or `Endpoint`, such as `Knowledge__Embedding__BaseUrl`, and the page and `GET /api/v1/settings/{category}` show the address in use. A blank value doesn't count as set, and neither does a value in `appsettings.json`. The saved address stays in the table and applies again once the deployment stops setting one.
+
+Three addresses are shared between providers, so the deployment's value applies only while the saved provider is the one it is meant for. Otherwise the saved address stays, so that a saved API key is not sent to the deployment's service:
+
+| Address | Applies while the saved provider is |
+|---|---|
+| `Knowledge__Embedding__BaseUrl` | Ollama |
+| `Knowledge__Llm__BaseUrl` | Ollama |
+| `Knowledge__Search__CrossEncoderBaseUrl` | TEI |
+
+The `docker-compose.yml` file sets all but the second of these for its own services. To point a Compose server somewhere else, set the address in `docker-compose.override.yml`, since one saved on the page won't apply.
+
+## What Compose reads from `.env`
+
+These choose what runs, so they apply to `docker compose`, not to the app. They go in `.env`, and the start command doesn't change.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CONNAPSE_LOCAL_MODEL` | `on` | `on` runs Ollama and downloads the embedding model. `off` never downloads or starts it. |
+| `COMPOSE_PROFILES` | none | `with-reranker` starts the reranker and sets `Reranker` to `CrossEncoder`, unless a saved setting says otherwise. |
+| `CONNAPSE_VERSION` | `latest`, or the release a published file came with | The image tag for `web`. |
+| `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | random, made on first start | Replace the values kept in the `secrets` volume. |
+
+The web app reads the generated values from files in the `secrets` volume. They rank below environment variables and above `appsettings.json`.
 
 ## Environment variable names
 
@@ -175,7 +200,7 @@ Each group below is a tab on the **Settings** page and a category of `GET` and `
 | `MaxOcrPagesPerDocument`: Most pages of one PDF that are OCR'd (default: 50). | **Settings** → **Upload** | `Knowledge__Upload__MaxOcrPagesPerDocument` | int | `50` | No | No |
 | `PdfOcrThreads`: CPU threads each OCR'd page may use (default: 1). | **Settings** → **Upload** | `Knowledge__Upload__PdfOcrThreads` | int | `1` | No | No |
 | `PdfOcrDpi`: Resolution PDF pages are rendered at for OCR (default: 200 dpi). | **Settings** → **Upload** | `Knowledge__Upload__PdfOcrDpi` | int | `200` | No | No |
-| `MaxFileBytes`: Largest file that is parsed at all (default: 256 MiB). | **Settings** → **Upload** | `Knowledge__Upload__MaxFileBytes` | long | `256 MiB` | No | No |
+| `MaxFileBytes`: Largest file that can be uploaded or parsed (default: 256 MiB). | **Settings** → **Upload** | `Knowledge__Upload__MaxFileBytes` | long | `256 MiB` | No | No |
 | `MaxPdfPages`: Most pages a PDF may have (default: 5,000). | **Settings** → **Upload** | `Knowledge__Upload__MaxPdfPages` | int | `5000` | No | No |
 | `MaxDecompressedBytes`: Most bytes a DOCX or PPTX may expand to (default: 512 MiB). | **Settings** → **Upload** | `Knowledge__Upload__MaxDecompressedBytes` | long | `512 MiB` | No | No |
 | `MaxCompressionRatio`: Highest overall compression ratio a DOCX or PPTX may have once it expands past 10 MiB (default: 100). | **Settings** → **Upload** | `Knowledge__Upload__MaxCompressionRatio` | int | `100` | No | No |
@@ -254,14 +279,6 @@ The settings marked **Providers** are filled in by the setup steps on the **Prov
 | `SubscriptionId`: The subscription whose role/deny assignments the RBAC resolver queries. | **Providers** | `Providers__Azure__SubscriptionId` | string? | — | No | No |
 
 ## Sources
-
-`Sources:Security:AllowedFilesystemRoots` can only be set in configuration, never through the API or the settings table. When it is empty, any root is allowed and a warning is logged for each root in use.
-
-### `Sources:Security`
-
-| Setting | UI path | Env var | Type | Default | Restart? | Secret? |
-|---------|---------|---------|------|---------|----------|---------|
-| `AllowedFilesystemRoots`: Directories a filesystem connection's `allowedRoot` may name. | — | `Sources__Security__AllowedFilesystemRoots` | IReadOnlyList<string> | `[]` | No | No |
 
 ### `Sources:GitHub`
 

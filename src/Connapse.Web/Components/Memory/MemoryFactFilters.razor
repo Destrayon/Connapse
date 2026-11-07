@@ -1,0 +1,195 @@
+@using Connapse.Application.Memory
+@using Connapse.Core
+@inject MemoryOperations MemoryOps
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* The memory list's search, filters and sort. It only proposes a new view; the list puts it in the address and loads it. *@
+<div class="memory-toolbar">
+    <form class="memory-search" @onsubmit="Search" role="search">
+        <span class="bi-search memory-search-icon" aria-hidden="true"></span>
+        <input id="memory-search" type="search" class="form-control form-control-sm" placeholder="Search facts"
+               aria-label="Search facts" @bind="searchText" />
+    </form>
+
+    <div class="memory-chips">
+        <div class="memory-chip-wrap">
+            <button id="memory-filter-subject" type="button" class="memory-chip @(View.Subject is null ? "" : "memory-chip-on")"
+                    aria-expanded="@(open == "subject")" @onclick='() => Toggle("subject")'>
+                @(View.Subject is null ? "Subject" : $"Subject: {View.Subject}")<span class="bi-chevron-down ms-1" aria-hidden="true"></span>
+            </button>
+            @if (open == "subject")
+            {
+                <div class="memory-menu" role="menu">
+                    <input id="memory-subject-find" class="form-control form-control-sm mb-1" placeholder="Find a subject" aria-label="Find a subject"
+                           @bind="subjectText" @bind:event="oninput" @bind:after="LoadSubjects" />
+                    <button type="button" class="memory-menu-item" @onclick="() => Pick(View with { Subject = null })">Any subject</button>
+                    @foreach (MemorySubject subject in subjects)
+                    {
+                        <button type="button" class="memory-menu-item memory-subject-option" @onclick="() => Pick(View with { Subject = subject.Subject })">
+                            <span class="text-truncate">@subject.Subject</span><span class="memory-menu-count">@subject.Facts.ToString("N0")</span>
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="memory-chip-wrap">
+            <button id="memory-filter-author" type="button" class="memory-chip @(View.Author is null ? "" : "memory-chip-on")"
+                    aria-expanded="@(open == "author")" @onclick='() => Toggle("author")'>
+                @(View.Author is null ? "Author" : $"Author: {AuthorName(View.Author.Value)}")<span class="bi-chevron-down ms-1" aria-hidden="true"></span>
+            </button>
+            @if (open == "author")
+            {
+                <div class="memory-menu" role="menu">
+                    <button type="button" class="memory-menu-item" @onclick="() => Pick(View with { Author = null })">Anyone</button>
+                    @if (Me is { } me)
+                    {
+                        <button id="memory-author-me" type="button" class="memory-menu-item" @onclick="() => Pick(View with { Author = me })">Me</button>
+                    }
+                    @foreach (MemoryCaller author in Authors.Where(a => Id(a) is { } id && id != Me))
+                    {
+                        <button type="button" class="memory-menu-item memory-author-option" @onclick="() => Pick(View with { Author = Id(author) })">
+                            <MemoryAuthor Caller="author" />
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="memory-chip-wrap">
+            <button id="memory-filter-sources" type="button" class="memory-chip @(View.Cites == MemoryCites.Any ? "" : "memory-chip-on")"
+                    aria-expanded="@(open == "sources")" @onclick='() => Toggle("sources")'>
+                @CitesLabel(View.Cites)<span class="bi-chevron-down ms-1" aria-hidden="true"></span>
+            </button>
+            @if (open == "sources")
+            {
+                <div class="memory-menu" role="menu">
+                    <button type="button" class="memory-menu-item" @onclick="() => Pick(View with { Cites = MemoryCites.Any })">Any sources</button>
+                    <button id="memory-cites-some" type="button" class="memory-menu-item" @onclick="() => Pick(View with { Cites = MemoryCites.Some })">Cites a source</button>
+                    <button id="memory-cites-none" type="button" class="memory-menu-item" @onclick="() => Pick(View with { Cites = MemoryCites.None })">No sources</button>
+                </div>
+            }
+        </div>
+
+        <div class="memory-chip-wrap">
+            <button id="memory-filter-recorded" type="button" class="memory-chip @(View.From is null && View.To is null ? "" : "memory-chip-on")"
+                    aria-expanded="@(open == "recorded")" @onclick='() => Toggle("recorded")'>
+                @RecordedLabel()<span class="bi-chevron-down ms-1" aria-hidden="true"></span>
+            </button>
+            @if (open == "recorded")
+            {
+                <div class="memory-menu memory-menu-dates" role="dialog" aria-label="Recorded between">
+                    <label class="form-label small mb-1" for="memory-recorded-from">Recorded from</label>
+                    <input id="memory-recorded-from" type="date" class="form-control form-control-sm mb-2" @bind="from" />
+                    <label class="form-label small mb-1" for="memory-recorded-to">Through</label>
+                    <input id="memory-recorded-to" type="date" class="form-control form-control-sm mb-2" @bind="to" />
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => Pick(View with { From = null, To = null })">Clear</button>
+                        <button id="memory-recorded-apply" type="button" class="btn btn-sm btn-primary"
+                                @onclick="() => Pick(View with { From = From(from), To = From(to) })">Apply</button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="memory-toolbar-end">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Which facts">
+            <button id="memory-filter-current" type="button" class="btn @(View.All ? "btn-outline-secondary" : "btn-secondary")"
+                    aria-pressed="@(!View.All)" @onclick="() => Pick(View with { All = false })">Current</button>
+            <button id="memory-filter-all" type="button" class="btn @(View.All ? "btn-secondary" : "btn-outline-secondary")"
+                    aria-pressed="@View.All" title="Also show facts that ended or were corrected"
+                    @onclick="() => Pick(View with { All = true })">All versions</button>
+        </div>
+        <select id="memory-sort" class="form-select form-select-sm memory-sort" aria-label="Sort facts" value="@View.Order"
+                @onchange="e => Pick(View with { Sort = Enum.Parse<MemoryFactSort>((string)e.Value!) })">
+            @foreach (MemoryFactSort sort in Enum.GetValues<MemoryFactSort>().Where(s => s != MemoryFactSort.Relevance || View.Text is not null))
+            {
+                <option value="@sort">Sort: @MemoryListView.SortLabel(sort)</option>
+            }
+        </select>
+    </div>
+
+    <div class="memory-toolbar-row">
+        <button id="memory-group" type="button" class="memory-chip @(View.Grouped ? "memory-chip-on" : "")" aria-pressed="@(View.Grouped ? "true" : "false")"
+                @onclick="() => Pick(View with { Grouped = !View.Grouped })">
+            <span class="bi-list-nested me-1" aria-hidden="true"></span>Grouped by subject
+        </button>
+    </div>
+</div>
+
+@code {
+    /// <summary>The view on screen.</summary>
+    [Parameter, EditorRequired] public MemoryListView View { get; set; } = new();
+
+    /// <summary>The space listed, for its subjects.</summary>
+    [Parameter, EditorRequired] public string Space { get; set; } = "";
+
+    /// <summary>The authors on the page shown, offered in the author menu.</summary>
+    [Parameter] public IReadOnlyList<MemoryCaller> Authors { get; set; } = [];
+
+    /// <summary>The signed-in person's id, offered as "Me".</summary>
+    [Parameter] public Guid? Me { get; set; }
+
+    /// <summary>A new view was chosen; always its first page.</summary>
+    [Parameter] public EventCallback<MemoryListView> OnChange { get; set; }
+
+    private string searchText = "";
+    private string? open;
+    private string subjectText = "";
+    private IReadOnlyList<MemorySubject> subjects = [];
+    private int subjectRequest;
+    private DateTime? from;
+    private DateTime? to;
+
+    protected override void OnParametersSet() => searchText = View.Text ?? "";
+
+    private Task Search() =>
+        Pick(View with { Text = string.IsNullOrWhiteSpace(searchText) ? null : searchText.Trim(), Sort = View.Sort == MemoryFactSort.Relevance ? null : View.Sort });
+
+    private async Task Pick(MemoryListView view)
+    {
+        open = null;
+        await OnChange.InvokeAsync(view.FirstPage);
+    }
+
+    private async Task Toggle(string menu)
+    {
+        open = open == menu ? null : menu;
+        (from, to) = (View.From?.ToDateTime(TimeOnly.MinValue), View.To?.ToDateTime(TimeOnly.MinValue));
+        if (open == "subject")
+            await LoadSubjects();
+    }
+
+    /// <summary>The first subjects matching what's typed, with their counts; a reply for older text is dropped.</summary>
+    private async Task LoadSubjects()
+    {
+        int request = ++subjectRequest;
+        var read = await MemoryOps.Subjects.RunAsync(await AuthStateProvider.OperationContextAsync(), Space,
+            string.IsNullOrWhiteSpace(subjectText) ? null : subjectText.Trim(), View.All ? MemoryFactStatus.All : MemoryFactStatus.Current, limit: 20);
+        if (request == subjectRequest)
+            subjects = read.Result?.Subjects ?? [];
+    }
+
+    private static Guid? Id(MemoryCaller author) => author.UserId ?? author.AgentId;
+
+    private string AuthorName(Guid id) =>
+        id == Me ? "Me" : Authors.FirstOrDefault(a => Id(a) == id)?.Name is { Length: > 0 } name ? name : "one author";
+
+    private static DateOnly? From(DateTime? day) => day is { } d ? DateOnly.FromDateTime(d) : null;
+
+    private static string CitesLabel(MemoryCites cites) => cites switch
+    {
+        MemoryCites.Some => "Sources: cites one",
+        MemoryCites.None => "Sources: none",
+        _ => "Sources",
+    };
+
+    private string RecordedLabel() => (View.From, View.To) switch
+    {
+        (null, null) => "Recorded",
+        ({ } f, null) => $"Recorded from {f:MMM d, yyyy}",
+        (null, { } t) => $"Recorded through {t:MMM d, yyyy}",
+        ({ } f, { } t) => $"Recorded {f:MMM d} – {t:MMM d, yyyy}",
+    };
+}

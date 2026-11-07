@@ -26,19 +26,15 @@ Connapse is a self-hosted knowledge base for AI agents. Point it at your files, 
 
 ## Quick start
 
-You need Docker with the Compose plugin, Git, about 8 GB of free memory and port 5001 free.
+You need Docker with Compose 2.34 or later, about 8 GB of free memory and port 5001 free.
 
 ```bash
-git clone https://github.com/Destrayon/Connapse.git
-cd Connapse
-cp .env.example .env
-docker compose --profile with-ollama up -d
-docker compose exec ollama ollama pull nomic-embed-text
+docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y
 ```
 
-The first start builds the web image from source, which takes several minutes. When it is done, <http://localhost:5001> shows a setup form: create the owner account, make a container, upload a document and search it. You get passages from your document, each labelled with the file it came from. The [Quickstart](docs/get-started/quickstart.md) walks through each step.
+That's the whole setup: nothing to clone and no file to edit. Connapse makes its own passwords and downloads its embedding model on the first start. Open <http://localhost:5001>, create the owner account, make a container, upload a document or a whole folder, and search it. You get passages from your documents, each labelled with the file it came from. The [Quickstart](docs/get-started/quickstart.md) walks through each step.
 
-To skip the build, the [install guide](docs/self-host/install.md) covers the prebuilt image, other embedding providers, GPUs and the optional reranker.
+The [install guide](docs/self-host/install.md) covers other embedding providers, GPUs, the optional reranker and running from a clone.
 
 <p align="center">
   <img src="docs/demos/quickstart-zero-to-result.gif" alt="Quick start: start Connapse with Docker Compose, create the owner account, upload a PDF and search it to get a cited passage" width="100%" />

@@ -43,7 +43,7 @@ public class ConnectorFileResourceUriTests
     [Fact]
     public void ConnectorFile_WithoutResourceUri_LeavesItNull()
     {
-        // Filesystem, SFTP and managed storage have no meaningful external address. They are not
+        // SFTP and managed storage have no meaningful external address. They are not
         // broken for lacking one; they are simply not describable by a cloud RBAC scope, and a
         // null here is what makes that explicit rather than inventing a scheme for them.
         var file = new ConnectorFile("/a.md", 1, DateTime.UnixEpoch, null);

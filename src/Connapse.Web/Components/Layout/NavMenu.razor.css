@@ -182,3 +182,14 @@
         overflow-y: auto;
     }
 }
+
+.nav-item ::deep .nav-new-badge {
+    margin-left: auto;
+    font-size: 0.65rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.2rem 0.45rem;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+}

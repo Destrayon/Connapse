@@ -93,15 +93,12 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
     private sealed class EmptyListingConnector : IConnector
     {
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
         public string ResolveJobPath(string relativePath) => "/" + relativePath.TrimStart('/');
         public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
         public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
             => Task.FromResult<Stream>(new MemoryStream());
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     /// <summary>
@@ -112,15 +109,12 @@ public class DeleteGuardIntegrationTests(SharedWebAppFixture fixture)
     private sealed class FixedListingConnector(IReadOnlyList<ConnectorFile> files) : IConnector
     {
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
         public string ResolveJobPath(string relativePath) => "/" + relativePath.TrimStart('/');
         public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
             => Task.FromResult(files);
         public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
             => Task.FromResult<Stream>(new MemoryStream());
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     [Fact]

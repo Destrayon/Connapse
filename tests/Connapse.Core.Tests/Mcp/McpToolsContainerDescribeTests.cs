@@ -19,7 +19,7 @@ public class McpToolsContainerDescribeTests
 
     public McpToolsContainerDescribeTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _documentStore = Substitute.For<IDocumentStore>();
 
         _containerStore

@@ -2,11 +2,13 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Text.Json;
+using Connapse.Core.Interfaces;
 using Connapse.Identity.Authentication;
 using Connapse.Web.Mcp;
 using Connapse.Web.Services.GenericApi;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Server;
 
@@ -123,14 +125,18 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
         var http = fixture.AdminClient;
         string empty = await CreateContainerAsync(http, "authz-approve-empty");
         string full = await CreateContainerAsync(http, "authz-approve-full");
+        string? space = null;
         try
         {
             string first = await UploadAsync(http, full, "first.txt");
             string second = await UploadAsync(http, full, "second.txt");
             string third = await UploadAsync(http, full, "third.txt", "/probe");
             var remembered = await agent.CallToolAsync("memory_remember",
-                new Dictionary<string, object?> { ["containerId"] = full, ["subject"] = "probe", ["attribute"] = "kept", ["value"] = "yes" });
-            string fact = JsonDocument.Parse(Text(remembered)).RootElement.GetProperty("remembered").GetProperty("id").GetString()!;
+                new Dictionary<string, object?> { ["space"] = "my-memory", ["subject"] = "probe", ["attribute"] = "kept", ["value"] = "yes" });
+            JsonElement saved = JsonDocument.Parse(Text(remembered)).RootElement;
+            string fact = saved.GetProperty("remembered").GetProperty("id").GetString()!;
+            // CON-235: a fact citing nothing goes to the caller's own personal space, so it is forgotten from there.
+            space = saved.GetProperty("savedTo").GetProperty("id").GetString()!;
 
             (string Tool, Dictionary<string, object?> Arguments, Func<Task<bool>> Unchanged)[] cases =
             [
@@ -142,8 +148,8 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{second}")).IsSuccessStatusCode),
                 (McpApiTools.WriteName, new() { ["operation"] = "folders.delete", ["parameters"] = new Dictionary<string, object?> { ["containerId"] = full, ["path"] = "/probe", ["cascade"] = true } },
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{third}")).IsSuccessStatusCode),
-                ("memory_forget", new() { ["containerId"] = full, ["factId"] = fact },
-                    async () => Text(await agent.CallToolAsync("memory_recall", new Dictionary<string, object?> { ["containerId"] = full, ["subject"] = "probe" })).Contains(fact)),
+                ("memory_forget", new() { ["containerId"] = space, ["factId"] = fact },
+                    async () => Text(await agent.CallToolAsync("memory_recall", new Dictionary<string, object?> { ["containerId"] = space, ["subject"] = "probe" })).Contains(fact)),
             ];
             Tools.Where(t => t.Value.Risk == "destructive").Select(t => t.Key)
                 .Should().BeEquivalentTo(cases.Select(c => c.Tool), "each destructive tool needs a case here");
@@ -175,6 +181,11 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                     foreach (var file in files.EnumerateArray())
                         await http.DeleteAsync($"/api/containers/{container}/files/{file.GetProperty("id").GetString()}");
                 await http.DeleteAsync($"/api/containers/{container}");
+            }
+            if (space is not null)
+            {
+                await using var scope = fixture.Factory.Services.CreateAsyncScope();
+                await scope.ServiceProvider.GetRequiredService<IContainerStore>().DeleteAsync(Guid.Parse(space));
             }
         }
     }

@@ -23,7 +23,7 @@ public class McpToolsContainerStatsTests
 
     public McpToolsContainerStatsTests()
     {
-        _containerStore = Substitute.For<IContainerStore>();
+        _containerStore = ContainerStoreFakes.Create();
         _documentStore = Substitute.For<IDocumentStore>();
         _modelDiscovery = Substitute.ForPartsOf<VectorModelDiscovery>(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(),

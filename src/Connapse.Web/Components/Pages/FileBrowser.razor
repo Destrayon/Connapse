@@ -59,9 +59,6 @@
                     <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
                 </li>
                 <li class="nav-item">
-                    <button id="memory-tab" class="nav-link @(activeTab == "memory" ? "active" : "")" @onclick='() => activeTab = "memory"'>Memory</button>
-                </li>
-                <li class="nav-item">
                     <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
                 </li>
             }
@@ -87,6 +84,7 @@
             <input type="file" multiple
                    accept=".pdf,.md,.txt,.docx,.pptx,.csv,.json,.xml,.yaml,.yml,.html,.htm,.eml,.msg,.epub"
                    id="fileUploadInput" style="display: none;" />
+            <FolderUploadButton />
         }
     </div>
 </div>
@@ -201,7 +199,7 @@
 
 @if (activeTab == "memory" && container is not null)
 {
-    <Connapse.Web.Components.Memory.MemoryTab ContainerId="@ContainerId" CanEdit="canEdit" />
+    <Connapse.Web.Components.Memory.MemoryFactList Space="@ContainerId" CanEdit="canEdit" />
 }
 
 @* Upload Drop Zone — always rendered so JS event listeners survive navigation *@
@@ -215,9 +213,11 @@
                 <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
                 <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
             </svg>
-            <span>Drop files to upload</span>
+            <span>Drop files or a folder to upload</span>
         </div>
     </div>
+
+    <FolderUploadRun ContainerId="@ContainerId" OnFinished="RefreshEntries" OnFileSettled="RefreshStats" />
 
     @if (isLoading)
     {
@@ -238,7 +238,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.825a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3.5V2a2 2 0 0 1 2-2h4.5a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 10.828 2h3.34a2 2 0 0 1 1.992 2.181L15.523 8H1.477l.636 7h10.87l.637-7z"/>
             </svg>
-            <p>@(canEdit ? "This folder is empty. Upload files or create a subfolder." : "This folder is empty.")</p>
+            <p>@(canEdit ? "This folder is empty. Upload files or a folder, or create a subfolder." : "This folder is empty.")</p>
         </div>
     }
     else
@@ -886,6 +886,9 @@
     [JSInvokable]
     public string GetCurrentPath() => currentPath;
 
+    [JSInvokable]
+    public long GetMaxFileBytes() => FileOps.Upload.MaxFileBytes;
+
     /// <summary>
     /// Optimistic eager insert — JS calls this BEFORE the upload fetch starts so the user
     /// sees a row immediately with a Pending spinner. HandleDropUploadResult later dedups
@@ -894,9 +897,7 @@
     [JSInvokable]
     public async Task AddUploadPlaceholders(string filesJson)
     {
-        var placeholders = System.Text.Json.JsonSerializer.Deserialize<List<UploadPlaceholderDto>>(
-            filesJson,
-            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var placeholders = System.Text.Json.JsonSerializer.Deserialize<List<UploadPlaceholderDto>>(filesJson, System.Text.Json.JsonSerializerOptions.Web);
         if (placeholders is null) return;
 
         foreach (var p in placeholders)
@@ -916,20 +917,22 @@
                 IngestionStatus: DocumentStatus.Queued,
                 ContentType: null);
 
-            var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, p.Name, StringComparison.OrdinalIgnoreCase) > 0);
-            if (insertIdx < 0) insertIdx = entries.Count;
-            entries.Insert(insertIdx, placeholder);
+            InsertByName(placeholder);
         }
 
         await InvokeAsync(StateHasChanged);
     }
 
+    private void InsertByName(BrowseEntryDto entry)
+    {
+        int index = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, entry.Name, StringComparison.OrdinalIgnoreCase) > 0);
+        entries.Insert(index < 0 ? entries.Count : index, entry);
+    }
+
     [JSInvokable]
     public async Task HandleDropUploadResult(string resultJson)
     {
-        var result = System.Text.Json.JsonSerializer.Deserialize<UploadResponseDto>(
-            resultJson,
-            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var result = System.Text.Json.JsonSerializer.Deserialize<UploadResponseDto>(resultJson, System.Text.Json.JsonSerializerOptions.Web);
 
         if (result is not null)
         {
@@ -946,7 +949,7 @@
                     IngestionStatus: DocumentStatus.Queued,
                     ContentType: null);
 
-                // Deduplicate by ID or path — a cloud sync poll or filesystem watcher may have
+                // Deduplicate by ID or path — a cloud sync poll may have
                 // already inserted an entry for the same file with a different document ID.
                 var existingIdx = entries.FindIndex(e =>
                     e.Id == doc.DocumentId ||
@@ -959,9 +962,7 @@
                 }
                 else
                 {
-                    var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, doc.FileName, StringComparison.OrdinalIgnoreCase) > 0);
-                    if (insertIdx < 0) insertIdx = entries.Count;
-                    entries.Insert(insertIdx, newEntry);
+                    InsertByName(newEntry);
                 }
 
                 // Race-recovery: a Hangfire job that finished BEFORE the placeholder
@@ -992,7 +993,8 @@
     [JSInvokable]
     public Task HandleDropUploadError(string error)
     {
-        errorMessage = $"Drop upload failed: {error}";
+        errorMessage = $"Upload failed: {error}";
+        entries.RemoveAll(e => e.Status == "Uploading");
         StateHasChanged();
         return Task.CompletedTask;
     }

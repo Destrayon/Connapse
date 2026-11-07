@@ -23,6 +23,9 @@ public class ContainerKindMigrationTests : IAsyncLifetime
     /// <summary>The last migration before container kinds.</summary>
     private const string BeforeKinds = "20261031235835_RemoveSummaries";
 
+    /// <summary>The last migration before CON-255 deletes the memory of document containers, which this test must not reach.</summary>
+    private const string BeforeContainerMemoryDeleted = "20261104204230_MemoryPagingIndexes";
+
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
         .WithImage("pgvector/pgvector:pg17")
         .WithDatabase("connapse_kind_migration")
@@ -63,7 +66,7 @@ public class ContainerKindMigrationTests : IAsyncLifetime
                 """,
                 fact, container);
 
-            await context.GetService<IMigrator>().MigrateAsync();
+            await context.GetService<IMigrator>().MigrateAsync(BeforeContainerMemoryDeleted);
         }
 
         var factory = new PooledDbContextFactory<KnowledgeDbContext>(Options());

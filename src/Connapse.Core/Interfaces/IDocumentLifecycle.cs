@@ -44,8 +44,9 @@ public interface IDocumentLifecycle
     /// <summary>
     /// Records the background job enqueued for the document at that generation. The stuck-job
     /// sweep checks it: a Queued or Processing document whose job is gone is re-enqueued.
+    /// False when the document is no longer Queued or Processing at that generation.
     /// </summary>
-    Task RecordJobAsync(Guid documentId, int generation, string jobId, CancellationToken ct = default);
+    Task<bool> RecordJobAsync(Guid documentId, int generation, string jobId, CancellationToken ct = default);
 
     /// <summary>The document's current generation, or null when it no longer exists.</summary>
     Task<int?> CurrentGenerationAsync(Guid documentId, CancellationToken ct = default);

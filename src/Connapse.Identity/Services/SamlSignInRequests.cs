@@ -58,24 +58,20 @@ public sealed class SamlSignInRequests(IMemoryCache cache)
         ArgumentException.ThrowIfNullOrWhiteSpace(authnRequestId);
 
         string nonce = SamlNonce.Create();
-        cache.Set(KeyPrefix + nonce, new StartedSignIn(userId, authnRequestId), Lifetime);
+        cache.Set(KeyPrefix + nonce, new OneTimeEntry<StartedSignIn>(new StartedSignIn(userId, authnRequestId)), Lifetime);
         return nonce;
     }
 
     /// <summary>
-    /// The sign-in <paramref name="nonce"/> belongs to, or null. Single use.
+    /// The sign-in <paramref name="nonce"/> belongs to, or null. Single use, even under concurrent
+    /// calls.
     /// </summary>
     public StartedSignIn? Consume(string? nonce)
     {
         if (string.IsNullOrWhiteSpace(nonce))
             return null;
 
-        string key = KeyPrefix + nonce;
-        if (!cache.TryGetValue(key, out StartedSignIn started))
-            return null;
-
-        cache.Remove(key);
-        return started;
+        return cache.TryTakeOnce(KeyPrefix + nonce, out StartedSignIn started) ? started : null;
     }
 }
 

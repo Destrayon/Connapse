@@ -4,14 +4,13 @@ using Azure.Storage.Blobs.Models;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
-using System.Runtime.CompilerServices;
 
 namespace Connapse.Storage.Connectors;
 
 /// <summary>
 /// Read-only Azure Blob Storage connector. Builds a BlobServiceClient from the account +
 /// Connapse's TokenCredential; the internal ctor accepts a prebuilt client for tests
-/// (Azurite cannot authenticate an AAD TokenCredential). SupportsLiveWatch = false.
+/// (Azurite cannot authenticate an AAD TokenCredential).
 /// </summary>
 public sealed class AzureBlobConnector : IConnector, IDisposable
 {
@@ -36,8 +35,6 @@ public sealed class AzureBlobConnector : IConnector, IDisposable
     }
 
     public ConnectorType Type => ConnectorType.AzureBlob;
-    public bool SupportsLiveWatch => false;
-
     public string ResolveJobPath(string relativePath) => CombinePrefix(relativePath);
 
     /// <summary>
@@ -104,14 +101,6 @@ public sealed class AzureBlobConnector : IConnector, IDisposable
         }
         return path.Equals(normalizedPrefix, StringComparison.Ordinal)
             || path.StartsWith(normalizedPrefix + "/", StringComparison.Ordinal);
-    }
-
-    public async IAsyncEnumerable<ConnectorFileEvent> WatchAsync([EnumeratorCancellation] CancellationToken ct = default)
-    {
-        throw new NotSupportedException("Azure Blob connector does not support live watch.");
-#pragma warning disable CS0162
-        yield break;
-#pragma warning restore CS0162
     }
 
     private string CombinePrefix(string tail)

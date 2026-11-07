@@ -101,8 +101,6 @@ public sealed partial class JiraProjectConnector(
 
     public ConnectorType Type => ConnectorType.Atlassian;
 
-    public bool SupportsLiveWatch => false;
-
     private static bool IsUnavailable(Exception ex, CancellationToken ct) =>
         ex is HttpRequestException or AtlassianMalformedResponseException or JsonException
         || (ex is TaskCanceledException && !ct.IsCancellationRequested);
@@ -670,9 +668,6 @@ public sealed partial class JiraProjectConnector(
 
     /// <summary>Returned unchanged: a document's path is already the id-based form this connector reads.</summary>
     public string ResolveJobPath(string relativePath) => relativePath;
-
-    public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) =>
-        throw new NotSupportedException("Jira sources are polled; they do not support live watch.");
 
     // ── Sync ───────────────────────────────────────────────────────────────
 

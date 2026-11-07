@@ -1,0 +1,425 @@
+@page "/memory"
+@rendermode InteractiveServer
+@attribute [Authorize(Policy = "RequirePerson")]
+@using Connapse.Application.Memory
+@using Connapse.Web.Components.Memory
+@inject MemorySpaceOperations Spaces
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<PageTitle>Memory - Connapse</PageTitle>
+
+@* Every place the signed-in person's memory lives: their personal spaces and the team spaces. Up to nine show as cards
+   in two sections; past that, a paged table with find, kind filters and sort, its view kept in the page address. *@
+<div class="memory-page-header">
+    <div>
+        <h1>Memory</h1>
+        <p class="page-subtitle">Facts your agents save and recall. Personal spaces are only yours. Team spaces are shared with everyone in this Connapse.</p>
+    </div>
+    @if (audience?.CanAdd == true)
+    {
+        <button id="memory-new-space" class="btn btn-primary" @onclick="() => creating = true">
+            <span class="bi-plus-lg me-1" aria-hidden="true"></span> New space
+        </button>
+    }
+</div>
+
+@if (errorMessage is not null)
+{
+    <div class="alert alert-danger alert-dismissible" role="alert">
+        @errorMessage
+        <button type="button" class="btn-close" aria-label="Close" @onclick="() => errorMessage = null"></button>
+    </div>
+}
+@if (notice is not null)
+{
+    <div id="memory-spaces-notice" class="alert alert-success alert-dismissible" role="status">
+        @notice
+        <button type="button" class="btn-close" aria-label="Close" @onclick="() => notice = null"></button>
+    </div>
+}
+
+@if (spacesTotal is null)
+{
+    <div class="text-center py-5">
+        <div class="spinner-border text-accent" role="status"><span class="visually-hidden">Loading spaces</span></div>
+    </div>
+}
+else if (spacesTotal == 0)
+{
+    <div id="memory-spaces-empty" class="spaces-empty">
+        <span class="bi-lightbulb spaces-empty-icon" aria-hidden="true"></span>
+        <p class="spaces-empty-title">No memory yet</p>
+        <p>
+            @(audience?.CanAdd == true
+                ? "Make a space, and your agents can save facts to it as they work."
+                : "Team spaces show here once someone makes them.")
+        </p>
+    </div>
+}
+else if (Cards)
+{
+    var personal = items.Where(s => s.Kind == MemorySpaceKind.Personal).ToList();
+    var team = items.Where(s => s.Kind == MemorySpaceKind.Team).ToList();
+
+    @if (personal.Count > 0)
+    {
+        <section id="memory-section-personal" class="spaces-section">
+            <h2 class="spaces-section-title">
+                <span class="bi-lock kind-personal" aria-hidden="true"></span> Personal
+                <span class="spaces-section-hint">Only you and your agents see these.</span>
+            </h2>
+            <div class="space-grid">
+                @foreach (var space in personal)
+                {
+                    @Card(space)
+                }
+            </div>
+        </section>
+    }
+    @if (team.Count > 0)
+    {
+        <section id="memory-section-team" class="spaces-section">
+            <h2 class="spaces-section-title">
+                <span class="bi-people kind-team" aria-hidden="true"></span> Team
+                <span class="spaces-section-hint">Everyone in this Connapse can search these. Editors and admins can add to them.</span>
+            </h2>
+            <div class="space-grid">
+                @foreach (var space in team)
+                {
+                    @Card(space)
+                }
+            </div>
+        </section>
+    }
+}
+else
+{
+    <div class="spaces-panel">
+        <div class="spaces-toolbar">
+            <div class="spaces-find">
+                <span class="bi-search" aria-hidden="true"></span>
+                <input id="memory-spaces-find" type="search" class="form-control form-control-sm" maxlength="200"
+                       placeholder="Find a space by name or description" aria-label="Find a space by name or description"
+                       value="@findText" @oninput="OnFind" />
+            </div>
+            <div class="spaces-pills" role="group" aria-label="Show">
+                @Pill("all", "All", counts?.All, view.Kind is null && !view.Starred, view.FirstPage with { Kind = null, Starred = false })
+                @Pill("starred", "Starred", counts?.Starred, view.Starred, view.FirstPage with { Kind = null, Starred = true })
+                @Pill("personal", "Personal", counts?.Personal, view.Kind == MemorySpaceKind.Personal, view.FirstPage with { Kind = MemorySpaceKind.Personal, Starred = false })
+                @Pill("team", "Team", counts?.Team, view.Kind == MemorySpaceKind.Team, view.FirstPage with { Kind = MemorySpaceKind.Team, Starred = false })
+            </div>
+            <label class="spaces-sort">
+                <span>Sort:</span>
+                <select id="memory-spaces-sort" class="form-select form-select-sm" value="@SortValue(view.Sort)" @onchange="OnSort">
+                    @foreach (MemorySpaceSort sort in Enum.GetValues<MemorySpaceSort>())
+                    {
+                        <option value="@SortValue(sort)">@MemorySpacesView.SortLabel(sort)</option>
+                    }
+                </select>
+            </label>
+        </div>
+
+        @if (isLoading && items.Count == 0)
+        {
+            <div class="spaces-empty">
+                <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Loading spaces</span></div>
+            </div>
+        }
+        else if (items.Count == 0)
+        {
+            <div id="memory-spaces-no-matches" class="spaces-empty">
+                <span class="bi-search spaces-empty-icon" aria-hidden="true"></span>
+                <p class="spaces-empty-title">@(view.Text is { } text ? $"No spaces match “{text}”" : "No spaces here")</p>
+                <button class="btn btn-sm btn-outline-secondary mt-2" @onclick="() => Go(new MemorySpacesView(Sort: view.Sort))">Show all spaces</button>
+            </div>
+        }
+        else
+        {
+            <table class="spaces-table">
+                <thead>
+                    <tr>
+                        <th class="col-star"><span class="visually-hidden">Starred</span></th>
+                        <th>Space</th>
+                        <th class="col-kind">Kind</th>
+                        <th class="col-desc">What belongs here</th>
+                        <th class="col-facts">Facts</th>
+                        <th class="col-updated">Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var space in items)
+                    {
+                        <tr data-space-id="@space.Id">
+                            <td class="col-star">@Star(space)</td>
+                            <td class="space-name"><a href="@Href(space)">@space.Name</a></td>
+                            <td class="col-kind">@KindBadge(space.Kind)</td>
+                            <td class="col-desc">@space.Description</td>
+                            <td class="col-facts">@space.Facts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</td>
+                            <td class="col-updated" title="@Absolute(space.UpdatedAt)">@MemoryFactList.Relative(space.UpdatedAt)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <div class="spaces-footer">
+                <span id="memory-spaces-range">@view.Range(items.Count, matching)</span>
+                <span class="spaces-pager">
+                    <button id="memory-spaces-prev" class="btn btn-sm btn-outline-secondary" disabled="@(isLoading || view.Page <= 1)" @onclick="Previous">
+                        <span class="bi-chevron-left me-1" aria-hidden="true"></span>Previous
+                    </button>
+                    <button id="memory-spaces-next" class="btn btn-sm btn-outline-secondary" disabled="@(isLoading || nextCursor is null)" @onclick="Next">
+                        Next<span class="bi-chevron-right ms-1" aria-hidden="true"></span>
+                    </button>
+                </span>
+            </div>
+        }
+    </div>
+}
+
+@if (creating && audience is not null)
+{
+    <NewMemorySpaceDialog Accounts="audience.Accounts" OnCreated="OnCreated" OnClose="() => creating = false" />
+}
+
+@code {
+    /// <summary>The personal space every writer has, named as an agent's save names it (MemoryRules.MyMemory).</summary>
+    public const string MyMemory = "my-memory";
+
+    private MemorySpacesView view = new();
+    private List<MemorySpaceView> items = [];
+    private MemorySpaceCounts? counts;
+    // The spaces matching the view's filters, for "1–50 of 165 spaces".
+    private int matching;
+    private string? nextCursor;
+    // Each page's cursor in the view on screen, so Previous can go back to it; page 1 has none.
+    private readonly Dictionary<int, string> pageCursors = [];
+    // Every space the person may see, unfiltered; it alone decides between cards and the table, so typing in the find
+    // box never flips the page between them.
+    private int? spacesTotal;
+    private MemorySpaceAudience? audience;
+    private string? findText;
+    private int loadRequest;
+    private bool isLoading = true;
+    private bool disposed;
+    private bool creating;
+    private string? errorMessage;
+    private string? notice;
+
+    private bool Cards => spacesTotal <= MemorySpacesView.MostCards;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        var context = await AuthStateProvider.OperationContextAsync();
+        audience = await Spaces.List.AudienceAsync(context);
+        if (audience.CanAdd)
+            await EnsureMyMemoryAsync(context);
+        await LoadAsync(MemorySpacesView.Parse(Navigation.Uri), fresh: true);
+    }
+
+    public void Dispose()
+    {
+        disposed = true;
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    /// <summary>
+    /// Makes the person's <c>my-memory</c> space the first time they open the page, starred so it lists first, as
+    /// an agent's first personal save would make it. One they already have is refused as a duplicate and left alone,
+    /// so a star they removed stays removed.
+    /// </summary>
+    private async Task EnsureMyMemoryAsync(Connapse.Application.OperationContext context)
+    {
+        var made = await Spaces.Create.RunAsync(context,
+            new NewMemorySpace(MyMemory, "Your own memory: only you see what is saved here.", MemorySpaceKind.Personal));
+        if (made.Succeeded && Guid.TryParse(made.Result!.Id, out Guid id))
+            await Spaces.Star.RunAsync(context, id);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(async () =>
+    {
+        // Only this page's own address changes; leaving it disposes the page.
+        if (disposed || Navigation.ToBaseRelativePath(e.Location).Split('?', '#')[0] != "memory") return;
+        MemorySpacesView next = MemorySpacesView.Parse(e.Location);
+        if (next == view) return;
+        await LoadAsync(next);
+        StateHasChanged();
+    });
+
+    /// <summary>Puts <paramref name="next"/> in the address; the address change loads it.</summary>
+    private void Go(MemorySpacesView next, bool replace = false) =>
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameters(next.Address()), replace: replace);
+
+    private void OnFind(ChangeEventArgs e)
+    {
+        findText = e.Value?.ToString();
+        // Each keystroke replaces the address rather than adding to Back; a reply for an earlier one is dropped.
+        Go(view.FirstPage with { Text = Trimmed(findText) }, replace: true);
+    }
+
+    private void OnSort(ChangeEventArgs e) => Go(view.FirstPage with
+    {
+        Sort = e.Value?.ToString() switch { "name" => MemorySpaceSort.Name, "facts" => MemorySpaceSort.Facts, _ => MemorySpaceSort.Updated },
+    });
+
+    // While a page loads, view is already the next page but nextCursor is still the old one's, so paging waits.
+    private void Next()
+    {
+        if (!isLoading && nextCursor is not null)
+            Go(view with { Cursor = nextCursor, Page = view.Page + 1 });
+    }
+
+    private void Previous()
+    {
+        if (!isLoading)
+            Go(Before(view));
+    }
+
+    // A page reached by a link has no earlier cursors here, so the page before it is the first.
+    private MemorySpacesView Before(MemorySpacesView page) =>
+        page.Page > 2 && pageCursors.TryGetValue(page.Page - 1, out string? cursor) ? page with { Cursor = cursor, Page = page.Page - 1 } : page.FirstPage;
+
+    /// <summary>
+    /// Loads the page <paramref name="next"/> names, and the unfiltered total that decides between cards and the table
+    /// when it isn't known or <paramref name="fresh"/> says spaces may have come or gone. Cards ignore the address's
+    /// filters, since they show every space. A reply for an earlier view is dropped.
+    /// </summary>
+    private async Task LoadAsync(MemorySpacesView next, bool fresh = false)
+    {
+        int request = ++loadRequest;
+        if (fresh || next.FirstPage != view.FirstPage)
+            pageCursors.Clear();
+        // The box keeps what was typed, spaces included, unless the address now names other text (Back, a link).
+        if (Trimmed(findText) != next.Text)
+            findText = next.Text;
+        (view, isLoading) = (next, true);
+        var context = await AuthStateProvider.OperationContextAsync();
+        MemorySpaceQuery everything = new(Limit: MemorySpacesView.PageSize);
+
+        int? total = fresh ? null : spacesTotal;
+        if (total is null && next.Text is not null)
+        {
+            // Counts follow the find text, so the unfiltered total comes from one row of the unfiltered list.
+            var all = await Spaces.List.RunAsync(context, new MemorySpaceQuery(Limit: 1));
+            if (request != loadRequest) return;
+            if (!all.Succeeded)
+            {
+                Failed(all.Detail);
+                return;
+            }
+            total = all.Result!.Counts.All;
+        }
+        // Cards show every space, so the table's filters in the address don't narrow them.
+        bool cards = total <= MemorySpacesView.MostCards;
+        var read = await Spaces.List.RunAsync(context, cards ? everything : next.Query);
+        if (request != loadRequest) return;
+        if (read.Succeeded && (cards || next.Text is null))
+            total = read.Result!.Counts.All;
+        if (read.Succeeded && !cards && total <= MemorySpacesView.MostCards)
+        {
+            // Learned only now that every space fits on cards.
+            (cards, read) = (true, await Spaces.List.RunAsync(context, everything));
+            if (request != loadRequest) return;
+        }
+        if (!cards && read.Field == "cursor" && next.Cursor is not null)
+        {
+            // A link to a page of another view, or one that's gone stale: start the same view from its first page.
+            Go(next.FirstPage, replace: true);
+            return;
+        }
+        if (!read.Succeeded)
+        {
+            Failed(read.Detail);
+            return;
+        }
+        var page = read.Result!;
+        if (!cards && page.Items.Count == 0 && next.Cursor is not null)
+        {
+            // A later page emptied since, or reopened from an old link: step back to a page that has spaces.
+            Go(Before(next), replace: true);
+            return;
+        }
+        (items, counts, matching, nextCursor, isLoading, spacesTotal) = ([.. page.Items], page.Counts, page.Total, page.NextCursor, false, total);
+        if (next.Cursor is not null)
+            pageCursors[next.Page] = next.Cursor;
+    }
+
+    private static string? Trimmed(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    private void Failed(string? detail)
+    {
+        (errorMessage, isLoading) = (detail ?? "The spaces couldn't be listed.", false);
+        spacesTotal ??= 0;
+    }
+
+    /// <summary>Stars or unstars a space for the person, then reads the same view again, since starred spaces list first.</summary>
+    private async Task ToggleStar(MemorySpaceView space)
+    {
+        if (!Guid.TryParse(space.Id, out Guid id)) return;
+        var context = await AuthStateProvider.OperationContextAsync();
+        var done = space.Starred ? await Spaces.Unstar.RunAsync(context, id) : await Spaces.Star.RunAsync(context, id);
+        if (!done.Succeeded)
+        {
+            errorMessage = done.Detail ?? "The star wasn't saved.";
+            return;
+        }
+        await LoadAsync(view);
+    }
+
+    private async Task OnCreated(MemorySpaceView created)
+    {
+        creating = false;
+        notice = created.Kind == MemorySpaceKind.Team
+            ? $"Made team space {created.Name}. Everyone with an account here can search it."
+            : $"Made personal space {created.Name}. Only you and your agents see it.";
+        await LoadAsync(view, fresh: true);
+    }
+
+    private static string Href(MemorySpaceView space) =>
+        $"memory/{space.Id}";
+
+    private static string SortValue(MemorySpaceSort sort) => sort switch
+    {
+        MemorySpaceSort.Name => "name",
+        MemorySpaceSort.Facts => "facts",
+        _ => "updated",
+    };
+
+    private static string Absolute(DateTimeOffset at) =>
+        at.UtcDateTime.ToString("MMM d, yyyy, HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string FactsLabel(int facts) =>
+        facts == 1 ? "1 fact" : $"{facts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} facts";
+
+    private RenderFragment Card(MemorySpaceView space) => @<div class="space-card" data-space-id="@space.Id">
+        <div class="space-card-top">
+            @KindBadge(space.Kind)
+            @Star(space)
+        </div>
+        <a class="space-card-name stretched-link" href="@Href(space)">@space.Name</a>
+        <p class="space-card-desc">@space.Description</p>
+        <div class="space-card-meta">
+            <span>@FactsLabel(space.Facts)</span>
+            <span title="@Absolute(space.UpdatedAt)">Updated @MemoryFactList.Relative(space.UpdatedAt)</span>
+        </div>
+    </div>;
+
+    private RenderFragment Star(MemorySpaceView space) => @<button type="button" class="star-toggle @(space.Starred ? "starred" : "")"
+            aria-pressed="@(space.Starred ? "true" : "false")" aria-label="@(space.Starred ? $"Unstar {space.Name}" : $"Star {space.Name}")"
+            title="@(space.Starred ? "Starred: lists first" : "Star to list first")" @onclick="() => ToggleStar(space)">
+        <span class="@(space.Starred ? "bi-star-fill" : "bi-star")" aria-hidden="true"></span>
+    </button>;
+
+    private static RenderFragment KindBadge(MemorySpaceKind kind) => kind switch
+    {
+        MemorySpaceKind.Personal => @<span class="kind-badge kind-badge-personal"><span class="bi-lock-fill" aria-hidden="true"></span> Only you</span>,
+        _ => @<span class="kind-badge kind-badge-team"><span class="bi-people-fill" aria-hidden="true"></span> Team</span>,
+    };
+
+    private RenderFragment Pill(string key, string label, int? count, bool active, MemorySpacesView target) =>
+        @<button type="button" id="memory-spaces-pill-@key" class="spaces-pill @(active ? "active" : "")" aria-pressed="@(active ? "true" : "false")"
+                 @onclick="() => Go(target)">
+            @label <span class="pill-count">@count?.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</span>
+        </button>;
+}

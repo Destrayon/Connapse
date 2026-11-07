@@ -11,10 +11,11 @@ Use this when you want to move a running Connapse server to a newer release, and
 
 ## Prerequisites
 
-- Shell access to the Docker host, in the folder that holds `docker-compose.yml`.
+- Shell access to the Docker host, in the folder you start Connapse from.
 - A backup from the last hour, made with [Back up and restore Connapse](backup-and-restore.md). Rolling back means restoring it.
 - The [CHANGELOG](../../CHANGELOG.md) entries between your version and the new one, read for breaking changes and security fixes.
 - From v0.3.x, start with [From v0.3.x to v0.4.0](#from-v03x-to-v040), which uses the steps below. That upgrade removes the documents of every S3, Azure Blob and filesystem container, so save their settings first.
+- If you use Filesystem sources, the upgrade deletes them, their connections and everything indexed from them, and that can't be undone. Filesystem sources no longer exist, so note their folders first and [add them again over SFTP](../sources/sftp.md) afterwards.
 
 ## Steps
 
@@ -22,7 +23,15 @@ Use this when you want to move a running Connapse server to a newer release, and
 
 2. Get the new version.
 
-   If you run the prebuilt image, set the release in `.env` and pull it:
+   If you started from the published file, run the same command again. It always follows the newest stable release, so go to step 4 afterwards:
+
+   ```bash
+   docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y
+   ```
+
+   To move to one release instead, use its tag, such as `oci://ghcr.io/destrayon/connapse:compose-v0.4.0`, and leave `CONNAPSE_VERSION` out of `.env` or set it to the same release.
+
+   If you run the prebuilt image from a downloaded file, set the release in `.env` and pull it:
 
    ```bash
    # in .env
@@ -40,10 +49,10 @@ Use this when you want to move a running Connapse server to a newer release, and
    git checkout v0.4.0
    ```
 
-3. Restart with the new version, with the profiles you normally use. Add `--build` when you build from source:
+3. Restart with the new version. Add `--build` when you build from source:
 
    ```bash
-   docker compose --profile with-ollama up -d --build
+   docker compose up -d
    ```
 
    Database migrations run automatically when the web app starts, before it serves requests. Your volumes are kept.
@@ -54,6 +63,8 @@ Use this when you want to move a running Connapse server to a newer release, and
    docker compose logs -f web
    ```
 
+   If you started from the published file, name the project: `docker compose -p connapse logs -f web`.
+
 5. Check the server:
 
    ```bash
@@ -61,6 +72,23 @@ Use this when you want to move a running Connapse server to a newer release, and
    ```
 
    `/health` returns `200 OK`. Then sign in and run a search in a container you know.
+
+## Moving to the one-command start
+
+Your passwords and data don't change. On the first start of the new compose file, the `setup` service sees your existing data and keeps your passwords: the ones in `.env` if you have one, otherwise the old `connapse_dev` defaults. If you were using those defaults, set your own passwords now, because they are public:
+
+- PostgreSQL keeps the password its data was created with, so change it there first, with `docker compose exec postgres psql -U connapse -c "ALTER USER connapse PASSWORD 'new-password'"`, then put the same value in `.env` as `POSTGRES_PASSWORD`.
+- MinIO reads its password on each start, so only put the new values in `.env` as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`.
+
+Then run `docker compose up -d`. `setup` saves the new values, and MinIO and the app restart to pick them up.
+
+Keep the same Compose project, because the volumes belong to it. A downloaded file or a clone takes its project name from its folder, and the published file always uses `connapse`. `docker compose ls` lists the projects on the host. To move a folder install to the published file, pass the old name: `docker compose -p <old-name> -f oci://ghcr.io/destrayon/connapse:compose up -d -y`, and use `-p <old-name>` wherever these docs say `-p connapse`. To move from the published file to a folder, put `COMPOSE_PROJECT_NAME=connapse` in that folder's `.env`. With a new project name, the server starts empty, and the old data waits in the old volumes.
+
+Three things behave differently:
+
+- The `with-ollama` profile is gone, and Ollama starts by default. If you use a hosted provider, set `CONNAPSE_LOCAL_MODEL=off` in `.env` before you upgrade, or Ollama starts with no use. Connapse only downloads the model when Ollama is the provider.
+- To keep the reranker on with a plain `docker compose up -d`, set `COMPOSE_PROFILES=with-reranker` in `.env`. `--profile with-reranker` still works.
+- A clone now runs the prebuilt image. Add `--build` to run the code you checked out.
 
 ## From v0.3.x to v0.4.0
 
@@ -94,6 +122,8 @@ v0.4.0 replaces a container's connector with sources and removes several old int
 
 10. Ask everyone who linked an AWS or Azure account to link it again under **Profile** → **Integrations**.
 
+    An address set in the deployment now beats one saved on the **Settings** page, as [Where settings come from](../reference/configuration.md#where-settings-come-from) explains. If you saved an Ollama or TEI address of your own on a Compose server, move it to `docker-compose.override.yml`, or the server goes back to the Compose address.
+
 11. Re-read the files whose parser changed, which after this upgrade is most PDF, Word, PowerPoint and text files. To see how many a container has first, with a token that has `knowledge:write`:
 
     ```bash
@@ -117,6 +147,7 @@ From v0.4.0, every REST API error is a [problem](../problems.md): its `type` end
 | Old code in `error` | New `type` slug | Status |
 |---|---|---|
 | `unsupported_file_type` | `unsupported-file-type` | 400 |
+| `file_too_large` | `file-too-large` | 413 |
 | `filename_too_long` | `invalid-file-request`, with `field` set to `fileName` | 400 |
 | `document_not_ready` | `file-not-ready` | 400 |
 | `document_failed` | `file-ingestion-failed` | 400 |

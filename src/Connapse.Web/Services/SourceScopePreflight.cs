@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using Connapse.Core;
 using Connapse.Core.Utilities;
-using Microsoft.Extensions.Options;
 
 namespace Connapse.Web.Services;
 
@@ -15,13 +14,13 @@ namespace Connapse.Web.Services;
 /// the common case fails early and legibly; removing it would cost clarity, not safety.
 /// </para>
 /// <para>
-/// It calls the same primitives the factory calls — <see cref="StorageLocationPolicy"/> and
-/// <see cref="SourceSecuritySettings.EvaluateRoot"/> — rather than restating the rules, because
+/// It calls the same primitive the factory calls — <see cref="StorageLocationPolicy"/> —
+/// rather than restating the rules, because
 /// two implementations of an allowlist will drift and the copy that drifts is the one nobody
 /// re-reads.
 /// </para>
 /// </summary>
-public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> sourceSecurity)
+public class SourceScopePreflight
 {
     /// <summary>
     /// Evaluates the scope against its connection.
@@ -54,7 +53,6 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
         {
             ConnectionProvider.S3 => CheckLocation(credential, scope, "bucketName", "bucket", connection.Name),
             ConnectionProvider.AzureBlob => CheckLocation(credential, scope, "containerName", "container", connection.Name),
-            ConnectionProvider.Filesystem => CheckRoot(credential, scope, connection.Name),
             ConnectionProvider.Sftp => CheckSftpScope(credential, scope, connection.Name),
             _ => ScopePreflightResult.Refuse(
                 $"Connection '{connection.Name}' uses a provider this form does not understand.")
@@ -93,18 +91,10 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
     /// Checks an SFTP scope as far as it can be checked without a network call.
     /// </summary>
     /// <remarks>
-    /// Deliberately does <b>not</b> reuse <see cref="CheckRoot"/>. That path calls
-    /// <see cref="PathConfinement"/> and <see cref="SourceSecuritySettings.EvaluateRoot"/>, both
-    /// of which touch the local disk and read the deployment's own allowed-roots setting —
-    /// answers about the machine Connapse runs on, not the one being connected to. Against a
-    /// remote path they would resolve nothing and silently degrade to a lexical prefix check,
-    /// which is the mistake <c>SftpPathConfinement</c> exists to avoid.
-    /// <para>
-    /// So this catches only what is wrong on its face. The real confinement happens on the
+    /// This catches only what is wrong on its face. The real confinement happens on the
     /// server, through <c>SSH_FXP_REALPATH</c>, at the first connect — the same division of
     /// labour as everywhere else here: this makes the obvious case legible early, and the
     /// connector remains the thing that actually decides.
-    /// </para>
     /// </remarks>
     private static ScopePreflightResult CheckSftpScope(
         JsonObject? credential, JsonObject scope, string connectionName)
@@ -133,37 +123,6 @@ public class SourceScopePreflight(IOptionsMonitor<SourceSecuritySettings> source
         }
 
         return ScopePreflightResult.Allowed;
-    }
-
-    private ScopePreflightResult CheckRoot(JsonObject? credential, JsonObject scope, string connectionName)
-    {
-        string? allowedRoot = Str(credential, "allowedRoot");
-        if (string.IsNullOrWhiteSpace(allowedRoot))
-            return ScopePreflightResult.Refuse($"Connection '{connectionName}' has no allowed root configured.");
-
-        var rootDecision = sourceSecurity.CurrentValue.EvaluateRoot(allowedRoot);
-        if (rootDecision is FilesystemRootDecision.Denied)
-        {
-            return ScopePreflightResult.Refuse(
-                $"Connection '{connectionName}' names a root outside "
-                + $"{SourceSecuritySettings.SectionName}:AllowedFilesystemRoots.");
-        }
-
-        string? subPath = Str(scope, "subPath");
-
-        // The same call the factory makes. Resolves links on every segment, so a subPath
-        // pointing through a junction is refused here rather than at the first sync.
-        if (!string.IsNullOrWhiteSpace(subPath) && PathConfinement.CombineWithin(allowedRoot, subPath) is null)
-        {
-            return ScopePreflightResult.Refuse(
-                $"'{subPath}' resolves outside the root connection '{connectionName}' allows.");
-        }
-
-        return rootDecision is FilesystemRootDecision.UnrestrictedByConfiguration
-            ? ScopePreflightResult.Warn(
-                $"No {SourceSecuritySettings.SectionName}:AllowedFilesystemRoots is configured, so "
-                + $"connection '{connectionName}' may use any root. This becomes an error in a future release.")
-            : ScopePreflightResult.Allowed;
     }
 
     private static string Join(string container, string? prefix) =>

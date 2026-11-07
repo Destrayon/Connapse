@@ -289,6 +289,18 @@ public sealed class ConnectionsEndpointTests(SharedWebAppFixture fixture) : IAsy
     }
 
     [Theory]
+    [InlineData("\"Filesystem\"")]
+    [InlineData("1")]
+    public async Task Create_FilesystemProvider_IsARefusedBadRequest(string provider)
+    {
+        string body = $$$"""{"name":"{{{Unique("folder")}}}","provider":{{{provider}}},"config":{"allowedRoot":"/data"}}""";
+
+        var response = await fixture.AdminClient.PostAsync(Connections, new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Theory]
     [InlineData("Sftp", "config")]
     [InlineData("Atlassian", "provider")]
     [InlineData(null, "provider")]

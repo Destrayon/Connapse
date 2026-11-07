@@ -109,6 +109,13 @@ public static class ServiceCollectionExtensions
         // Embedding providers — resolved at runtime based on EmbeddingSettings.Provider
         services.AddHttpClient<OllamaEmbeddingProvider>().AddProviderResilience("ollama-embeddings");
 
+        // Downloads the bundled Ollama's model. A download takes as long as it takes, so no timeout or resilience here.
+        services.Configure<LocalModelOptions>(configuration.GetSection(LocalModelOptions.Section));
+        services.AddHttpClient(OllamaModelClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddSingleton<OllamaModelClient>();
+        services.AddSingleton<LocalModelDownloadService>();
+        services.AddSingleton<ILocalModelMonitor>(sp => sp.GetRequiredService<LocalModelDownloadService>());
+
         // Roles Anywhere CreateSession calls; named so tests can substitute the transport.
         services.AddHttpClient(CloudScope.ConnapseAwsCredentials.RolesAnywhereHttpClientName);
         services.AddScoped<OpenAiEmbeddingProvider>();
@@ -177,15 +184,8 @@ public static class ServiceCollectionExtensions
         // Vector model discovery (cross-model search support)
         services.AddScoped<VectorModelDiscovery>();
 
-        // Bounds which filesystem roots a source may be pointed at. Bound from configuration
-        // only — never the settings table — because the authority a root confers is the same
-        // class of thing as a cloud credential, which this project refuses to accept over an
-        // API. See SourceSecuritySettings.
-        services.Configure<SourceSecuritySettings>(
-            configuration.GetSection(SourceSecuritySettings.SectionName));
-
-        // Where GitHub docs sources keep their git mirrors. Configuration-only, for the same
-        // reason: it names a directory on the host.
+        // Where GitHub docs sources keep their git mirrors. Bound from configuration only —
+        // never the settings table — because it names a directory on the host.
         services.Configure<GitHubSourceSettings>(
             configuration.GetSection(GitHubSourceSettings.SectionName));
 
