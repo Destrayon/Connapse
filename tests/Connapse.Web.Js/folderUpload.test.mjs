@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-    failureReport, folderFor, fromFolderPicker, planBatches, runFolderUpload, splitByType, uploadItems, walkEntries,
+    failureReport, fileTooLarge, folderFor, fromFolderPicker, planBatches, runFolderUpload, splitBySize, splitByType, uploadItems, walkEntries,
 } from '../../src/Connapse.Web/wwwroot/js/folderUpload.js';
 
 const fileNamed = (name, size = 10) => new File(['x'.repeat(size)], name);
@@ -161,6 +161,21 @@ describe('splitByType', () => {
     });
 });
 
+describe('the upload limit', () => {
+    const MiB = 1024 * 1024;
+
+    test('words a refusal as the server does', () => {
+        assert.equal(fileTooLarge(256 * MiB + 1, 256 * MiB), 'The file is 256.1 MB, over the 256 MB limit.');
+    });
+
+    test('keeps a file at the limit and refuses one past it', () => {
+        const atLimit = item('fits.md', 16);
+        const over = item('over.md', 17);
+
+        assert.deepEqual(splitBySize([atLimit, over], 16), { send: [atLimit], refused: [over] });
+    });
+});
+
 describe('planBatches', () => {
     test('keeps every batch within the file count', () => {
         assert.deepEqual(planBatches(items(250)).map(b => b.length), [100, 100, 50]);
@@ -232,6 +247,33 @@ describe('uploadItems', () => {
         assert.equal(stoppedBecause, null);
         assert.equal(outcomes.size, 30);
         assert.ok([...outcomes.values()].every(e => e.includes('larger')));
+    });
+
+    test('shows the reason the server gave for a file too large', async () => {
+        const detail = 'The file is 300 MB, over the 256 MB limit.';
+
+        const { outcomes } = await upload(items(1), async () => json(413, { detail }));
+
+        assert.equal(outcomes.get('docs/0.md'), detail);
+    });
+
+    test('hands over each answered batch, so a page can show its files as they land', async () => {
+        const answered = [];
+
+        await upload(items(3), acceptingServer().fetchImpl, { maxFiles: 2, concurrency: 1, onSent: documents => answered.push(documents.length) });
+
+        assert.deepEqual(answered, [2, 1]);
+    });
+
+    test('sends a large drop of files in several requests, each to the folder being viewed', async () => {
+        const server = acceptingServer();
+        const dropped = Array.from({ length: 150 }, (_, i) => ({ file: fileNamed(`${i}.md`), relativePath: `${i}.md` }));
+
+        const { outcomes } = await upload(dropped, server.fetchImpl, { basePath: '/sub/' });
+
+        assert.equal(server.requests.length, 2);
+        assert.ok(server.requests.every(request => request.paths.every(path => path === '/sub/')));
+        assert.ok([...outcomes.values()].every(error => error === null));
     });
 
     test('stops after repeated failures and marks every file not attempted', async () => {
@@ -421,6 +463,17 @@ describe('runFolderUpload', () => {
             { path: '/here/top/tool.exe', error: "Connapse can't read .exe files." },
             { path: '/here/top/LICENSE', error: "Connapse can't read files with no extension." },
         ]);
+    });
+
+    test('fails a file over the upload limit without sending it, and sends the rest', async () => {
+        const { requests, fetchImpl } = acceptingServer();
+        const maxFileBytes = 1024 * 1024;
+
+        const state = await run([item('top/small.md'), item('top/big.md', maxFileBytes + 1)], { fetchImpl, maxFileBytes });
+
+        assert.equal(state.succeeded, 1);
+        assert.deepEqual(requests.flatMap(r => r.names), ['small.md']);
+        assert.deepEqual(state.failures, [{ path: '/top/big.md', error: 'The file is 1.1 MB, over the 1 MB limit.' }]);
     });
 
     test('names a file at the top of a folder under the folder being viewed', async () => {

@@ -2,7 +2,9 @@
 // Handles native file drag-and-drop by uploading directly via fetch(),
 // bypassing InputFile which has cross-browser issues with synthetic events.
 
-import { LARGE_FOLDER_FILES, failureReport, fromFolderPicker, runFolderUpload, walkEntries } from './folderUpload.js';
+import {
+    LARGE_FOLDER_FILES, failureReport, fileTooLarge, fromFolderPicker, runFolderUpload, splitBySize, uploadItems, walkEntries,
+} from './folderUpload.js';
 
 // LAYER 1: Document-level prevention — stops the browser from EVER
 // navigating to a dropped file, regardless of element state.
@@ -24,6 +26,7 @@ const PROGRESS_INTERVAL_MS = 500;
 const FAILURES_SHOWN = 200;
 const FAILURES_PER_CALL = 10;
 const FAILURE_TEXT_SHOWN = 400;
+const DROP_FAILURES_SHOWN = 5;
 
 let page = null; // The FileBrowser showing right now, as { dotNetRef, containerId, basePath }.
 let panel = null; // Its FolderUploadRun, as { dotNetRef, containerId }.
@@ -77,6 +80,7 @@ async function startFolderUpload(collect) {
     try {
         const currentPath = await dotNetRef.invokeMethodAsync('GetCurrentPath');
         const supportedExtensions = await panel.dotNetRef.invokeMethodAsync('GetSupportedExtensions');
+        const maxFileBytes = await dotNetRef.invokeMethodAsync('GetMaxFileBytes');
         await report();
 
         const { files, unreadable } = await collect((found) => {
@@ -101,6 +105,7 @@ async function startFolderUpload(collect) {
             basePath: currentPath,
             unreadable: abort.signal.aborted ? [] : unreadable,
             supportedExtensions,
+            maxFileBytes,
             signal: abort.signal,
             onProgress(state) {
                 progress.succeeded = state.succeeded;
@@ -172,17 +177,15 @@ export function initializeDropZone(dropZoneId, dotNetRef, containerId, basePath)
         if (files.length === 0) return;
 
         const currentPath = await dotNetRef.invokeMethodAsync('GetCurrentPath');
+        const maxFileBytes = await dotNetRef.invokeMethodAsync('GetMaxFileBytes');
 
-        const formData = new FormData();
-        const placeholders = [];
-        for (let i = 0; i < files.length; i++) {
-            formData.append('files', files[i]);
-            // Build the virtual path the API will assign so post-fetch dedup matches.
-            // Mirrors the server's logic: currentPath ('/' or '/sub/') + file name.
-            const path = (currentPath === '/' ? '/' : currentPath) + files[i].name;
-            placeholders.push({ name: files[i].name, path: path, sizeBytes: files[i].size });
-        }
-        formData.append('path', currentPath);
+        const items = Array.from(files, (file) => ({ file, relativePath: file.name }));
+        const { send, refused } = splitBySize(items, maxFileBytes);
+        const failures = refused.map(({ file }) => `${file.name}: ${fileTooLarge(file.size, maxFileBytes)}`);
+
+        // Build the virtual path the API will assign so post-fetch dedup matches.
+        // Mirrors the server's logic: currentPath ('/' or '/sub/') + file name.
+        const placeholders = send.map(({ file }) => ({ name: file.name, path: currentPath + file.name, sizeBytes: file.size }));
 
         // Eager-UI: insert placeholder rows BEFORE the upload fetch so the user sees
         // immediate feedback. HandleDropUploadResult dedups by path when the real
@@ -195,20 +198,24 @@ export function initializeDropZone(dropZoneId, dotNetRef, containerId, basePath)
 
         try {
             const prefix = basePath || '';
-            const response = await fetch(`${prefix}/api/containers/${containerId}/files`, {
-                method: 'POST',
-                body: formData
+            await uploadItems(send, {
+                url: `${prefix}/api/containers/${containerId}/files`,
+                basePath: currentPath,
+                signal: new AbortController().signal,
+                onSent: (documents) => dotNetRef.invokeMethodAsync('HandleDropUploadResult',
+                    JSON.stringify({ documents: documents.filter((document) => !document.error) })),
+                onOutcome(item, error) {
+                    if (error) failures.push(`${item.file.name}: ${error}`);
+                },
             });
-
-            if (response.ok) {
-                const result = await response.json();
-                await dotNetRef.invokeMethodAsync('HandleDropUploadResult', JSON.stringify(result));
-            } else {
-                await dotNetRef.invokeMethodAsync('HandleDropUploadError',
-                    `Upload failed (HTTP ${response.status})`);
-            }
         } catch (err) {
-            await dotNetRef.invokeMethodAsync('HandleDropUploadError', err.message);
+            failures.push(err.message);
+        }
+
+        if (failures.length > 0) {
+            const hidden = failures.length - DROP_FAILURES_SHOWN;
+            await dotNetRef.invokeMethodAsync('HandleDropUploadError',
+                failures.slice(0, DROP_FAILURES_SHOWN).join(' ') + (hidden > 0 ? ` And ${hidden} more.` : ''));
         }
     }
 

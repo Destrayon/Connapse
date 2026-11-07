@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Upgrading deletes the AWS SSO and Cognito settings left behind when those sign-ins were removed, client secrets included. Delete the old client in AWS too: clearing the copy here does not revoke it (#448)
+- Files up to the upload limit can really be uploaded: anything over about 30 MB used to fail as a connection error, whatever the limit said. The server, the upload form, folder upload and the admin setting now share `MaxFileBytes`, a file over it gets a clear refusal (`413`, `file-too-large`), and a large upload is held on disk rather than in memory. A reverse proxy needs a body limit 1 MiB above `MaxFileBytes`, so the nginx example now says `257m` (CON-266)
 - Audit entries for actions taken by agents were dropped; they are now recorded under the user the agent acts for
 - Changing one link-search setting on a container no longer resets its other search settings (CON-157)
 - A newly built vector index is used right away instead of being skipped on stale table statistics (CON-34)

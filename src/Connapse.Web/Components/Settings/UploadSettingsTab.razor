@@ -102,7 +102,7 @@
         <div class="col-md-6">
             <label class="form-label" for="maxFile">Max File Size (MiB)</label>
             <InputNumber @bind-Value="MaxFileMib" class="form-control" id="maxFile" min="0" step="any" />
-            <small class="form-text text-muted">Larger files are rejected before parsing (default 256).</small>
+            <small class="form-text text-muted">Larger files are refused at upload, in the browser and over the API (default 256). A reverse proxy needs a body limit above this.</small>
         </div>
 
         <div class="col-md-6">
