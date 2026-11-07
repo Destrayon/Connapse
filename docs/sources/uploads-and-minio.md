@@ -31,6 +31,7 @@ A panel above the file list counts the files as they go. You can keep working in
 
 - **A bad file doesn't stop the rest.** Each file that fails is listed with the reason when the upload ends, and **Download the list** gives you all of them.
 - **Everything in the folder is attempted.** Files Connapse can't read are listed as failed, not skipped silently, so a folder with `.git` or `node_modules` in it lists a lot of them. Upload the folders you want rather than the whole project.
+- **Some folder names can't be kept.** A folder whose name has a backslash in it, which Mac and Linux allow, is listed as failed. Connapse would read the backslash as a folder break, and the file could replace another one.
 - **It's a one-time copy.** Connapse doesn't watch the folder, so later changes on your computer don't reach Connapse. Upload the folder again to replace the files with the same paths. To keep a repository or a bucket in step, [add a source](index.md).
 - **Very large folders ask first.** Over 5,000 files, Connapse tells you the count and waits for you to confirm.
 - **The usual limits apply to each file.** A folder has no size limit of its own, and one upload runs at a time.
