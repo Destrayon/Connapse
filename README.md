@@ -2,110 +2,161 @@
   <img src="connapse-logo-v27-teal.svg" alt="Connapse logo" width="375" />
 </p>
 
+<h1 align="center">The self-hosted knowledge base your AI agents search and remember with, over MCP</h1>
+
 <p align="center">
-  <em>Stop losing context between AI sessions. Give your agents persistent, searchable memory.</em>
+  <em>Your AI agents forget everything between sessions. Connapse fixes that.</em>
 </p>
 
 <p align="center">
+  <a href="https://github.com/Destrayon/Connapse/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build" alt="Build"></a>
+  <a href="https://github.com/Destrayon/Connapse/actions/workflows/ci.yml"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Destrayon/Connapse/badges/tests.json" alt="Tests"></a>
+  <a href="https://github.com/Destrayon/Connapse/releases"><img src="https://img.shields.io/github/v/release/Destrayon/Connapse?label=release" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://dotnet.microsoft.com/"><img src="https://img.shields.io/badge/.NET-10.0-512BD4" alt=".NET"></a>
-  <a href="https://github.com/Destrayon/Connapse/actions"><img src="https://img.shields.io/github/actions/workflow/status/Destrayon/Connapse/ci.yml?branch=main&label=build" alt="Build"></a>
-  <a href="https://github.com/Destrayon/Connapse/actions"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Destrayon/Connapse/badges/tests.json" alt="Tests"></a>
-  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
-  <a href="https://github.com/Destrayon/Connapse/issues"><img src="https://img.shields.io/github/issues/Destrayon/Connapse" alt="GitHub Issues"></a>
-  <a href="https://github.com/Destrayon/Connapse/stargazers"><img src="https://img.shields.io/github/stars/Destrayon/Connapse?style=social" alt="GitHub Stars"></a>
-  <a href="https://glama.ai/mcp/servers/Destrayon/Connapse"><img src="https://glama.ai/mcp/servers/Destrayon/Connapse/badges/score.svg" alt="Connapse MCP server"></a>
-  <a href="https://github.com/Destrayon/Connapse#-quick-start"><img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker" alt="Docker"></a>
+  <a href="https://glama.ai/mcp/servers/Destrayon/Connapse"><img src="https://glama.ai/mcp/servers/Destrayon/Connapse/badges/score.svg" alt="Glama MCP server score"></a>
 </p>
 
 <p align="center">
-  <img src="docs/demos/hero-upload-search.gif" alt="Connapse demo — upload a PDF, search with hybrid vector and keyword search, get results with source citations in seconds" width="720" />
+  <img src="docs/demos/agent-remembers.gif" alt="Connapse demo: an agent searches the knowledge base over MCP, answers with a cited file, remembers the decision in a team memory space, and recalls it with its source in a new session" width="100%" />
 </p>
 
-> *Your AI agents forget everything between sessions. Connapse fixes that.*
+Connapse is a self-hosted knowledge base for AI agents. Point it at your files, SFTP servers, S3 buckets, Azure Blob containers, GitHub repositories, Confluence spaces and Jira projects, and agents reach all of it through an MCP server (the Model Context Protocol, the standard way agents call outside tools) or a REST API. It is RAG with hybrid search and reranking, agent memory that keeps dated facts with their sources, and results that can be trimmed to what each person can open in the source system. It is open source, runs on your own machine with Docker, and is built on .NET 10, PostgreSQL and pgvector.
 
-Every time you start a new conversation, your AI agent starts from zero — no memory of past research, no access to your documents, no accumulated knowledge. Connapse is an open-source knowledge backend that gives agents persistent, searchable memory. Upload documents or point it at your existing Amazon S3 buckets or folders over SFTP. Agents query and build their own research corpus through the MCP server, the REST API, or the CLI. Container-isolated, hybrid search (vector + keyword), self-hosted and private. Deploy in 60 seconds with Docker. Built on .NET 10.
+**Who it's for:** teams and developers who want Claude, Cursor, VS Code or their own agents to work from the company's documents, tickets and code, without sending that data to a hosted service.
 
-<details>
-<summary><strong>🤖 AI Agent Integration</strong> — Claude queries and builds your knowledge base via MCP</summary>
-<br>
+## Quick start
 
-<p align="center">
-  <img src="docs/demos/mcp-agent-integration.gif" alt="Claude querying Connapse knowledge base via MCP server — asks about preventing cascading failures in microservices, gets structured answer with circuit breaker pattern details cited from distributed-systems-notes.md" width="720" />
-</p>
-
-> *AI agents query your knowledge base through the MCP server, receiving structured answers with source citations from your documents.*
-
-</details>
-
-<details>
-<summary><strong>🎛️ Your Knowledge, Your Rules</strong> — Runtime configuration without restarting</summary>
-<br>
-
-<p align="center">
-  <img src="docs/demos/settings-providers.gif" alt="Connapse settings panel — switching embedding providers, adjusting chunking parameters, and configuring search settings at runtime without restart" width="720" />
-</p>
-
-> *Switch embedding providers, tune chunking parameters, and configure search — all at runtime, without restarting.*
-
-</details>
-
----
-
-## 📦 Quick Start
-
-You need Docker with Compose 2.34 or later and port 5001 free.
+You need Docker with Compose 2.34 or later, about 8 GB of free memory and port 5001 free.
 
 ```bash
 docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y
 ```
 
-That's the whole setup: nothing to clone and no file to edit. Connapse makes its own passwords and downloads its embedding model on the first start.
+That's the whole setup: nothing to clone and no file to edit. Connapse makes its own passwords and downloads its embedding model on the first start. Open <http://localhost:5001>, create the owner account, make a container, upload a document or a whole folder, and search it. You get passages from your documents, each labelled with the file it came from. The [Quickstart](docs/get-started/quickstart.md) walks through each step.
 
-Open <http://localhost:5001> and create the owner account. The full walk-through, from upload to a cited search result, is the [Quickstart](docs/get-started/quickstart.md).
+The [install guide](docs/self-host/install.md) covers other embedding providers, GPUs, the optional reranker and running from a clone.
 
-## 🤖 Connect an agent
+<p align="center">
+  <img src="docs/demos/quickstart-zero-to-result.gif" alt="Quick start: start Connapse with Docker Compose, create the owner account, upload a PDF and search it to get a cited passage" width="100%" />
+</p>
 
-Create an agent key at **Agents** → **API Keys**, then add Connapse to your MCP client. For Claude Code:
+## Connect an agent
+
+In Connapse, open **Admin** → **Agents**, create an agent, and give it an API key. Then add Connapse to your MCP client. For Claude Code:
 
 ```bash
 claude mcp add --transport http connapse http://localhost:5001/mcp --header "X-Api-Key: cnp_your_key"
 ```
 
-Agents get 21 named tools, such as `search_knowledge`, `upload_file`, `get_document`, the `code_*` tools and the `memory_*` tools, plus 3 generic tools that reach the rest of the API. Other clients are in [Connect an MCP client](docs/guides/mcp-clients.md), and every tool is in [MCP tools](docs/reference/mcp-tools.md).
+[Connect an MCP client](docs/guides/mcp-clients.md) has the setup for Claude Code, Claude Desktop, VS Code and Cursor, and [Connect Claude to Connapse](docs/get-started/connect-an-agent.md) is a step-by-step tutorial.
 
-## 🚀 Features
+## What your agent gets
 
-- **🗂️ Containers** — Each project gets its own files, vector index and optional settings, with nothing shared between containers.
-- **🔍 Hybrid search** — Vector and keyword search fused together, with optional cross-encoder reranking.
-- **🧠 Your choice of models** — Ollama, OpenAI, Azure OpenAI and Anthropic, changed at runtime without a restart.
-- **🔌 Index what you already have** — Uploads, local folders and SFTP, Amazon S3, Azure Blob Storage, GitHub, Confluence and Jira, and your own systems through a custom source server. Files stay where they are.
-- **🔐 Per-user permissions** — Search results from AWS, Azure, GitHub, Atlassian and custom sources are trimmed to what each person can open in the source system, and fail closed.
-- **🤖 Every surface** — Web UI, REST API, MCP server and the [connapse CLI](https://github.com/Destrayon/connapse-cli).
-- **🐳 Self-hosted** — Docker Compose with PostgreSQL and pgvector, MinIO and optional Ollama. With Ollama, nothing leaves your machine.
+22 named MCP tools, plus 3 generic tools that reach the rest of the REST API. Each key only gets the tools its scopes allow, and deletes over MCP can wait for your approval.
 
-## 📚 Documentation
+| Group | Tools | What they do |
+|---|---|---|
+| Search and documents | `search_knowledge`, `get_document`, `list_files`, `upload_file`, `bulk_upload`, `delete_file`, `bulk_delete` | Search a container or source, read whole documents, and add or remove files |
+| Memory | `memory_spaces`, `memory_remember`, `memory_recall`, `memory_correct`, `memory_timeline`, `memory_forget` | Pick a personal or team memory space, keep dated facts there with their sources, recall them in a later session, and correct them without losing history |
+| Code | `code_find_symbol`, `code_references`, `code_impact`, `code_repo_map` | Find definitions and callers in indexed C#, TypeScript and Python, and see what a change could affect |
+| Containers | `container_list`, `container_describe`, `container_stats`, `container_create`, `container_delete` | List, inspect, create and delete containers |
+
+<p align="center">
+  <img src="docs/demos/code-tools.gif" alt="Code tools: an agent finds a C# method with code_find_symbol, then lists what changing it would affect with code_impact" width="100%" />
+</p>
+
+Every tool and its parameters are in [MCP tools](docs/reference/mcp-tools.md).
+
+## Features
+
+### Hybrid search with reranking
+
+Every search runs vector search and keyword search together and fuses the two rankings, so exact names and paraphrased questions both find their passages. An optional cross-encoder reranker re-scores the top results. See [About search](docs/concepts/search.md) and [Tune search](docs/guides/tune-search.md).
+
+### Memory for agents
+
+An agent saves what it learns as a fact: a subject, an attribute and a value, with the dates it was true and the documents it came from. Every fact goes into a memory space the agent names: a personal space only you and your agents see, or a team space everyone sees, and the agent is told who will see it. A later session recalls it. A correction keeps the old value in history, and forgetting deletes every version. A fact is shown only to people who can read every source it cites, and the **Memory** page shows each space's facts and their history. See [About agent memory](docs/concepts/memory.md).
+
+<p align="center">
+  <img src="docs/demos/memory-history.gif" alt="Memory keeps history: an agent corrects a stored fact as a change, and the timeline shows the old value ending and the new one starting" width="100%" />
+</p>
+
+### Connect your data
+
+Upload files or whole folders, or index them where they live: SFTP servers (including the folders on your own computer), Amazon S3, Azure Blob Storage, GitHub (Markdown docs, or issues and pull requests), Confluence and Jira. Anything else can connect through a custom source server you write against an open protocol. Each container has its own files, vector index and settings. See [Connect your data](docs/sources/index.md) and [file types](docs/reference/file-types.md).
+
+<p align="center">
+  <img src="docs/demos/connect-a-folder.gif" alt="Connect a folder: reach a folder over SFTP as a source, sync it, and search the files it holds" width="100%" />
+</p>
+
+The **Providers** page lists the built-in providers next to any custom source server you add.
+
+<p align="center">
+  <img src="docs/demos/connectors.gif" alt="Connectors: the Providers page, then a custom source server added with its connection checks passing" width="100%" />
+</p>
+
+### Search trimmed to what each person can open
+
+Results from GitHub, Confluence, Jira and custom sources are checked against each reader's own access in the source system, through their linked account. S3 and Azure Blob get the same check once an admin switches on per-user permissions for that provider; until then, everyone who can search a container sees all of it. When filtering is on, a person, or an agent acting for them, never sees a passage they couldn't open in the original, and when the check can't be made the result is left out. See [Permissions](docs/concepts/permissions.md), [Amazon S3](docs/sources/aws-setup.md) and [Azure Blob Storage](docs/sources/azure-setup.md).
+
+<p align="center">
+  <img src="docs/demos/permission-trimmed-search.gif" alt="Same search, two people: a support user gets one shared result, and a finance user, who can open more in the source, also gets a finance-only file" width="100%" />
+</p>
+
+### Linked results
+
+Records point at each other, and Connapse stores those links: a GitHub issue with the pull request that closes it, a Jira issue with its epic, parent and the Confluence pages it mentions, and code with its definitions, imports and calls. With link search turned on (it is off by default), a search also brings back what its best results link to, checked against the same permissions. See [Following links](docs/concepts/search.md#following-links).
+
+<p align="center">
+  <img src="docs/demos/linked-results.gif" alt="Linked results: the same search with link search off and then on, where it also brings back the records the top results link to" width="100%" />
+</p>
+
+### Run fully local with Ollama
+
+By default, Ollama runs alongside Connapse, so embeddings are computed on your machine and nothing leaves it. OpenAI or Azure OpenAI can be swapped in from **Settings** at runtime, without a restart. See [Change the embedding model](docs/guides/change-embedding-model.md).
+
+<p align="center">
+  <img src="docs/demos/provider-settings.gif" alt="Provider settings: switch the embedding provider, run Test Connection against Ollama, then switch the LLM provider" width="100%" />
+</p>
+
+### Built on .NET 10, PostgreSQL and pgvector
+
+A Blazor Server web UI, a REST API, the MCP server and the [connapse CLI](https://github.com/Destrayon/connapse-cli) all sit on one ASP.NET Core app, with PostgreSQL and pgvector for search and MinIO for uploads. See [How Connapse works](docs/concepts/how-connapse-works.md).
+
+## Search quality
+
+Measured with Connapse's retrieval eval on `enterprise-v1`: 50,000 documents from EnterpriseRAG-Bench and 470 questions. nDCG@10 scores how well the top 10 results are ordered, from 0 to 1.
+
+| Configuration | nDCG@10 |
+|---|---|
+| Hybrid search, fusion weight 0.75, no reranker (the earlier default) | 0.565 |
+| Adding the `gte-reranker-modernbert-base` reranker | 0.660 |
+| Adding the reranker and today's default fusion weight, 0.65 | **0.677** |
+
+The fusion weight sets how much the vector side counts against the keyword side. The runs are in [the fusion research note](docs/research/learned-query-fusion-2026-10-05.md#confirmed-with-the-reranker-2026-10-06), a per-slice breakdown is in [the retrieval weaknesses note](docs/research/enterprise-retrieval-weaknesses-2026-10-05.md#update--reranker-measured-2026-10-05), and the harness is in [tests/Connapse.Eval](tests/Connapse.Eval/README.md).
+
+## Documentation
 
 The full documentation is in [docs/](docs/index.md).
 
-- [Get started](docs/get-started/quickstart.md) — run Connapse and search your first document
-- [Self-host](docs/self-host/install.md) — install, production, backups, upgrades and troubleshooting
-- [Connect your data](docs/sources/index.md) — sources from S3, Azure, GitHub, Atlassian, folders and your own systems
-- [Guides](docs/guides/mcp-clients.md) — users, tokens, agents, the API and search tuning
-- [Concepts](docs/concepts/how-connapse-works.md) — how Connapse, search, ingestion and permissions work
-- [Reference](docs/reference/rest-api.md) — REST API, MCP tools, configuration, roles and scopes, file types and [error types](docs/problems.md)
+- [Get started](docs/get-started/quickstart.md): run Connapse and search your first document
+- [Self-host](docs/self-host/install.md): install, production, backups, upgrades and troubleshooting
+- [Connect your data](docs/sources/index.md): sources from S3, Azure, GitHub, Atlassian, SFTP and your own systems
+- [Guides](docs/guides/mcp-clients.md): users, tokens, agents, the API and search tuning
+- [Concepts](docs/concepts/how-connapse-works.md): how Connapse, search, ingestion and permissions work
+- [Reference](docs/reference/rest-api.md): REST API, MCP tools, configuration, roles and scopes, file types and [error types](docs/problems.md)
 - [Security policy](SECURITY.md)
 
-## 💬 Support
+## Support
 
-- 🐛 **Bugs**: [GitHub Issues](https://github.com/Destrayon/Connapse/issues)
-- 💡 **Ideas and questions**: [GitHub Discussions](https://github.com/Destrayon/Connapse/discussions)
-- 🔒 **Security issues**: see [SECURITY.md](SECURITY.md)
+- **Bugs**: [GitHub Issues](https://github.com/Destrayon/Connapse/issues)
+- **Ideas and questions**: [GitHub Discussions](https://github.com/Destrayon/Connapse/discussions)
+- **Security issues**: see [SECURITY.md](SECURITY.md)
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [Development](docs/contributing/development.md), and look for [issues labeled `good-first-issue`](https://github.com/Destrayon/Connapse/labels/good-first-issue).
 
-## 📄 License
+## License
 
 [MIT](LICENSE).

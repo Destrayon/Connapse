@@ -15,7 +15,7 @@ const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 const fact = v => cut(v.split(' (')[0], 44); // a remembered value's headline, before its explanation
 const day = s => (s ? s.slice(0, 10) : 'now');
 const shortSymbol = s => s.split('.').slice(-2).join('.');
-const ARGS = ['query', 'symbol', 'subject', 'kind'];
+const ARGS = ['query', 'symbol', 'space', 'subject', 'kind'];
 
 function args(input) {
   return ARGS.filter(k => input[k]).map(k => `${k}: "${cut(String(input[k]), 48)}"`).join(', ');
@@ -35,6 +35,8 @@ function summarise(tool, text) {
       return [`saved "${f.attribute}" = ${fact(f.value)} · ${f.status} from ${day(f.validFrom)}`]
         .concat(f.replaces ? [`the earlier fact now ends ${day(f.validFrom)} (kept in history)`] : []);
     }
+    case 'memory_spaces':
+      return [r.spaces.map(s => `${s.name} (${s.kind})`).join(', ')];
     case 'memory_recall':
       return r.facts.slice(0, 2).map(f => `${f.status}: "${f.attribute}" = ${fact(f.value)} · since ${day(f.validFrom)}`);
     case 'memory_timeline':

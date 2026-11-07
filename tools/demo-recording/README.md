@@ -14,7 +14,8 @@ $env:DEMO_EXAMPLE_DATA = '<a copy of tools/demo-recording/example-data>'
 npm install --prefix tools/demo-recording; node tools/demo-recording/make-pdf.mjs
 ```
 
-1. `tools/demo-recording/reset.ps1` starts an empty stack on port 5201.
+1. `tools/demo-recording/reset.ps1` starts an empty stack on port 5201. To record this checkout's code rather than the
+   published image, set `CONNAPSE_VERSION` to a local tag (for example `demo`) and run `docker compose build web` first.
 2. Quickstart: `vhs tools/demo-recording/tapes/quickstart.tape` (from `DEMO_RAW`, with `DEMO_REPO` set), then
    `node tools/demo-recording/shots/quickstart.mjs`. It registers the owner and creates the `halcyon` container.
 3. Two users: `node tools/demo-recording/shots/setup-two-users.mjs`, then `shots/two-users.mjs <source id>`.
@@ -32,4 +33,4 @@ npm install --prefix tools/demo-recording; node tools/demo-recording/make-pdf.mj
    - `shots/provider-settings.mjs` switches the embedding and LLM providers without saving and runs Test Connection.
 7. `node tools/demo-recording/to-gif.mjs tools/demo-recording/gifs/<name>.json` for each plan.
 
-When done: `docker compose --profile demo-source down -v`.
+When done: `docker compose --profile demo-source --profile demo-sftp down -v`.

@@ -1,9 +1,9 @@
-{ "out": "docs/demos/connect-a-folder.gif", "fps": 8,"clips": [
-  { "file": "connect-a-folder.webm", "from": 0.8, "to": 4.5, "speed": 1.6 },
-  { "file": "connect-a-folder.webm", "from": 4.5, "to": 5.9 },
-  { "file": "connect-a-folder.webm", "from": 5.9, "to": 9.1, "speed": 2 },
-  { "file": "connect-a-folder.webm", "from": 9.1, "to": 11.6, "speed": 1.5 },
-  { "file": "connect-a-folder.webm", "from": 11.6, "to": 13.9 },
-  { "file": "connect-a-folder.webm", "from": 13.9, "to": 17.5, "speed": 2 },
-  { "file": "connect-a-folder.webm", "from": 17.5, "to": 20.3 }
+{ "out": "docs/demos/connect-a-folder.gif", "fps": 6,"clips": [
+  { "file": "connect-a-folder.webm", "from": 0.8, "to": 6.4, "speed": 2.5 },
+  { "file": "connect-a-folder.webm", "from": 6.4, "to": 7.8 },
+  { "file": "connect-a-folder.webm", "from": 7.8, "to": 11.2, "speed": 2.5 },
+  { "file": "connect-a-folder.webm", "from": 11.2, "to": 13.8, "speed": 1.5 },
+  { "file": "connect-a-folder.webm", "from": 13.8, "to": 15.0 },
+  { "file": "connect-a-folder.webm", "from": 15.0, "to": 19.5, "speed": 2.5 },
+  { "file": "connect-a-folder.webm", "from": 19.5, "to": 22.2 }
 ] }

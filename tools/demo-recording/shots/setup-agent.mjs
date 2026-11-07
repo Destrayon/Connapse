@@ -1,5 +1,6 @@
 // Setup for the agent shots (not recorded): upload the Halcyon notes to the `halcyon` container (made in shot 2),
-// put the example source server's C# code and tests in an `example-server` container, and create an agent key.
+// put the example source server's C# code and tests in an `example-server` container, make the `checkout-team`
+// team memory space, and create an agent key.
 // The key is written to the file named by DEMO_AGENT_KEY_FILE and never printed.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -42,7 +43,12 @@ const tests = path.join(repo, 'tests/Connapse.CustomSource.Example.Tests');
 await upload(code.id, '/src', server, cs(server));
 await upload(code.id, '/tests', tests, cs(tests));
 
+const space = await call('POST', '/api/memory/spaces', {
+  name: 'checkout-team', kind: 'team',
+  description: 'Decisions and facts about Halcyon checkout that the whole team should know',
+});
+
 const agent = await call('POST', '/api/v1/agents', { name: 'claude-code', description: 'Claude Code for the demo recordings' });
 const key = await call('POST', `/api/v1/agents/${agent.id}/keys`, { name: 'demo', scopes: ['knowledge:read', 'knowledge:write'] });
 writeFileSync(keyFile, key.token);
-console.log({ halcyon: halcyon.id, code: code.id, agent: agent.id });
+console.log({ halcyon: halcyon.id, code: code.id, space: space.id, agent: agent.id });

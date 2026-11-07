@@ -7,7 +7,7 @@ audience: developer
 
 # MCP tools
 
-Connapse's MCP server, at `/mcp`, offers 21 named tools for knowledge work and 3 generic tools that reach the rest of the API. MCP (the Model Context Protocol) is the standard AI agents use to call outside tools. To connect a client, see [Connect an MCP client](../guides/mcp-clients.md).
+Connapse's MCP server, at `/mcp`, offers 22 named tools for knowledge work and 3 generic tools that reach the rest of the API. MCP (the Model Context Protocol) is the standard AI agents use to call outside tools. To connect a client, see [Connect an MCP client](../guides/mcp-clients.md).
 
 ## Who can connect
 

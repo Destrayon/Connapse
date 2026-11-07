@@ -1,12 +1,11 @@
 { "out": "docs/demos/quickstart-zero-to-result.gif", "clips": [
-  { "file": "quickstart-terminal.mp4", "from": 0.3, "to": 3.0, "speed": 2.5 },
-  { "file": "quickstart-terminal.mp4", "from": 3.0, "to": 10.3, "speed": 5 },
-  { "file": "quickstart-terminal.mp4", "from": 10.3, "to": 14.2, "speed": 2.5 },
-  { "file": "quickstart-terminal.mp4", "from": 14.2, "to": 15.6 },
-  { "file": "quickstart-browser.webm", "from": 1.2, "to": 6.0, "speed": 4 },
-  { "file": "quickstart-browser.webm", "from": 6.0, "to": 8.4, "speed": 2.5 },
-  { "file": "quickstart-browser.webm", "from": 8.4, "to": 13.4, "speed": 6 },
-  { "file": "quickstart-browser.webm", "from": 13.4, "to": 14.4 },
-  { "file": "quickstart-browser.webm", "from": 15.3, "to": 18.6, "speed": 3 },
-  { "file": "quickstart-browser.webm", "from": 18.6, "to": 21.0 }
+  { "file": "quickstart-terminal.mp4", "from": 0.3, "to": 2.4, "speed": 2.5 },
+  { "file": "quickstart-terminal.mp4", "from": 2.4, "to": 9.8, "speed": 5 },
+  { "file": "quickstart-terminal.mp4", "from": 9.8, "to": 11.2 },
+  { "file": "quickstart-browser.webm", "from": 1.1, "to": 5.6, "speed": 4 },
+  { "file": "quickstart-browser.webm", "from": 5.6, "to": 8.6, "speed": 2.5 },
+  { "file": "quickstart-browser.webm", "from": 8.6, "to": 13.5, "speed": 6 },
+  { "file": "quickstart-browser.webm", "from": 13.5, "to": 14.5 },
+  { "file": "quickstart-browser.webm", "from": 15.5, "to": 18.8, "speed": 3 },
+  { "file": "quickstart-browser.webm", "from": 18.8, "to": 21.3 }
 ] }
