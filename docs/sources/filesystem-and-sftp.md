@@ -30,7 +30,7 @@ Connapse picks up changes on each scheduled sync, not as they happen. Choose **S
 
 A Connapse running in Docker can't see your disks until you mount a folder into the `web` container. Use this when the files and Docker are on the same machine; for another machine, use [SFTP](#index-files-on-another-machine-over-sftp). `docker-compose.yml` ships the lines you need, commented out, so the default setup stays as it is until you turn them on.
 
-1. In `docker-compose.yml`, under the `web` service's `volumes:`, uncomment this line and change the left side to your folder. Keep `/mnt/host` and `:ro`. Windows paths use forward slashes; on Linux or macOS the line looks like `- /home/you:/mnt/host:ro`.
+1. In `docker-compose.yml`, under the `web` service's `volumes:`, uncomment this line and change the left side to your folder. Keep `/mnt/host` and `:ro`. Windows paths use forward slashes; on Linux or macOS the line looks like `- /home/you:/mnt/host:ro`. If your path contains ` #`, quote the whole entry, as in `- '/home/you/Research #1:/mnt/host:ro'`, or YAML reads the rest as a comment.
 
    ```yaml
          - C:/Users/you:/mnt/host:ro
@@ -47,12 +47,12 @@ A Connapse running in Docker can't see your disks until you mount a folder into 
 
 A few things to know:
 
-- **Keep `:ro`.** It makes the folder read-only inside the container. Connapse never writes to a source, so you give nothing up, and neither a mistake nor a compromised server can change your files.
-- **Keep the two paths the same.** With the allowed root set, saving a source on a connection whose root is anywhere else is refused, so each source is held inside the mount twice. Without it, any root is allowed and Connapse logs a warning.
+- **Keep `:ro`.** It makes the folder read-only inside the container. Connapse never writes to a source, so you give nothing up, and neither a mistake nor a compromised server can change your files. The exception is another disk mounted inside your folder: it stays writable on Docker Engine older than 25 or a Linux kernel older than 5.12, so on those versions mount a folder without one.
+- **Keep the two paths the same.** With the allowed root set, saving a source on a connection whose root is outside it is refused, so each source is held inside the mount twice. Without it, any root is allowed and Connapse logs a warning. If you've already set allowed roots in another configuration source, use the next unused number instead of `__0`, which replaces your first root, and remove any you no longer want, because the others stay allowed.
 - **Mount the folder you'll choose from.** Changing the mounted folder means editing the file and recreating the container; changing the sub-path doesn't. Mount wide enough that the sub-path is your day-to-day choice, but no wider: every source on a Filesystem connection can reach all of it.
-- **On a Linux host, check permissions.** Connapse runs as user ID 1654 in the container, and that ID needs to be able to read the folder. A home directory that only its owner can open won't work.
+- **On a Linux host, check permissions.** Connapse runs as user ID 1654 in the container, and that ID needs to be able to read the folder. A home directory that only its owner can open won't work. If `getenforce` prints `Enforcing`, SELinux can block the mount even when those permissions are right. Ending the line with `:ro,z` relabels the folder so containers can read it, which changes the files on your host and can affect other programs that use them, so only do this on a folder meant for it, never on a system folder such as `/home` or `/usr`.
 
-The mount can't be added from the Connapse UI. A container's mounts are fixed when it's created, so Connapse could only change them by controlling Docker itself, which is equivalent to root on your machine. The mount is what stops a compromised Connapse reading your other files, so it stays a choice only you can make.
+The mount can't be added from the Connapse UI. A container's mounts are fixed when it's created, so Connapse could only change them by controlling Docker itself, which is equivalent to root on your machine. A folder you don't mount stays out of reach of a compromised Connapse, so the choice stays yours. Anything else mounted into the container, such as the AWS credentials folder, can still be read.
 
 Running Connapse directly on the machine, rather than in a container, removes all of this: the Filesystem provider reads real paths with no mount.
 
