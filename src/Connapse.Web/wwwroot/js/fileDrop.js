@@ -82,7 +82,7 @@ async function startFolderUpload(collect) {
         const { files, unreadable } = await collect((found) => {
             progress.found = found;
             reportSoon();
-        });
+        }, abort.signal);
         progress.found = progress.total = files.length + unreadable.length;
 
         if (progress.total > LARGE_FOLDER_FILES && !abort.signal.aborted) {
@@ -250,7 +250,7 @@ export function initializeDropZone(dropZoneId, dotNetRef, containerId, basePath)
                 .map((item) => item.webkitGetAsEntry?.())
                 .filter(Boolean);
             if (entries.some((entry) => entry.isDirectory)) {
-                startFolderUpload((onFound) => walkEntries(entries, onFound));
+                startFolderUpload((onFound, signal) => walkEntries(entries, onFound, signal));
                 return;
             }
 

@@ -38,37 +38,47 @@ const fileOf = entry => new Promise((resolve, reject) => entry.file(resolve, rej
 
 const relativePathOf = entry => entry.fullPath.replace(/^\/+/, '');
 
+// A browser's read of a slow or stuck disk may never call back, and Cancel still has to end the run.
+function untilAborted(read, signal) {
+    return new Promise((resolve, reject) => {
+        const stop = () => reject(signal.reason);
+        if (signal.aborted) stop();
+        signal.addEventListener('abort', stop, { once: true });
+        read.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+    });
+}
+
 /**
  * Walks dropped entries. What can't be read, such as a file removed since the drop, is reported rather than stopping
- * the walk. Answers { files: [{ file, relativePath }], unreadable: [{ relativePath, error }] }.
+ * the walk. Aborting ends it at once with what it has. Answers { files: [{ file, relativePath }], unreadable: [{ relativePath, error }] }.
  */
-export async function walkEntries(entries, onProgress = () => { }) {
+export async function walkEntries(entries, onProgress = () => { }, signal = new AbortController().signal) {
     const files = [];
     const unreadable = [];
     const fileEntries = [];
     const pending = [...entries];
 
-    while (pending.length > 0) {
+    while (pending.length > 0 && !signal.aborted) {
         const entry = pending.pop();
         if (entry.isFile) {
             fileEntries.push(entry);
             continue;
         }
         try {
-            pending.push(...await readAllEntries(entry));
+            pending.push(...await untilAborted(readAllEntries(entry), signal));
         } catch (err) {
-            unreadable.push({ relativePath: relativePathOf(entry), error: `This folder can't be read: ${err?.message ?? err}` });
+            if (!signal.aborted) unreadable.push({ relativePath: relativePathOf(entry), error: `This folder can't be read: ${err?.message ?? err}` });
         }
     }
 
     let next = 0;
     async function readFiles() {
-        while (next < fileEntries.length) {
+        while (next < fileEntries.length && !signal.aborted) {
             const entry = fileEntries[next++];
             try {
-                files.push({ file: await fileOf(entry), relativePath: relativePathOf(entry) });
+                files.push({ file: await untilAborted(fileOf(entry), signal), relativePath: relativePathOf(entry) });
             } catch (err) {
-                unreadable.push({ relativePath: relativePathOf(entry), error: `This file can't be read: ${err?.message ?? err}` });
+                if (!signal.aborted) unreadable.push({ relativePath: relativePathOf(entry), error: `This file can't be read: ${err?.message ?? err}` });
             }
             onProgress(files.length + unreadable.length);
         }
@@ -93,6 +103,11 @@ const extensionOf = name => {
     const dot = name.lastIndexOf('.');
     return dot < 0 ? '' : name.slice(dot).toLowerCase();
 };
+
+// The server reads a backslash as a folder break and resolves dot segments, so a folder named a\b would land in a/b
+// and could silently replace a file there. Mac and Linux allow that name.
+const folderNameChangesOnServer = relativePath => relativePath.split('/').slice(0, -1)
+    .some(folder => folder.includes('\\') || folder === '.' || folder === '..');
 
 /** Splits files into those worth sending and those the server would refuse for their type, sent or not. */
 export function splitByType(items, supportedExtensions) {
@@ -286,9 +301,13 @@ export async function runFolderUpload(items, options) {
     for (const { relativePath, file } of refused) {
         fail(relativePath, extensionOf(file.name) ? `Connapse can't read ${extensionOf(file.name)} files.` : "Connapse can't read files with no extension.");
     }
+    const safe = send.filter(item => !folderNameChangesOnServer(item.relativePath));
+    for (const { relativePath } of send.filter(item => folderNameChangesOnServer(item.relativePath))) {
+        fail(relativePath, "Connapse can't keep this folder's name, because it has a backslash or is only dots.");
+    }
     onProgress(state);
 
-    state.stoppedBecause = await uploadItems(send, {
+    state.stoppedBecause = await uploadItems(safe, {
         ...options,
         onWaiting() {
             state.waiting = true;

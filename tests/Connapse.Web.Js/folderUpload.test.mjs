@@ -96,6 +96,42 @@ describe('walkEntries', () => {
     });
 });
 
+describe('walkEntries when cancelled', () => {
+    const stuckDirectory = fullPath => ({ isFile: false, fullPath, createReader: () => ({ readEntries() { } }) });
+    const stuckFile = fullPath => ({ isFile: true, fullPath, file() { } });
+
+    test('ends at once while a folder read never answers, reporting nothing as unreadable', async () => {
+        const abort = new AbortController();
+        const walk = walkEntries([stuckDirectory('/top')], () => { }, abort.signal);
+
+        abort.abort();
+
+        assert.deepEqual(await walk, { files: [], unreadable: [] });
+    });
+
+    test('ends at once while a file read never answers, reporting nothing as unreadable', async () => {
+        const abort = new AbortController();
+        const walk = walkEntries([stuckFile('/a.md'), fileEntry('/b.md')], () => { }, abort.signal);
+        await new Promise(resolve => setImmediate(resolve));
+
+        abort.abort();
+        const { unreadable } = await walk;
+
+        assert.deepEqual(unreadable, []);
+    });
+
+    test('reads nothing when already cancelled', async () => {
+        const abort = new AbortController();
+        abort.abort();
+        const read = [];
+        const entry = { isFile: true, fullPath: '/a.md', file: () => read.push('a') };
+
+        const { files, unreadable } = await walkEntries([entry], () => { }, abort.signal);
+
+        assert.deepEqual([read, files, unreadable], [[], [], []]);
+    });
+});
+
 test('fromFolderPicker takes each file\'s path under the chosen folder, or its name without one', () => {
     const nested = fileNamed('a.md');
     Object.defineProperty(nested, 'webkitRelativePath', { value: 'top/sub/a.md' });
@@ -345,6 +381,27 @@ describe('runFolderUpload', () => {
         signal: new AbortController().signal,
         wait: async () => { },
         ...options,
+    });
+
+    test('fails a file under a folder name the server would change, so it can\'t replace another file', async () => {
+        const { requests, fetchImpl } = acceptingServer();
+
+        const state = await run([item('top/a\\b/note.md'), item('top/a/b/note.md'), item('top/../note.md'), item('top/./note.md')], { fetchImpl });
+
+        assert.equal(state.total, 4);
+        assert.equal(state.succeeded, 1);
+        assert.deepEqual(requests.flatMap(r => r.paths), ['/top/a/b/']);
+        assert.deepEqual(state.failures.map(f => f.path), ['/top/a\\b/note.md', '/top/../note.md', '/top/./note.md']);
+        assert.ok(state.failures.every(f => f.error.includes("can't keep this folder's name")));
+    });
+
+    test('keeps a folder name that only has dots among other characters', async () => {
+        const { requests, fetchImpl } = acceptingServer();
+
+        const state = await run([item('top/.github/v1.2/note.md')], { fetchImpl });
+
+        assert.equal(state.succeeded, 1);
+        assert.deepEqual(requests.flatMap(r => r.paths), ['/top/.github/v1.2/']);
     });
 
     test('counts every file, and names each unsupported or unreadable one without sending it', async () => {
