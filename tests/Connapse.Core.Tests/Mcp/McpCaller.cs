@@ -82,10 +82,12 @@ internal static class McpCaller
         T Get<T>() where T : class => (T?)services.GetService(typeof(T)) ?? Substitute.For<T>();
         var containers = Get<IContainerStore>();
         var storage = (IManagedStorageProvider?)services.GetService(typeof(IManagedStorageProvider)) ?? Writable();
+        var uploadLimit = Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<UploadSettings>>();
+        uploadLimit.CurrentValue.Returns(new UploadSettings());
         return new UploadTools(
             new GetContainer(containers, Allowed),
-            new UploadFile(containers, storage, Get<IFileTypeValidator>(), Get<IUploadService>(), Allowed),
-            new BulkUploadFiles(containers, storage, Get<IFileTypeValidator>(), Get<IUploadService>(), Allowed));
+            new UploadFile(containers, storage, Get<IFileTypeValidator>(), Get<IUploadService>(), Allowed, uploadLimit),
+            new BulkUploadFiles(containers, storage, Get<IFileTypeValidator>(), Get<IUploadService>(), Allowed, uploadLimit));
     }
 
     private static IManagedStorageProvider Writable()

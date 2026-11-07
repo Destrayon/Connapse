@@ -276,6 +276,12 @@ upload between 1 and 100 files. An uploaded file needs a name of at most 255 cha
 folder path with no `..` and at most 50 levels, and some content. `paths`, when sent, names one folder per file.
 The `field` member names the input at fault.
 
+## file-too-large
+
+The file, or the request carrying it, is over the upload limit, and the detail gives both sizes. The limit is
+`MaxFileBytes` in the upload settings, 256 MiB by default. A request may be 1 MiB over the limit, for the form
+around the file. In a bulk upload, a file over the limit is reported in its place and the rest are still uploaded.
+
 ## file-not-ready
 
 The document is still being ingested, so it has no text to read yet; the detail gives its status. Try again

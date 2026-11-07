@@ -22,6 +22,14 @@ public static class FileProblems
         return Results.Problem(problem);
     }
 
+    /// <summary>The answer to an upload refused for its size, before any operation ran.</summary>
+    public static IResult TooLarge(string detail)
+    {
+        var problem = OperationProblems.For(FileStatus.TooLarge, detail);
+        problem.Extensions["error"] = ErrorCode(FileStatus.TooLarge, null, null);
+        return Results.Problem(problem);
+    }
+
     /// <summary>A failed folder create's problem. Only creation ever answered with path_too_deep, so a delete doesn't use this.</summary>
     /// <param name="path">The folder path the request named, so a path that is too deep keeps its code.</param>
     public static IResult Result<TResult>(Attempt<TResult, FolderStatus> failed, string? path)
@@ -37,6 +45,7 @@ public static class FileProblems
     public static string? ErrorCode(FileStatus status, string? field, string? fileName) => status switch
     {
         FileStatus.UnsupportedType => "unsupported_file_type",
+        FileStatus.TooLarge => "file_too_large",
         FileStatus.NotReady => "document_not_ready",
         FileStatus.IngestionFailed => "document_failed",
         FileStatus.NoParser => "no_parser",

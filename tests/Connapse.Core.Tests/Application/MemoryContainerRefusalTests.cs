@@ -42,6 +42,13 @@ public class MemoryContainerRefusalTests
         _containers.GetByNameAsync(Memory.Name, Arg.Any<CancellationToken>()).Returns(Memory);
     }
 
+    private static IOptionsMonitor<UploadSettings> UploadLimit()
+    {
+        IOptionsMonitor<UploadSettings> settings = Substitute.For<IOptionsMonitor<UploadSettings>>();
+        settings.CurrentValue.Returns(new UploadSettings());
+        return settings;
+    }
+
     private static FileUpload File() => new("a.md", new MemoryStream(Encoding.UTF8.GetBytes("hi")));
 
     [Fact]
@@ -52,7 +59,7 @@ public class MemoryContainerRefusalTests
         var types = Substitute.For<IFileTypeValidator>();
         types.IsSupported(Arg.Any<string>()).Returns(true);
 
-        var uploaded = await new UploadFile(_containers, storage, types, uploads, _authorizer).RunAsync(Caller, MemoryId, File());
+        var uploaded = await new UploadFile(_containers, storage, types, uploads, _authorizer, UploadLimit()).RunAsync(Caller, MemoryId, File());
 
         uploaded.Status.Should().Be(FileStatus.MemoryContainer);
         uploaded.Detail.Should().Be(Message);
@@ -68,7 +75,7 @@ public class MemoryContainerRefusalTests
         var types = Substitute.For<IFileTypeValidator>();
         types.IsSupported(Arg.Any<string>()).Returns(true);
 
-        var uploaded = await new BulkUploadFiles(_containers, storage, types, uploads, _authorizer).RunAsync(Caller, MemoryId, [File()]);
+        var uploaded = await new BulkUploadFiles(_containers, storage, types, uploads, _authorizer, UploadLimit()).RunAsync(Caller, MemoryId, [File()]);
 
         uploaded.Status.Should().Be(FileStatus.MemoryContainer);
         uploaded.Detail.Should().Be(Message);

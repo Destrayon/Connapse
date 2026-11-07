@@ -80,13 +80,13 @@ You might see: a PDF indexes, but its warnings say `read without the layout mode
 
 ## Error: the file is over the 256 MB limit [file_too_large]
 
-You might see: an upload fails with `the file is N MB, over the 256 MB limit [file_too_large]`.
+You might see: an upload fails with `The file is N MB, over the 256 MB limit.`, or a `413` response with `file_too_large` in `error`. A file parsed later, such as one from a connected source, fails with `the file is N MB, over the 256 MB limit [file_too_large]`.
 
 **Cause:** This happens when a file is larger than the upload limit, 256 MiB by default.
 
 **Fix:**
 1. Open **Admin** → **Settings** → **Upload** and raise the maximum file size.
-2. If a reverse proxy sits in front of Connapse, raise its body size limit to match, such as `client_max_body_size` in nginx.
+2. If a reverse proxy sits in front of Connapse, raise its body size limit to at least 1 MiB above that, such as `client_max_body_size` in nginx.
 
 ## Error: Rate limit exceeded. Try again later.
 
