@@ -40,6 +40,8 @@ public sealed class LocalModelDownloadService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using IDisposable? subscription = embedding.OnChange(OnSettingsChanged);
+        // ExecuteAsync starts in the background, so settings saved before the subscription would otherwise be missed.
+        OnSettingsChanged(embedding.CurrentValue, null);
 
         int failures = 0;
         while (!stoppingToken.IsCancellationRequested)

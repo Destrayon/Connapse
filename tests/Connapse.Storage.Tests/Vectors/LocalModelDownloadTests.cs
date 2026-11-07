@@ -325,4 +325,20 @@ public class LocalModelDownloadTests
 
         service.Current.HoldsEmbedding.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task ExecuteAsync_ProviderChosenBeforeTheLoopListens_IsNotMissed()
+    {
+        // ExecuteAsync runs in the background, so a save can land before it subscribes; CI once lost one that way.
+        Monitor settings = new(Bundled());
+        ScriptedOllama ollama = new(_ => new HttpResponseMessage(HttpStatusCode.OK));
+        using LocalModelDownloadService service = Service(ollama, settings, onOrOff: "off");
+
+        settings.Set(new EmbeddingSettings { Provider = "OpenAI", Model = "text-embedding-3-small", BaseUrl = Address });
+        await service.StartAsync(CancellationToken.None);
+        await RunUntil(service, s => s.State == LocalModelState.NotManaged);
+        await service.StopAsync(CancellationToken.None);
+
+        service.Current.HoldsEmbedding.Should().BeFalse();
+    }
 }
