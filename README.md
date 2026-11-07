@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demos/agent-remembers.gif" alt="Connapse demo: an agent searches the knowledge base over MCP, answers with a cited file, remembers the decision, and recalls it with its source in a new session" width="100%" />
+  <img src="docs/demos/agent-remembers.gif" alt="Connapse demo: an agent searches the knowledge base over MCP, answers with a cited file, remembers the decision in a team memory space, and recalls it with its source in a new session" width="100%" />
 </p>
 
 Connapse is a self-hosted knowledge base for AI agents. Point it at your files, SFTP servers, S3 buckets, Azure Blob containers, GitHub repositories, Confluence spaces and Jira projects, and agents reach all of it through an MCP server (the Model Context Protocol, the standard way agents call outside tools) or a REST API. It is RAG with hybrid search and reranking, agent memory that keeps dated facts with their sources, and results that can be trimmed to what each person can open in the source system. It is open source, runs on your own machine with Docker, and is built on .NET 10, PostgreSQL and pgvector.

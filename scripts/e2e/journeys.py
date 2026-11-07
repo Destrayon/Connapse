@@ -248,6 +248,7 @@ def containers(c, t):
         b"falconctl" in A("GET", "/api/containers/{containerId}/files/{fileId}/content", containerId=cid, fileId=falcon).raw,
         "content lacks the text"))
     r("Files", "reindex-check", lambda: A("GET", "/api/containers/{containerId}/files/{fileId}/reindex-check", containerId=cid, fileId=falcon))
+    r("Files", "a file's links", lambda: A("GET", "/api/containers/{containerId}/files/{fileId}/links", containerId=cid, fileId=falcon))
     r("Errors", "missing file -> 404 file-not-found", lambda: A.problem(
         "GET", "/api/containers/{containerId}/files/{fileId}", 404, "file-not-found", containerId=cid, fileId=MISSING))
     r("Files", "create a folder", lambda: A("POST", "/api/containers/{containerId}/folders", 201, body={"path": "/empty/"}, containerId=cid))
@@ -612,6 +613,61 @@ def mcp(c, t):
                                                  "Accept": "application/json, text/event-stream"}).status == 401, "not 401"))
 
 
+# ── Memory spaces ────────────────────────────────────────────────────────────────────────────────
+
+def memory(c, t):
+    """Memory spaces and facts: REST for spaces, MCP (as the admin's PAT) to save facts"""
+    A, r = c.admin, t.record
+    team = f"e2e-team-{c.run}"
+    space = r("Memory", "create a team space", lambda: A(
+        "POST", "/api/memory/spaces", 201, body={"name": team, "kind": "team", "description": "e2e facts"}).json)
+    if not space:
+        return
+    sid = space["id"]
+    r("Errors", "same space name again -> 409", lambda: A(
+        "POST", "/api/memory/spaces", 409, body={"name": team, "kind": "team"}))
+    r("Memory", "list spaces", lambda: t.expect(
+        any(s["id"] == sid for s in A("GET", "/api/memory/spaces", query={"kind": "team", "limit": 100}).json["items"]),
+        "team space not listed"))
+    r("Memory", "describe a space", lambda: A(
+        "PATCH", "/api/memory/spaces/{spaceId}", 200, body={"description": "e2e facts, renamed"}, spaceId=sid))
+    r("Memory", "star a space", lambda: A("PUT", "/api/memory/spaces/{spaceId}/star", 204, spaceId=sid))
+    r("Memory", "unstar a space", lambda: A("DELETE", "/api/memory/spaces/{spaceId}/star", 204, spaceId=sid))
+
+    if not getattr(c, "pat_token", None):
+        return
+    m = t.Mcp(c.base, {"X-Api-Key": c.pat_token})
+    if not r("Memory", "MCP initialize", m.initialize):
+        return
+    subject = f"e2e-svc-{c.run}"
+    r("Memory", "memory_spaces lists the team space", lambda: t.expect(team in m.call("memory_spaces", {}), "space not listed"))
+    r("Memory", "memory_remember in my-memory", lambda: m.call("memory_remember", {
+        "space": "my-memory", "subject": subject, "attribute": "database", "value": "PostgreSQL 15"}))
+    mine = next((s for s in A("GET", "/api/memory/spaces", query={"kind": "personal", "limit": 100}).json["items"]
+                 if s["name"] == "my-memory"), None)
+    r("Memory", "my-memory is listed as personal", lambda: t.expect(mine is not None, "no my-memory space"))
+    if mine is None:
+        return
+    pid = mine["id"]
+    facts = r("Memory", "list a space's facts", lambda: A("GET", "/api/memory/spaces/{id}/facts", id=pid,
+                                                           query={"subject": subject}).json["facts"])
+    r("Memory", "count a space's facts", lambda: t.expect(
+        A("GET", "/api/memory/spaces/{id}/facts/count", id=pid, query={"subject": subject}).json["count"] >= 1, "count < 1"))
+    r("Memory", "list a space's subjects", lambda: t.expect(
+        any(s["subject"] == subject for s in A("GET", "/api/memory/spaces/{id}/subjects", id=pid).json["subjects"]),
+        "subject not listed"))
+    if not facts:
+        return
+    fid = facts[0]["fact"]["id"]
+    r("Memory", "a fact's history", lambda: t.expect(
+        A("GET", "/api/memory/facts/{id}/history", id=fid).json["total"] >= 1, "no versions"))
+    r("Memory", "copy a personal fact to the team space", lambda: A(
+        "POST", "/api/memory/facts/{id}/copy", 200, body={"destination": team, "anyway": True}, id=fid))
+    r("Memory", "delete a space (dry run)", lambda: A(
+        "DELETE", "/api/memory/spaces/{spaceId}", 200, query={"dryRun": "true"}, spaceId=sid))
+    r("Memory", "delete a space", lambda: A("DELETE", "/api/memory/spaces/{spaceId}", 200, spaceId=sid))
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────────────────────────
 
 def cli(c, t):
@@ -681,14 +737,14 @@ def cli(c, t):
     r("CLI", "source scope-schema", lambda: run("source", "scope-schema", "Sftp"))
     cn = f"e2e-cli-sftp-{c.run}"
     sftp = {"host": "sftp", "port": 22, "username": "e2e", "allowedRoot": "/upload"}
-    r("CLI", "connection create", lambda: run("connection", "create", cn, "--provider", "Sftp", "--config", json.dumps(sftp)))
+    key_file = str(c.work / "sftp" / "id_ed25519")
+    # An SFTP connection needs its key when it is made, so the CLI passes it on create.
+    r("CLI", "connection create without a key is refused (exit 1)", lambda: run(
+        "connection", "create", f"{cn}-nokey", "--provider", "Sftp", "--config", json.dumps(sftp), code=1, want="private key"))
+    r("CLI", "connection create", lambda: run("connection", "create", cn, "--provider", "Sftp", "--config", json.dumps(sftp),
+                                              "--private-key-file", key_file))
     r("CLI", "connection get", lambda: run("connection", "get", cn))
-    # The CLI creates a connection without a key, so the CLI should show the 400 problem and exit 1.
-    r("CLI", "connection test shows the problem (exit 1)", lambda: run("connection", "test", cn, code=1, want="no stored key"))
-    r("CLI", "give the connection its key", lambda: c.admin(
-        "PUT", "/api/v1/connections/{connectionId}/secret", 200, body={"privateKey": (c.work / "sftp" / "id_ed25519").read_text()},
-        connectionId=next(x["id"] for x in c.admin("GET", "/api/v1/connections", query={"provider": "Sftp", "take": 200}).json["items"]
-                          if x["name"] == cn)))
+    r("CLI", "connection replace-secret", lambda: run("connection", "replace-secret", cn, "--private-key-file", key_file))
     r("CLI", "connection test", lambda: run("connection", "test", cn))
     r("CLI", "connection update", lambda: run("connection", "update", cn, "--name", cn))
     sn = f"{cn}-src"
@@ -735,4 +791,4 @@ def web_ui(c, t):
     ui.ui(c, t)
 
 
-ALL = [tokens, users, identity, agents, containers, settings, providers, connectors, audit, mcp, cli, web_ui, cleanup]
+ALL = [tokens, users, identity, agents, containers, settings, providers, connectors, audit, mcp, memory, cli, web_ui, cleanup]

@@ -375,6 +375,7 @@ def run_all(base: str, admin_email: str, admin_password: str, cli_dir: Path | No
 
     print("Journey: start and sign in", flush=True)
     record("Start", "GET /health", lambda: anon("GET", "/health"))
+    record("Start", "GET /health/ready", lambda: anon("GET", "/health/ready"))
     record("Start", "GET /api/v1/info", lambda: anon("GET", "/api/v1/info"))
     record("Start", "OAuth metadata", lambda: (anon("GET", "/.well-known/oauth-authorization-server"),
                                                anon("GET", "/.well-known/oauth-protected-resource")))
