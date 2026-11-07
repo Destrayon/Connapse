@@ -11,7 +11,7 @@ namespace Connapse.Web.Endpoints;
 /// What the API returns for a source.
 /// <para>
 /// Deliberately not the <see cref="Source"/> record. That carries <c>ScopeJson</c>, which
-/// names buckets, prefixes and filesystem subpaths, and <c>SyncCursor</c>, an opaque
+/// names buckets, prefixes and subpaths, and <c>SyncCursor</c>, an opaque
 /// provider continuation token — infrastructure detail a reader has no reason to receive,
 /// and the kind of thing that turns a read route into reconnaissance. Serializing the record
 /// directly would hand both out.

@@ -126,7 +126,6 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
     private sealed class RefusingConnector : ISyncCursorConnector
     {
         public ConnectorType Type => ConnectorType.Custom;
-        public bool SupportsLiveWatch => false;
         public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default) =>
             throw new Connapse.Storage.Connectors.Custom.CustomSourceUnauthorizedException("The source server refused the token (401).");
         public string ResolveJobPath(string relativePath) => relativePath;
@@ -134,7 +133,6 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
             => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
         public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default) => Task.FromResult<Stream>(new MemoryStream());
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private async Task<(string? ResourceUri, string[]? AccessKeys)> RowAsync(Guid sourceId, string path)
@@ -222,13 +220,11 @@ public class CustomSourceSyncIntegrationTests(SharedWebAppFixture fixture)
     private sealed class DeltaConnector(SyncDelta delta) : ISyncCursorConnector
     {
         public ConnectorType Type => ConnectorType.Custom;
-        public bool SupportsLiveWatch => false;
         public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default) => Task.FromResult(delta);
         public string ResolveJobPath(string relativePath) => relativePath;
         public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
         public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default) => Task.FromResult<Stream>(new MemoryStream());
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) => throw new NotSupportedException();
     }
 }

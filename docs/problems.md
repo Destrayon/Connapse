@@ -88,7 +88,7 @@ nothing was started; the running cycle picks up the changes.
 ## provider-not-found
 
 The provider named in the path isn't one Connapse has. Providers are named as the API writes them, such as
-`S3`, `AzureBlob`, `Filesystem`, `Sftp`, `GitHub`, `Atlassian` and `Custom`, in any case.
+`S3`, `AzureBlob`, `Sftp`, `GitHub`, `Atlassian` and `Custom`, in any case.
 
 ## invalid-audit-filter
 

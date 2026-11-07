@@ -32,7 +32,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     private sealed class FakeListConnector(params ConnectorFile[] files) : IConnector
     {
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
         public int ListCalls { get; private set; }
 
         public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
@@ -46,15 +45,12 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
 
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(true);
         public string ResolveJobPath(string relativePath) => relativePath;
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     /// <summary>A connector that reports changes against a cursor.</summary>
     private sealed class FakeDeltaConnector(SyncDelta delta) : ISyncCursorConnector
     {
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
         public string? LastCursorSeen { get; private set; }
 
         public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
@@ -69,8 +65,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(true);
         public string ResolveJobPath(string relativePath) => relativePath;
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     /// <summary>A connector that records whether it was disposed.</summary>
@@ -78,7 +72,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     {
         public bool Disposed { get; private set; }
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
 
         public void Dispose() => Disposed = true;
 
@@ -88,8 +81,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             => Task.FromResult<IReadOnlyList<ConnectorFile>>([]);
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(true);
         public string ResolveJobPath(string relativePath) => relativePath;
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     /// <summary>A connector that records disposal and fails every remote call.</summary>
@@ -97,7 +88,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
     {
         public bool Disposed { get; private set; }
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
 
         public void Dispose() => Disposed = true;
 
@@ -107,8 +97,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             => throw new IOException("remote unavailable");
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
         public string ResolveJobPath(string relativePath) => relativePath;
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     /// <summary>A connector that blocks inside ListFilesAsync until released.</summary>
@@ -123,7 +111,6 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
         public void Release() => _release.TrySetResult();
 
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
 
         public async Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
         {
@@ -136,23 +123,18 @@ public class SourceSyncIntegrationTests(SharedWebAppFixture fixture)
             => Task.FromResult<Stream>(new MemoryStream());
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(true);
         public string ResolveJobPath(string relativePath) => relativePath;
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     /// <summary>A connector whose remote calls fail.</summary>
     private sealed class ThrowingConnector : IConnector
     {
         public ConnectorType Type => ConnectorType.S3;
-        public bool SupportsLiveWatch => false;
         public Task<Stream> ReadFileAsync(string path, CancellationToken ct = default)
             => throw new IOException("remote unavailable");
         public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default)
             => throw new IOException("remote unavailable");
         public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
         public string ResolveJobPath(string relativePath) => relativePath;
-        public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-            => throw new NotSupportedException();
     }
 
     private static ConnectorFile File(string path, long size = 10) =>

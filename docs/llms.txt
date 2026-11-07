@@ -1,6 +1,6 @@
 # Connapse
 
-> Connapse is a self-hosted knowledge platform. It indexes uploaded files and external sources (Amazon S3, Azure Blob Storage, GitHub, Confluence, Jira, filesystems, SFTP and custom source servers) into containers, and serves hybrid vector and keyword search over a Blazor web UI, a REST API at /api/v1 and an MCP server at /mcp. Built on .NET 10, PostgreSQL with pgvector, and MinIO.
+> Connapse is a self-hosted knowledge platform. It indexes uploaded files and external sources (Amazon S3, Azure Blob Storage, GitHub, Confluence, Jira, SFTP and custom source servers) into containers, and serves hybrid vector and keyword search over a Blazor web UI, a REST API at /api/v1 and an MCP server at /mcp. Built on .NET 10, PostgreSQL with pgvector, and MinIO.
 
 Every page below is Markdown. API keys go in the `X-Api-Key` header; errors are RFC 9457 problem details whose `type` links into problems.md.
 
@@ -21,7 +21,7 @@ Every page below is Markdown. API keys go in the `X-Api-Key` header; errors are 
 
 - [Containers, connections and sources](sources/index.md): how they fit together and what each provider indexes
 - [Use uploads and MinIO](sources/uploads-and-minio.md): the default managed storage
-- [Index a filesystem or SFTP server](sources/filesystem-and-sftp.md): local folders and remote machines
+- [Index a folder over SFTP](sources/sftp.md): folders on your computer, a NAS or another server
 - [AWS setup](sources/aws-setup.md): Amazon S3 with per-user S3 Access Grants
 - [Cover buckets outside the Identity Center region](sources/aws-multi-region.md): multi-region AWS
 - [Azure setup](sources/azure-setup.md): Azure Blob Storage with per-user Entra permissions

@@ -946,7 +946,7 @@
                     IngestionStatus: DocumentStatus.Queued,
                     ContentType: null);
 
-                // Deduplicate by ID or path — a cloud sync poll or filesystem watcher may have
+                // Deduplicate by ID or path — a cloud sync poll may have
                 // already inserted an entry for the same file with a different document ID.
                 var existingIdx = entries.FindIndex(e =>
                     e.Id == doc.DocumentId ||

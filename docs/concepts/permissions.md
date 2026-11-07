@@ -30,7 +30,7 @@ To ask on someone's behalf, Connapse has to know who they are in that system. Ea
 | GitHub | GitHub's access to each private repository; public repositories are open to everyone | A GitHub account |
 | Confluence and Jira | Confluence's and Jira's own permissions | An Atlassian account |
 | Custom source | Your custom source server | An account on your server |
-| Filesystem, SFTP and uploads | Nobody: everyone who may search sees every file | Nothing |
+| SFTP and uploads | Nobody: everyone who may search sees every file | Nothing |
 
 Each source's setup page says exactly what is checked and how long answers are cached.
 

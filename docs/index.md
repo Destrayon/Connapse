@@ -32,7 +32,7 @@ Connapse is a self-hosted knowledge platform: it indexes your documents and the 
 
 - [Containers, connections and sources](sources/index.md)
 - [Use uploads and MinIO](sources/uploads-and-minio.md)
-- [Index a filesystem or SFTP server](sources/filesystem-and-sftp.md)
+- [Index a folder over SFTP](sources/sftp.md)
 - [AWS setup](sources/aws-setup.md) and [buckets outside the Identity Center region](sources/aws-multi-region.md)
 - [Azure setup](sources/azure-setup.md)
 - [GitHub setup](sources/github-setup.md)

@@ -140,10 +140,10 @@
     "IsEmpty": false
   },
   "Pages/Connections.razor": {
-    "CodeLines": 1280,
-    "Injects": 10,
-    "Complexity": 345,
-    "MarkupLogic": 245,
+    "CodeLines": 1277,
+    "Injects": 9,
+    "Complexity": 343,
+    "MarkupLogic": 243,
     "IsEmpty": false
   },
   "Pages/CustomProviderPage.razor": {
@@ -241,7 +241,7 @@
     "CodeLines": 935,
     "Injects": 12,
     "Complexity": 214,
-    "MarkupLogic": 101,
+    "MarkupLogic": 98,
     "IsEmpty": false
   },
   "Providers/AtlassianProviderCard.razor": {

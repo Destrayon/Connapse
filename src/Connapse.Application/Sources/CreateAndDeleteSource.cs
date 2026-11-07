@@ -53,6 +53,8 @@ public sealed class CreateSource(
 
         // Every source authenticates through its connection, a custom one included, so a secret here
         // would be silently dropped.
+        if (request.Provider is { } named && !Enum.IsDefined(named))
+            return Fail(SourceWriteStatus.Invalid, "Choose the source's provider.", "provider");
         if (request.Secret is not null)
             return Fail(SourceWriteStatus.Invalid,
                 "A source takes no secret: its connection holds the credential. A custom source reads with its custom connection's token.", "secret");

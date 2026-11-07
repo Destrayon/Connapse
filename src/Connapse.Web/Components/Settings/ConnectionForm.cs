@@ -30,7 +30,6 @@ public sealed record ConnectionForm
     /// <summary>Overrides https://{account}.blob.core.windows.net — Azurite or another local emulator.</summary>
     public string? BlobEndpoint { get; set; }
 
-    // Filesystem and SFTP both bound a source with a root, so this is shared.
     public string? AllowedRoot { get; set; }
 
     // SFTP
@@ -117,7 +116,7 @@ public sealed record ConnectionForm
 
     /// <summary>True for a provider whose config this form can rebuild from its own fields.</summary>
     public bool OwnsConfig =>
-        Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.Filesystem
+        Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob
             or ConnectionProvider.Sftp or ConnectionProvider.GitHub or ConnectionProvider.Custom;
 
     /// <summary>Custom only: the custom provider this connection checks permissions with.</summary>
@@ -138,11 +137,6 @@ public sealed record ConnectionForm
     /// <summary>
     /// Providers whose credential is a cloud identity Connapse never holds, and which are
     /// therefore bounded by <see cref="AllowedLocations"/> rather than a root.
-    /// <para>
-    /// Named rather than written as "not Filesystem". The old form used the negative, and
-    /// adding SFTP to the enum would have silently swept it into the cloud branch — offering a
-    /// bucket allowlist for a directory on a server, and no root at all.
-    /// </para>
     /// </summary>
     public bool IsCloudProvider =>
         Provider is ConnectionProvider.S3 or ConnectionProvider.AzureBlob;
@@ -349,10 +343,6 @@ public sealed record ConnectionForm
                 if (!Blank(BlobEndpoint)) node["blobEndpoint"] = BlobEndpoint!.Trim();
                 break;
 
-            case ConnectionProvider.Filesystem:
-                node["allowedRoot"] = AllowedRoot?.Trim() ?? "";
-                break;
-
             case ConnectionProvider.Sftp:
                 node["host"] = Host?.Trim() ?? "";
                 node["port"] = ParsePort(Port);
@@ -486,8 +476,6 @@ public sealed record ConnectionForm
             // the account name, so an endpoint reading a different one would mislabel everything.
             ConnectionProvider.AzureBlob when AzureBlobEndpoint.Validate(StorageAccountName, BlobEndpoint, out _) is { } endpointProblem =>
                 endpointProblem,
-
-            ConnectionProvider.Filesystem when Blank(AllowedRoot) => "Choose an allowed root.",
 
             ConnectionProvider.Sftp when Blank(Host) => "A host is required.",
             ConnectionProvider.Sftp when Blank(Username) => "A username is required.",

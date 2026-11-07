@@ -2,7 +2,9 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Identity.Services;
+using Connapse.Storage.Connectors;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -49,6 +51,8 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
         .WithCreateParameterModifier(parameters => parameters.User = "0")
         .WithCreateParameterModifier(TestContainerLimits.Apply)
         .Build();
+
+    private readonly Lazy<Task<SftpServerFixture>> _sftp = new(StartSftpAsync);
 
     public WebApplicationFactory<Program> Factory { get; private set; } = null!;
     public HttpClient AdminClient { get; private set; } = null!;
@@ -156,6 +160,35 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
             _invoker.SendAsync(request, ct);
     }
 
+    /// <summary>The SFTP server tests read from when a source has to really sync, started by the first one to ask.</summary>
+    public Task<SftpServerFixture> SftpAsync() => _sftp.Value;
+
+    private static async Task<SftpServerFixture> StartSftpAsync()
+    {
+        SftpServerFixture server = new();
+        await server.InitializeAsync();
+        return server;
+    }
+
+    /// <summary>A saved connection to <see cref="SftpAsync"/> over <paramref name="allowedRoot"/>, its host key already pinned.</summary>
+    public async Task<Connection> CreateSftpConnectionAsync(string name, string allowedRoot)
+    {
+        SftpServerFixture server = await SftpAsync();
+        string configJson = JsonSerializer.Serialize(new
+        {
+            host = server.Host,
+            port = server.Port,
+            username = SftpServerFixture.Username,
+            allowedRoot,
+            hostKeyFingerprint = await server.ReadHostKeyFingerprintAsync(),
+        });
+        string secret = new SftpCredential { PrivateKey = server.PrivateKeyPem }.ToSecretJson();
+
+        using var scope = Factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
+            new CreateConnectionRequest(name, ConnectionProvider.Sftp, configJson, secret), createdByUserId: null);
+    }
+
     public async Task DisposeAsync()
     {
         AdminClient.Dispose();
@@ -163,6 +196,8 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
         await Factory.DisposeAsync();
         await _postgres.DisposeAsync();
         await _minio.DisposeAsync();
+        if (_sftp.IsValueCreated)
+            await (await _sftp.Value).DisposeAsync();
 
         if (Directory.Exists(AtlassianStateDirectory))
             Directory.Delete(AtlassianStateDirectory, recursive: true);

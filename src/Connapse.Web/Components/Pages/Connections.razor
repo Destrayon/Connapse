@@ -14,7 +14,6 @@
 @using Microsoft.Extensions.Options
 @using System.Text.Json
 @using System.Text.Json.Nodes
-@inject IOptionsMonitor<SourceSecuritySettings> SourceSecurity
 @inject IContainerHostResolver HostResolver
 @inject IOptionsMonitor<AzureProviderSettings> AzureProviderOptions
 @inject IProviderSetupReader SetupReader
@@ -25,7 +24,7 @@
 @inject ILogger<Connections> Logger
 
 @*
-    Connections — the credential and filesystem-root boundary.
+    Connections — the credential boundary.
 
     Its own page rather than a settings tab, and gated to administrators. Every settings tab
     edits one strongly-typed record through IOptionsMonitor and hands it back via OnSave; this
@@ -42,7 +41,7 @@
     credential through AtlassianSiteService, the same service this page uses, so the REST routes
     run exactly the tests this page runs before anything is saved, and never return the secret.
 
-    RequireAdmin matches that: a connection names a filesystem root or a cloud identity, and
+    RequireAdmin matches that: a connection names a remote root or a cloud identity, and
     every source built on it inherits that reach.
 *@
 
@@ -650,7 +649,6 @@
             <select id="connection-provider" class="form-select" @bind="form.ProviderChoice" disabled="@(!isNew || atlassianChecking)">
                 <option value="@ConnectionProvider.S3">Amazon S3</option>
                 <option value="@ConnectionProvider.AzureBlob">Azure Blob Storage</option>
-                <option value="@ConnectionProvider.Filesystem">Local filesystem</option>
                 <option value="@ConnectionProvider.Sftp">SFTP</option>
                 <option value="@ConnectionProvider.GitHub" disabled="@(gitHubAppConfigured == false && isNew)">
                     GitHub App installation@(gitHubAppConfigured == false ? " (set up the GitHub provider first)" : "")
@@ -886,10 +884,8 @@
 
             <div class="col-md-6">
                 <label class="form-label">Allowed root</label>
-                @* Free text, and unlike the local filesystem provider it is not checked against
-                   Sources:Security:AllowedFilesystemRoots — that setting names directories on
-                   this machine, and this one names a directory on somebody else's. The bound
-                   that does apply is enforced on the server, through SSH_FXP_REALPATH. *@
+                @* Free text. It names a directory on somebody else's machine, so the bound that
+                   applies is enforced on the server, through SSH_FXP_REALPATH. *@
                 <input class="form-control" @bind="form.AllowedRoot" placeholder="/srv/knowledge" />
                 <div class="form-text">
                     Every source on this connection is confined beneath this directory, resolved on
@@ -1097,40 +1093,6 @@
                                      ReplacingChanged="@((bool open) => atlassianReplacing = open)"
                                      CheckingChanged="@((bool checking) => atlassianChecking = checking)"
                                      StartReplacing="@atlassianStartReplacing" SuggestedSiteUrls="@AtlassianSitesWithout(form.AtlassianProduct)" />
-        }
-        else
-        {
-            <div class="col-12">
-                <label class="form-label">Allowed root</label>
-                @if (allowedRoots.Count > 0)
-                {
-                    @* Selected, never typed. The API's job is to choose among configured roots,
-                       not to invent one — a free-text field here would reopen exactly the hole
-                       Sources:Security:AllowedFilesystemRoots closes. *@
-                    <select class="form-select" @bind="form.AllowedRoot">
-                        <option value="">Choose a root…</option>
-                        @foreach (var root in allowedRoots)
-                        {
-                            <option value="@root">@root</option>
-                        }
-                    </select>
-                    <div class="form-text">
-                        Configured in <code>Sources:Security:AllowedFilesystemRoots</code>. To offer a
-                        different directory, add it there and restart.
-                    </div>
-                }
-                else
-                {
-                    <input class="form-control" @bind="form.AllowedRoot" placeholder="/data/docs" />
-                    <div class="alert alert-warning mt-2 mb-0 py-2 small">
-                        <span class="bi-exclamation-triangle me-1"></span>
-                        No <code>Sources:Security:AllowedFilesystemRoots</code> is configured, so any
-                        directory is currently accepted. Configure the allowlist before this becomes
-                        deny-by-default in a later release — a source can read everything beneath
-                        whatever root you name here.
-                    </div>
-                }
-            </div>
         }
 
         @if (form.IsCloudProvider)
@@ -1562,7 +1524,6 @@
     [CascadingParameter] private Task<AuthenticationState> Authentication { get; set; } = default!;
 
     private List<Connection> connections = [];
-    private IReadOnlyList<string> allowedRoots = [];
     private bool loading = true;
 
     private Connection? editing;
@@ -1622,7 +1583,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        allowedRoots = SourceSecurity.CurrentValue.AllowedFilesystemRoots;
         customProviders = (await Operations.DiscoverAsync(await Authentication, new DraftDiscovery(ConnectionProvider.Custom)))
             .Result?.CustomProviders;
         await LoadAsync();
@@ -2975,7 +2935,6 @@
         var form = ConnectionForm.FromConnection(connection);
         return connection.Provider switch
         {
-            ConnectionProvider.Filesystem => form.AllowedRoot ?? "—",
             ConnectionProvider.S3 => form.Region ?? "—",
             ConnectionProvider.AzureBlob => form.StorageAccountName ?? "—",
             ConnectionProvider.Sftp => $"{form.Username}@{form.Host}:{form.AllowedRoot}",

@@ -57,8 +57,6 @@ public sealed class GitHubConnector(
 
     public ConnectorType Type => ConnectorType.GitHub;
 
-    public bool SupportsLiveWatch => false;
-
     private readonly GitHubRecordSource? _records = config.Kind == GitHubContentKind.IssuesAndPullRequests
         ? new GitHubRecordSource(
             config,
@@ -219,9 +217,6 @@ public sealed class GitHubConnector(
     /// reads, and the pipeline passes it straight back for source-owned documents.
     /// </summary>
     public string ResolveJobPath(string relativePath) => relativePath;
-
-    public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) =>
-        throw new NotSupportedException("GitHub sources are polled; they do not support live watch.");
 
     // ── Mirror ─────────────────────────────────────────────────────────────
 

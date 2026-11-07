@@ -13,12 +13,11 @@ namespace Connapse.Storage.Connectors;
 /// <summary>
 /// Read-only <see cref="IConnector"/> over SFTP.
 /// <para>
-/// The transport that answers "Connapse cannot see my files": the local filesystem connector
-/// needs the server process to share a disk with the data, which a container or a hosted
-/// deployment does not.
+/// The transport that answers "Connapse cannot see my files": it reaches a folder on any
+/// machine that runs an SSH server, without Connapse sharing a disk with the data.
 /// </para>
 /// <para>
-/// <c>SupportsLiveWatch = false</c> — SFTP has no change notification of any kind, so this is
+/// SFTP has no change notification of any kind, so this is
 /// list-and-diff on every poll. At a hundred thousand files that is minutes per scan, which
 /// is why the documentation says to point a source at a folder rather than a whole drive.
 /// </para>
@@ -53,8 +52,6 @@ public sealed class SftpConnector : IConnector, IDisposable
 
     public ConnectorType Type => ConnectorType.Sftp;
 
-    public bool SupportsLiveWatch => false;
-
     internal SftpConnectorConfig Config => _config;
 
     /// <summary>
@@ -62,9 +59,6 @@ public sealed class SftpConnector : IConnector, IDisposable
     /// <see cref="ListFilesAsync"/>, so there is nothing to recombine.
     /// </summary>
     public string ResolveJobPath(string relativePath) => relativePath;
-
-    public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) =>
-        throw new NotSupportedException("SFTP has no change notification; this connector is list-and-diff only.");
 
     public async Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(
         string? prefix = null, CancellationToken ct = default)
@@ -137,7 +131,6 @@ public sealed class SftpConnector : IConnector, IDisposable
     /// <para>
     /// Costs one listing per read. Still check-then-open, so a link planted in the instant
     /// between the two wins; closing that needs an anchored open, which SFTP has no verb for.
-    /// The same limit <see cref="PathConfinement"/> documents for local paths.
     /// </para>
     /// </remarks>
     private static async Task RefuseIfLinkAsync(

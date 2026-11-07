@@ -15,13 +15,13 @@ public class SourceSearchEndpointTests(SharedWebAppFixture fixture)
 {
     private static string ShortName(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..20];
 
-    // Filesystem, not S3: the documents ingested here carry no resource URI, and an S3 document without one is
+    // SFTP, not S3: the documents ingested here carry no resource URI, and an S3 document without one is
     // refused by cloud permission filtering (CON-226), as a real S3 sync always records one.
     private async Task<Guid> SeedSourceAsync()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var connection = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-            new CreateConnectionRequest(ShortName("c"), ConnectionProvider.Filesystem, """{"allowedRoot":"/tmp"}"""), createdByUserId: null);
+            new CreateConnectionRequest(ShortName("c"), ConnectionProvider.Sftp, """{"allowedRoot":"/tmp"}"""), createdByUserId: null);
         var source = await scope.ServiceProvider.GetRequiredService<ISourceStore>().CreateAsync(
             new CreateSourceRequest(ShortName("s"), connection.Id, "{}"));
         return source.Id;

@@ -113,10 +113,10 @@ public sealed class SourceCreateRules(
                     };
                 }
 
-            // A storage scope is checked against the connection's allowed locations or roots before it is
+            // A storage scope is checked against the connection's allowed locations before it is
             // saved, so a refusal is legible now rather than a failed sync later; ConnectorFactory still
             // enforces on every sync.
-            case ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.Filesystem or ConnectionProvider.Sftp:
+            case ConnectionProvider.S3 or ConnectionProvider.AzureBlob or ConnectionProvider.Sftp:
                 {
                     // Scope JSON that doesn't parse is the create's own refusal, worded as it always was.
                     if (!ParsesAsJson(scopeJson))

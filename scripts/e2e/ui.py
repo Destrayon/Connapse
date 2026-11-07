@@ -321,17 +321,16 @@ class Connections:
     def row(self, name: str):
         return self.page.locator("tr", has_text=name)
 
-    def create_filesystem(self, name: str, root: str):
+    def create_sftp(self, name: str, host: str, username: str, private_key: str, root: str):
         p = self.page
         goto(p, "/connections")
         click_until(p, p.get_by_role("button", name="Add connection"), p.locator("#connection-name"))
-        p.locator("#connection-provider").select_option(label="Local filesystem")
+        p.locator("#connection-provider").select_option(label="SFTP")
         p.locator("#connection-name").fill(name)
-        root_select = p.locator("select", has=p.locator("option", has_text="Choose a root…"))
-        if root_select.count():
-            root_select.select_option(label=root)
-        else:
-            p.get_by_placeholder("/data/docs").fill(root)
+        p.get_by_placeholder("files.example.com").fill(host)
+        p.get_by_placeholder("connapse", exact=True).fill(username)
+        p.get_by_placeholder("/srv/knowledge").fill(root)
+        p.locator("#sftp-key").fill(private_key)
         p.locator("#connection-save").click()
         self.row(name).first.wait_for(state="visible")
 
@@ -362,7 +361,7 @@ class Sources:
         select.select_option(label=label)
         p.locator("#source-name").fill(name)
         p.locator("#source-description").fill("Created by the UI end-to-end journey")
-        dialog.get_by_placeholder("team-a").fill(sub_path)
+        dialog.get_by_placeholder("Documents").fill(sub_path)
         dialog.get_by_role("button", name="Create source", exact=True).click()
         expect_gone(dialog, timeout=60_000)
         self.row(name).first.wait_for(state="visible")
@@ -523,15 +522,16 @@ def walk(u: Ui):
         u.item(admin, "UI agents", "enable it again", lambda: agents.toggle(agent, "Enable", "Active"))
         u.item(admin, "UI agents", "delete the agent", lambda: agents.delete(agent))
 
-    # Connections and sources: a filesystem connection over the stack's /data/fs, a source on guides/.
+    # Connections and sources: an SFTP connection over the stack's /upload, a source on docs/.
     conns, sources = Connections(admin), Sources(admin)
-    conn, src = f"ui-fs-{run}", f"ui-guides-{run}"
-    if u.item(admin, "UI sources", "create a filesystem connection",
-              lambda: (conns.create_filesystem(conn, "/data/fs"), True)[-1]):
-        if u.item(admin, "UI sources", "create a source on it", lambda: (sources.create(conn, src, "guides"), True)[-1]):
+    conn, src = f"ui-sftp-{run}", f"ui-docs-{run}"
+    key = (c.work / "sftp" / "id_ed25519").read_text()
+    if u.item(admin, "UI sources", "create an SFTP connection",
+              lambda: (conns.create_sftp(conn, "sftp", "e2e", key, "/upload"), True)[-1]):
+        if u.item(admin, "UI sources", "create a source on it", lambda: (sources.create(conn, src, "docs"), True)[-1]):
             u.item(admin, "UI sources", "sync the source", lambda: sources.sync(src))
             u.item(admin, "UI search", "search the source finds the synced file",
-                   lambda: Search(admin).run(src, "How do I restart the falcon service?", "falconctl", timeout=INGEST_TIMEOUT))
+                   lambda: Search(admin).run(src, "What does the heron pipeline ship?", "nightly builds", timeout=INGEST_TIMEOUT))
             u.item(admin, "UI sources", "delete the source by typing its name", lambda: sources.delete(src))
         u.item(admin, "UI sources", "delete the connection by typing its name", lambda: conns.delete(conn))
 

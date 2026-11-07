@@ -177,15 +177,8 @@ public static class ServiceCollectionExtensions
         // Vector model discovery (cross-model search support)
         services.AddScoped<VectorModelDiscovery>();
 
-        // Bounds which filesystem roots a source may be pointed at. Bound from configuration
-        // only — never the settings table — because the authority a root confers is the same
-        // class of thing as a cloud credential, which this project refuses to accept over an
-        // API. See SourceSecuritySettings.
-        services.Configure<SourceSecuritySettings>(
-            configuration.GetSection(SourceSecuritySettings.SectionName));
-
-        // Where GitHub docs sources keep their git mirrors. Configuration-only, for the same
-        // reason: it names a directory on the host.
+        // Where GitHub docs sources keep their git mirrors. Bound from configuration only —
+        // never the settings table — because it names a directory on the host.
         services.Configure<GitHubSourceSettings>(
             configuration.GetSection(GitHubSourceSettings.SectionName));
 

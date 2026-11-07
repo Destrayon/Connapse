@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Integration.Tests.CrossSurface;
 
-/// <summary>A case's source: on a filesystem connection of its own, over a folder of its own.</summary>
+/// <summary>A case's source: on an SFTP connection of its own, over a folder of its own.</summary>
 public sealed record SourceCase(Guid Id, string Name, Guid ConnectionId, string Root);
 
 public static partial class Operations
@@ -349,18 +349,12 @@ public static partial class Operations
             ? Surfaces.ErrorKind(alert.TextContent.Trim())
             : null;
 
-    /// <summary>A filesystem connection over a fresh folder, and a source on it named after the case's container.</summary>
+    /// <summary>An SFTP connection over a fresh folder, and a source on it named after the case's container.</summary>
     private static async Task<SourceCase> ArrangeSourceAsync(SharedWebAppFixture fixture, string name)
     {
-        string root = Directory.CreateTempSubdirectory("cs-source-").FullName;
-        File.WriteAllText(Path.Combine(root, "doc.txt"), Body);
-        Connection connection;
-        using (var scope = fixture.Factory.Services.CreateScope())
-        {
-            connection = await scope.ServiceProvider.GetRequiredService<IConnectionStore>().CreateAsync(
-                new CreateConnectionRequest($"cs-fs-{Guid.NewGuid():N}"[..20], ConnectionProvider.Filesystem, JsonSerializer.Serialize(new { allowedRoot = root })),
-                createdByUserId: null);
-        }
+        string root = $"/cs-source-{Guid.NewGuid():N}";
+        await (await fixture.SftpAsync()).WriteFileAsync($"{root}/doc.txt", Body);
+        Connection connection = await fixture.CreateSftpConnectionAsync($"cs-sftp-{Guid.NewGuid():N}"[..20], root);
         var created = await fixture.AdminClient.PostAsJsonAsync("/api/sources", new { name, connectionId = connection.Id, scopeJson = "{}" });
         created.EnsureSuccessStatusCode();
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
@@ -376,14 +370,7 @@ public static partial class Operations
                 await DeleteEventuallyAsync(sources, s.Id);
             await scope.ServiceProvider.GetRequiredService<IConnectionStore>().DeleteAsync(source.ConnectionId);
         }
-        try
-        {
-            Directory.Delete(source.Root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // A sync can still be reading it; the OS temp cleanup takes it later.
-        }
+        await (await fixture.SftpAsync()).DeleteDirectoryAsync(source.Root);
     }
 
     /// <summary>

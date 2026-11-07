@@ -4,9 +4,9 @@ namespace Connapse.Core;
 /// External provider a Connection authenticates to. Values match ConnectorType
 /// so Phase 2 can backfill existing containers with a direct cast.
 /// ManagedStorage is deliberately absent: it is Connapse's own backend, not an
-/// external system requiring credentials.
+/// external system requiring credentials. 1 belonged to a removed provider: never reuse it.
 /// </summary>
-public enum ConnectionProvider { Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6, Atlassian = 7, Custom = 8 }
+public enum ConnectionProvider { S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6, Atlassian = 7, Custom = 8 }
 
 public record Connection(
     Guid Id,

@@ -803,8 +803,8 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <remarks>
     /// The path is used as the sync engine recorded it, without <c>ResolveJobPath</c>. That
     /// method exists to turn a virtual container path into a real one; a source's listing
-    /// already yields the connector's own absolute form — an OS path for Filesystem, a remote
-    /// path for SFTP — and putting it through resolution again would rebase a path that is
+    /// already yields the connector's own absolute form — a remote path
+    /// for SFTP — and putting it through resolution again would rebase a path that is
     /// already rooted.
     /// </remarks>
     private async Task<IngestionResult> IngestSourceDocumentAsync(

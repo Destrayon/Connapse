@@ -145,7 +145,7 @@ public sealed record SearchScopes
     /// <summary>
     /// SQL, over documents aliased <c>d</c>, for a document with no resource URI that a restricted
     /// search may still admit: a plain upload (no source), or one from a source whose provider never
-    /// reports an address (filesystem, SFTP, a public repository, a custom source without permissions).
+    /// reports an address (SFTP, a public repository, a custom source without permissions).
     /// </summary>
     /// <remarks>
     /// S3, Azure Blob and Atlassian sources address every document they sync, so one of theirs with no

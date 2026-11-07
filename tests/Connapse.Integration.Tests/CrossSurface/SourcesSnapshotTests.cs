@@ -19,7 +19,7 @@ namespace Connapse.Integration.Tests.CrossSurface;
 [Collection("Integration Tests")]
 public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
 {
-    private readonly string _root = Directory.CreateTempSubdirectory("cs-sources-").FullName;
+    private readonly string _root = $"/cs-sources-{Guid.NewGuid():N}";
     private readonly List<string> _names = [];
     private readonly List<Guid> _connections = [];
 
@@ -44,7 +44,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
     [MemberData(nameof(Rows))]
     public async Task Sources_Action_Case_MatchesCharacterizationSnapshot(string action, string @case)
     {
-        File.WriteAllText(Path.Combine(_root, "doc.txt"), "a file the source mirrors");
+        await (await fixture.SftpAsync()).WriteFileAsync($"{_root}/doc.txt", "a file the source mirrors");
         Guid connectionId = await SeedConnectionAsync();
         string name = $"cs-src-{Guid.NewGuid():N}"[..24];
         _names.AddRange([name, $"{name}-renamed"]);
@@ -97,8 +97,6 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
             knownIds: [.. sourceId is { } id ? [id.ToString()] : Array.Empty<string>(), connectionId.ToString(), unknown],
             responseIds: [.. sourceId is { } sid ? [sid.ToString()] : Array.Empty<string>()]);
 
-        // A synced file's path uses the OS separator ({root}\doc.txt on Windows, {root}/doc.txt on Linux CI).
-        outcome = outcome with { Jobs = outcome.Jobs.Select(j => j.Replace("{root}\\\\", "{root}/", StringComparison.Ordinal)).ToList() };
         await Verify(outcome).UseDirectory("Snapshots").UseParameters(action, @case);
     }
 
@@ -119,7 +117,7 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
     [MemberData(nameof(PageRows))]
     public async Task Sources_PageAction_Case_MatchesCharacterizationSnapshot(string action, string @case)
     {
-        File.WriteAllText(Path.Combine(_root, "doc.txt"), "a file the source mirrors");
+        await (await fixture.SftpAsync()).WriteFileAsync($"{_root}/doc.txt", "a file the source mirrors");
         Guid connectionId = await SeedConnectionAsync();
         string name = $"cs-src-{Guid.NewGuid():N}"[..24];
         _names.AddRange([name, $"{name}-renamed"]);
@@ -184,17 +182,12 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
             knownIds: [sourceId.ToString(), connectionId.ToString()],
             responseIds: [sourceId.ToString()]);
 
-        outcome = outcome with { Jobs = outcome.Jobs.Select(j => j.Replace("{root}\\\\", "{root}/", StringComparison.Ordinal)).ToList() };
         await Verify(outcome).UseDirectory("Snapshots").UseParameters(action, @case);
     }
 
     private async Task<Guid> SeedConnectionAsync()
     {
-        using var scope = fixture.Factory.Services.CreateScope();
-        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
-        var connection = await connections.CreateAsync(
-            new CreateConnectionRequest($"cs-fs-{Guid.NewGuid():N}"[..20], ConnectionProvider.Filesystem, JsonSerializer.Serialize(new { allowedRoot = _root })),
-            createdByUserId: null);
+        var connection = await fixture.CreateSftpConnectionAsync($"cs-sftp-{Guid.NewGuid():N}"[..20], _root);
         _connections.Add(connection.Id);
         return connection.Id;
     }
@@ -331,13 +324,6 @@ public class SourcesSnapshotTests(SharedWebAppFixture fixture) : IAsyncLifetime
             foreach (Guid id in _connections)
                 await connections.DeleteAsync(id);
         }
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-            // A sync can still be reading it; the OS temp cleanup takes it later.
-        }
+        await (await fixture.SftpAsync()).DeleteDirectoryAsync(_root);
     }
 }

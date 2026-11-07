@@ -26,7 +26,7 @@ public sealed record SourceForm
     /// <summary>Cloud only. Narrows the source to a subtree of the bucket.</summary>
     public string? Prefix { get; set; }
 
-    /// <summary>Filesystem only. Resolved beneath the connection's allowed root.</summary>
+    /// <summary>SFTP only. Resolved beneath the connection's allowed root.</summary>
     public string? SubPath { get; set; }
 
     /// <summary>Newline-separated in the UI; an array in the stored JSON.</summary>
@@ -40,7 +40,7 @@ public sealed record SourceForm
 
     /// <summary>
     /// Builds the scope JSON for a connection's provider. Only the keys that provider reads are
-    /// emitted — writing a <c>bucketName</c> into a filesystem scope would be silently ignored
+    /// emitted — writing a <c>bucketName</c> into an SFTP scope would be silently ignored
     /// at sync time, which is worse than being rejected.
     /// </summary>
     public string ToScopeJson(ConnectionProvider provider)
@@ -57,10 +57,6 @@ public sealed record SourceForm
             ConnectionProvider.S3 => new S3BucketScope(Container?.Trim() ?? "", prefix),
             ConnectionProvider.AzureBlob => new AzureBlobContainerScope(Container?.Trim() ?? "", prefix),
 
-            // One case for both. The SFTP scope was deliberately given the same shape as the
-            // filesystem one so that this form, the preflight and the scope summary each gained
-            // a provider here rather than a parallel implementation to keep in step.
-            ConnectionProvider.Filesystem => new FilesystemFolderScope(subPath, Patterns(IncludePatterns), Patterns(ExcludePatterns)),
             ConnectionProvider.Sftp => new SftpFolderScope(subPath, Patterns(IncludePatterns), Patterns(ExcludePatterns)),
 
             _ => throw new NotSupportedException($"Unknown connection provider: {provider}"),

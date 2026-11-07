@@ -47,7 +47,7 @@ stack is seven containers, so don't start it beside another heavy workload.
 The UI journey (`ui.py`) drives the Blazor pages in one headless Chromium, with a browser context per role:
 anonymous, the admin, and an Editor the admin invites. It signs in and out, checks that `/register` refuses
 anyone without an invitation and that the Editor is refused every admin page (and the register API), creates
-and deletes a container, uploads and searches a file, creates a filesystem connection and source, syncs and
+and deletes a container, uploads and searches a file, creates an SFTP connection and source, syncs and
 searches it, walks every settings tab, and creates and revokes a personal token, an agent and its key. Every
 item saves a full-page screenshot named `NN-area-item.png`, and a failed item's ends in `-FAIL`. The harness
 runs below normal priority, so the browser and builds it starts inherit that.

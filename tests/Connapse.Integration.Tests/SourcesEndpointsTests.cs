@@ -123,21 +123,17 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     }
 
     /// <summary>
-    /// A filesystem connection rooted at a real local directory, used where a sync test needs
-    /// the route to reach a working connector rather than time out against a fake S3 region.
+    /// An SFTP connection over an empty folder, used where a sync test needs the route to reach
+    /// a working connector rather than time out against a fake S3 region.
     /// </summary>
-    private async Task<Guid> SeedFilesystemConnectionAsync(string rootPath)
+    private async Task<Guid> SeedSftpConnectionAsync()
     {
-        using var scope = fixture.Factory.Services.CreateScope();
-        var connections = scope.ServiceProvider.GetRequiredService<IConnectionStore>();
-        string configJson = JsonSerializer.Serialize(new { allowedRoot = rootPath });
-        var connection = await connections.CreateAsync(
-            new CreateConnectionRequest(ShortName("fsconn"), ConnectionProvider.Filesystem, configJson),
-            createdByUserId: null);
-        return connection.Id;
+        string root = $"/connapse-sync-test-{Guid.NewGuid():N}";
+        await (await fixture.SftpAsync()).CreateDirectoryAsync(root);
+        return (await fixture.CreateSftpConnectionAsync(ShortName("sftpconn"), root)).Id;
     }
 
-    private async Task<Guid> CreateFilesystemSourceAsync(Guid connectionId, string? name = null)
+    private async Task<Guid> CreateSftpSourceAsync(Guid connectionId, string? name = null)
     {
         var response = await Admin.PostAsJsonAsync("/api/sources", new
         {
@@ -472,55 +468,39 @@ public class SourcesEndpointsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         // before the handler runs, which also produces 400 — the same status the disabled
         // check above returns. The source here is enabled, so a 400 can only mean binding
         // failed, unlike the test above where a 400 is ambiguous.
-        string root = Directory.CreateTempSubdirectory("connapse-sync-test-").FullName;
-        try
-        {
-            Guid connectionId = await SeedFilesystemConnectionAsync(root);
-            Guid sourceId = await CreateFilesystemSourceAsync(connectionId);
+        Guid connectionId = await SeedSftpConnectionAsync();
+        Guid sourceId = await CreateSftpSourceAsync(connectionId);
 
-            var response = await Admin.PostAsync($"/api/sources/{sourceId}/sync", null);
+        var response = await Admin.PostAsync($"/api/sources/{sourceId}/sync", null);
 
-            response.StatusCode.Should().Be(HttpStatusCode.OK,
-                "an enabled source with no query string must reach the handler, not fail binding");
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+            "an enabled source with no query string must reach the handler, not fail binding");
     }
 
     [Fact]
     public async Task SyncSource_ApplyWithheldDeletionsTrue_ReachesTheOverridePathAndReportsWithheldCount()
     {
-        string root = Directory.CreateTempSubdirectory("connapse-sync-test-").FullName;
-        try
-        {
-            Guid connectionId = await SeedFilesystemConnectionAsync(root);
-            Guid sourceId = await CreateFilesystemSourceAsync(connectionId);
-            await SeedSourceDocumentsAsync(sourceId, count: 40);
+        Guid connectionId = await SeedSftpConnectionAsync();
+        Guid sourceId = await CreateSftpSourceAsync(connectionId);
+        await SeedSourceDocumentsAsync(sourceId, count: 40);
 
-            // The directory is empty, so all 40 documents vanish — well past the guard's
-            // threshold — and the default (no query string) call must withhold rather than
-            // delete them.
-            var withheldResponse = await Admin.PostAsync($"/api/sources/{sourceId}/sync", null);
-            withheldResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            var withheldBody = await withheldResponse.Content.ReadFromJsonAsync<JsonElement>();
-            withheldBody.GetProperty("deleted").GetInt32().Should().Be(0);
-            withheldBody.GetProperty("withheldDeletions").GetInt32().Should().Be(40,
-                "the sync response is the one place an admin sees why deletions were withheld");
+        // The folder is empty, so all 40 documents vanish — well past the guard's
+        // threshold — and the default (no query string) call must withhold rather than
+        // delete them.
+        var withheldResponse = await Admin.PostAsync($"/api/sources/{sourceId}/sync", null);
+        withheldResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var withheldBody = await withheldResponse.Content.ReadFromJsonAsync<JsonElement>();
+        withheldBody.GetProperty("deleted").GetInt32().Should().Be(0);
+        withheldBody.GetProperty("withheldDeletions").GetInt32().Should().Be(40,
+            "the sync response is the one place an admin sees why deletions were withheld");
 
-            // ?applyWithheldDeletions=true must reach the override path and actually apply them.
-            var appliedResponse = await Admin.PostAsync(
-                $"/api/sources/{sourceId}/sync?applyWithheldDeletions=true", null);
-            appliedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-            var appliedBody = await appliedResponse.Content.ReadFromJsonAsync<JsonElement>();
-            appliedBody.GetProperty("deleted").GetInt32().Should().Be(40);
-            appliedBody.GetProperty("withheldDeletions").GetInt32().Should().Be(0);
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
+        // ?applyWithheldDeletions=true must reach the override path and actually apply them.
+        var appliedResponse = await Admin.PostAsync(
+            $"/api/sources/{sourceId}/sync?applyWithheldDeletions=true", null);
+        appliedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var appliedBody = await appliedResponse.Content.ReadFromJsonAsync<JsonElement>();
+        appliedBody.GetProperty("deleted").GetInt32().Should().Be(40);
+        appliedBody.GetProperty("withheldDeletions").GetInt32().Should().Be(0);
     }
 
     /// <summary>
