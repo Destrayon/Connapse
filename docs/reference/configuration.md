@@ -22,7 +22,7 @@ Connapse reads settings from these places, and a later one wins over an earlier 
 
 A value saved on the **Settings** page therefore beats the same setting in an environment variable or on the command line. To go back to the deployment's value, reset that settings group on the page or with `DELETE /api/v1/settings/{category}`.
 
-Addresses are the exception, because a saved address goes stale when the server moves. An environment variable or command-line argument that sets an address beats the saved address. This covers every setting under `Knowledge:` whose name ends in `Url` or `Endpoint`, such as `Knowledge__Embedding__BaseUrl`, and the page and `GET /api/v1/settings/{category}` show the address in use. A blank value doesn't count as set, and neither does a value in `appsettings.json`.
+Addresses are the exception, because a saved address goes stale when the server moves. An environment variable or command-line argument that sets an address beats the saved address. This covers every setting under `Knowledge:` whose name ends in `Url` or `Endpoint`, such as `Knowledge__Embedding__BaseUrl`, and the page and `GET /api/v1/settings/{category}` show the address in use. A blank value doesn't count as set, and neither does a value in `appsettings.json`. The saved address stays in the table and applies again once the deployment stops setting one.
 
 Three addresses are shared between providers, so the deployment's value applies only while the saved provider is the one it is meant for. Otherwise the saved address stays, so that a saved API key is not sent to the deployment's service:
 

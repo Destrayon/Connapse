@@ -87,6 +87,31 @@ public partial class SettingsOperationTests
     }
 
     [Fact]
+    public async Task Update_SendingBackTheAddressItRead_KeepsWhatWasSavedForThatAddress()
+    {
+        var world = WithDeployedAddress();
+        await world.Store.SaveAsync("embedding", new EmbeddingSettings { Provider = "Ollama", BaseUrl = "http://localhost:11434" });
+        var read = await world.Get().RunAsync(Caller, "embedding");
+
+        await world.Update().RunAsync(Caller, "embedding", Body(new { provider = "Ollama", baseUrl = DeployedAddress, model = "m" }), expectedVersions: [read.Result!.Version]);
+
+        var stored = world.Store.Stored<EmbeddingSettings>("embedding")!;
+        stored.BaseUrl.Should().Be("http://localhost:11434", "the page and GET show the deployment's address, and saving another field must not store it");
+        stored.Model.Should().Be("m");
+    }
+
+    [Fact]
+    public async Task Update_SwitchingProviderWithTheAddressItRead_SavesThatAddress()
+    {
+        var world = WithDeployedAddress();
+        await world.Store.SaveAsync("embedding", new EmbeddingSettings { Provider = "Ollama", BaseUrl = "http://localhost:11434" });
+
+        await world.Update().RunAsync(Caller, "embedding", Body(new { provider = "OpenAI", baseUrl = DeployedAddress }));
+
+        world.Store.Stored<EmbeddingSettings>("embedding")!.BaseUrl.Should().Be(DeployedAddress, "the deployment no longer replaces it, so what was sent is the address");
+    }
+
+    [Fact]
     public async Task Get_NothingStored_NeverChangesTheConfiguredValue()
     {
         var world = WithDeployedAddress();

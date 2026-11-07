@@ -161,12 +161,14 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
     {
         var (saved, revision) = await store.UpdateWithRevisionAsync<T>(Key, (stored, storedRevision) =>
         {
+            var incoming = (T)settings;
+            if (stored is not null)
+                KeepSavedAddresses(incoming, stored, configured);
             // A secret left out keeps the one in effect: stored, or configured when nothing is stored yet, as a
             // first save of a value read from GET would otherwise erase a key that came from configuration.
             var current = InEffect(stored, configured);
             if (expectedVersions is not null && !expectedVersions.Contains(VersionOf(current, stored is null ? null : storedRevision)))
                 throw new SettingsChangedException();
-            var incoming = (T)settings;
             foreach (var secret in Secrets)
             {
                 if (secret.GetValue(incoming) is null && unsent == UnsentSecrets.Keep)
@@ -190,16 +192,28 @@ public sealed class SettingsCategory<T>(string name, string key) : SettingsCateg
     private T WithDeploymentAddresses(T stored, IConfiguredSettings configured)
     {
         foreach (var address in SettingsSecrets.AddressesOf(typeof(T)))
-        {
-            var replacement = DeploymentAddresses.Replacing(
-                DeploymentAddresses.KeyOf(Key, address.Name),
-                key => (string?)Destinations.FirstOrDefault(d => key.EndsWith($":{d.Name}", StringComparison.OrdinalIgnoreCase))?.GetValue(stored),
-                configured.DeploymentValue);
-            if (replacement is not null)
+            if (Replacement(address, stored, configured) is { } replacement)
                 address.SetValue(stored, replacement);
-        }
         return stored;
     }
+
+    /// <summary>
+    /// Puts the saved address back wherever <paramref name="incoming"/> only repeats the deployment's, as a save of
+    /// another field does because reads show that address. It would otherwise replace the saved one for good. Run
+    /// this before <paramref name="stored"/> gets the deployment's addresses.
+    /// </summary>
+    private void KeepSavedAddresses(T incoming, T stored, IConfiguredSettings configured)
+    {
+        foreach (var address in SettingsSecrets.AddressesOf(typeof(T)))
+            if (Replacement(address, incoming, configured) is { } replacement && replacement == (string?)address.GetValue(incoming))
+                address.SetValue(incoming, address.GetValue(stored));
+    }
+
+    private string? Replacement(PropertyInfo address, T settings, IConfiguredSettings configured) =>
+        DeploymentAddresses.Replacing(
+            DeploymentAddresses.KeyOf(Key, address.Name),
+            key => (string?)Destinations.FirstOrDefault(d => key.EndsWith($":{d.Name}", StringComparison.OrdinalIgnoreCase))?.GetValue(settings),
+            configured.DeploymentValue);
 
     internal override object? Parse(JsonElement body) => JsonSerializer.Deserialize<T>(body.GetRawText(), Json);
 }
