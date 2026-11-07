@@ -22,11 +22,11 @@
 
     <rect x="20" y="218" width="860" height="72" rx="8" fill="#ffffff" stroke="#e4e6ee"/>
     <text x="36" y="250" font-weight="600">Who can see it</text>
-    <text x="36" y="271" font-size="13" fill="#5b6070">in the Memory tab</text>
+    <text x="36" y="271" font-size="13" fill="#5b6070">on the Memory page</text>
     <text x="265" y="250">Only its author and</text>
     <text x="265" y="271">the author's own agents</text>
-    <text x="590" y="250">Everyone who can read the container</text>
-    <text x="590" y="271">and every document it cites</text>
+    <text x="590" y="250">Everyone in this Connapse who can read</text>
+    <text x="590" y="271">every document it cites</text>
 
     <rect x="20" y="298" width="860" height="72" rx="8" fill="#f6f7fb"/>
     <text x="36" y="330" font-weight="600">Who can search it</text>

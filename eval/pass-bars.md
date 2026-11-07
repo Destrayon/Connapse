@@ -35,6 +35,10 @@ before any of these features or their results existed. A change merges only when
 
 ## Container memory for search (CON-244)
 
+**Result:** the planted-memory arm passed, but the realistic arm below came back WORSE, so container memory was
+dropped and CON-255 removed it. The rules here stay as the record. The `memory-search` and `memory-learned` commands
+now run only the Off arm, and the Off scores in `eval/agent-search/con-244/results.md` are the ones to match.
+
 Written on 2026-11-04, before the `memory-search` command or any scored run existed. The result decides whether
 container-level memory stays in the product: **keep** it only if it clearly beats plain search; **drop** it if it is
 no better or worse.

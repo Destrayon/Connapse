@@ -49,16 +49,6 @@ public sealed class McpToolbox : IToolbox
         new Claim("scope", "knowledge:read"),
     ], "eval"));
 
-    /// <summary>The same user as <see cref="Reader"/>, with a token that may also write knowledge, as an agent that saves memory has.</summary>
-    public static ClaimsPrincipal Writer(Guid userId, string name) => new(new ClaimsIdentity(
-    [
-        new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-        new Claim(ClaimTypes.Name, name),
-        new Claim(ClaimTypes.Role, "Admin"),
-        new Claim("scope", "knowledge:read"),
-        new Claim("scope", "knowledge:write"),
-    ], "eval"));
-
     public static MethodInfo Find(string toolName) =>
         typeof(McpTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .SingleOrDefault(m => m.GetCustomAttribute<McpServerToolAttribute>()?.Name == toolName)

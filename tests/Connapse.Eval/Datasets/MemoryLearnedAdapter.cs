@@ -3,9 +3,9 @@ using Connapse.Eval.Model;
 namespace Connapse.Eval.Datasets;
 
 /// <summary>
-/// The memory-learned tasks (CON-244, realistic arm): a corpus, documents that arrive later, and two sessions of related
-/// questions. They are not a ranking dataset: the memory-learned command scores them. The manifest entry pins their
-/// files, so <c>datasets verify --suite memory-learned-v1</c> checks them.
+/// The memory-learned tasks (CON-244, realistic arm): a corpus, documents that arrive later, and questions an agent
+/// answers with search alone. They are not a ranking dataset: the memory-learned command scores them. The manifest entry
+/// pins their files, so <c>datasets verify --suite memory-learned-v1</c> checks them.
 /// </summary>
 public sealed class MemoryLearnedAdapter : IDatasetAdapter
 {

@@ -77,10 +77,10 @@
     "IsEmpty": false
   },
   "Memory/MemoryKindBadge.razor": {
-    "CodeLines": 9,
+    "CodeLines": 4,
     "Injects": 0,
-    "Complexity": 1,
-    "MarkupLogic": 4,
+    "Complexity": 0,
+    "MarkupLogic": 2,
     "IsEmpty": false
   },
   "Memory/NewMemorySpaceDialog.razor": {
@@ -161,10 +161,10 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 757,
+    "CodeLines": 742,
     "Injects": 8,
-    "Complexity": 173,
-    "MarkupLogic": 88,
+    "Complexity": 169,
+    "MarkupLogic": 85,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
@@ -175,16 +175,16 @@
     "IsEmpty": false
   },
   "Pages/MemoryPage.razor": {
-    "CodeLines": 222,
+    "CodeLines": 220,
     "Injects": 3,
-    "Complexity": 83,
-    "MarkupLogic": 39,
+    "Complexity": 81,
+    "MarkupLogic": 36,
     "IsEmpty": false
   },
   "Pages/MemorySpacePage.razor": {
-    "CodeLines": 39,
-    "Injects": 4,
-    "Complexity": 12,
+    "CodeLines": 34,
+    "Injects": 3,
+    "Complexity": 13,
     "MarkupLogic": 10,
     "IsEmpty": false
   },

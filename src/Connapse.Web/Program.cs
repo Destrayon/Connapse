@@ -339,6 +339,8 @@ if (!generatingOpenApiDocument)
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
+        // Some migrations rewrite or delete every row of a table, which can outlast the 30-second default on a large database.
+        db.Database.SetCommandTimeout(TimeSpan.FromMinutes(5));
         await db.Database.MigrateAsync();
 
         // Migrate Identity tables (separate migration history)

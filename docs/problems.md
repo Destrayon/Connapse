@@ -143,8 +143,9 @@ only to callers who can read every source it cites, so a hidden fact and a missi
 
 The memory write was refused: `subject`, `attribute` or `value` is missing or too long, `validTo` isn't
 after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, a
-cited source doesn't exist or can't be read by the writer, or the `space` named is ambiguous. A name used by
-one of your personal spaces and by a team space or container is ambiguous; pass the id instead. The detail
+cited source doesn't exist or can't be read by the writer, or the `space` names only a documents container or
+is ambiguous. A name other than `my-memory` used by
+one of your personal spaces and by a team space is ambiguous; pass the id instead. The detail
 says which.
 
 ## memory-fact-exists
@@ -177,8 +178,8 @@ has to differ from your other personal spaces.
 
 ## memory-space-is-container
 
-The id names a documents container, not a memory space. Its facts are listed with the spaces, but it is
-renamed and deleted through `/api/containers`, since deleting it deletes its files too.
+The id names a documents container, not a memory space. Documents containers hold no memory; rename or
+delete one through `/api/containers`.
 
 ## embeddings-unavailable
 

@@ -3,8 +3,7 @@
 @inject CopyMemoryFact Copy
 @inject AuthenticationStateProvider AuthStateProvider
 
-@* Copies the current version of a personal fact to a team space or document container the person can add to. It
-   names who will see the copy, and shows a matching fact already there before copying a second one. *@
+@* Copies the current version of a personal fact to a team space the person can add to. It names who will see the copy, and shows a matching fact already there before copying a second one. *@
 <div class="modal-backdrop" @onclick="Close"></div>
 <div id="memory-copy" class="copy-modal" role="dialog" aria-labelledby="memory-copy-title">
     <div class="copy-modal-content">
@@ -26,7 +25,7 @@
             }
             else if (destinations.Count == 0)
             {
-                <p id="memory-copy-none" class="copy-hint mt-3 mb-0">There are no team spaces or document containers you can add to.</p>
+                <p id="memory-copy-none" class="copy-hint mt-3 mb-0">There are no team spaces you can add to.</p>
             }
             else
             {
@@ -34,7 +33,7 @@
                 <div class="copy-to">
                     @if (Chosen is { } chosen)
                     {
-                        <MemoryKindBadge Kind="chosen.Audience" Container="chosen.Kind == ContainerKind.Documents" />
+                        <MemoryKindBadge Kind="chosen.Audience" />
                     }
                     <select id="memory-copy-to" class="form-select form-select-sm" value="@destination" @onchange="Choose" disabled="@isCopying">
                         @foreach (Container to in destinations)
@@ -43,7 +42,7 @@
                         }
                     </select>
                 </div>
-                <p class="copy-hint">Team spaces and document containers you can add to.</p>
+                <p class="copy-hint">Team spaces you can add to.</p>
 
                 @if (plan?.Existing is { } existing)
                 {

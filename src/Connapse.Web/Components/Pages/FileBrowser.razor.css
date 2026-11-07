@@ -430,25 +430,3 @@ th.col-check::before {
     color: var(--text-muted, #8b949e);
 }
 
-/* A document container's Memory tab: its facts are team memory. */
-.memory-team-note {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.6rem;
-    margin-bottom: 0.75rem;
-    font-size: 0.82rem;
-    color: var(--text-muted, #8b949e);
-}
-
-.memory-team-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, #2dd4bf 16%, transparent);
-    color: #2dd4bf;
-}

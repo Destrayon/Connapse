@@ -100,9 +100,9 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `path` | string | No | Only files under this folder, such as `src/billing` |
 | | `maxFiles` | integer | No | Most files, 1 to 200; default 30 |
 | `memory_spaces` | `name` | string | No | Only spaces whose name or description contains this text |
-| | `kind` | string | No | `personal`, `team` or `container` |
-| `memory_remember` | `space` | string | Yes | Space or container id or name, from `memory_spaces`; memory can't be written to a source |
-| | `containerId` | string | No | Older name for the place to save, used only when `space` is left out. A fact citing no sources saved this way goes to the caller's `<container>-personal` space |
+| | `kind` | string | No | `personal` or `team` |
+| `memory_remember` | `space` | string | Yes | Space id or name, from `memory_spaces`; memory can't be written to a document container or a source |
+| | `containerId` | string | No | Older name for the space to save to, used only when `space` is left out. A fact citing no sources saved this way goes to the caller's `<space>-personal` space |
 | | `subject`, `attribute`, `value` | string | Yes | The fact, such as `Halcyon`, `database`, `PostgreSQL 15` |
 | | `validFrom`, `validTo` | string | No | When it became and stopped being true, `YYYY-MM-DD` or ISO 8601 |
 | | `sources` | string[] | No | Document ids, or link node ids as `node:<id>` |
@@ -113,7 +113,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `containerId` | string | No | Ignored for the lookup; kept so older agents still work |
 | `memory_forget` | `factId` | string | Yes | The fact to delete, found by id in any space the caller can see |
 | | `containerId` | string | No | Ignored for the lookup |
-| `memory_recall` | `space` | string | No | Space or container id or name. Left out, every space the caller can see is read |
+| `memory_recall` | `space` | string | No | Space id or name. Left out, every space the caller can see is read |
 | | `containerId` | string | No | Older name for `space` |
 | | `query` | string | No | Words to match against subject, attribute, value and reason |
 | | `subject`, `attribute` | string | No | Exact match, in any case |
@@ -133,7 +133,7 @@ The file types an upload accepts are in [File types](file-types.md).
 
 The `memory_*` tools keep facts an agent learns, so the next session can use them. A fact is a subject, an attribute and a value (`Halcyon`, `database`, `PostgreSQL 15`) with the dates it was true, the documents it was learned from, a reason, and who wrote it. [About agent memory](../concepts/memory.md) explains the model.
 
-- **Spaces.** Every fact lives in a space: a **personal** space only its owner sees (everyone who can save has one called `my-memory`), a **team** space everyone in this Connapse sees, or a **document container**, whose memory is team memory. `memory_spaces` returns at most 100, each with `id`, `name`, `kind` (`personal`, `team` or `container`), `description`, `canAdd`, `whoSees` in words and its fact count; when there are more, a `note` says to pass `name`. A memory container made with `container_create(kind="memory")` is a team space.
+- **Spaces.** Every fact lives in a space: a **personal** space only its owner sees (everyone who can save has one called `my-memory`) or a **team** space everyone in this Connapse sees. A document container holds no memory, so a save or read that names one is refused. `memory_spaces` returns at most 100, each with `id`, `name`, `kind` (`personal` or `team`), `description`, `canAdd`, `whoSees` in words and its fact count; when there are more, a `note` says to pass `name`. A memory container made with `container_create(kind="memory")` is a team space.
 - **Saving.** `memory_remember` refuses a call that names no `space`, and the error lists the caller's spaces. The answer's `savedTo.note` says in words who will see the fact. Writing needs `knowledge:write`, and a source id is refused like any other write.
 - **Reading.** Without `space`, `memory_recall` and `memory_timeline` read the 100 most recently changed spaces that have facts, and a `note` says how many more were skipped. Each fact carries its `space` (`id`, `name`, `kind`) and `scope` (`personal` or `team`). A read of one named space returns a `nextCursor` when there are more facts than `limit`; pass it back as `cursor`.
 - **Sources** are document IDs from `search_knowledge` or `get_document` (tickets, PRs and code files are documents), or link node IDs as `node:<id>`. The writer must be able to read every source it cites.

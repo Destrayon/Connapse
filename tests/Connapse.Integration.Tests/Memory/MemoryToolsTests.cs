@@ -55,7 +55,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             "service-secret"), null);
 
         await using var db = await Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
-        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"mem-{Guid.NewGuid():N}" };
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"mem-{Guid.NewGuid():N}", Kind = ContainerKind.Memory };
         db.Containers.Add(container);
         string Add(string name, string? uri)
         {
@@ -475,7 +475,46 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             $"conf-{Guid.NewGuid():N}"[..20], connection.Id, """{"kind":"confluence-space","spaceKey":"ENG"}"""));
 
         (await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(), Sp.GetRequiredService<IHttpContextAccessor>(), "Halcyon", "database", "x", sources: [_upload], containerId: source.Id.ToString()))
-            .Should().Contain("Memory lives in containers");
+            .Should().Contain("Memory lives in personal and team spaces");
+    }
+
+    [Fact]
+    public async Task DocumentContainerFact_NoSaveRecallOrSearchReachesIt()
+    {
+        const string Value = "zebraquartzdocumentfact";
+        Guid documents = Guid.NewGuid(), planted = Guid.NewGuid();
+        string name = $"docs-{Guid.NewGuid():N}";
+        await using (var db = await Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync())
+        {
+            db.Containers.Add(new ContainerEntity { Id = documents, Name = name });
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync(
+                """
+                INSERT INTO memory_facts (id, chain_id, container_id, subject, attribute, value, recorded_at, author_user_id, scope)
+                VALUES ({0}, {0}, {1}, 'Halcyon', 'database', {2}, now(), {3}, {4})
+                """, planted, documents, Value, _writer, (short)MemoryScope.Team);
+        }
+        As(_writer);
+        RecallMemory recall = Sp.GetRequiredService<RecallMemory>();
+        IHttpContextAccessor http = Sp.GetRequiredService<IHttpContextAccessor>();
+
+        foreach (string space in new[] { name, documents.ToString() })
+        {
+            string named = await McpTools.MemoryRecall(recall, http, space, subject: "Halcyon");
+            named.Should().StartWith("Error: ").And.Contain("document container").And.NotContain(Value);
+            string saved = await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(), http,
+                "Halcyon", "database", "x", sources: [_upload], containerId: space);
+            saved.Should().StartWith("Error: ").And.Contain("document container");
+        }
+
+        string corrected = await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), http, planted.ToString(), "x", validFrom: "2026-01-01");
+        corrected.Should().StartWith("Error: ").And.Contain("not found").And.NotContain(Value);
+
+        (await McpTools.MemoryRecall(recall, http, query: Value)).Should().NotContain(Value, "an unnamed read covers spaces only");
+        (await Sp.GetRequiredService<IKnowledgeSearch>().SearchAsync(Value,
+            new SearchOptions(TopK: 20, Mode: SearchMode.Keyword, UserId: _writer))).Hits.Should().BeEmpty("search reads documents, never facts");
+        await using var check = await Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        (await check.MemoryFacts.CountAsync(f => f.ContainerId == documents)).Should().Be(1, "a refused save or correction stores nothing");
     }
 
     [Fact]

@@ -62,7 +62,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
         string container, source;
         await using (var db = await sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync())
         {
-            var entity = new ContainerEntity { Id = Guid.NewGuid(), Name = $"gate-{Guid.NewGuid():N}" };
+            var entity = new ContainerEntity { Id = Guid.NewGuid(), Name = $"gate-{Guid.NewGuid():N}", Kind = ContainerKind.Memory };
             var document = new DocumentEntity
             {
                 Id = Guid.NewGuid(),

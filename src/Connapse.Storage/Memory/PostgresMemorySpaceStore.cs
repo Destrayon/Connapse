@@ -12,8 +12,7 @@ namespace Connapse.Storage.Memory;
 /// <summary>
 /// Spaces as the Memory page lists them. Fact counts follow the same rule as reading a fact: a current fact counts for
 /// a viewer only when it is team or theirs and they can read every source it cites. Candidates come with bounds and no
-/// source checked; only the spaces a page shows are tallied exactly, and a documents container's presence is settled by
-/// checking one fact first. A delete's impact counts by the same rule, so it never reveals facts the viewer can't read.
+/// source checked; only the spaces a page shows are tallied exactly. A delete's impact counts by the same rule, so it never reveals facts the viewer can't read.
 /// </summary>
 public sealed class PostgresMemorySpaceStore(
     IDbContextFactory<KnowledgeDbContext> factory,
@@ -28,6 +27,9 @@ public sealed class PostgresMemorySpaceStore(
         "(c.audience = 'team' OR (@user IS NOT NULL AND c.owner_user_id = @user) "
         + "OR (@user IS NULL AND @agent IS NOT NULL AND c.owner_user_id IS NULL AND c.owner_agent_id = @agent))";
 
+    // A memory space the viewer may see. Document containers hold no memory.
+    private const string SpaceVisible = $"(c.kind = 'memory' AND {ContainerVisible})";
+
     // The fact is team, or the viewer wrote it: MemoryCaller.IsAuthorOf in SQL.
     private const string FactScopeVisible =
         "(f.scope = 1 OR (@user IS NOT NULL AND f.author_user_id = @user) "
@@ -37,7 +39,7 @@ public sealed class PostgresMemorySpaceStore(
     private const string FactCurrent =
         "f.superseded_at IS NULL AND (f.valid_from IS NULL OR f.valid_from <= @now) AND (f.valid_to IS NULL OR f.valid_to > @now)";
 
-    public async Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, bool withEnded = false, CancellationToken ct = default)
+    public async Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(viewer);
         DateTimeOffset now = clock.GetUtcNow();
@@ -46,7 +48,7 @@ public sealed class PostgresMemorySpaceStore(
         string? pattern = string.IsNullOrWhiteSpace(text) ? null : "%" + EscapeLike(text.Trim()) + "%";
         // Only the spaces the text matches have their sources checked, so a narrow search stays cheap.
         IReadOnlySet<MemorySource>? readable = await ReadableAsync(
-            context, viewer, withEnded ? CitedEverInVisibleSpaces : CitedInVisibleSpaces,
+            context, viewer, CitedInVisibleSpaces,
             [.. Viewer(viewer, now), new NpgsqlParameter("pattern", NpgsqlDbType.Text) { Value = (object?)pattern ?? DBNull.Value }],
             "listing no spaces", ct);
         if (readable is null)
@@ -60,7 +62,6 @@ public sealed class PostgresMemorySpaceStore(
             new("pattern", NpgsqlDbType.Text) { Value = (object?)pattern ?? DBNull.Value },
             new("star_user", NpgsqlDbType.Uuid) { Value = (object?)starUser ?? DBNull.Value },
             new("star_agent", NpgsqlDbType.Uuid) { Value = (object?)starAgent ?? DBNull.Value },
-            new("with_ended", NpgsqlDbType.Boolean) { Value = withEnded },
         ];
 
         // One grouped pass over the visible current facts gives every row its count and newest fact.
@@ -81,10 +82,7 @@ public sealed class PostgresMemorySpaceStore(
                 WHERE {FactCurrent} AND {FactScopeVisible} AND {SourcesReadable}
                 GROUP BY f.container_id
             ) a ON a.container_id = c.id
-            WHERE {ContainerVisible}
-              AND (c.kind = 'memory' OR COALESCE(a.facts, 0) > 0
-                   OR (@with_ended AND EXISTS (SELECT 1 FROM memory_facts f
-                       WHERE f.container_id = c.id AND {FactScopeVisible} AND {SourcesReadable})))
+            WHERE {SpaceVisible}
               AND {SpaceMatches}
             """,
             [.. parameters]).ToListAsync(ct);
@@ -143,8 +141,7 @@ public sealed class PostgresMemorySpaceStore(
                 WHERE {FactCurrent} AND {FactScopeVisible}
                 GROUP BY f.container_id
             ) a ON a.container_id = c.id
-            WHERE {ContainerVisible}
-              AND (c.kind = 'memory' OR COALESCE(a.facts, 0) > 0)
+            WHERE {SpaceVisible}
               AND {SpaceMatches}
             """,
             [.. parameters]).ToListAsync(ct);
@@ -192,77 +189,12 @@ public sealed class PostgresMemorySpaceStore(
                 WHERE f.container_id = ANY(@containers) AND {FactCurrent} AND {FactScopeVisible} AND {SourcesReadable}
                 GROUP BY f.container_id
             ) a ON a.container_id = c.id
-            WHERE c.id = ANY(@containers) AND {ContainerVisible}
+            WHERE c.id = ANY(@containers) AND {SpaceVisible}
             """,
             [.. Viewer(viewer, now), Containers(ids), .. Readable(readable)]).ToListAsync(ct);
 
         return rows.ToDictionary(
             r => r.Id.ToString(), r => new MemorySpaceTally((int)r.Facts, Later(r.UpdatedAt, r.Newest)), StringComparer.Ordinal);
-    }
-
-    public async Task<IReadOnlySet<string>?> HoldingReadableAsync(
-        MemoryCaller viewer, IReadOnlyCollection<string> containerIds, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(viewer);
-        Guid[] ids = Ids(containerIds);
-        HashSet<string> holding = new(StringComparer.Ordinal);
-        if (ids.Length == 0)
-            return holding;
-        DateTimeOffset now = clock.GetUtcNow();
-        List<WitnessRow> witnesses;
-        await using (KnowledgeDbContext context = await factory.CreateDbContextAsync(ct))
-        {
-            // One witness per space: a current fact in the viewer's scope citing the fewest sources, newest first. Its
-            // sources are the only ones checked unless it turns out hidden.
-            witnesses = await context.Database.SqlQueryRaw<WitnessRow>(
-                $"""
-                WITH witness AS (
-                    SELECT DISTINCT ON (f.container_id) f.container_id, f.id
-                    FROM memory_facts f
-                    JOIN containers c ON c.id = f.container_id
-                    WHERE f.container_id = ANY(@containers) AND {FactCurrent} AND {FactScopeVisible} AND {ContainerVisible}
-                    ORDER BY f.container_id, (SELECT count(*) FROM memory_fact_sources s WHERE s.fact_id = f.id),
-                             f.recorded_at DESC, f.id
-                )
-                SELECT w.container_id AS "Container", s.kind AS "Kind", s.ref AS "Ref"
-                FROM witness w
-                LEFT JOIN memory_fact_sources s ON s.fact_id = w.id
-                """,
-                [.. Viewer(viewer, now), Containers(ids)]).ToListAsync(ct);
-        }
-
-        static MemorySource? SourceOf(WitnessRow row) =>
-            row.Kind is { } kind && row.Ref is { } reference ? new MemorySource((MemorySourceKind)kind, reference) : null;
-
-        IReadOnlySet<MemorySource> readable;
-        try
-        {
-            readable = await MemorySourceAccess.ReadableAsync(
-                access, links, witnesses.Select(SourceOf).OfType<MemorySource>(), viewer.UserId, ct);
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            logger.LogWarning(ex, "Could not check memory sources; {Outcome}", "listing no spaces");
-            return null;
-        }
-
-        List<string> hidden = [];
-        foreach (IGrouping<Guid, WitnessRow> witness in witnesses.GroupBy(w => w.Container))
-        {
-            if (witness.All(w => SourceOf(w) is not { } source || readable.Contains(source)))
-                holding.Add(witness.Key.ToString());
-            else
-                hidden.Add(witness.Key.ToString());
-        }
-        if (hidden.Count == 0)
-            return holding;
-
-        // A hidden witness says nothing about the space's other facts, so those spaces are tallied in full.
-        IReadOnlyDictionary<string, MemorySpaceTally>? tallied = await TallyAsync(viewer, hidden, ct);
-        if (tallied is null)
-            return null;
-        holding.UnionWith(tallied.Where(t => t.Value.Facts > 0).Select(t => t.Key));
-        return holding;
     }
 
     public async Task<Container?> CreatePersonalAsync(MemoryCaller owner, string name, string? description, CancellationToken ct = default)
@@ -374,14 +306,10 @@ public sealed class PostgresMemorySpaceStore(
     private const string SpaceMatches = "(@pattern IS NULL OR c.name ILIKE @pattern OR c.description ILIKE @pattern)";
 
     private const string CitedInVisibleSpaces =
-        $"{CitedSources} WHERE {FactCurrent} AND {ContainerVisible} AND {SpaceMatches} AND {FactScopeVisible}";
-
-    // As above, but for facts current or not, when ended facts can list a space.
-    private const string CitedEverInVisibleSpaces =
-        $"{CitedSources} WHERE {ContainerVisible} AND {SpaceMatches} AND {FactScopeVisible}";
+        $"{CitedSources} WHERE {FactCurrent} AND {SpaceVisible} AND {SpaceMatches} AND {FactScopeVisible}";
 
     private const string CitedInSpaces =
-        $"{CitedSources} WHERE f.container_id = ANY(@containers) AND {FactCurrent} AND {ContainerVisible} AND {FactScopeVisible}";
+        $"{CitedSources} WHERE f.container_id = ANY(@containers) AND {FactCurrent} AND {SpaceVisible} AND {FactScopeVisible}";
 
     private const string CitedInSpace = $"{CitedSources} WHERE f.container_id = @container AND {FactScopeVisible}";
 
@@ -513,15 +441,6 @@ public sealed class PostgresMemorySpaceStore(
         public long Facts { get; set; }
 
         public DateTimeOffset? Newest { get; set; }
-    }
-
-    private sealed class WitnessRow
-    {
-        public Guid Container { get; set; }
-
-        public short? Kind { get; set; }
-
-        public string? Ref { get; set; }
     }
 
     private sealed class ImpactRow

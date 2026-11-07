@@ -138,7 +138,7 @@ public static class MemoryFactsEndpoints
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Destination))
-                return ApiProblem.BadRequest("destination is required: a team space or document container, by id or name.", field: "destination");
+                return ApiProblem.BadRequest("destination is required: a team space, by id or name.", field: "destination");
 
             var copied = await copy.RunAsync(Rest(http), id, request.Destination, request.Anyway, ct: ct);
             return copied.Succeeded
@@ -152,7 +152,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.copy")
-        .WithDescription("Copies the current version of a fact in your own personal space to a team space or document container, as a new fact you wrote; the personal fact is unchanged. Needs knowledge:read as well as knowledge:write");
+        .WithDescription("Copies the current version of a fact in your own personal space to a team space, as a new fact you wrote; the personal fact is unchanged. Needs knowledge:read as well as knowledge:write");
 
         return app;
     }
@@ -220,12 +220,12 @@ public static class MemoryFactsEndpoints
 }
 
 /// <summary>
-/// Where to copy a fact: a team space or document container by id or name. <paramref name="Anyway"/>: copy even when
+/// Where to copy a fact: a team space by id or name. <paramref name="Anyway"/>: copy even when
 /// the destination already has a current fact with the same subject and attribute.
 /// </summary>
 public sealed record CopyMemoryFactRequest(string? Destination, bool Anyway = false);
 
-/// <summary>The new team fact, the personal version it was copied from, and the space or container it is in.</summary>
+/// <summary>The new team fact, the personal version it was copied from, and the space it is in.</summary>
 public sealed record MemoryCopyResponse(MemoryFact Fact, Guid CopiedFrom, string SpaceId);
 
 /// <summary>How many facts the caller can see; <paramref name="Capped"/>: counting stopped early, so there are at least this many.</summary>

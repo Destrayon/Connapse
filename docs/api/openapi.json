@@ -3610,7 +3610,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "List the memory spaces you may see, starred first (?kind=personal|team|container&q=&starred=true&sort=updated|name|facts&limit=50&cursor=). Each row counts the current facts you may see in it; the counts cover every kind for the same q.",
+        "description": "List the memory spaces you may see, starred first (?kind=personal|team&q=&starred=true&sort=updated|name|facts&limit=50&cursor=). Each row counts the current facts you may see in it; the counts cover every kind for the same q.",
         "operationId": "memorySpaces.list",
         "parameters": [
           {
@@ -3734,7 +3734,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "Make a memory space. kind is personal (yours alone) or team (everyone with access); a documents container is made with POST /api/containers.",
+        "description": "Make a memory space. kind is personal (yours alone) or team (everyone with access).",
         "operationId": "memorySpaces.create",
         "requestBody": {
           "content": {
@@ -4032,7 +4032,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "Star a memory space or documents container for yourself, so it lists first. Starring it again changes nothing.",
+        "description": "Star a memory space for yourself, so it lists first. Starring it again changes nothing.",
         "operationId": "memorySpaces.star",
         "parameters": [
           {
@@ -4071,6 +4071,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4140,6 +4150,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -8410,7 +8430,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "Copies the current version of a fact in your own personal space to a team space or document container, as a new fact you wrote; the personal fact is unchanged. Needs knowledge:read as well as knowledge:write",
+        "description": "Copies the current version of a fact in your own personal space to a team space, as a new fact you wrote; the personal fact is unchanged. Needs knowledge:read as well as knowledge:write",
         "operationId": "memory.copy",
         "parameters": [
           {
@@ -17432,8 +17452,7 @@
           "all",
           "starred",
           "personal",
-          "team",
-          "containers"
+          "team"
         ],
         "type": "object",
         "properties": {
@@ -17462,14 +17481,6 @@
             "format": "int32"
           },
           "team": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "containers": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
@@ -17532,8 +17543,7 @@
       "MemorySpaceKind": {
         "enum": [
           "Personal",
-          "Team",
-          "Container"
+          "Team"
         ]
       },
       "MemorySpacePage": {

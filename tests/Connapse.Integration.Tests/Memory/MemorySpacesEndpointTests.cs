@@ -58,7 +58,7 @@ public class MemorySpacesEndpointTests(SharedWebAppFixture fixture)
         first.Items[0].Starred.Should().BeTrue();
         first.Total.Should().Be(3);
         second.NextCursor.Should().BeNull();
-        first.Counts.Should().Be(new MemorySpaceCounts(All: 3, Starred: 1, Personal: 1, Team: 2, Containers: 0));
+        first.Counts.Should().Be(new MemorySpaceCounts(All: 3, Starred: 1, Personal: 1, Team: 2));
         (await ListAsync(Owner, $"q={tag}&kind=personal")).Items.Select(i => i.Id).Should().Equal(personal.Id);
 
         (await Owner.DeleteAsync($"/api/memory/spaces/{other.Id}/star")).StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -127,8 +127,8 @@ public class MemorySpacesEndpointTests(SharedWebAppFixture fixture)
         (await ProblemTypeAsync(rename)).Should().EndWith("memory-space-is-container");
         delete.StatusCode.Should().Be(HttpStatusCode.Conflict);
         make.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await Owner.PutAsync($"/api/memory/spaces/{container.Id}/star", null)).StatusCode.Should().Be(HttpStatusCode.NoContent,
-            "any space the caller can see may be starred");
+        (await Owner.PutAsync($"/api/memory/spaces/{container.Id}/star", null)).StatusCode.Should().Be(HttpStatusCode.Conflict,
+            "a document container is not a space");
         await Owner.DeleteAsync($"/api/containers/{container.Id}");
     }
 

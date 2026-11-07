@@ -4,18 +4,15 @@ namespace Connapse.Core.Interfaces;
 public interface IMemorySpaceStore
 {
     /// <summary>
-    /// Every place <paramref name="viewer"/> may see memory in: their personal spaces, every team space, and each
-    /// document container holding at least one current fact they may see. <paramref name="text"/>, when given, must
-    /// appear in the name or description. Null when access to the facts' sources could not be checked.
-    /// <paramref name="withEnded"/> also lists document containers whose only facts they may see are no longer
-    /// current, for reads of history or a past date; counts stay counts of current facts.
+    /// Every place <paramref name="viewer"/> may see memory in: their personal spaces and every team space.
+    /// <paramref name="text"/>, when given, must appear in the name or description. Null when access to the facts'
+    /// sources could not be checked.
     /// </summary>
-    Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, bool withEnded = false, CancellationToken ct = default);
+    Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, CancellationToken ct = default);
 
     /// <summary>
     /// Every place <paramref name="viewer"/> may see memory in, with bounds on its numbers and no source checked: their
-    /// personal spaces, every team space, and each document container holding a current fact in their scope.
-    /// <paramref name="text"/>, when given, must appear in the name or description.
+    /// personal spaces and every team space. <paramref name="text"/>, when given, must appear in the name or description.
     /// </summary>
     Task<IReadOnlyList<MemorySpaceCandidate>> CandidatesAsync(MemoryCaller viewer, string? text, CancellationToken ct = default);
 
@@ -24,14 +21,6 @@ public interface IMemorySpaceStore
     /// the sources their facts cite. A space the viewer may not see is left out. Null when access could not be checked.
     /// </summary>
     Task<IReadOnlyDictionary<string, MemorySpaceTally>?> TallyAsync(
-        MemoryCaller viewer, IReadOnlyCollection<string> containerIds, CancellationToken ct = default);
-
-    /// <summary>
-    /// Which of <paramref name="containerIds"/> hold at least one current fact <paramref name="viewer"/> may read. Each
-    /// space's likeliest fact is checked first, and the rest of its facts only when that one is hidden. Null when access
-    /// could not be checked.
-    /// </summary>
-    Task<IReadOnlySet<string>?> HoldingReadableAsync(
         MemoryCaller viewer, IReadOnlyCollection<string> containerIds, CancellationToken ct = default);
 
     /// <summary>

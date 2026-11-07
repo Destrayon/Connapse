@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Embedding size setting works for any OpenAI-compatible model: "Ask the model for this size" sends `dimensions` to models such as Qwen3-Embedding, and vectors of the wrong size are refused with an error naming the setting to change (#666, reported by @marcusyoung)
 
 ### Changed
+- **Breaking:** Container memory is removed, because agents answered no better with it than without it (0.68 with a check on what they saved and 0.61 without, against 0.70 with memory off). Memory now lives only in personal and team spaces. A migration deletes every fact and star on documents containers, including facts shared with the team there, **which can't be undone**, so back up the database before upgrading if you need them. Facts already in personal and team spaces are untouched. Naming a documents container in `memory_remember`, `memory_recall`, `memory_timeline` or the memory REST routes is refused, `GET /api/memory/spaces` drops `kind=container` and `counts.containers`, and the Memory tab on documents containers is gone (CON-255)
 - **Breaking:** `GET` and `PUT /api/containers/{id}/settings` return only the search settings the container chose, and `PUT` stores only the search settings the body names; the rest follow the deployment (CON-157)
 - **Breaking:** `LinkMaxHops` defaults to 1 instead of 2 (CON-33)
 - Results whose scores tie are ordered by document path, so re-indexing gives the same ranking (CON-152, CON-158)

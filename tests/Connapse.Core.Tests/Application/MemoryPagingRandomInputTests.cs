@@ -28,7 +28,7 @@ public class MemoryPagingRandomInputTests
         Gen.Enum<OperationSurface>().Select(s => new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), s));
 
     private static readonly Gen<Container> AnyContainer = Gen.Select(Gen.Guid, Gen.String[Gen.Char["ab-1"], 2, 4],
-        (id, name) => new Container(id.ToString(), $"c{name}x", null, Epoch, Epoch));
+        (id, name) => new Container(id.ToString(), $"c{name}x", null, Epoch, Epoch, Kind: ContainerKind.Memory));
 
     /// <summary>How a call names the space: its id, its name in any case and spacing, a stranger's id, another name, or blank.</summary>
     private static Gen<(string Key, bool Names)> KeyFor(Container container) => Gen.OneOf(
@@ -161,7 +161,7 @@ public class MemoryPagingRandomInputTests
     [InlineData('"')]
     public async Task List_LongestSubjectKey_CursorBringsTheNextPageBack(char fill)
     {
-        var container = new Container(Guid.NewGuid().ToString(), "notes", null, Epoch, Epoch);
+        var container = new Container(Guid.NewGuid().ToString(), "notes", null, Epoch, Epoch, Kind: ContainerKind.Memory);
         var world = new World(reader: true, container, exists: true);
         Guid id = Guid.Parse(container.Id);
         var next = new MemoryFactKey(Guid.NewGuid(), Subject: new string(fill, 200), Attribute: new string(fill, 200));
@@ -331,7 +331,7 @@ public class MemoryPagingRandomInputTests
     [InlineData(-1, 4, false)]
     public async Task HistoryBackTo_VersionOnSomePage_ReadsPagesUntilItAndJoinsThemNewestFirst(int target, int pagesRead, bool more)
     {
-        Container container = new(Guid.NewGuid().ToString(), "cspace", null, Epoch, Epoch);
+        Container container = new(Guid.NewGuid().ToString(), "cspace", null, Epoch, Epoch, Kind: ContainerKind.Memory);
         var world = new World(true, container, true);
         Guid id = Guid.Parse(container.Id);
         RecalledFact[] chain = [.. Enumerable.Range(0, 7).Select(_ => new RecalledFact(Stored(id), []))];
@@ -359,7 +359,7 @@ public class MemoryPagingRandomInputTests
     [Fact]
     public async Task HistoryBackTo_PageFails_FailsTheWholeRead()
     {
-        Container container = new(Guid.NewGuid().ToString(), "cspace", null, Epoch, Epoch);
+        Container container = new(Guid.NewGuid().ToString(), "cspace", null, Epoch, Epoch, Kind: ContainerKind.Memory);
         var world = new World(true, container, true);
         Guid id = Guid.Parse(container.Id);
         world.Memory.HistoryAsync(id, Arg.Any<Guid>(), null, Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())

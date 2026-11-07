@@ -78,14 +78,13 @@ public class MemoryPageTests : IDisposable
     public void Render_NineOrFewerSpaces_ShowsCardsInTheirSections()
     {
         spaces.Add("on-call", MemorySpaceKind.Team, 4, description: "Who to page");
-        spaces.Add("halcyon", MemorySpaceKind.Container, 12);
 
         var cut = Render();
 
         cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().HaveCount(2, "my-memory and on-call"));
         cut.Find("#memory-section-personal .space-card-name").TextContent.Should().Be("my-memory");
         cut.Find("#memory-section-team .space-card").TextContent.Should().Contain("Who to page").And.Contain("4 facts");
-        cut.Find("#memory-section-containers tr[data-space-id] a").GetAttribute("href").Should().EndWith("?tab=memory");
+        cut.FindAll("#memory-section-containers").Should().BeEmpty("document containers hold no memory");
         cut.FindAll("#memory-spaces-find").Should().BeEmpty("the find box is the table's");
     }
 
@@ -132,7 +131,7 @@ public class MemoryPageTests : IDisposable
 
         var cut = Render();
 
-        cut.WaitForAssertion(() => cut.Find("#memory-spaces-empty").TextContent.Should().Contain("once someone adds facts"));
+        cut.WaitForAssertion(() => cut.Find("#memory-spaces-empty").TextContent.Should().Contain("once someone makes them"));
         cut.FindAll("#memory-new-space").Should().BeEmpty();
         spaces.Personal.Should().Be(0);
     }
@@ -197,15 +196,15 @@ public class MemoryPageTests : IDisposable
     public void KindPill_ListsThatKindAndKeepsItInTheAddress()
     {
         AddTeams(10);
-        spaces.Add("halcyon", MemorySpaceKind.Container, 3);
         var cut = Render();
-        cut.WaitForAssertion(() => cut.FindAll("tbody tr[data-space-id]").Should().HaveCount(12));
+        cut.WaitForAssertion(() => cut.FindAll("tbody tr[data-space-id]").Should().HaveCount(11));
+        cut.FindAll("#memory-spaces-pill-container").Should().BeEmpty("document containers hold no memory");
 
-        cut.Find("#memory-spaces-pill-container").Click();
+        cut.Find("#memory-spaces-pill-personal").Click();
 
-        cut.WaitForAssertion(() => Names(cut).Should().Equal("halcyon"));
-        Navigation.Uri.Should().Contain("kind=container");
-        cut.Find("#memory-spaces-pill-container").GetAttribute("aria-pressed").Should().Be("true");
+        cut.WaitForAssertion(() => Names(cut).Should().Equal("my-memory"));
+        Navigation.Uri.Should().Contain("kind=personal");
+        cut.Find("#memory-spaces-pill-personal").GetAttribute("aria-pressed").Should().Be("true");
 
         cut.Find("#memory-spaces-pill-starred").Click();
         cut.WaitForAssertion(() => Names(cut).Should().Equal("my-memory"));
@@ -242,7 +241,6 @@ public class MemoryPageTests : IDisposable
     public void Address_OpensTheTableViewItNames()
     {
         AddTeams(10);
-        spaces.Add("halcyon", MemorySpaceKind.Container, 3);
 
         var cut = Render("http://localhost/memory?kind=team&sort=name");
 
@@ -342,7 +340,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void ViewAddress_RoundTripsThroughTheQuery()
     {
-        MemorySpacesView view = new("ops", MemorySpaceKind.Container, false, MemorySpaceSort.Name, "abc", 2);
+        MemorySpacesView view = new("ops", MemorySpaceKind.Team, false, MemorySpaceSort.Name, "abc", 2);
         string uri = Navigation.GetUriWithQueryParameters("http://localhost/memory", view.Address());
 
         MemorySpacesView.Parse(uri).Should().Be(view);
@@ -367,7 +365,7 @@ public class MemoryPageTests : IDisposable
         public Container Add(string name, MemorySpaceKind kind, int facts, int minutes = 0, string? description = null)
         {
             Container container = new(Guid.NewGuid().ToString(), name, description, Jan.UtcDateTime, Jan.UtcDateTime,
-                Kind: kind == MemorySpaceKind.Container ? ContainerKind.Documents : ContainerKind.Memory,
+                Kind: ContainerKind.Memory,
                 Audience: kind == MemorySpaceKind.Personal ? MemoryScope.Personal : MemoryScope.Team);
             lock (all)
                 all.Add((container, facts, Jan.AddMinutes(minutes)));
@@ -392,10 +390,6 @@ public class MemoryPageTests : IDisposable
             MemoryCaller viewer, IReadOnlyCollection<string> containerIds, CancellationToken ct = default) =>
             throw new InvalidOperationException("every candidate is settled");
 
-        public Task<IReadOnlySet<string>?> HoldingReadableAsync(
-            MemoryCaller viewer, IReadOnlyCollection<string> containerIds, CancellationToken ct = default) =>
-            throw new InvalidOperationException("every documents container here holds a fact");
-
         public Task<Container?> CreatePersonalAsync(MemoryCaller owner, string name, string? description, CancellationToken ct = default)
         {
             lock (all)
@@ -418,7 +412,7 @@ public class MemoryPageTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, bool withEnded = false, CancellationToken ct = default) =>
+        public Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
         public Task<MemorySpaceImpact?> ImpactAsync(Guid containerId, MemoryCaller viewer, CancellationToken ct = default) =>
