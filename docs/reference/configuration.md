@@ -261,7 +261,7 @@ The settings marked **Providers** are filled in by the setup steps on the **Prov
 
 | Setting | UI path | Env var | Type | Default | Restart? | Secret? |
 |---------|---------|---------|------|---------|----------|---------|
-| `AllowedFilesystemRoots`: Directories a filesystem connection's `allowedRoot` may name. | — | `Sources__Security__AllowedFilesystemRoots` | IReadOnlyList<string> | `[]` | No | No |
+| `AllowedFilesystemRoots`: Directories a filesystem connection's `allowedRoot` may name. Each entry takes its own number. | — | `Sources__Security__AllowedFilesystemRoots__0` | IReadOnlyList<string> | `[]` | No | No |
 
 ### `Sources:GitHub`
 

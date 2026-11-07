@@ -106,8 +106,21 @@ services:
       CONNAPSE_ADMIN_EMAIL: ${CONNAPSE_ADMIN_EMAIL:-}
       CONNAPSE_ADMIN_PASSWORD: ${CONNAPSE_ADMIN_PASSWORD:-}
       Identity__Jwt__Secret: ${Identity__Jwt__Secret:-}
+      # Pairs with the folder mount under volumes below: keep the two paths the same.
+      # Sources__Security__AllowedFilesystemRoots__0: /mnt/host
     volumes:
       - appdata:/app/appdata
+
+      # ── A folder on this machine, for Filesystem sources ─────────────────────
+      # Uncomment to let Connapse index files on this machine. Change the left side
+      # to your folder, keep /mnt/host, and uncomment the matching
+      # Sources__Security__AllowedFilesystemRoots__0 line under environment above.
+      # Then run `docker compose up -d` and use /mnt/host as the connection's root.
+      #
+      # Read-only on purpose: a source is never written to, so nothing is given up,
+      # and an entire class of accident goes away. Windows paths use forward slashes
+      # here. See docs/sources/filesystem-and-sftp.md.
+      # - C:/Users/you:/mnt/host:ro
 
       # ── AWS credentials, for S3 sources ──────────────────────────────────────
       # Always mounted, and empty until you put something in ./aws. Drop your AWS

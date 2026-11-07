@@ -107,6 +107,7 @@ A save against an outdated read returns `412` with the [`settings-changed`](../p
 ## Related
 
 - [Run Connapse in production](production.md)
+- [Reach a folder on this machine from Docker](../sources/filesystem-and-sftp.md#reach-a-folder-on-this-machine-from-docker)
 - [Upgrade Connapse](upgrade.md)
 - [Configuration reference](../reference/configuration.md)
 - [Troubleshoot a self-hosted server](troubleshooting.md)
