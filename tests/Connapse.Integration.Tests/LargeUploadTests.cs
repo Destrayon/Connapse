@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Web.Endpoints;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +27,7 @@ public sealed class LargeUploadTests(SharedWebAppFixture fixture, ITestOutputHel
 {
     private const long MiB = 1024 * 1024;
     private const long Limit = 256 * MiB;
+    private const long TwoGiB = 2048 * MiB;
 
     private WebApplicationFactory<Program> _kestrel = null!;
     private HttpClient _client = null!;
@@ -121,6 +125,29 @@ public sealed class LargeUploadTests(SharedWebAppFixture fixture, ITestOutputHel
     }
 
     [Fact]
+    public async Task Upload_BodyPastWhatARefusalReads_IsCutOff()
+    {
+        Guid containerId = await CreateContainerAsync();
+        using TcpClient socket = await SendHeadOfRefusedUploadAsync(containerId);
+        NetworkStream stream = socket.GetStream();
+        byte[] megabyte = new byte[MiB];
+        long sent = 0;
+
+        using CancellationTokenSource giveUp = new(TimeSpan.FromMinutes(2));
+        Func<Task> sendUntilCut = async () =>
+        {
+            while (sent < TwoGiB)
+            {
+                await stream.WriteAsync(megabyte, giveUp.Token);
+                sent += MiB;
+            }
+        };
+
+        await sendUntilCut.Should().ThrowAsync<IOException>();
+        sent.Should().BeLessThan(UploadBodyLimit.MaxDrainBytes + 100 * MiB);
+    }
+
+    [Fact]
     public async Task Upload_AfterAnAdminLowersTheLimit_FollowsItWithoutARestart()
     {
         Guid containerId = await CreateContainerAsync();
@@ -145,6 +172,24 @@ public sealed class LargeUploadTests(SharedWebAppFixture fixture, ITestOutputHel
         {
             (await _client.PutAsJsonAsync("/api/settings/upload", original)).EnsureSuccessStatusCode();
         }
+    }
+
+    /// <summary>Opens a connection, states a body far over the limit, and reads the refusal before sending any of it.</summary>
+    private async Task<TcpClient> SendHeadOfRefusedUploadAsync(Guid containerId)
+    {
+        Uri server = _client.BaseAddress!;
+        TcpClient socket = new();
+        await socket.ConnectAsync(server.Host, server.Port);
+        NetworkStream stream = socket.GetStream();
+        string head = $"POST /api/containers/{containerId}/files HTTP/1.1\r\nHost: {server.Authority}\r\n"
+            + $"Authorization: Bearer {fixture.AdminToken}\r\nContent-Type: multipart/form-data; boundary=x\r\n"
+            + $"Content-Length: {TwoGiB}\r\n\r\n";
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(head));
+
+        byte[] buffer = new byte[4096];
+        int read = await stream.ReadAsync(buffer);
+        Encoding.ASCII.GetString(buffer, 0, read).Should().StartWith("HTTP/1.1 413");
+        return socket;
     }
 
     private Task<HttpResponseMessage> UploadAsync(Guid containerId, params (string Name, long Bytes)[] files) =>

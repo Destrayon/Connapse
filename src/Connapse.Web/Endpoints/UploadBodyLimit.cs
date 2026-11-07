@@ -15,9 +15,15 @@ namespace Connapse.Web.Endpoints;
 public static class UploadBodyLimit
 {
     /// <summary>The most of a refused body read away; past this the client meets a closed connection.</summary>
-    private const long MaxDrainBytes = 4L * 1024 * 1024 * 1024;
+    public const long MaxDrainBytes = 1024 * 1024 * 1024;
 
-    private static readonly TimeSpan DrainTimeout = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// How many refused bodies are read away at once. Past this a refusal is still sent, and Kestrel gives the rest of
+    /// the body only its own few seconds, so a caller repeating refused uploads can't hold connections open.
+    /// </summary>
+    public const int MaxConcurrentDrains = 8;
+
+    private static readonly TimeSpan DrainTimeout = TimeSpan.FromMinutes(1);
 
     private sealed record Marker;
 
@@ -31,6 +37,8 @@ public static class UploadBodyLimit
 
     private sealed class Middleware(RequestDelegate next, IOptionsMonitor<UploadSettings> settings)
     {
+        private readonly SemaphoreSlim _drains = new(MaxConcurrentDrains);
+
         public async Task InvokeAsync(HttpContext context)
         {
             if (context.GetEndpoint()?.Metadata.GetMetadata<Marker>() is null)
@@ -58,8 +66,8 @@ public static class UploadBodyLimit
             }
 
             // A body of no stated length can only be refused partway through. Past its own limit Kestrel can't be read
-            // from, so the drain below would fail, and the limit is held here instead, leaving Kestrel the drain's.
-            SetBodyLimit(body, MaxDrainBytes);
+            // from, so the drain below would fail, and the limit is held here instead, leaving Kestrel room for the drain.
+            SetBodyLimit(body, limit > long.MaxValue - MaxDrainBytes ? long.MaxValue : limit + MaxDrainBytes);
             Stream original = context.Request.Body;
             CappedBody capped = new(original, limit);
             context.Request.Body = capped;
@@ -76,40 +84,44 @@ public static class UploadBodyLimit
             if (capped.Exceeded && !context.Response.HasStarted)
                 await RefuseAsync(context, UploadLimits.RequestOverLimit(maxFileBytes));
         }
+
+        /// <summary>
+        /// Answers first, then reads the rest of the body away. Closing a connection with a body still arriving resets
+        /// it, and the client then reports a network failure and never sees the answer.
+        /// </summary>
+        private async Task RefuseAsync(HttpContext context, string detail)
+        {
+            await FileProblems.TooLarge(detail).ExecuteAsync(context);
+            await context.Response.CompleteAsync();
+
+            if (!_drains.Wait(0))
+                return;
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+            timeout.CancelAfter(DrainTimeout);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            try
+            {
+                while (await context.Request.Body.ReadAsync(buffer, timeout.Token) > 0)
+                {
+                }
+            }
+            catch (Exception ex) when (ex is IOException or OperationCanceledException)
+            {
+                // The client stopped sending, or used up the drain's time or bytes.
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+                _drains.Release();
+            }
+        }
     }
 
     private static void SetBodyLimit(IHttpMaxRequestBodySizeFeature? body, long bytes)
     {
         if (body is { IsReadOnly: false })
             body.MaxRequestBodySize = bytes;
-    }
-
-    /// <summary>
-    /// Answers first, then reads the rest of the body away. Closing a connection with a body still arriving resets
-    /// it, and the client then reports a network failure and never sees the answer.
-    /// </summary>
-    private static async Task RefuseAsync(HttpContext context, string detail)
-    {
-        await FileProblems.TooLarge(detail).ExecuteAsync(context);
-        await context.Response.CompleteAsync();
-
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-        timeout.CancelAfter(DrainTimeout);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
-        try
-        {
-            while (await context.Request.Body.ReadAsync(buffer, timeout.Token) > 0)
-            {
-            }
-        }
-        catch (Exception ex) when (ex is IOException or OperationCanceledException)
-        {
-            // The client stopped sending, which is all the drain was waiting for.
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
     }
 
     /// <summary>Reads through to a body of no stated length and stops at the limit.</summary>
