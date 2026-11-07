@@ -11,7 +11,6 @@ namespace Connapse.Core;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(S3BucketScope), "s3")]
 [JsonDerivedType(typeof(AzureBlobContainerScope), "azureBlob")]
-[JsonDerivedType(typeof(FilesystemFolderScope), "filesystem")]
 [JsonDerivedType(typeof(SftpFolderScope), "sftp")]
 [JsonDerivedType(typeof(GitHubRepositoryScope), "github")]
 [JsonDerivedType(typeof(JiraProjectScope), "jira")]
@@ -24,12 +23,6 @@ public sealed record S3BucketScope(string BucketName, string? Prefix = null) : S
 
 /// <summary>An Azure Blob container, optionally only the blobs under <see cref="Prefix"/>.</summary>
 public sealed record AzureBlobContainerScope(string ContainerName, string? Prefix = null) : SourceScope;
-
-/// <summary>A folder under the connection's allowed root, filtered by glob patterns.</summary>
-public sealed record FilesystemFolderScope(
-    string? SubPath = null,
-    IReadOnlyList<string>? IncludePatterns = null,
-    IReadOnlyList<string>? ExcludePatterns = null) : SourceScope;
 
 /// <summary>A folder on the SFTP server under the connection's allowed root, filtered by glob patterns.</summary>
 public sealed record SftpFolderScope(

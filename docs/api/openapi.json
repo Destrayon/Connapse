@@ -5087,7 +5087,7 @@
         "tags": [
           "Connections"
         ],
-        "description": "Create a filesystem, SFTP, S3, Azure Blob, GitHub or custom connection. Its settings are checked as the Connections page checks them: a GitHub installation the App still has, an S3 bucket's region, a custom source server that accepts its token. Never returns the secret.",
+        "description": "Create an SFTP, S3, Azure Blob, GitHub or custom connection. Its settings are checked as the Connections page checks them: a GitHub installation the App still has, an S3 bucket's region, a custom source server that accepts its token. Never returns the secret.",
         "operationId": "connections.create",
         "requestBody": {
           "content": {
@@ -14930,7 +14930,6 @@
       },
       "ConnectionProvider": {
         "enum": [
-          "Filesystem",
           "S3",
           "AzureBlob",
           "Sftp",
@@ -15894,9 +15893,6 @@
                 "$ref": "#/components/schemas/SourceScopeAzureBlobContainerScope"
               },
               {
-                "$ref": "#/components/schemas/SourceScopeFilesystemFolderScope"
-              },
-              {
                 "$ref": "#/components/schemas/SourceScopeSftpFolderScope"
               },
               {
@@ -15917,7 +15913,6 @@
               "mapping": {
                 "s3": "#/components/schemas/SourceScopeS3BucketScope",
                 "azureBlob": "#/components/schemas/SourceScopeAzureBlobContainerScope",
-                "filesystem": "#/components/schemas/SourceScopeFilesystemFolderScope",
                 "sftp": "#/components/schemas/SourceScopeSftpFolderScope",
                 "github": "#/components/schemas/SourceScopeGitHubRepositoryScope",
                 "jira": "#/components/schemas/SourceScopeJiraProjectScope",
@@ -19453,7 +19448,6 @@
             "enum": [
               "s3",
               "azureBlob",
-              "filesystem",
               "sftp",
               "github",
               "jira",
@@ -19468,7 +19462,6 @@
           "mapping": {
             "s3": "#/components/schemas/SourceScopeS3BucketScope",
             "azureBlob": "#/components/schemas/SourceScopeAzureBlobContainerScope",
-            "filesystem": "#/components/schemas/SourceScopeFilesystemFolderScope",
             "sftp": "#/components/schemas/SourceScopeSftpFolderScope",
             "github": "#/components/schemas/SourceScopeGitHubRepositoryScope",
             "jira": "#/components/schemas/SourceScopeJiraProjectScope",
@@ -19578,47 +19571,6 @@
               },
               "scopeId": {
                 "type": "string"
-              }
-            }
-          }
-        ]
-      },
-      "SourceScopeFilesystemFolderScope": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/SourceScope"
-          },
-          {
-            "properties": {
-              "type": {
-                "enum": [
-                  "filesystem"
-                ],
-                "type": "string"
-              },
-              "subPath": {
-                "type": [
-                  "null",
-                  "string"
-                ]
-              },
-              "includePatterns": {
-                "type": [
-                  "null",
-                  "array"
-                ],
-                "items": {
-                  "type": "string"
-                }
-              },
-              "excludePatterns": {
-                "type": [
-                  "null",
-                  "array"
-                ],
-                "items": {
-                  "type": "string"
-                }
               }
             }
           }

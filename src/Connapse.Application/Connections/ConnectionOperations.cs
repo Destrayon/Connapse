@@ -450,7 +450,7 @@ public sealed class ReplaceConnectionSecret(
 }
 
 /// <summary>
-/// Creates a filesystem, SFTP, S3, Azure Blob, GitHub or custom connection. Administrators only. The name must
+/// Creates an SFTP, S3, Azure Blob, GitHub or custom connection. Administrators only. The name must
 /// be 1 to 128 characters and no other connection's, and the settings pass the Connections page's checks for
 /// the provider. An Atlassian site is added through its own check instead. Audited as <c>connection.created</c>.
 /// </summary>

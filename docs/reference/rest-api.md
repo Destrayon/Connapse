@@ -171,7 +171,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | Method | Path | Scope | Description |
 |--------|------|-------|-------------|
 | `GET` | `/api/v1/connections` | `admin:sources` | List connections by name (?skip=0&take=50, optionally ?provider=S3). |
-| `POST` | `/api/v1/connections` | `admin:sources` | Create a filesystem, SFTP, S3, Azure Blob, GitHub or custom connection. |
+| `POST` | `/api/v1/connections` | `admin:sources` | Create an SFTP, S3, Azure Blob, GitHub or custom connection. |
 | `GET` | `/api/v1/connections/{connectionId}` | `admin:sources` | Get a connection's settings, health and sync state. |
 | `PATCH` | `/api/v1/connections/{connectionId}` | `admin:sources` | Rename a connection or change its settings. |
 | `DELETE` | `/api/v1/connections/{connectionId}` | `admin:sources` | Delete a connection that no source uses. |

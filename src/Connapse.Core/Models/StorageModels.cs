@@ -2,7 +2,7 @@
 
 namespace Connapse.Core;
 
-public enum ConnectorType { ManagedStorage = 0, Filesystem = 1, S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6, Atlassian = 7, Custom = 8 }
+public enum ConnectorType { ManagedStorage = 0, S3 = 3, AzureBlob = 4, Sftp = 5, GitHub = 6, Atlassian = 7, Custom = 8 }
 
 public record ContainerSettingsOverrides
 {
@@ -89,8 +89,6 @@ public record ConnectorFile(
     // The middle man's access keys for a connected custom source's document, written to
     // documents.access_keys so search can rank only what a user may hold. Null for every other source.
     IReadOnlyList<string>? AccessKeys = null);
-public record ConnectorFileEvent(ConnectorFileEventType EventType, string Path, string? OldPath = null);
-public enum ConnectorFileEventType { Created, Changed, Deleted, Renamed }
 
 public record Container(
     string Id,

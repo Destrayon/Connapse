@@ -13,7 +13,6 @@ public class SourceModelTests
         // Phase 2 backfills existing containers by casting ConnectorType to
         // ConnectionProvider. The numeric values must line up or the cast silently
         // mislabels every migrated connection.
-        ((int)ConnectionProvider.Filesystem).Should().Be((int)ConnectorType.Filesystem);
         ((int)ConnectionProvider.S3).Should().Be((int)ConnectorType.S3);
     }
 

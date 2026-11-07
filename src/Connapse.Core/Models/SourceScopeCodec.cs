@@ -25,7 +25,6 @@ public static class SourceScopeCodec
     {
         S3BucketScope => ConnectionProvider.S3,
         AzureBlobContainerScope => ConnectionProvider.AzureBlob,
-        FilesystemFolderScope => ConnectionProvider.Filesystem,
         SftpFolderScope => ConnectionProvider.Sftp,
         GitHubRepositoryScope => ConnectionProvider.GitHub,
         JiraProjectScope or ConfluenceSpaceScope => ConnectionProvider.Atlassian,
@@ -38,7 +37,6 @@ public static class SourceScopeCodec
     {
         ConnectionProvider.S3 => [Kind<S3BucketScope>()],
         ConnectionProvider.AzureBlob => [Kind<AzureBlobContainerScope>()],
-        ConnectionProvider.Filesystem => [Kind<FilesystemFolderScope>()],
         ConnectionProvider.Sftp => [Kind<SftpFolderScope>()],
         ConnectionProvider.GitHub => [Kind<GitHubRepositoryScope>()],
         ConnectionProvider.Atlassian => [Kind<JiraProjectScope>(), Kind<ConfluenceSpaceScope>()],
@@ -78,7 +76,6 @@ public static class SourceScopeCodec
             ConnectionProvider.AzureBlob => Str(o, "containerName") is { } container
                 ? new AzureBlobContainerScope(container, Str(o, "prefix"))
                 : null,
-            ConnectionProvider.Filesystem => new FilesystemFolderScope(Str(o, "subPath"), Arr(o, "includePatterns"), Arr(o, "excludePatterns")),
             ConnectionProvider.Sftp => new SftpFolderScope(Str(o, "subPath"), Arr(o, "includePatterns"), Arr(o, "excludePatterns")),
             ConnectionProvider.GitHub => ReadGitHub(o),
             ConnectionProvider.Atlassian => AtlassianKindOf(o) switch
@@ -166,7 +163,6 @@ public static class SourceScopeCodec
     {
         S3BucketScope s => [("bucketName", s.BucketName), ("prefix", s.Prefix)],
         AzureBlobContainerScope s => [("containerName", s.ContainerName), ("prefix", s.Prefix)],
-        FilesystemFolderScope s => Folder(s.SubPath, s.IncludePatterns, s.ExcludePatterns),
         SftpFolderScope s => Folder(s.SubPath, s.IncludePatterns, s.ExcludePatterns),
         GitHubRepositoryScope s =>
         [

@@ -96,17 +96,6 @@ public class ConnectionFormTests
             .Should().BeEquivalentTo(["a", "b/docs"]);
     }
 
-    [Fact]
-    public void FilesystemConnection_RoundTripsItsRoot()
-    {
-        var stored = Stored(ConnectionProvider.Filesystem, """{"allowedRoot":"/data/docs"}""");
-
-        var form = ConnectionForm.FromConnection(stored);
-        form.AllowedRoot.Should().Be("/data/docs");
-
-        JsonNode.Parse(form.ToConfigJson())!["allowedRoot"]!.GetValue<string>().Should().Be("/data/docs");
-    }
-
     // ── Serialization rules ───────────────────────────────────────────
 
     [Fact]
@@ -119,30 +108,13 @@ public class ConnectionFormTests
             Name = "c",
             Provider = ConnectionProvider.S3,
             Region = "us-east-1",
-            AllowedRoot = "/left-over-from-filesystem",
+            AllowedRoot = "/left-over-from-sftp",
         };
 
         var node = JsonNode.Parse(form.ToConfigJson())!.AsObject();
 
         node.ContainsKey("region").Should().BeTrue();
         node.ContainsKey("allowedRoot").Should().BeFalse();
-    }
-
-    [Fact]
-    public void ToConfigJson_FilesystemOmitsAllowedLocations()
-    {
-        // Filesystem confinement is the root plus the subpath check; allowedLocations is the
-        // cloud equivalent and does not apply.
-        var form = new ConnectionForm
-        {
-            Name = "c",
-            Provider = ConnectionProvider.Filesystem,
-            AllowedRoot = "/data",
-            AllowedLocations = "some-bucket",
-        };
-
-        JsonNode.Parse(form.ToConfigJson())!.AsObject()
-            .ContainsKey("allowedLocations").Should().BeFalse();
     }
 
     [Fact]
@@ -244,13 +216,6 @@ public class ConnectionFormTests
     public void Validate_RequiresAName()
     {
         new ConnectionForm { Name = "  " }.Validate().Should().Contain("name");
-    }
-
-    [Fact]
-    public void Validate_FilesystemRequiresARoot()
-    {
-        new ConnectionForm { Name = "c", Provider = ConnectionProvider.Filesystem }
-            .Validate().Should().Contain("root");
     }
 
     [Fact]
@@ -439,7 +404,7 @@ public class ConnectionFormTests
     /// </summary>
     [Theory]
     [InlineData(ConnectionProvider.S3)]
-    [InlineData(ConnectionProvider.Filesystem)]
+    [InlineData(ConnectionProvider.AzureBlob)]
     public void NonSftpProviders_NeverProduceASecret(ConnectionProvider provider)
     {
         var form = new ConnectionForm
@@ -457,9 +422,7 @@ public class ConnectionFormTests
     }
 
     /// <summary>
-    /// SFTP is bounded by a root, not by a bucket allowlist. Written as a positive check on the
-    /// cloud providers rather than "not Filesystem", which is what would have swept SFTP into
-    /// the wrong branch.
+    /// SFTP is bounded by a root, not by a bucket allowlist.
     /// </summary>
     [Fact]
     public void Sftp_DoesNotWriteAllowedLocations()
@@ -474,7 +437,6 @@ public class ConnectionFormTests
     {
         SftpForm().IsCloudProvider.Should().BeFalse();
         new ConnectionForm { Provider = ConnectionProvider.S3 }.IsCloudProvider.Should().BeTrue();
-        new ConnectionForm { Provider = ConnectionProvider.Filesystem }.IsCloudProvider.Should().BeFalse();
     }
 
     // ── Connect this computer ──────────────────────────────────────────────

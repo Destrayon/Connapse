@@ -32,8 +32,6 @@ services:
       RateLimiting__ApiPermitLimit: "100000"
       RateLimiting__AuthPermitLimit: "100000"
       RateLimiting__McpPermitLimit: "100000"
-    volumes:
-      - ${E2E_WORK}/fs:/data/fs:ro
     deploy: *cap
 
   sftp:

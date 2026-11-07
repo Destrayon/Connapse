@@ -131,8 +131,6 @@ public sealed partial class ConfluenceSpaceConnector(
 
     public ConnectorType Type => ConnectorType.Atlassian;
 
-    public bool SupportsLiveWatch => false;
-
     public async Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
         var previous = cursor is null ? null : ConfluenceCursor.TryParse(cursor);
@@ -420,9 +418,6 @@ public sealed partial class ConfluenceSpaceConnector(
 
     /// <summary>Returned unchanged: a document's path is already the id-based form this connector reads.</summary>
     public string ResolveJobPath(string relativePath) => relativePath;
-
-    public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) =>
-        throw new NotSupportedException("Confluence sources are polled; they do not support live watch.");
 
     /// <summary>
     /// Streams an attachment, never more than the size cap: the listed size is Confluence's word,

@@ -8,7 +8,6 @@ namespace Connapse.Core.Interfaces;
 public interface IConnector
 {
     ConnectorType Type { get; }
-    bool SupportsLiveWatch { get; }
 
     Task<Stream> ReadFileAsync(string path, CancellationToken ct = default);
     Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default);
@@ -16,10 +15,7 @@ public interface IConnector
 
     /// <summary>
     /// Resolves a virtual/relative path to the actual job path for the ingestion queue.
-    /// Filesystem connectors return OS-native absolute paths; cloud connectors return virtual paths.
+    /// Cloud connectors return virtual paths.
     /// </summary>
     string ResolveJobPath(string relativePath);
-
-    // Throws NotSupportedException if SupportsLiveWatch is false
-    IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default);
 }

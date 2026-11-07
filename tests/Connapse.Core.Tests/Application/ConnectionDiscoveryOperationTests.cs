@@ -71,7 +71,6 @@ public sealed class ConnectionDiscoveryOperationTests
     [InlineData(null)]
     [InlineData(ConnectionProvider.Sftp)]
     [InlineData(ConnectionProvider.Atlassian)]
-    [InlineData(ConnectionProvider.Filesystem)]
     public async Task DiscoverDraft_ProviderWithNoPicker_IsInvalid(ConnectionProvider? provider)
     {
         var found = await Discover().RunDraftAsync(Caller, new DraftDiscovery(provider));

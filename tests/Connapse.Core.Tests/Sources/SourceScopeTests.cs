@@ -24,9 +24,6 @@ public class SourceScopeTests
         { ConnectionProvider.S3, """{"bucketName":""}""", new S3BucketScope("") },
         { ConnectionProvider.AzureBlob, """{"containerName":" "}""", new AzureBlobContainerScope(" ") },
         { ConnectionProvider.AzureBlob, """{"containerName":"docs","prefix":"a/"}""", new AzureBlobContainerScope("docs", "a/") },
-        { ConnectionProvider.Filesystem, "{}", new FilesystemFolderScope() },
-        { ConnectionProvider.Filesystem, """{"subPath":"notes","includePatterns":["*.md"],"excludePatterns":["drafts/**"]}""",
-            new FilesystemFolderScope("notes", ["*.md"], ["drafts/**"]) },
         { ConnectionProvider.Sftp, """{"subPath":"exports","includePatterns":["*.pdf",3]}""", new SftpFolderScope("exports", ["*.pdf"]) },
         { ConnectionProvider.GitHub, """{"owner":"acme","repo":"handbook"}""", new GitHubRepositoryScope("acme", "handbook", GitHubContentKind.Docs) },
         { ConnectionProvider.GitHub, """{"owner":"acme","repo":"handbook","kind":"Docs","repoId":123,"includePatterns":["docs/**"],"host":"github.com"}""",
@@ -136,7 +133,6 @@ public class SourceScopeTests
     private static readonly Gen<SourceScope> AnyScope = Gen.OneOf<SourceScope>(
         Gen.Select(Text, MaybeText, (b, p) => (SourceScope)new S3BucketScope(b, p)),
         Gen.Select(Text, MaybeText, (c, p) => (SourceScope)new AzureBlobContainerScope(c, p)),
-        Gen.Select(MaybeText, MaybeList, MaybeList, (s, i, e) => (SourceScope)new FilesystemFolderScope(s, i, e)),
         Gen.Select(MaybeText, MaybeList, MaybeList, (s, i, e) => (SourceScope)new SftpFolderScope(s, i, e)),
         Gen.Select(Text, Text, Gen.Enum<GitHubContentKind>(), Gen.Long.Nullable(), Gen.Bool, MaybeList, MaybeList,
             Gen.Select(MaybeBool, MaybeList, MaybeList),

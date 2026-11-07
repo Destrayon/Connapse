@@ -266,7 +266,7 @@ public class PgVectorStore : IVectorStore
             else
             {
                 // A document with no resource URI has no cloud coordinate to check permissions
-                // against — uploads and connectors that never report one (SFTP, filesystem,
+                // against — uploads and connectors that never report one (SFTP,
                 // MinIO) are like this by design, not by accident. Such a document falls back to
                 // Connapse's own access control (container/source reachability) instead of cloud
                 // grants, so it is admitted here unless its source always reports a URI and this

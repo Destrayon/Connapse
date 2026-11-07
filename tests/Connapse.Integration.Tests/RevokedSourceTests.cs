@@ -152,7 +152,6 @@ public sealed class RevokedSourceTests(SharedWebAppFixture fixture)
         private sealed class Connector(SwitchableFactory owner) : ISyncCursorConnector
         {
             public ConnectorType Type => ConnectorType.GitHub;
-            public bool SupportsLiveWatch => false;
 
             public Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default) =>
                 owner.Refuse
@@ -163,7 +162,6 @@ public sealed class RevokedSourceTests(SharedWebAppFixture fixture)
             public Task<IReadOnlyList<ConnectorFile>> ListFilesAsync(string? prefix = null, CancellationToken ct = default) => throw new NotSupportedException();
             public Task<bool> ExistsAsync(string path, CancellationToken ct = default) => Task.FromResult(false);
             public string ResolveJobPath(string relativePath) => relativePath;
-            public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default) => throw new NotSupportedException();
         }
     }
 }

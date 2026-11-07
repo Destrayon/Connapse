@@ -308,14 +308,9 @@ def compose(env: dict, *args, check=True, capture=False):
 
 
 def prepare_work(work: Path):
-    """Fixtures the connectors read: a folder, an SFTP account with a fresh key, the custom source's data."""
-    for sub in ("fs", "sftp", "custom", "custom-perms", "clihome"):
+    """Fixtures the connectors read: an SFTP account with a fresh key, the custom source's data."""
+    for sub in ("sftp", "custom", "custom-perms", "clihome"):
         shutil.rmtree(work / sub, ignore_errors=True)
-    (work / "fs" / "guides").mkdir(parents=True)
-    (work / "fs" / "guides" / "falcon.md").write_text(
-        "# Falcon runbook\n\nThe falcon service restarts with the command `falconctl bounce`. "
-        "Its on-call rotation is weekly.\n", encoding="utf-8")
-    (work / "fs" / "notes.txt").write_text("Filesystem connector note about quartz tiles.\n", encoding="utf-8")
     (work / "sftp" / "upload" / "docs").mkdir(parents=True)
     (work / "sftp" / "upload" / "docs" / "heron.md").write_text(
         "# Heron\n\nThe heron pipeline ships nightly builds to the mirror.\n", encoding="utf-8")

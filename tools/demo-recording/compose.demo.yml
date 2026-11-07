@@ -9,16 +9,30 @@ services:
       CustomSources__AllowedHttpHosts__0: example-source
       Hangfire__IngestionWorkerCount: "1"
       Knowledge__Embedding__MaxConcurrentIngestionRequests: "1"
-      Sources__Security__AllowedFilesystemRoots__0: /data/shared
-    # The folder the filesystem source shot connects; read-only, since a source only reads.
-    volumes:
-      - ./tools/demo-recording/shared-folder:/data/shared:ro
 
   ollama:
     environment:
       OLLAMA_NUM_PARALLEL: "1"
 
   # Relative paths resolve from the repo root, the first compose file's folder.
+  # The SFTP server the connect-a-folder shot connects, serving shared-folder/ read-only, since a source only reads.
+  # Start it with --profile demo-sftp and DEMO_SFTP_KEY set to a private key outside the repository.
+  demo-sftp:
+    image: atmoz/sftp:alpine
+    command: demo::1001
+    profiles:
+      - demo-sftp
+    volumes:
+      - ${DEMO_SFTP_KEY:-}.pub:/home/demo/.ssh/keys/demo.pub:ro
+      - ./tools/demo-recording/shared-folder:/home/demo/shared:ro
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+
   # The example custom source server, serving example-data/ with its per-user grants.
   # Its own profile keeps it out of the quickstart scene; start it with --profile demo-source.
   example-source:

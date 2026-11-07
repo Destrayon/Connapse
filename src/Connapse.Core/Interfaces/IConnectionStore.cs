@@ -16,7 +16,7 @@ public interface IConnectionStore
     /// <summary>
     /// Decrypts and returns the stored secret. Only the sync engine and connection
     /// testers should call this; it is never surfaced through the Connection model.
-    /// Returns null when the connection has no secret (for example Filesystem).
+    /// Returns null when the connection has no secret (for example S3).
     /// Throws System.Security.Cryptography.CryptographicException if the stored
     /// ciphertext cannot be unprotected, which happens after DataProtection key loss.
     /// </summary>

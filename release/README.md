@@ -55,7 +55,7 @@ the setup form. Enter your email, a display name and a password. The first accou
 - Open the container and upload files. Each one shows **Ready** once it is indexed.
 - Use the **Search** page to query it.
 
-To index Amazon S3, Azure Blob Storage, GitHub, Confluence, Jira, a filesystem or an SFTP server
+To index Amazon S3, Azure Blob Storage, GitHub, Confluence, Jira or an SFTP server
 instead, add it as a source. See [Containers, connections and sources](https://github.com/Destrayon/Connapse/blob/main/docs/sources/index.md).
 
 ## Using a different embedding provider

@@ -267,14 +267,6 @@ The settings marked **Providers** are filled in by the setup steps on the **Prov
 
 ## Sources
 
-`Sources:Security:AllowedFilesystemRoots` can only be set in configuration, never through the API or the settings table. When it is empty, any root is allowed and a warning is logged for each root in use.
-
-### `Sources:Security`
-
-| Setting | UI path | Env var | Type | Default | Restart? | Secret? |
-|---------|---------|---------|------|---------|----------|---------|
-| `AllowedFilesystemRoots`: Directories a filesystem connection's `allowedRoot` may name. | — | `Sources__Security__AllowedFilesystemRoots` | IReadOnlyList<string> | `[]` | No | No |
-
 ### `Sources:GitHub`
 
 | Setting | UI path | Env var | Type | Default | Restart? | Secret? |

@@ -43,9 +43,9 @@ public class SourceFormTests
     }
 
     [Fact]
-    public void ToScopeJson_Filesystem_WritesSubPathAndPatternsAsArrays()
+    public void ToScopeJson_Sftp_WritesSubPathAndPatternsAsArrays()
     {
-        var scope = Parse(Filled().ToScopeJson(ConnectionProvider.Filesystem));
+        var scope = Parse(Filled().ToScopeJson(ConnectionProvider.Sftp));
 
         scope.GetProperty("subPath").GetString().Should().Be("team-a");
 
@@ -59,12 +59,12 @@ public class SourceFormTests
     }
 
     [Fact]
-    public void ToScopeJson_FilesystemWithNoSubPath_StillWritesTheKeyAsEmpty()
+    public void ToScopeJson_SftpWithNoSubPath_StillWritesTheKeyAsEmpty()
     {
         // Empty means "the allowed root itself" to ConnectorFactory, which is a real choice
         // rather than a missing value — omitting the key entirely would mean the same thing
         // today but relies on the connector's null handling rather than saying so.
-        var scope = Parse(new SourceForm { Name = "n" }.ToScopeJson(ConnectionProvider.Filesystem));
+        var scope = Parse(new SourceForm { Name = "n" }.ToScopeJson(ConnectionProvider.Sftp));
 
         scope.GetProperty("subPath").GetString().Should().BeEmpty();
     }
@@ -158,11 +158,11 @@ public class SourceFormTests
     }
 
     [Fact]
-    public void Validate_FilesystemWithoutASubPath_IsAccepted()
+    public void Validate_SftpWithoutASubPath_IsAccepted()
     {
         // Unlike a bucket, an empty sub-path is meaningful: it selects the connection's root.
         var form = new SourceForm { Name = "n", ConnectionId = Guid.NewGuid() };
-        form.Validate(ConnectionProvider.Filesystem).Should().BeNull();
+        form.Validate(ConnectionProvider.Sftp).Should().BeNull();
     }
 
     [Fact]
@@ -187,30 +187,6 @@ public class SourceFormTests
         form.Validate(ConnectionProvider.S3).Should().BeNull();
     }
     // ── SFTP ───────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// The same scope shape as Filesystem, which was the point of designing it that way: this
-    /// form, the preflight and the summary each gain a provider rather than a parallel
-    /// implementation to keep in step.
-    /// </summary>
-    [Fact]
-    public void ToScopeJson_Sftp_ProducesTheSameShapeAsFilesystem()
-    {
-        var form = new SourceForm
-        {
-            Name = "s",
-            ConnectionId = Guid.NewGuid(),
-            SubPath = "Documents",
-            IncludePatterns = "*.md",
-            ExcludePatterns = "*.tmp",
-        };
-
-        var sftp = JsonNode.Parse(form.ToScopeJson(ConnectionProvider.Sftp))!.AsObject();
-        var filesystem = JsonNode.Parse(form.ToScopeJson(ConnectionProvider.Filesystem))!.AsObject();
-
-        sftp.ToJsonString().Should().Be(filesystem.ToJsonString());
-        sftp["subPath"]!.GetValue<string>().Should().Be("Documents");
-    }
 
     /// <summary>
     /// Blank means the connection's root itself, which ConnectorFactory reads as a real value

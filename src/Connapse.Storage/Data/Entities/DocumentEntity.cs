@@ -43,7 +43,7 @@ public class DocumentEntity
     /// <para>
     /// Null falls outside cloud permission filtering entirely, rather than being denied by it
     /// (#421). An upload — and any document from a connector that never reports a coordinate
-    /// (SFTP, filesystem, MinIO) — has no external address to check a cloud grant against, so
+    /// (SFTP, MinIO) — has no external address to check a cloud grant against, so
     /// such a document is governed only by Connapse's own access control (container/source
     /// reachability), the same as before cloud filtering existed.
     /// </para>

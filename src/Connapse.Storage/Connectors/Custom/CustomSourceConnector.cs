@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using Connapse.Core;
@@ -41,8 +40,6 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
 
     /// <summary>The source whose documents carry URIs and keys, when it is on a custom connection.</summary>
     public Guid? PermissionsFor => permissionsFor;
-
-    public bool SupportsLiveWatch => false;
 
     public async Task<SyncDelta> GetChangesAsync(string? cursor, CancellationToken ct = default)
     {
@@ -91,15 +88,6 @@ public sealed class CustomSourceConnector(CustomSourceClient client, CustomSourc
     }
 
     public string ResolveJobPath(string relativePath) => relativePath;
-
-    public async IAsyncEnumerable<ConnectorFileEvent> WatchAsync([EnumeratorCancellation] CancellationToken ct = default)
-    {
-        await Task.CompletedTask;
-        throw new NotSupportedException("Custom sources are synced by polling, not watched.");
-#pragma warning disable CS0162 // An iterator needs a yield to compile; it is never reached.
-        yield break;
-#pragma warning restore CS0162
-    }
 
     private async Task<SyncDelta> FullListingAsync(bool keepCursor, CancellationToken ct)
     {

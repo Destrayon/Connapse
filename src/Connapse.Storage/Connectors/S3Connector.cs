@@ -15,7 +15,7 @@ namespace Connapse.Storage.Connectors;
 /// IConnector implementation backed by AWS S3.
 /// Creates its own AmazonS3Client per instance using DefaultAWSCredentials (IAM roles, env vars, instance profile).
 /// If RoleArn is configured, uses STS AssumeRole for cross-account access.
-/// SupportsLiveWatch = false; sync-on-demand via POST /api/containers/{id}/sync.
+/// Sync-on-demand via POST /api/containers/{id}/sync.
 /// </summary>
 public class S3Connector : IConnector, IDisposable
 {
@@ -34,8 +34,6 @@ public class S3Connector : IConnector, IDisposable
     }
 
     public ConnectorType Type => ConnectorType.S3;
-    public bool SupportsLiveWatch => false;
-
     /// <summary>
     /// The resolved configuration, exposed so tests can assert on what ConnectorFactory
     /// recombined from a connection and a source.
@@ -112,9 +110,6 @@ public class S3Connector : IConnector, IDisposable
             return false;
         }
     }
-
-    public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-        => throw new NotSupportedException($"{nameof(S3Connector)} does not support live watch.");
 
     /// <summary>
     /// Converts a virtual path (e.g. "/docs/file.md") to an S3 key,

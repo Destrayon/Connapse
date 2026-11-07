@@ -326,7 +326,7 @@ public class IngestionPipelineTests
 
         _connectionStore.GetAsync(connectionId, Arg.Any<CancellationToken>())
             .Returns(new Connection(
-                connectionId, "conn", ConnectionProvider.Filesystem, "{}", null,
+                connectionId, "conn", ConnectionProvider.Sftp, "{}", null,
                 DateTime.UtcNow, DateTime.UtcNow));
 
         var connector = Substitute.For<IConnector>();

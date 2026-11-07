@@ -17,7 +17,7 @@ public sealed record UnlocatedSource(Guid SourceId, string SourceName, int Docum
 /// documents are unreachable to every restricted reader. This exists so an operator can bring
 /// them back by re-syncing the sources involved, where re-syncing can actually produce a coordinate.
 /// <para>
-/// Only the S3 connector ever reports a coordinate at sync time — SFTP, filesystem,
+/// Only the S3 connector ever reports a coordinate at sync time — SFTP
 /// and MinIO sources never do, by design, so a null coordinate there is not a defect and re-sync
 /// advice for it would never resolve. The query below is restricted to sources backed by a
 /// connection whose provider is S3 for that reason.

@@ -12,7 +12,6 @@ namespace Connapse.Storage.Connectors;
 /// IConnector implementation backed by MinIO (or any S3-compatible object store).
 /// Uses the globally configured MinioOptions for connection, with per-container
 /// prefix isolation via MinioConnectorConfig.
-/// SupportsLiveWatch = false; WatchAsync throws NotSupportedException.
 /// </summary>
 public class MinioConnector : IWritableConnector
 {
@@ -28,8 +27,6 @@ public class MinioConnector : IWritableConnector
     }
 
     public ConnectorType Type => ConnectorType.ManagedStorage;
-    public bool SupportsLiveWatch => false;
-
     public string ResolveJobPath(string relativePath) =>
         "/" + relativePath.TrimStart('/');
 
@@ -142,9 +139,6 @@ public class MinioConnector : IWritableConnector
             throw new StorageBucketNotFoundException(_options.BucketName, ex);
         }
     }
-
-    public IAsyncEnumerable<ConnectorFileEvent> WatchAsync(CancellationToken ct = default)
-        => throw new NotSupportedException($"{nameof(MinioConnector)} does not support live watch.");
 
     /// <summary>
     /// Converts a virtual path to an S3 key, prepending the configured prefix if any.
