@@ -20,7 +20,7 @@
   <img src="docs/demos/agent-remembers.gif" alt="Connapse demo: an agent searches the knowledge base over MCP, answers with a cited file, remembers the decision, and recalls it with its source in a new session" width="100%" />
 </p>
 
-Connapse is a self-hosted knowledge base for AI agents. Point it at your files, S3 buckets, Azure Blob containers, GitHub repositories, Confluence spaces and Jira projects, and agents reach all of it through an MCP server (the Model Context Protocol, the standard way agents call outside tools) or a REST API. It is RAG with hybrid search and reranking, agent memory that keeps dated facts with their sources, and results that can be trimmed to what each person can open in the source system. It is open source, runs on your own machine with Docker, and is built on .NET 10, PostgreSQL and pgvector.
+Connapse is a self-hosted knowledge base for AI agents. Point it at your files, SFTP servers, S3 buckets, Azure Blob containers, GitHub repositories, Confluence spaces and Jira projects, and agents reach all of it through an MCP server (the Model Context Protocol, the standard way agents call outside tools) or a REST API. It is RAG with hybrid search and reranking, agent memory that keeps dated facts with their sources, and results that can be trimmed to what each person can open in the source system. It is open source, runs on your own machine with Docker, and is built on .NET 10, PostgreSQL and pgvector.
 
 **Who it's for:** teams and developers who want Claude, Cursor, VS Code or their own agents to work from the company's documents, tickets and code, without sending that data to a hosted service.
 
@@ -52,12 +52,12 @@ claude mcp add --transport http connapse http://localhost:5001/mcp --header "X-A
 
 ## What your agent gets
 
-21 named MCP tools, plus 3 generic tools that reach the rest of the REST API. Each key only gets the tools its scopes allow, and deletes over MCP can wait for your approval.
+22 named MCP tools, plus 3 generic tools that reach the rest of the REST API. Each key only gets the tools its scopes allow, and deletes over MCP can wait for your approval.
 
 | Group | Tools | What they do |
 |---|---|---|
 | Search and documents | `search_knowledge`, `get_document`, `list_files`, `upload_file`, `bulk_upload`, `delete_file`, `bulk_delete` | Search a container or source, read whole documents, and add or remove files |
-| Memory | `memory_remember`, `memory_recall`, `memory_correct`, `memory_timeline`, `memory_forget` | Keep dated facts with their sources, recall them in a later session, and correct them without losing history |
+| Memory | `memory_spaces`, `memory_remember`, `memory_recall`, `memory_correct`, `memory_timeline`, `memory_forget` | Pick a personal or team memory space, keep dated facts there with their sources, recall them in a later session, and correct them without losing history |
 | Code | `code_find_symbol`, `code_references`, `code_impact`, `code_repo_map` | Find definitions and callers in indexed C#, TypeScript and Python, and see what a change could affect |
 | Containers | `container_list`, `container_describe`, `container_stats`, `container_create`, `container_delete` | List, inspect, create and delete containers |
 
@@ -75,7 +75,7 @@ Every search runs vector search and keyword search together and fuses the two ra
 
 ### Memory for agents
 
-An agent saves what it learns as a fact: a subject, an attribute and a value, with the dates it was true and the documents it came from. A later session recalls it. A correction keeps the old value in history, and forgetting deletes every version. A fact is shown only to people who can read every source it cites. See [Agent memory](docs/reference/mcp-tools.md#agent-memory).
+An agent saves what it learns as a fact: a subject, an attribute and a value, with the dates it was true and the documents it came from. Every fact goes into a memory space the agent names: a personal space only you and your agents see, or a team space everyone sees, and the agent is told who will see it. A later session recalls it. A correction keeps the old value in history, and forgetting deletes every version. A fact is shown only to people who can read every source it cites, and the **Memory** page shows each space's facts and their history. See [About agent memory](docs/concepts/memory.md).
 
 <p align="center">
   <img src="docs/demos/memory-history.gif" alt="Memory keeps history: an agent corrects a stored fact as a change, and the timeline shows the old value ending and the new one starting" width="100%" />
@@ -83,10 +83,10 @@ An agent saves what it learns as a fact: a subject, an attribute and a value, wi
 
 ### Connect your data
 
-Upload files, or index them where they live: local folders, SFTP, Amazon S3, Azure Blob Storage, GitHub (Markdown docs, or issues and pull requests), Confluence and Jira. Anything else can connect through a custom source server you write against an open protocol. Each container has its own files, vector index and settings. See [Connect your data](docs/sources/index.md) and [file types](docs/reference/file-types.md).
+Upload files or whole folders, or index them where they live: SFTP servers (including the folders on your own computer), Amazon S3, Azure Blob Storage, GitHub (Markdown docs, or issues and pull requests), Confluence and Jira. Anything else can connect through a custom source server you write against an open protocol. Each container has its own files, vector index and settings. See [Connect your data](docs/sources/index.md) and [file types](docs/reference/file-types.md).
 
 <p align="center">
-  <img src="docs/demos/connect-a-folder.gif" alt="Connect a folder: add a local folder as a source, sync it, and search the files it holds" width="100%" />
+  <img src="docs/demos/connect-a-folder.gif" alt="Connect a folder: reach a folder over SFTP as a source, sync it, and search the files it holds" width="100%" />
 </p>
 
 The **Providers** page lists the built-in providers next to any custom source server you add.
@@ -113,7 +113,7 @@ Records point at each other, and Connapse stores those links: a GitHub issue wit
 
 ### Run fully local with Ollama
 
-With the Ollama profile, embeddings are computed on your machine and nothing leaves it. OpenAI or Azure OpenAI can be swapped in from **Settings** at runtime, without a restart. See [Change the embedding model](docs/guides/change-embedding-model.md).
+By default, Ollama runs alongside Connapse, so embeddings are computed on your machine and nothing leaves it. OpenAI or Azure OpenAI can be swapped in from **Settings** at runtime, without a restart. See [Change the embedding model](docs/guides/change-embedding-model.md).
 
 <p align="center">
   <img src="docs/demos/provider-settings.gif" alt="Provider settings: switch the embedding provider, run Test Connection against Ollama, then switch the LLM provider" width="100%" />
@@ -141,7 +141,7 @@ The full documentation is in [docs/](docs/index.md).
 
 - [Get started](docs/get-started/quickstart.md): run Connapse and search your first document
 - [Self-host](docs/self-host/install.md): install, production, backups, upgrades and troubleshooting
-- [Connect your data](docs/sources/index.md): sources from S3, Azure, GitHub, Atlassian, folders and your own systems
+- [Connect your data](docs/sources/index.md): sources from S3, Azure, GitHub, Atlassian, SFTP and your own systems
 - [Guides](docs/guides/mcp-clients.md): users, tokens, agents, the API and search tuning
 - [Concepts](docs/concepts/how-connapse-works.md): how Connapse, search, ingestion and permissions work
 - [Reference](docs/reference/rest-api.md): REST API, MCP tools, configuration, roles and scopes, file types and [error types](docs/problems.md)
