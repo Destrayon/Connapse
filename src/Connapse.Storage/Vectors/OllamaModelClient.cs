@@ -31,7 +31,10 @@ public class OllamaModelClient(IHttpClientFactory httpClients)
         return true;
     }
 
-    /// <summary>Downloads a model, reporting whole percents. Ollama resumes an interrupted download.</summary>
+    /// <summary>
+    /// Downloads a model, reporting whole percents. Ollama announces layers one at a time, so the figure can drop when a
+    /// new one joins, and it stays below 100 until Ollama says the whole model is in. Ollama resumes an interrupted download.
+    /// </summary>
     /// <exception cref="InvalidOperationException">Ollama reported an error, or the stream ended without success.</exception>
     public virtual async Task PullAsync(string address, string model, Action<int> onPercent, CancellationToken ct)
     {
@@ -88,13 +91,18 @@ public class OllamaModelClient(IHttpClientFactory httpClients)
             if (update?.Error is { Length: > 0 } error)
                 throw new InvalidOperationException(error);
             if (update?.Status == "success")
+            {
+                onPercent(100);
                 return;
+            }
 
             if (update?.Digest is { Length: > 0 } digest && update.Total > 0)
             {
+                if (!layers.ContainsKey(digest))
+                    reported = -1;
                 layers[digest] = (update.Completed, update.Total);
                 long total = layers.Values.Sum(l => l.Total);
-                int percent = (int)(layers.Values.Sum(l => l.Completed) * 100 / total);
+                int percent = (int)Math.Min(layers.Values.Sum(l => l.Completed) * 100 / total, 99);
                 if (percent > reported)
                 {
                     reported = percent;

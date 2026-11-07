@@ -29,6 +29,8 @@ Use this when you want to move a running Connapse server to a newer release, and
    docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y
    ```
 
+   To move to one release instead, use its tag, such as `oci://ghcr.io/destrayon/connapse:compose-v0.4.0`, and leave `CONNAPSE_VERSION` out of `.env` or set it to the same release.
+
    If you run the prebuilt image from a downloaded file, set the release in `.env` and pull it:
 
    ```bash
@@ -61,6 +63,8 @@ Use this when you want to move a running Connapse server to a newer release, and
    docker compose logs -f web
    ```
 
+   If you started from the published file, name the project: `docker compose -p connapse logs -f web`.
+
 5. Check the server:
 
    ```bash
@@ -71,7 +75,14 @@ Use this when you want to move a running Connapse server to a newer release, and
 
 ## Moving to the one-command start
 
-Your passwords and data don't change. On the first start of the new compose file, the `setup` service sees your existing data and keeps your passwords: the ones in `.env` if you have one, otherwise the old `connapse_dev` defaults. If you were using those defaults, set your own password now, because they are public: change it inside PostgreSQL and MinIO first, then put the new value in `.env`.
+Your passwords and data don't change. On the first start of the new compose file, the `setup` service sees your existing data and keeps your passwords: the ones in `.env` if you have one, otherwise the old `connapse_dev` defaults. If you were using those defaults, set your own passwords now, because they are public:
+
+- PostgreSQL keeps the password its data was created with, so change it there first, with `docker compose exec postgres psql -U connapse -c "ALTER USER connapse PASSWORD 'new-password'"`, then put the same value in `.env` as `POSTGRES_PASSWORD`.
+- MinIO reads its password on each start, so only put the new values in `.env` as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`.
+
+Then run `docker compose up -d`. `setup` saves the new values, and MinIO and the app restart to pick them up.
+
+Keep the same Compose project, because the volumes belong to it. A downloaded file or a clone takes its project name from its folder, and the published file always uses `connapse`. `docker compose ls` lists the projects on the host. To move a folder install to the published file, pass the old name: `docker compose -p <old-name> -f oci://ghcr.io/destrayon/connapse:compose up -d -y`, and use `-p <old-name>` wherever these docs say `-p connapse`. To move from the published file to a folder, put `COMPOSE_PROJECT_NAME=connapse` in that folder's `.env`. With a new project name, the server starts empty, and the old data waits in the old volumes.
 
 Three things behave differently:
 

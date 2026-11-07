@@ -57,7 +57,7 @@ Data lives in the named volumes `pgdata`, `miniodata`, `ollamadata`, `rerankerda
    |---|---|
    | `CONNAPSE_LOCAL_MODEL=off` | Never downloads or starts Ollama. Set a hosted provider, as in step 3. |
    | `COMPOSE_PROFILES=with-reranker` | Starts the reranker and turns reranking on. The model downloads from Hugging Face on the first start. |
-   | `CONNAPSE_VERSION=v0.4.0` | Pins a release. |
+   | `CONNAPSE_VERSION=v0.4.0` | Pins a release. With the published file, pin the file as well, by its release tag: `-f oci://ghcr.io/destrayon/connapse:compose-v0.4.0`. The plain `compose` tag always follows the newest release. |
    | `CONNAPSE_ADMIN_EMAIL` and `CONNAPSE_ADMIN_PASSWORD` | Create the Owner account on first start. Leave them out to use the setup form at `/register`. |
    | `Identity__Jwt__Secret` | Sets the token signing key, at least 32 characters. Left out, Connapse keeps a generated one in the `appdata` volume. |
    | `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | Choose your own passwords. Set these before the first start: PostgreSQL keeps the password its data was created with. |
@@ -80,6 +80,8 @@ Data lives in the named volumes `pgdata`, `miniodata`, `ollamadata`, `rerankerda
    docker compose -f docker-compose.yml -f docker-compose.reranker-gpu.yml up -d
    ```
 
+   The overlay only changes the reranker, so set `COMPOSE_PROFILES=with-reranker` in `.env` as well, or the reranker doesn't start.
+
    The GPU overlay defaults to the RTX 50-series build. For other GPUs, set `RERANKER_GPU_IMAGE` in `.env` to `ghcr.io/huggingface/text-embeddings-inference:turing-1.9` (RTX 20), `86-1.9` (RTX 30), `89-1.9` (RTX 40), `1.9` (A100) or `hopper-1.9` (H100), using the same image prefix.
 
 5. Check the server:
@@ -92,6 +94,8 @@ Data lives in the named volumes `pgdata`, `miniodata`, `ollamadata`, `rerankerda
    `postgres` and `minio` show `healthy`, and `/health/ready` returns `200 OK`. It returns `503` with the download's progress until the embedding model is ready, and that's normal on a first start.
 
    If you started from the published file, there's no compose file in your folder, so name the project instead: `docker compose -p connapse ps`. That works for `ps`, `logs`, `exec`, `stop` and `down` throughout these docs. Commands that need the services' definitions, such as `up`, keep `-f oci://ghcr.io/destrayon/connapse:compose`.
+
+   The volumes belong to the project. The published file always names its project `connapse`, while a downloaded file or a clone takes the name of its folder. To move an existing server from one to the other, keep its project name, as [Upgrade Connapse](upgrade.md#moving-to-the-one-command-start) shows, or it starts empty.
 
 If you saved search settings before turning the reranker on, the saved choice stands: open **Admin** → **Settings** → **Search** and set **Reranker** to **Cross-Encoder**.
 

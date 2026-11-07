@@ -62,8 +62,12 @@ public class OpenAiEmbeddingProviderTests
         provider.ModelId.Should().Be("text-embedding-3-small");
     }
 
-    [Fact]
-    public async Task EmbedAsync_BaseUrlIsTheBundledOllama_DoesNotSendTheKeyThere()
+    [Theory]
+    [InlineData("http://ollama:11434")]
+    [InlineData("http://ollama:11434/")]
+    [InlineData("HTTP://Ollama:11434")]
+    [InlineData("http://localhost:11434/")]
+    public async Task EmbedAsync_BaseUrlIsTheBundledOllama_DoesNotSendTheKeyThere(string baseUrl)
     {
         // Compose always sets BaseUrl for its own Ollama, and a hosted provider chosen in .env inherits it.
         var endpoint = new FakeEmbeddingEndpoint();
@@ -73,7 +77,7 @@ public class OpenAiEmbeddingProviderTests
             Model = "text-embedding-3-small",
             OpenAiApiKey = "key",
             Dimensions = 1536,
-            BaseUrl = LocalModelOptions.BundledAddress,
+            BaseUrl = baseUrl,
         });
         var provider = new OpenAiEmbeddingProvider(settings, Substitute.For<ILogger<OpenAiEmbeddingProvider>>(), endpoint.Transport);
 

@@ -60,8 +60,10 @@ services:
           fi
         done
 
+        # Quoted, with any " doubled, so a password with ; or " in it can't break the connection string.
+        pw=$$(sed 's/"/""/g' "$$out/postgres/password")
         save "$$out/web/ConnectionStrings__DefaultConnection" \
-          "Host=postgres;Database=connapse;Username=connapse;Password=$$(cat "$$out/postgres/password")"
+          "Host=postgres;Database=connapse;Username=connapse;Password=\"$$pw\""
         save "$$out/web/Knowledge__Storage__MinIO__AccessKey" "$$(cat "$$out/minio/user")"
         save "$$out/web/Knowledge__Storage__MinIO__SecretKey" "$$(cat "$$out/minio/password")"
 
@@ -125,8 +127,10 @@ services:
       - miniodata:/data
       - secrets:/connapse-secrets:ro
     depends_on:
+      # MinIO reads its password only at start, so it restarts when setup reruns with a new one.
       setup:
         condition: service_completed_successfully
+        restart: true
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -252,6 +256,10 @@ services:
       - ${CONNAPSE_AWS_DIR:-./aws}:/home/app/.aws:ro
 
     depends_on:
+      # The app reads its secrets only at start, so it restarts when setup reruns with new ones.
+      setup:
+        condition: service_completed_successfully
+        restart: true
       postgres:
         condition: service_healthy
       minio:

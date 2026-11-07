@@ -154,13 +154,13 @@ public sealed class DocumentLifecycle(
         return await PublishAsync(documentId, rows, ct);
     }
 
-    public async Task RecordJobAsync(Guid documentId, int generation, string jobId, CancellationToken ct = default)
+    public async Task<bool> RecordJobAsync(Guid documentId, int generation, string jobId, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
         // No status change and nothing to announce. Guarded so a slow enqueue cannot stamp its
         // job onto a newer generation that another enqueue already owns.
-        await context.Database.ExecuteSqlRawAsync("""
+        int rows = await context.Database.ExecuteSqlRawAsync("""
             UPDATE documents SET job_id = @job
             WHERE id = @id AND (@gen = 0 OR generation = @gen) AND ingestion_status IN (@queued, @processing)
             """,
@@ -172,6 +172,7 @@ public sealed class DocumentLifecycle(
                 new NpgsqlParameter("processing", Processing),
             ],
             ct);
+        return rows > 0;
     }
 
     public async Task<int?> CurrentGenerationAsync(Guid documentId, CancellationToken ct = default)

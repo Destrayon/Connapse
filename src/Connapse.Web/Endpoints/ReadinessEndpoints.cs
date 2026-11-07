@@ -13,8 +13,9 @@ public static class ReadinessEndpoints
     public static IEndpointRouteBuilder MapReadinessEndpoints(this IEndpointRouteBuilder app)
     {
         // /health stays liveness: the app is up, and a slow download mustn't make it look broken.
+        // Not rate limited, like /health: probes and the setup wait poll it, and it reads a value held in memory.
         app.MapGet("/health/ready", (ILocalModelMonitor model) => Report(model.Current))
-            .AllowAnonymous().RequireRateLimiting(RateLimitingExtensions.ApiPolicy)
+            .AllowAnonymous()
             .Produces<ReadinessReport>()
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .WithName("health.ready");

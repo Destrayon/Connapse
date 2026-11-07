@@ -46,9 +46,17 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
         var options = new OpenAIClientOptions();
         if (transport is not null)
             options.Transport = transport;
-        if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434" && baseUrl != LocalModelOptions.BundledAddress)
+        if (!string.IsNullOrWhiteSpace(baseUrl) && !IsOllamaDefault(baseUrl))
             options.Endpoint = new Uri(baseUrl);
         _client = new EmbeddingClient(_settings.Model, credential, options);
+    }
+
+    /// <summary>An Ollama address left over from the default or from Compose, which must not receive the OpenAI key.</summary>
+    private static bool IsOllamaDefault(string baseUrl)
+    {
+        string address = baseUrl.TrimEnd('/');
+        return string.Equals(address, "http://localhost:11434", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(address, LocalModelOptions.BundledAddress.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
     }
 
     public int Dimensions => _settings.Dimensions;

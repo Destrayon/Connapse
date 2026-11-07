@@ -87,7 +87,7 @@ public class LocalModelDownloadTests
     }
 
     [Fact]
-    public async Task PullAsync_TwoLayers_ReportsPercentOfBothWithoutGoingBackwards()
+    public async Task PullAsync_TwoLayers_ReportsPercentOfBothAndReaches100OnlyOnSuccess()
     {
         ScriptedOllama ollama = new(_ => Ndjson(
             """{"status":"pulling manifest"}""",
@@ -100,8 +100,22 @@ public class LocalModelDownloadTests
 
         await Client(ollama).PullAsync(Address, Model, percents.Add, CancellationToken.None);
 
-        percents.Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
-        percents.Should().EndWith(100);
+        percents.Should().Equal(50, 25, 50, 99, 100);
+    }
+
+    [Fact]
+    public async Task PullAsync_SmallLayerFinishesBeforeTheLargeOneStarts_DoesNotReport100Early()
+    {
+        ScriptedOllama ollama = new(_ => Ndjson(
+            """{"status":"pulling a","digest":"sha256:a","total":10,"completed":10}""",
+            """{"status":"pulling b","digest":"sha256:b","total":990,"completed":0}""",
+            """{"status":"pulling b","digest":"sha256:b","total":990,"completed":495}""",
+            """{"status":"success"}"""));
+        List<int> percents = [];
+
+        await Client(ollama).PullAsync(Address, Model, percents.Add, CancellationToken.None);
+
+        percents.Should().Equal(99, 1, 50, 100);
     }
 
     [Fact]

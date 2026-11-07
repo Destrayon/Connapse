@@ -114,7 +114,15 @@ public sealed class IngestionJobs : IIngestionJobs
         {
             // The first upload can beat the model's download by many minutes, which would use up the retries.
             string waitJobId = _bgClient.Schedule<IIngestionJobs>(j => j.IngestAsync(documentId, options, default), ModelWaitDelay);
-            await _lifecycle.RecordJobAsync(id, generation, waitJobId, CancellationToken.None);
+            if (!await _lifecycle.RecordJobAsync(id, generation, waitJobId, CancellationToken.None))
+            {
+                // Superseded, deleted or finished while waiting: without this the wait would reschedule itself for ever.
+                _bgClient.Delete(waitJobId);
+                _logger.LogInformation(
+                    "IngestSkipped {DocumentId} reason=not_current generation={Generation}",
+                    LogSanitizer.Sanitize(documentId), generation);
+            }
+
             return;
         }
 

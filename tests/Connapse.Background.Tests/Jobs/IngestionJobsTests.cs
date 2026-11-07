@@ -35,6 +35,7 @@ public class IngestionJobsTests
         _ingester.IngestByIdAsync(DocumentId, Arg.Any<IngestionOptions>(), Arg.Any<CancellationToken>())
             .Returns(new IngestionResult(DocumentId, ChunkCount: 3, TimeSpan.FromMilliseconds(5), []));
         _bgClient.Create(Arg.Any<Job>(), Arg.Any<IState>()).Returns("retry-job");
+        _lifecycle.RecordJobAsync(_documentId, Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
         _localModel.Current.Returns(LocalModelStatus.NotManaged);
     }
 
@@ -77,6 +78,18 @@ public class IngestionJobsTests
         await _ingester.DidNotReceiveWithAnyArgs().IngestByIdAsync(default!, default!, default);
         _bgClient.Received(1).Create(Arg.Any<Job>(), Arg.Is<IState>(s => s is ScheduledState));
         await _lifecycle.Received(1).RecordJobAsync(_documentId, 7, "retry-job", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IngestAsync_ModelNotReadyAndDocumentNoLongerAtThisGeneration_DropsTheWait()
+    {
+        _localModel.Current.Returns(new LocalModelStatus(LocalModelState.Downloading, "nomic-embed-text"));
+        _lifecycle.RecordJobAsync(_documentId, 7, "retry-job", Arg.Any<CancellationToken>()).Returns(false);
+
+        await CreateJobs().IngestAsync(DocumentId, Options(), CancellationToken.None);
+
+        _bgClient.Received(1).ChangeState("retry-job", Arg.Is<IState>(s => s is DeletedState), Arg.Any<string>());
+        await _lifecycle.DidNotReceiveWithAnyArgs().TryClaimAsync(default, default, default);
     }
 
     [Fact]
