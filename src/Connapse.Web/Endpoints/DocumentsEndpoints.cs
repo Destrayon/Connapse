@@ -8,6 +8,7 @@ using Connapse.Core.Utilities;
 using Connapse.Web.Problems;
 using Connapse.Web.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi;
 
@@ -27,12 +28,20 @@ public static class DocumentsEndpoints
             Guid containerId,
             [FromForm] IFormFileCollection files,
             [FromForm] string? path,
+            [FromForm] StringValues? paths,
             [FromForm] ChunkingStrategy? strategy,
             [FromServices] UploadFile upload,
             [FromServices] BulkUploadFiles bulkUpload,
             CancellationToken ct) =>
         {
-            if (files.Count == 1)
+            // A form without the field binds as null or as an empty array, and both mean the same.
+            string?[]? folders = paths is { Count: > 0 } named ? named.ToArray() : null;
+            if (folders is not null && folders.Length != files.Count)
+                return FileProblems.Result(Attempt<UploadResponse, FileStatus>.Fail(
+                    FileStatus.Invalid, $"paths names {folders.Length} folders for {files.Count} files; send one folder per file", "paths"));
+
+            // With paths each file is reported in its place, even a lone one, so a caller sending batches reads one shape.
+            if (files.Count == 1 && folders is null)
             {
                 var file = files[0];
                 using var stream = file.OpenReadStream();
@@ -53,7 +62,7 @@ public static class DocumentsEndpoints
             try
             {
                 var uploadedAll = await bulkUpload.RunAsync(Rest(httpContext), containerId,
-                    [.. files.Select((f, i) => new FileUpload(f.FileName, streams[i], path, f.ContentType, strategy?.ToString()))], ct);
+                    [.. files.Select((f, i) => new FileUpload(f.FileName, streams[i], folders?[i] ?? path, f.ContentType, strategy?.ToString()))], ct);
                 if (!uploadedAll.Succeeded)
                     return FileProblems.Result(uploadedAll);
 
@@ -75,7 +84,7 @@ public static class DocumentsEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("UploadFiles")
-        .WithDescription("Upload one or more files to a container")
+        .WithDescription("Upload one or more files to a container. Send `paths`, one folder per file in the order of `files`, to put each file in its own folder; `path` then goes unused.")
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         // GET /api/containers/{containerId}/files - List files and folders at path (paginated)

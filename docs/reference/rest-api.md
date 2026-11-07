@@ -208,7 +208,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 
 | Method | Path | Scope | Description |
 |--------|------|-------|-------------|
-| `POST` | `/api/containers/{containerId}/files` | — | Upload one or more files to a container |
+| `POST` | `/api/containers/{containerId}/files` | — | Upload one or more files to a container. `path` is the folder for all of them; `paths`, one folder per file in the order of `files`, sends each to its own folder and reports each in place. |
 | `GET` | `/api/containers/{containerId}/files` | `knowledge:read` | List files and folders at a path within a container (?skip=0&take=50) |
 | `GET` | `/api/containers/{containerId}/files/{fileId}` | `knowledge:read` | Get file details including indexing status |
 | `GET` | `/api/containers/{containerId}/files/{fileId}/links` | `knowledge:read` | List the files in this container that a file links to and that link to it, leaving out any the caller can't read. 503 `links-access-unchecked` when access can't be checked. |

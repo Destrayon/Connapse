@@ -36,11 +36,11 @@ public class MultipartFormSchemaTests
     }
 
     [Fact]
-    public void Upload_DeclaresItsFilesPathAndStrategyParts()
+    public void Upload_DeclaresItsFilesPathsAndStrategyParts()
     {
         var (_, upload) = MultipartBodies().Single(b => b.Operation == "POST /api/containers/{containerId}/files");
 
-        upload["properties"]!.AsObject().Select(p => p.Key).Should().BeEquivalentTo(["files", "path", "strategy"]);
+        upload["properties"]!.AsObject().Select(p => p.Key).Should().BeEquivalentTo(["files", "path", "paths", "strategy"]);
         upload["required"]!.AsArray().Select(r => r!.GetValue<string>()).Should().Equal("files");
     }
 }

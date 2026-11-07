@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Upload a whole folder from the browser: choose or drop a folder and everything inside it uploads with its subfolder paths, and the files that fail are listed. `POST /api/containers/{id}/files` takes `paths`, one folder per file (CON-257)
 - Link-aware search: with `EnableLinkSearch` on, search also returns documents its top results link to, one step out. Links come from GitHub (pull request closes issue, sub-issue parent), Jira (issue links, epic, parent, fix version, linked Confluence pages), Confluence (parent page, labels, page links, mentioned Jira issues) and code files. Linked documents pass the same permission check as ordinary results (CON-33, CON-34)
 - Code files: `.cs`, `.ts`/`.mts`/`.cts`/`.tsx` and `.py`/`.pyi` are parsed with tree-sitter, cut into one passage per definition, and linked by definitions, imports, calls and base types (CON-36, CON-108, CON-109)
 - Code MCP tools: `code_find_symbol`, `code_references`, `code_impact` and `code_repo_map` (CON-37)

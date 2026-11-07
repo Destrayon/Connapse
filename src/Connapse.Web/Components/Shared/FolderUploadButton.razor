@@ -1,0 +1,24 @@
+@* fileDrop.js catches the input's change event, because this input is recreated each time the Files tab returns. *@
+@inject IJSRuntime JS
+
+@if (supported)
+{
+    <label class="btn btn-sm btn-outline-primary upload-btn-label" for="folderUploadInput"
+           title="Upload a copy of a folder and everything inside it">
+        <span class="bi-folder2-open me-1"></span> Upload folder
+    </label>
+    <input type="file" webkitdirectory multiple id="folderUploadInput" style="display: none;" />
+}
+
+@code {
+    private bool supported;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        await using IJSObjectReference module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/fileDrop.js");
+        supported = await module.InvokeAsync<bool>("supportsFolderPicker");
+        StateHasChanged();
+    }
+}

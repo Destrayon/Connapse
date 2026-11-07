@@ -412,6 +412,27 @@
     "MarkupLogic": 6,
     "IsEmpty": false
   },
+  "Shared/FolderUploadButton.razor": {
+    "CodeLines": 8,
+    "Injects": 1,
+    "Complexity": 2,
+    "MarkupLogic": 1,
+    "IsEmpty": false
+  },
+  "Shared/FolderUploadPanel.razor": {
+    "CodeLines": 13,
+    "Injects": 0,
+    "Complexity": 5,
+    "MarkupLogic": 11,
+    "IsEmpty": false
+  },
+  "Shared/FolderUploadRun.razor": {
+    "CodeLines": 94,
+    "Injects": 3,
+    "Complexity": 24,
+    "MarkupLogic": 6,
+    "IsEmpty": false
+  },
   "Shared/Pagination.razor": {
     "CodeLines": 22,
     "Injects": 0,

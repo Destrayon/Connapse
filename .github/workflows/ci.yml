@@ -59,6 +59,14 @@ jobs:
       if: always()
 
     # The CI scripts' own tests: the shard planner decides which tests every PR runs where.
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Test the browser's folder upload
+      if: success() || failure()
+      run: node --test --test-timeout=8000 tests/Connapse.Web.Js/folderUpload.test.mjs
+
     - name: Test the CI scripts
       if: success() || failure()
       run: python3 -m unittest discover -s .github/scripts -p "test_*.py" -v
@@ -140,6 +148,11 @@ jobs:
       uses: actions/checkout@v4
 
     - uses: ./.github/actions/free-disk
+
+    # FolderUploadTests sends a real folder with the browser's own code under Node.
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
 
     # The test fixtures' container images, pulled while the build runs. Testcontainers otherwise pulls them
     # inside the test step, where a slow registry looked like slow tests (CON-127: one MinIO pull took 78 s

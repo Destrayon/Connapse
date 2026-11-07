@@ -78,7 +78,7 @@ You should see: the **Containers** page, which is **Files** in the navigation, s
 
 1. On the **Containers** page, choose **New Container**.
 2. Enter `my-notes` as the name, then choose **Create**.
-3. Open `my-notes`, choose **Upload** and pick a Markdown, text, PDF or Word file.
+3. Open `my-notes`, choose **Upload** and pick a Markdown, text, PDF or Word file. To bring in a whole folder, choose **Upload folder** instead.
 
 You should see: the file's status change from **Queued** to **Processing** to **Ready**. **Ready** means it is indexed and searchable.
 
