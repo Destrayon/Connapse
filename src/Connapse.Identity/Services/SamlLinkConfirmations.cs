@@ -49,27 +49,48 @@ public sealed class SamlLinkConfirmations(IMemoryCache cache)
     /// </remarks>
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(5);
 
+    /// <summary>
+    /// A parked link plus the flag that makes claiming it single-use. The flag, not the cache
+    /// removal, is the boundary: <see cref="IMemoryCache"/> exposes no atomic take-and-remove, so
+    /// two concurrent <see cref="Consume"/> calls could both read the entry before either removed
+    /// it and both go on to save the link. Flipping <see cref="Claimed"/> with an interlocked
+    /// exchange lets exactly one caller win; the cache removal that follows is only cleanup.
+    /// </summary>
+    private sealed class Slot(PendingIdentityLink link)
+    {
+        public readonly PendingIdentityLink Link = link;
+
+        /// <summary>0 until a caller claims it; the winner is the one that moves it to 1.</summary>
+        public int Claimed;
+    }
+
     /// <summary>Parks <paramref name="link"/> and returns the one-time code that claims it.</summary>
     public string Start(PendingIdentityLink link)
     {
         ArgumentNullException.ThrowIfNull(link);
 
         string code = SamlNonce.Create();
-        cache.Set(KeyPrefix + code, link, Lifetime);
+        cache.Set(KeyPrefix + code, new Slot(link), Lifetime);
         return code;
     }
 
-    /// <summary>The link <paramref name="code"/> claims, or null. Single use.</summary>
+    /// <summary>The link <paramref name="code"/> claims, or null. Single use, even under concurrent
+    /// calls: exactly one caller ever receives a given parked link.</summary>
     public PendingIdentityLink? Consume(string? code)
     {
         if (string.IsNullOrWhiteSpace(code))
             return null;
 
         string key = KeyPrefix + code;
-        if (!cache.TryGetValue(key, out PendingIdentityLink? link))
+        if (!cache.TryGetValue(key, out Slot? slot) || slot is null)
+            return null;
+
+        // Exactly one concurrent caller flips 0 -> 1 and owns the link; the rest see a non-zero
+        // prior value and get nothing.
+        if (Interlocked.Exchange(ref slot.Claimed, 1) != 0)
             return null;
 
         cache.Remove(key);
-        return link;
+        return slot.Link;
     }
 }
