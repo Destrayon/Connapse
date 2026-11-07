@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.4.0] - Unreleased
+## [v0.4.0] - 2026-11-07
 
 v0.4.0 is the first release since v0.3.2 (March 2026) and the largest so far. It is also a clean break: an install upgrading from v0.3.2 has steps to take, listed under [Upgrading from v0.3.2](#upgrading-from-v032). Read them before you upgrade.
 
