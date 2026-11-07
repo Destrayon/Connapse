@@ -11,7 +11,7 @@ Use this when you want to move a running Connapse server to a newer release, and
 
 ## Prerequisites
 
-- Shell access to the Docker host, in the folder that holds `docker-compose.yml`.
+- Shell access to the Docker host, in the folder you start Connapse from.
 - A backup from the last hour, made with [Back up and restore Connapse](backup-and-restore.md). Rolling back means restoring it.
 - The [CHANGELOG](../../CHANGELOG.md) entries between your version and the new one, read for breaking changes and security fixes.
 - From v0.3.x, start with [From v0.3.x to v0.4.0](#from-v03x-to-v040), which uses the steps below. That upgrade removes the documents of every S3, Azure Blob and filesystem container, so save their settings first.
@@ -23,7 +23,13 @@ Use this when you want to move a running Connapse server to a newer release, and
 
 2. Get the new version.
 
-   If you run the prebuilt image, set the release in `.env` and pull it:
+   If you started from the published file, run the same command again. It always follows the newest stable release, so go to step 4 afterwards:
+
+   ```bash
+   docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y
+   ```
+
+   If you run the prebuilt image from a downloaded file, set the release in `.env` and pull it:
 
    ```bash
    # in .env
@@ -41,10 +47,10 @@ Use this when you want to move a running Connapse server to a newer release, and
    git checkout v0.4.0
    ```
 
-3. Restart with the new version, with the profiles you normally use. Add `--build` when you build from source:
+3. Restart with the new version. Add `--build` when you build from source:
 
    ```bash
-   docker compose --profile with-ollama up -d --build
+   docker compose up -d
    ```
 
    Database migrations run automatically when the web app starts, before it serves requests. Your volumes are kept.
@@ -62,6 +68,16 @@ Use this when you want to move a running Connapse server to a newer release, and
    ```
 
    `/health` returns `200 OK`. Then sign in and run a search in a container you know.
+
+## Moving to the one-command start
+
+Your passwords and data don't change. On the first start of the new compose file, the `setup` service sees your existing data and keeps your passwords: the ones in `.env` if you have one, otherwise the old `connapse_dev` defaults. If you were using those defaults, set your own password now, because they are public: change it inside PostgreSQL and MinIO first, then put the new value in `.env`.
+
+Three things behave differently:
+
+- The `with-ollama` profile is gone, and Ollama starts by default. If you use a hosted provider, set `CONNAPSE_LOCAL_MODEL=off` in `.env` before you upgrade, or Ollama starts with no use. Connapse only downloads the model when Ollama is the provider.
+- To keep the reranker on with a plain `docker compose up -d`, set `COMPOSE_PROFILES=with-reranker` in `.env`. `--profile with-reranker` still works.
+- A clone now runs the prebuilt image. Add `--build` to run the code you checked out.
 
 ## From v0.3.x to v0.4.0
 

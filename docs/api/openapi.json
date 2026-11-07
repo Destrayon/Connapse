@@ -17,6 +17,36 @@
         }
       }
     },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "Connapse.Web"
+        ],
+        "operationId": "health.ready",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessReport"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/info": {
       "get": {
         "tags": [
@@ -18438,6 +18468,17 @@
           },
           "overall": {
             "$ref": "#/components/schemas/RequirementStatus"
+          }
+        }
+      },
+      "ReadinessReport": {
+        "required": [
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
           }
         }
       },

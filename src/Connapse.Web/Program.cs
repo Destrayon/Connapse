@@ -36,6 +36,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 Connapse.Core.Utilities.RegexTimeout.ApplyProcessDefault();
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddComposeSetup();
 
 // The build runs this entry point to write the OpenAPI document (#857). It needs only the mapped
 // endpoints, so it must not touch the database, start background services or schedule jobs: a
@@ -125,6 +126,7 @@ builder.Services.AddHostedService<CloudEnforcementLatch>();
 builder.Services.AddHostedService<Bm25StatsFoldService>();
 builder.Services.AddHostedService<VectorIndexMaintenanceService>();
 builder.Services.AddHostedService<McpApprovalPurgeService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalModelDownloadService>());
 
 // Tracks background reindex state so admins can see success/failure via the status endpoint.
 builder.Services.AddSingleton<Connapse.Application.Settings.ReindexStateService>();
@@ -488,6 +490,7 @@ app.MapRazorComponents<App>()
 // Health check — returns 200 when the app is fully initialized.
 // Used by integration tests to replace Task.Delay(2000) startup waits.
 app.MapGet("/health", () => Results.Ok()).Produces(StatusCodes.Status200OK);
+app.MapReadinessEndpoints();
 
 // Server info — lets CLI detect whether it's talking to Cloud or self-hosted
 app.MapGet("/api/v1/info", () => Results.Json(new Connapse.Web.Endpoints.ServerInfo(

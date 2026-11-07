@@ -46,7 +46,7 @@ public class OpenAiEmbeddingProvider : IEmbeddingProvider
         var options = new OpenAIClientOptions();
         if (transport is not null)
             options.Transport = transport;
-        if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434")
+        if (!string.IsNullOrWhiteSpace(baseUrl) && baseUrl != "http://localhost:11434" && baseUrl != LocalModelOptions.BundledAddress)
             options.Endpoint = new Uri(baseUrl);
         _client = new EmbeddingClient(_settings.Model, credential, options);
     }

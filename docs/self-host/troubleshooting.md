@@ -30,24 +30,36 @@ services:
 
 You might see: a document's status turns to **Failed** after upload, and its details show this message, ending with `Ensure Ollama is running and the model 'nomic-embed-text' is available.`
 
-**Cause:** This happens when the embedding provider is Ollama, the default, but the `ollama` service isn't running or doesn't have the model. The service only starts with `--profile with-ollama`, and Connapse doesn't download models.
+**Cause:** This happens when the embedding provider is Ollama, the default, but the `ollama` service isn't running. Either it stopped, or `CONNAPSE_LOCAL_MODEL=off` is set.
 
 **Fix:**
-1. Start Ollama with the rest of the stack:
+1. Remove `CONNAPSE_LOCAL_MODEL=off` from `.env` if it's there, then start Ollama with the rest of the stack:
 
    ```bash
-   docker compose --profile with-ollama up -d
+   docker compose up -d
    ```
 
-2. Download the model:
-
-   ```bash
-   docker compose exec ollama ollama pull nomic-embed-text
-   ```
+2. Wait until `curl -i http://localhost:5001/health/ready` returns `200 OK`. Connapse downloads the model if it's missing.
 
 3. In the container, choose the failed file and reindex it, or upload it again.
 
 If you use a hosted embedding provider instead, open **Admin** → **Settings** → **Embedding**, choose it, and save. Then reindex.
+
+## Connapse is still downloading its search model
+
+You might see: this message at the top of every page, or a search that answers `503` with the [`model-not-ready`](../problems.md#model-not-ready) problem.
+
+**Cause:** The embedding model is about 270 MB and downloads on the first start. Uploads wait for it, and nothing is lost.
+
+**Fix:** Wait. If the message says Connapse can't download the model, check that the server can reach the internet and has free disk space, then read `docker compose logs web`. Connapse keeps trying.
+
+## Error: password authentication failed for user "connapse"
+
+You might see: `web` stops at start-up with this message, or with `28P01`.
+
+**Cause:** PostgreSQL keeps the password its data was created with. This happens when `POSTGRES_PASSWORD` in `.env` changed, or the `secrets` volume was deleted while `pgdata` was kept. Compose's `down -v` deletes both together, so this needs a volume removed by hand.
+
+**Fix:** Put the password the data was created with in `.env` as `POSTGRES_PASSWORD`, then run `docker compose up -d`. If you never set one and the install is older than the one-command start, it's `connapse_dev`.
 
 ## Error: Failed to connect to 127.0.0.1:5432
 

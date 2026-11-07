@@ -188,6 +188,13 @@ out, or refused the request. Nothing is wrong with the request: retry once the s
 in `Keyword` mode, which doesn't use it. A scope the caller may not know exists still reads as
 `search-scope-not-found`.
 
+## model-not-ready
+
+The search needed the query embedded, and the search model isn't ready. Compose's own Ollama is still downloading
+it, or the download keeps failing, or the local model is switched off and no provider is set up. `detail` says
+which, and `GET /health/ready` reports the same state with a percentage. Try again after `Retry-After` seconds,
+or search in `Keyword` mode, which doesn't use the model.
+
 ## settings-category-not-found
 
 Connapse has no settings category by that name. The categories are `embedding`, `chunking`, `search`,

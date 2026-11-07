@@ -5,50 +5,29 @@ No source code or .NET SDK required.
 
 ## Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) 24+ with the Compose plugin (`docker compose`)
+- [Docker](https://docs.docker.com/get-docker/) 24+ with the Compose plugin 2.24+ (`docker compose`)
 - Internet access to pull images from ghcr.io, cgr.dev and Docker Hub on first run
 
 ## Quick Start
 
-**1. Copy the example environment file and edit it.**
+**1. Start Connapse.**
 
 ```bash
-cp .env.example .env
+docker compose up -d
 ```
 
-Open `.env` in a text editor and set every value marked `change_me_*`.
-Generate a secure JWT secret with:
+That's the whole setup, with no file to edit. This starts PostgreSQL, MinIO (object storage),
+Ollama and the Connapse web application. The first start makes random passwords, keeps them in
+a Docker volume, and downloads the embedding model, which turns your documents into vectors.
+Connapse shows the download's progress, and uploads wait for it.
 
-```bash
-openssl rand -base64 64
-```
-
-**2. Start Connapse with Ollama.**
-
-Ollama runs the embedding model that turns your documents into vectors.
-
-```bash
-docker compose --profile with-ollama up -d
-```
-
-This starts PostgreSQL, MinIO (object storage), Ollama and the Connapse web application.
-Database migrations run automatically when the web app starts.
-
-**3. Download the embedding model.**
-
-```bash
-docker compose exec ollama ollama pull nomic-embed-text
-```
-
-`nomic-embed-text` is the default embedding model. Connapse doesn't download it for you.
-
-**4. Create the Owner account.**
+**2. Create the Owner account.**
 
 Open [http://localhost:5001](http://localhost:5001). A new server has no accounts, so it shows
 the setup form. Enter your email, a display name and a password. The first account becomes the
 **Owner**, and everyone else joins through invites.
 
-**5. Create your first container and upload documents.**
+**3. Create your first container and upload documents.**
 
 - On the **Files** page, choose **New Container**, give it a name and create it. Uploads go to
   the MinIO storage that ships with this package.
@@ -58,11 +37,18 @@ the setup form. Enter your email, a display name and a password. The first accou
 To index Amazon S3, Azure Blob Storage, GitHub, Confluence, Jira or an SFTP server
 instead, add it as a source. See [Containers, connections and sources](https://github.com/Destrayon/Connapse/blob/main/docs/sources/index.md).
 
+## Changing what runs
+
+Copy `.env.example` to `.env`, change what you want, and run `docker compose up -d` again.
+
+- `CONNAPSE_LOCAL_MODEL=off` never downloads or starts Ollama.
+- `COMPOSE_PROFILES=with-reranker` starts the reranker and turns reranking on.
+
 ## Using a different embedding provider
 
-To use an Ollama you already run, or OpenAI or Azure OpenAI, skip `--profile with-ollama` and
-step 3, then choose the provider under **Admin** → **Settings** → **Embedding**. For your own
-Ollama, set `Knowledge__Embedding__BaseUrl` in `.env` to its address.
+To use an Ollama you already run, or OpenAI or Azure OpenAI, set `CONNAPSE_LOCAL_MODEL=off` in
+`.env`, then set the provider there too, or choose it under **Admin** → **Settings** →
+**Embedding**. For your own Ollama, set `Knowledge__Embedding__BaseUrl` in `.env` to its address.
 
 ## Pinning to a specific version
 
@@ -76,20 +62,21 @@ Then re-pull and restart:
 
 ```bash
 docker compose pull web
-docker compose --profile with-ollama up -d
+docker compose up -d
 ```
 
 ## Upgrading
 
-Back up first, then pull and restart with the profiles you use:
+Back up first, then pull and restart:
 
 ```bash
 docker compose pull web
-docker compose --profile with-ollama up -d
+docker compose up -d
 ```
 
 Migrations run automatically on startup and only go forward. Your data volumes (`pgdata`,
-`miniodata`, `appdata`) are preserved across upgrades. Upgrading from v0.3.x needs extra steps;
+`miniodata`, `appdata`, `secrets`) are preserved across upgrades, and your passwords don't change.
+If you use a hosted embedding provider, set `CONNAPSE_LOCAL_MODEL=off` first. Upgrading from v0.3.x needs extra steps;
 see [Upgrade Connapse](https://github.com/Destrayon/Connapse/blob/main/docs/self-host/upgrade.md).
 
 ## Stopping and removing

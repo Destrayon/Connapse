@@ -1,6 +1,6 @@
 ---
 title: Install Connapse
-description: "Install Connapse with Docker Compose: requirements, the prebuilt image or a source build, and the Ollama, reranker and GPU profiles."
+description: "Install Connapse with Docker Compose: requirements, the prebuilt image or a source build, and the switches for the local model, reranker and GPU."
 type: how-to
 audience: operator
 ---
@@ -12,7 +12,7 @@ Use this when you want to choose how Connapse runs on your own hardware: from a 
 ## Prerequisites
 
 - Shell access to the machine, with permission to run Docker.
-- Docker 24 or later with the Compose plugin 2.20 or later.
+- Docker 24 or later with the Compose plugin 2.34 or later. Compose 2.24 to 2.33 works from a downloaded compose file; see [Steps](#steps).
 - At least 8 GB of memory and 20 GB of disk with Ollama, or 4 GB without it. The reranker adds 2 GB.
 - One free port for the web app. Compose maps it to 5001 on the host.
 
@@ -22,68 +22,78 @@ Connapse runs as a set of Compose services. Only the web app publishes a port; t
 
 | Service | Image | Starts | Memory limit | Purpose |
 |---|---|---|---|---|
-| `web` | built from the repo, or `ghcr.io/destrayon/connapse` | always | 3 GB | The UI at `/`, the REST API at `/api`, and the MCP server at `/mcp` |
+| `setup` | `pgvector/pgvector:pg17` | once, on every start, then exits | 64 MB | Makes the random passwords on first start and keeps them in the `secrets` volume |
+| `web` | `ghcr.io/destrayon/connapse`, or built from the repo | always | 3 GB | The UI at `/`, the REST API at `/api`, and the MCP server at `/mcp` |
 | `postgres` | `pgvector/pgvector:pg17` | always | 512 MB | Documents, chunks, vectors, settings and accounts |
 | `minio` | `cgr.dev/chainguard/minio` | always | 256 MB | Uploaded files, in the `connapse-files` bucket |
-| `ollama` | `ollama/ollama` | `--profile with-ollama` | 4 GB | The default embedding model |
-| `reranker` | `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` | `--profile with-reranker` | 2 GB | An optional cross-encoder that re-scores search results |
+| `ollama` | `ollama/ollama` | unless `CONNAPSE_LOCAL_MODEL=off` | 4 GB | The default embedding model |
+| `reranker` | `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` | with `COMPOSE_PROFILES=with-reranker` | 2 GB | An optional cross-encoder that re-scores search results |
 
-Data lives in the named volumes `pgdata`, `miniodata`, `ollamadata`, `rerankerdata` and `appdata`. They survive `docker compose down`; `docker compose down -v` deletes them.
+Data lives in the named volumes `pgdata`, `miniodata`, `ollamadata`, `rerankerdata`, `appdata` and `secrets`. They survive `docker compose down`; `docker compose down -v` deletes them.
 
 ## Steps
 
-1. Get the files. To build from source, clone the repo:
+1. Choose where the compose file comes from. Every path below uses the prebuilt image unless it says otherwise.
 
    ```bash
+   # Published with each release (Compose 2.34 or later). Run it from any folder:
+   docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y
+
+   # Downloaded (Compose 2.24 or later). Run these in an empty folder:
+   curl -LO https://github.com/Destrayon/Connapse/releases/latest/download/docker-compose.yml
+   docker compose up -d
+
+   # From source. A clone uses the prebuilt image too, until you add --build:
    git clone https://github.com/Destrayon/Connapse.git
    cd Connapse
-   cp .env.example .env
+   docker compose up -d --build
    ```
 
-   To run the prebuilt image instead, copy `docker-compose.yml` and `.env.example` from the repo's [`release/`](../../release/) folder into an empty folder, then run `cp .env.example .env` there. Set `CONNAPSE_VERSION` in `.env` to pin a release such as `v0.4.0`; it defaults to `latest`.
+   Nothing else is needed for a working server. The first start makes every password, and the model downloads on its own.
 
-2. Edit `.env`. Set `POSTGRES_PASSWORD`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. Generate each password with `openssl rand -base64 32`.
+2. Optional: to change something, create a file named `.env` in the folder you run the command from, then run the same command again. [`.env.example`](../../release/.env.example) lists every value. These are the ones people change:
 
-3. Optional: set `CONNAPSE_ADMIN_EMAIL` and `CONNAPSE_ADMIN_PASSWORD` in `.env` to create the Owner account on first start. Leave them empty to create the Owner through the setup form at `/register` instead.
+   | In `.env` | What it does |
+   |---|---|
+   | `CONNAPSE_LOCAL_MODEL=off` | Never downloads or starts Ollama. Set a hosted provider, as in step 3. |
+   | `COMPOSE_PROFILES=with-reranker` | Starts the reranker and turns reranking on. The model downloads from Hugging Face on the first start. |
+   | `CONNAPSE_VERSION=v0.4.0` | Pins a release. |
+   | `CONNAPSE_ADMIN_EMAIL` and `CONNAPSE_ADMIN_PASSWORD` | Create the Owner account on first start. Leave them out to use the setup form at `/register`. |
+   | `Identity__Jwt__Secret` | Sets the token signing key, at least 32 characters. Left out, Connapse keeps a generated one in the `appdata` volume. |
+   | `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | Choose your own passwords. Set these before the first start: PostgreSQL keeps the password its data was created with. |
 
-4. Optional: set `Identity__Jwt__Secret` to a value of at least 32 characters, generated with `openssl rand -base64 64`. If you leave it empty, Connapse generates one on first start and keeps it in the `appdata` volume.
-
-5. Start the services. Pick the line that matches what you want to run:
+3. If you switched the local model off, set a hosted provider. Put it in `.env`:
 
    ```bash
-   # Ollama for embeddings (the default embedding provider)
-   docker compose --profile with-ollama up -d
+   CONNAPSE_LOCAL_MODEL=off
+   Knowledge__Embedding__Provider=OpenAI
+   Knowledge__Embedding__Model=text-embedding-3-small
+   Knowledge__Embedding__Dimensions=1536
+   Knowledge__Embedding__OpenAiApiKey=sk-...
+   ```
 
-   # Ollama and the CPU reranker
-   docker compose --profile with-ollama --profile with-reranker up -d
+   Or sign in as the Owner, open **Admin** → **Settings** → **Embedding**, choose the provider, enter its key and model, and save.
 
-   # Ollama and the reranker on an NVIDIA GPU
-   docker compose -f docker-compose.yml -f docker-compose.reranker-gpu.yml --profile with-ollama --profile with-reranker up -d
+4. Optional: to run the reranker on an NVIDIA GPU, clone the repo and add the GPU overlay:
 
-   # No local models: you'll point Connapse at a hosted embedding provider in step 7
-   docker compose up -d
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.reranker-gpu.yml up -d
    ```
 
    The GPU overlay defaults to the RTX 50-series build. For other GPUs, set `RERANKER_GPU_IMAGE` in `.env` to `ghcr.io/huggingface/text-embeddings-inference:turing-1.9` (RTX 20), `86-1.9` (RTX 30), `89-1.9` (RTX 40), `1.9` (A100) or `hopper-1.9` (H100), using the same image prefix.
 
-6. If you started Ollama, download the embedding model:
-
-   ```bash
-   docker compose exec ollama ollama pull nomic-embed-text
-   ```
-
-7. If you didn't start Ollama, sign in as the Owner, open **Admin** → **Settings** → **Embedding**, choose OpenAI, Azure OpenAI or another provider, enter its key and model, and save.
-
-8. Optional: if you started the reranker, open **Admin** → **Settings** → **Search** and set **Reranker** to **Cross-Encoder**. The model downloads from Hugging Face on the reranker's first start.
-
-9. Check the server:
+5. Check the server:
 
    ```bash
    docker compose ps
-   curl -i http://localhost:5001/health
+   curl -i http://localhost:5001/health/ready
    ```
 
-   `postgres` and `minio` show `healthy`, and `/health` returns `200 OK`.
+   `postgres` and `minio` show `healthy`, and `/health/ready` returns `200 OK`. It returns `503` with the download's progress until the embedding model is ready, and that's normal on a first start.
+
+   If you started from the published file, there's no compose file in your folder, so name the project instead: `docker compose -p connapse ps`. That works for `ps`, `logs`, `exec`, `stop` and `down` throughout these docs. Commands that need the services' definitions, such as `up`, keep `-f oci://ghcr.io/destrayon/connapse:compose`.
+
+If you saved search settings before turning the reranker on, the saved choice stands: open **Admin** → **Settings** → **Search** and set **Reranker** to **Cross-Encoder**.
 
 ## Choose the reranker build
 

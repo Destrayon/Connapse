@@ -104,18 +104,13 @@ jobs:
     timeout-minutes: 30
     env:
       CONNAPSE_ADMIN_EMAIL: admin@schemathesis.connapse.io
-      # Ollama, the embedding service search calls, sits behind this profile (CON-207).
-      COMPOSE_PROFILES: with-ollama
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     # A fresh password and JWT secret for each run, so nothing reusable is written down. The rate limits
     # are raised past what one run sends: at the shipped limits most operations only ever got a 429, so
-    # the logic behind them went untested. Ollama, the embedding service search calls, sits behind the
-    # with-ollama profile, which the job turns on: without it the web container can't resolve ollama:11434
-    # and every search of a container that exists fails (CON-207). Everything else is the compose file
-    # as it ships.
+    # the logic behind them went untested. Everything else is the compose file as it ships.
     - name: Start the app
       run: |
         password="Nightly-$(openssl rand -hex 12)!"
@@ -156,6 +151,8 @@ jobs:
           echo "::warning::ollama pull failed (try $attempt of 5); retrying in ${wait} s"
           sleep "$wait"
         done
+        # Until the app has seen the model, a search answers 503 on purpose, which this job counts as a failure.
+        timeout 120 bash -c 'until curl -fsS http://localhost:5001/health/ready > /dev/null; do sleep 2; done'
 
     - name: Sign in
       run: |

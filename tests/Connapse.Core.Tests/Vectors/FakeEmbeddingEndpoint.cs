@@ -19,10 +19,13 @@ internal sealed class FakeEmbeddingEndpoint : HttpMessageHandler
 
     public List<JsonObject> Requests { get; } = [];
 
+    public Uri? LastAddress { get; private set; }
+
     public PipelineTransport Transport => new HttpClientPipelineTransport(new HttpClient(this));
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        LastAddress = request.RequestUri;
         string body = await request.Content!.ReadAsStringAsync(cancellationToken);
         var json = JsonNode.Parse(body)!.AsObject();
         Requests.Add(json);

@@ -32,4 +32,4 @@ npm install --prefix tools/demo-recording; node tools/demo-recording/make-pdf.mj
    - `shots/provider-settings.mjs` switches the embedding and LLM providers without saving and runs Test Connection.
 7. `node tools/demo-recording/to-gif.mjs tools/demo-recording/gifs/<name>.json` for each plan.
 
-When done: `docker compose --profile with-ollama --profile demo-source down -v`.
+When done: `docker compose --profile demo-source down -v`.

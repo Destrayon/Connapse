@@ -11,7 +11,7 @@ Use this when you want a copy of a Connapse server you can restore after a lost 
 
 ## Prerequisites
 
-- Shell access to the Docker host, in the folder that holds `docker-compose.yml`.
+- Shell access to the Docker host, in the folder you start Connapse from. If you started from the published file, add `-f oci://ghcr.io/destrayon/connapse:compose` to the `docker compose` commands below.
 - Enough free disk for a copy of the database and the uploaded files.
 
 ## What to back up
@@ -23,9 +23,11 @@ A complete backup has four parts. Restoring without any one of them loses data.
 | Database | the `postgres` service | Accounts, containers, documents, chunks, vectors, settings, sources and audit log |
 | Files | the `minio` service, bucket `connapse-files` | The original uploaded files |
 | App data | the `appdata` volume, at `/app/appdata` in `web` | The keys that encrypt stored identity data, the generated JWT secret, GitHub mirrors and Atlassian sync state |
-| `.env` | next to `docker-compose.yml` | Passwords and settings the services start with |
+| `.env` | the folder you start from, if you made one | Passwords and settings the services start with |
 
 Without the app data volume, Connapse can't decrypt the cloud identities and connection secrets it stored, and everyone must sign in again.
+
+The `secrets` volume doesn't need copying. A restore onto empty volumes makes new database and file storage passwords, and the steps below load your data into them.
 
 ## Back up
 
@@ -49,13 +51,13 @@ Without the app data volume, Connapse can't decrypt the cloud identities and con
    docker run --rm --volumes-from "$(docker compose ps -aq web)" -v "$PWD/backup":/backup alpine tar czf /backup/appdata.tgz -C /app/appdata .
    ```
 
-4. Start everything again, with the profiles you normally use:
+4. Start everything again:
 
    ```bash
-   docker compose --profile with-ollama up -d
+   docker compose up -d
    ```
 
-5. Copy `.env` into `backup/`, then move the `backup` folder off the host.
+5. Copy `.env`, if you have one, into `backup/`, then move the `backup` folder off the host.
 
 To back up nightly, put steps 1 to 5 in a script and run it from cron at a quiet hour. Expect the web app to be down for as long as the copy in step 3 takes.
 
@@ -63,7 +65,7 @@ To back up nightly, put steps 1 to 5 in a script and run it from cron at a quiet
 
 These steps restore onto a host with the same compose files and an empty set of volumes.
 
-1. Put the backed-up `.env` next to `docker-compose.yml`.
+1. If your backup has a `.env`, put it in the folder you start from.
 
 2. Start only the database and the file store:
 
@@ -89,10 +91,10 @@ These steps restore onto a host with the same compose files and an empty set of 
 5. Start everything:
 
    ```bash
-   docker compose --profile with-ollama up -d
+   docker compose up -d
    ```
 
-6. Sign in and run a search in a container you know. If you use Ollama, pull the embedding model again first with `docker compose exec ollama ollama pull nomic-embed-text`.
+6. Sign in and run a search in a container you know. If you use Ollama, the embedding model downloads again first; `curl -i http://localhost:5001/health/ready` returns `200 OK` when it's done.
 
 Sources such as S3 or GitHub don't need their content restored. Their next sync brings the index up to date with the system they mirror.
 
