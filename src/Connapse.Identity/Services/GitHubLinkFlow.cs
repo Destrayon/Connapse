@@ -43,7 +43,7 @@ public sealed class GitHubLinkFlow(IMemoryCache cache)
     public GitHubPendingSignIn? TakeSignIn(string? state)
     {
         if (string.IsNullOrEmpty(state)) return null;
-        if (!cache.TryTakeOnce(SignInPrefix + state, out GitHubPendingSignIn? pending))
+        if (!cache.TryTakeOnce<GitHubPendingSignIn>(SignInPrefix + state, out GitHubPendingSignIn? pending))
             return null;
 
         return WasRevokedSince(pending.UserId, pending.StartedAtUtc) ? null : pending;

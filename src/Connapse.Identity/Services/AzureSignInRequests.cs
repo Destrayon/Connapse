@@ -59,7 +59,7 @@ public sealed class AzureSignInRequests(IMemoryCache cache)
     /// </summary>
     public AzurePendingSignIn? TakeByState(string state)
     {
-        if (!cache.TryTakeOnce(KeyPrefix + state, out AzurePendingSignIn? pending))
+        if (!cache.TryTakeOnce<AzurePendingSignIn>(KeyPrefix + state, out AzurePendingSignIn? pending))
             return null;
 
         // A sign-in started before the person disconnected must not finish: the disconnect was

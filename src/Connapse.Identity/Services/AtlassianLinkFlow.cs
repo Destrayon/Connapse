@@ -52,7 +52,7 @@ public sealed class AtlassianLinkFlow(IMemoryCache cache)
     public AtlassianPendingSignIn? TakeSignIn(string? state)
     {
         if (string.IsNullOrEmpty(state)) return null;
-        if (!cache.TryTakeOnce(SignInPrefix + state, out AtlassianPendingSignIn? pending))
+        if (!cache.TryTakeOnce<AtlassianPendingSignIn>(SignInPrefix + state, out AtlassianPendingSignIn? pending))
             return null;
 
         return WasRevokedSince(pending.UserId, pending.StartedAtUtc) ? null : pending;
