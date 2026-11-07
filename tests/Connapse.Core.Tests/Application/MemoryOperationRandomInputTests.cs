@@ -424,12 +424,16 @@ public class MemoryOperationRandomInputTests
                     [.. keys.Select(k => k.Key)], new MemoryQuery(other, Text: "db", ContainerIds: claimed ? [other] : null));
 
                 HashSet<Guid> ids = [.. keys.Select(k => k.Names).OfType<Container>().Select(c => Guid.Parse(c.Id))];
+                // The first key that names no space decides the refusal: a document container never holds memory.
+                MemoryStatus? refused = keys
+                    .Select(k => k.Names is null ? MemoryStatus.ContainerNotFound
+                        : k.Names.Kind == ContainerKind.Documents ? MemoryStatus.Invalid
+                        : (MemoryStatus?)null)
+                    .FirstOrDefault(status => status is not null);
                 MemoryStatus expected = !reader ? MemoryStatus.Forbidden
-                    : keys.Any(k => k.Names is null) ? MemoryStatus.ContainerNotFound
-                    : denied ? MemoryStatus.Unchecked
-                    : MemoryStatus.Success;
+                    : refused ?? (denied ? MemoryStatus.Unchecked : MemoryStatus.Success);
                 recalled.Status.Should().Be(expected);
-                if (expected is MemoryStatus.Forbidden or MemoryStatus.ContainerNotFound)
+                if (expected is MemoryStatus.Forbidden or MemoryStatus.ContainerNotFound or MemoryStatus.Invalid)
                 {
                     memory.ReceivedCalls().Should().BeEmpty();
                     return;
