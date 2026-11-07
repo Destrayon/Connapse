@@ -94,6 +94,8 @@ v0.4.0 replaces a container's connector with sources and removes several old int
 
 10. Ask everyone who linked an AWS or Azure account to link it again under **Profile** → **Integrations**.
 
+    An address set in the deployment now beats one saved on the **Settings** page, as [Where settings come from](../reference/configuration.md#where-settings-come-from) explains. If you saved an Ollama or TEI address of your own on a Compose server, move it to `docker-compose.override.yml`, or the server goes back to the Compose address.
+
 11. Re-read the files whose parser changed, which after this upgrade is most PDF, Word, PowerPoint and text files. To see how many a container has first, with a token that has `knowledge:write`:
 
     ```bash

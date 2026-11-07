@@ -17,10 +17,22 @@ Connapse reads settings from these places, and a later one wins over an earlier 
 2. `appsettings.<Environment>.json`, where the environment is `ASPNETCORE_ENVIRONMENT`
 3. User secrets (development only)
 4. Environment variables
-5. The `settings` table in PostgreSQL, which is what the **Settings** and **Providers** pages save to
-6. Command-line arguments
+5. Command-line arguments
+6. The `settings` table in PostgreSQL, which is what the **Settings** and **Providers** pages save to
 
-A value saved on the **Settings** page therefore beats the same setting in an environment variable. To go back to the environment variable, reset that settings group on the page or with `DELETE /api/v1/settings/{category}`.
+A value saved on the **Settings** page therefore beats the same setting in an environment variable or on the command line. To go back to the deployment's value, reset that settings group on the page or with `DELETE /api/v1/settings/{category}`.
+
+Addresses are the exception, because a saved address goes stale when the server moves. An environment variable or command-line argument that sets an address beats the saved address. This covers every setting under `Knowledge:` whose name ends in `Url` or `Endpoint`, such as `Knowledge__Embedding__BaseUrl`, and the page and `GET /api/v1/settings/{category}` show the address in use. A blank value doesn't count as set, and neither does a value in `appsettings.json`. The saved address stays in the table and applies again once the deployment stops setting one.
+
+Three addresses are shared between providers, so the deployment's value applies only while the saved provider is the one it is meant for. Otherwise the saved address stays, so that a saved API key is not sent to the deployment's service:
+
+| Address | Applies while the saved provider is |
+|---|---|
+| `Knowledge__Embedding__BaseUrl` | Ollama |
+| `Knowledge__Llm__BaseUrl` | Ollama |
+| `Knowledge__Search__CrossEncoderBaseUrl` | TEI |
+
+The `docker-compose.yml` file sets all but the second of these for its own services. To point a Compose server somewhere else, set the address in `docker-compose.override.yml`, since one saved on the page won't apply.
 
 ## Environment variable names
 
