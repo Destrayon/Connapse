@@ -6489,7 +6489,7 @@
         "tags": [
           "Files"
         ],
-        "description": "Upload one or more files to a container",
+        "description": "Upload one or more files to a container. Send `paths`, one folder per file in the order of `files`, to put each file in its own folder; `path` then goes unused.",
         "operationId": "UploadFiles",
         "parameters": [
           {
@@ -6516,6 +6516,12 @@
                   },
                   "path": {
                     "type": "string"
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   },
                   "strategy": {
                     "$ref": "#/components/schemas/ChunkingStrategy"

@@ -1,0 +1,61 @@
+.folder-upload {
+    border-bottom: 1px solid var(--bs-border-color);
+    padding: 0.5rem 1rem;
+    background: var(--accent-subtle);
+    font-size: 0.85rem;
+}
+
+.folder-upload-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.folder-upload-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.folder-upload-failed {
+    color: var(--bs-danger);
+}
+
+.folder-upload-bar {
+    height: 6px;
+    margin-top: 0.35rem;
+    background: var(--bs-border-color);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.folder-upload-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+
+.folder-upload-note {
+    margin: 0.35rem 0 0;
+    color: var(--bs-secondary-color);
+}
+
+.folder-upload-failures {
+    max-height: 14rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.folder-upload-failures li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.75rem;
+    padding: 0.15rem 0;
+}
+
+.folder-upload-failures code {
+    overflow-wrap: anywhere;
+}
