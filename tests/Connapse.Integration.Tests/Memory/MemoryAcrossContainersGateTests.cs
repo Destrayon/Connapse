@@ -123,7 +123,7 @@ public class MemoryAcrossContainersGateTests(SharedWebAppFixture fixture, ITestO
         {
             foreach (string code in codes)
             {
-                var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"across-{code.ToLowerInvariant()}-{Guid.NewGuid():N}" };
+                var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"across-{code.ToLowerInvariant()}-{Guid.NewGuid():N}", Kind = ContainerKind.Memory };
                 db.Containers.Add(container);
                 containerOf[code] = container.Id;
                 foreach (JsonObject note in notes.Where(n => (string)n["code"]! == code))

@@ -502,6 +502,8 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         {
             string named = await McpTools.MemoryRecall(recall, http, space, subject: "Halcyon");
             named.Should().StartWith("Error: ").And.Contain("document container").And.NotContain(Value);
+            string among = await McpTools.MemoryRecall(recall, http, subject: "Halcyon", spaces: [C, space]);
+            among.Should().StartWith("Error: ").And.Contain("document container").And.NotContain(Value);
             string saved = await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(), http,
                 "Halcyon", "database", "x", sources: [_upload], containerId: space);
             saved.Should().StartWith("Error: ").And.Contain("document container");
@@ -566,7 +568,7 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
     private async Task<(Guid Id, string Name, string Upload)> SecondContainerAsync()
     {
         await using var db = await Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
-        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"mem-b-{Guid.NewGuid():N}" };
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"mem-b-{Guid.NewGuid():N}", Kind = ContainerKind.Memory };
         var upload = new DocumentEntity
         {
             Id = Guid.NewGuid(),

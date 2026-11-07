@@ -57,8 +57,8 @@ public class MemoryRecallSnapshotTests(SharedWebAppFixture fixture)
         Guid a = Guid.NewGuid(), b = Guid.NewGuid();
         await using (var db = new KnowledgeDbContext(Options()))
         {
-            db.Containers.Add(new ContainerEntity { Id = a, Name = $"snapshot-a-{a:N}" });
-            db.Containers.Add(new ContainerEntity { Id = b, Name = $"snapshot-b-{b:N}" });
+            db.Containers.Add(new ContainerEntity { Id = a, Name = $"snapshot-a-{a:N}", Kind = ContainerKind.Memory });
+            db.Containers.Add(new ContainerEntity { Id = b, Name = $"snapshot-b-{b:N}", Kind = ContainerKind.Memory });
             await db.SaveChangesAsync();
         }
         var caller = new MemoryCaller(Guid.NewGuid(), null, "snapshot");
