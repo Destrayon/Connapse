@@ -50,20 +50,17 @@ public sealed class AzureSignInRequests(IMemoryCache cache)
         if (pending.StartedAtUtc == default)
             pending = pending with { StartedAtUtc = DateTime.UtcNow };
 
-        cache.Set(KeyPrefix + pending.State, pending, new DateTimeOffset(pending.ExpiresAtUtc, TimeSpan.Zero));
+        cache.Set(KeyPrefix + pending.State, new OneTimeEntry<AzurePendingSignIn>(pending), new DateTimeOffset(pending.ExpiresAtUtc, TimeSpan.Zero));
     }
 
     /// <summary>
     /// Removes and returns the pending sign-in for <paramref name="state"/>, or null if it does
-    /// not exist or has expired. Single use.
+    /// not exist or has expired. Single use, even under concurrent calls.
     /// </summary>
     public AzurePendingSignIn? TakeByState(string state)
     {
-        string key = KeyPrefix + state;
-        if (!cache.TryGetValue(key, out AzurePendingSignIn? pending) || pending is null)
+        if (!cache.TryTakeOnce<AzurePendingSignIn>(KeyPrefix + state, out AzurePendingSignIn? pending))
             return null;
-
-        cache.Remove(key);
 
         // A sign-in started before the person disconnected must not finish: the disconnect was
         // the later decision, and completing the older flow would re-create the link it removed.

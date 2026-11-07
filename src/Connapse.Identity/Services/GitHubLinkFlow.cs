@@ -37,17 +37,15 @@ public sealed class GitHubLinkFlow(IMemoryCache cache)
     }
 
     public void AddSignIn(GitHubPendingSignIn pending) =>
-        cache.Set(SignInPrefix + pending.State, pending, new DateTimeOffset(pending.ExpiresAtUtc, TimeSpan.Zero));
+        cache.Set(SignInPrefix + pending.State, new OneTimeEntry<GitHubPendingSignIn>(pending), new DateTimeOffset(pending.ExpiresAtUtc, TimeSpan.Zero));
 
-    /// <summary>The pending sign-in for <paramref name="state"/>, once, unless the user unlinked since it began.</summary>
+    /// <summary>The pending sign-in for <paramref name="state"/>, once even concurrently, unless the user unlinked since it began.</summary>
     public GitHubPendingSignIn? TakeSignIn(string? state)
     {
         if (string.IsNullOrEmpty(state)) return null;
-        string key = SignInPrefix + state;
-        if (!cache.TryGetValue(key, out GitHubPendingSignIn? pending) || pending is null)
+        if (!cache.TryTakeOnce<GitHubPendingSignIn>(SignInPrefix + state, out GitHubPendingSignIn? pending))
             return null;
 
-        cache.Remove(key);
         return WasRevokedSince(pending.UserId, pending.StartedAtUtc) ? null : pending;
     }
 
