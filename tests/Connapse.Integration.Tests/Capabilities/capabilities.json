@@ -1221,6 +1221,7 @@
     "POST /oauth/token": "The OAuth token endpoint.",
     "GET /oauth/clients/cli.json": "The CLI's published OAuth client metadata.",
     "GET /health": "Liveness probe.",
+    "GET /health/ready": "Readiness probe: 503 while the bundled embedding model is still downloading.",
     "GET,HEAD {**path:file}": "Static file fallback."
   }
 }

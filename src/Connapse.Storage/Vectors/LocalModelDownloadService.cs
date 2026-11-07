@@ -63,7 +63,7 @@ public sealed class LocalModelDownloadService(
             {
                 continue;
             }
-            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or OperationCanceledException or System.Text.Json.JsonException)
+            catch (Exception ex)
             {
                 failures++;
                 logger.LogWarning(ex, "LocalModelDownloadFailed model={Model} attempt={Attempt}", LogSanitizer.Sanitize(target.Model), failures);

@@ -2,12 +2,14 @@
 # Exposes backing services to the host so `dotnet run` can connect directly.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # Ports are bound to this machine only. The fixed passwords below match appsettings.json for `dotnet run`.
+# They are used only when the secrets volume is empty: a stack first started without this file keeps its random
+# passwords, and `dotnet run` then needs those in User Secrets (or start over with `down -v`).
 services:
   setup:
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-connapse_dev}
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-connapse_dev}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-connapse_dev_secret}
+      DEV_POSTGRES_PASSWORD: connapse_dev
+      DEV_MINIO_ROOT_USER: connapse_dev
+      DEV_MINIO_ROOT_PASSWORD: connapse_dev_secret
 
   postgres:
     ports:

@@ -126,6 +126,65 @@ public class LocalModelDownloadTests
         await pull.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    /// <summary>Hands out some progress, then fails the way a dropped connection does.</summary>
+    private sealed class DroppedStream(string before) : MemoryStream(Encoding.UTF8.GetBytes(before))
+    {
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            int read = await base.ReadAsync(buffer, ct);
+            return read > 0 ? read : throw new IOException("The response ended prematurely.");
+        }
+    }
+
+    [Fact]
+    public async Task PullAsync_OllamaNeverAnswers_GivesUpAfterTheStallLimit()
+    {
+        ScriptedOllamaThatHangs ollama = new();
+        TimeSpan limit = OllamaModelClient.StallLimit;
+        OllamaModelClient.StallLimit = TimeSpan.FromMilliseconds(50);
+        try
+        {
+            Func<Task> pull = () => Client(ollama).PullAsync(Address, Model, _ => { }, CancellationToken.None);
+
+            await pull.Should().ThrowAsync<InvalidOperationException>().WithMessage("*did not answer*");
+        }
+        finally
+        {
+            OllamaModelClient.StallLimit = limit;
+        }
+    }
+
+    private sealed class ScriptedOllamaThatHangs : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            throw new InvalidOperationException("unreachable");
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ConnectionDropsMidDownload_RetriesInsteadOfStopping()
+    {
+        int pulls = 0;
+        ScriptedOllama ollama = new(r => r.RequestUri!.AbsolutePath == "/api/show"
+            ? new HttpResponseMessage(HttpStatusCode.NotFound)
+            : Interlocked.Increment(ref pulls) == 1
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StreamContent(new DroppedStream("""{"status":"pulling a","digest":"sha256:a","total":100,"completed":40}""" + "\n")),
+                }
+                : Ndjson("""{"status":"success"}"""));
+        using LocalModelDownloadService service = Service(ollama, new Monitor(Bundled()));
+
+        await service.StartAsync(CancellationToken.None);
+        LocalModelStatus reached = await RunUntil(service, s => s.State == LocalModelState.Ready);
+        await service.StopAsync(CancellationToken.None);
+
+        reached.Should().Be(new LocalModelStatus(LocalModelState.Ready, Model));
+        pulls.Should().Be(2);
+    }
+
     [Fact]
     public async Task ExecuteAsync_ModelMissing_DownloadsItAndBecomesReady()
     {

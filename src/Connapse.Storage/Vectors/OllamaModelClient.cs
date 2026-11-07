@@ -41,7 +41,21 @@ public class OllamaModelClient(IHttpClientFactory httpClients)
             Content = JsonContent.Create(new { model, stream = true }),
         };
 
-        using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        // The client has no timeout, as a download can take hours, so the wait for headers needs its own limit.
+        using CancellationTokenSource headers = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        headers.CancelAfter(StallLimit);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, headers.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new InvalidOperationException($"Ollama did not answer the download request for {StallLimit.TotalMinutes:0} minutes.");
+        }
+
+        using HttpResponseMessage answered = response;
         response.EnsureSuccessStatusCode();
 
         await using Stream body = await response.Content.ReadAsStreamAsync(ct);

@@ -50,6 +50,26 @@ public class ComposeFilesTests
     }
 
     [Fact]
+    public void DevOverlay_FixedPasswords_OnlyFillAnEmptyVolume()
+    {
+        // POSTGRES_PASSWORD and the MinIO pair overwrite a saved secret; the overlay once set them and broke a running stack.
+        string[] setupEnvironment = SettingLines("docker-compose.dev.yml")
+            .SkipWhile(line => line.Trim() != "setup:")
+            .Skip(1)
+            .TakeWhile(line => line.StartsWith("    ", StringComparison.Ordinal))
+            .ToArray();
+        string baseScript = string.Join('\n', SettingLines("docker-compose.yml"));
+
+        setupEnvironment.Should().NotContain(line => line.Contains("POSTGRES_PASSWORD:") && !line.Contains("DEV_"));
+        setupEnvironment.Should().NotContain(line => line.Contains("MINIO_ROOT_") && !line.Contains("DEV_"));
+        foreach (string name in new[] { "DEV_POSTGRES_PASSWORD", "DEV_MINIO_ROOT_USER", "DEV_MINIO_ROOT_PASSWORD" })
+        {
+            setupEnvironment.Should().Contain(line => line.Contains(name + ":"));
+            baseScript.Should().Contain("\"$${" + name + ":-}\"");
+        }
+    }
+
+    [Fact]
     public void DevOverlay_PublishesToThisMachineOnly()
     {
         string[] published = SettingLines("docker-compose.dev.yml")

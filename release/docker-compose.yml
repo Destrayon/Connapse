@@ -22,7 +22,7 @@ services:
         save() { printf '%s' "$$2" > "$$1.new"; mv "$$1.new" "$$1"; }
 
         settle() {
-          file=$$1 chosen=$$2 old=$$3 bytes=$$4
+          file=$$1 chosen=$$2 old=$$3 bytes=$$4 first=$$5
           if [ -n "$$chosen" ]; then
             save "$$file" "$$chosen"
           elif [ -s "$$file" ]; then
@@ -30,6 +30,8 @@ services:
           elif [ -n "$$old" ]; then
             echo "Connapse setup: existing data found, so $$file keeps the old default value."
             save "$$file" "$$old"
+          elif [ -n "$$first" ]; then
+            save "$$file" "$$first"
           else
             save "$$file" "$$(random "$$bytes")"
           fi
@@ -46,9 +48,10 @@ services:
           old_password=connapse_dev_secret
         fi
 
-        settle "$$out/postgres/password" "$${POSTGRES_PASSWORD:-}" "$$old_db" 32
-        settle "$$out/minio/user" "$${MINIO_ROOT_USER:-}" "$$old_user" 8
-        settle "$$out/minio/password" "$${MINIO_ROOT_PASSWORD:-}" "$$old_password" 20
+        # The DEV_ values come from docker-compose.dev.yml and only fill an empty volume, so they never replace a saved secret.
+        settle "$$out/postgres/password" "$${POSTGRES_PASSWORD:-}" "$$old_db" 32 "$${DEV_POSTGRES_PASSWORD:-}"
+        settle "$$out/minio/user" "$${MINIO_ROOT_USER:-}" "$$old_user" 8 "$${DEV_MINIO_ROOT_USER:-}"
+        settle "$$out/minio/password" "$${MINIO_ROOT_PASSWORD:-}" "$$old_password" 20 "$${DEV_MINIO_ROOT_PASSWORD:-}"
 
         for file in postgres/password minio/user minio/password; do
           if [ ! -s "$$out/$$file" ]; then

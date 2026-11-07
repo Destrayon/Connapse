@@ -67,7 +67,13 @@ docker compose up -d
 
 ## Upgrading
 
-Back up first, then pull and restart:
+This file is pinned to the release it came with, so pulling alone keeps that release. Back up first, then set the
+new release in `.env` (or download the new release's `docker-compose.yml` over this one), and pull and restart:
+
+```bash
+# in .env
+CONNAPSE_VERSION=v0.4.1
+```
 
 ```bash
 docker compose pull web
