@@ -34,6 +34,19 @@ Three addresses are shared between providers, so the deployment's value applies 
 
 The `docker-compose.yml` file sets all but the second of these for its own services. To point a Compose server somewhere else, set the address in `docker-compose.override.yml`, since one saved on the page won't apply.
 
+## What Compose reads from `.env`
+
+These choose what runs, so they apply to `docker compose`, not to the app. They go in `.env`, and the start command doesn't change.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `CONNAPSE_LOCAL_MODEL` | `on` | `on` runs Ollama and downloads the embedding model. `off` never downloads or starts it. |
+| `COMPOSE_PROFILES` | none | `with-reranker` starts the reranker and sets `Reranker` to `CrossEncoder`, unless a saved setting says otherwise. |
+| `CONNAPSE_VERSION` | `latest`, or the release a published file came with | The image tag for `web`. |
+| `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | random, made on first start | Replace the values kept in the `secrets` volume. |
+
+The web app reads the generated values from files in the `secrets` volume. They rank below environment variables and above `appsettings.json`.
+
 ## Environment variable names
 
 An environment variable's name is the setting's section path with each `:` replaced by two underscores. `Knowledge:Embedding:Model` is set as `Knowledge__Embedding__Model`. A list item takes its index as the last part: `Cors__AllowedOrigins__0`.

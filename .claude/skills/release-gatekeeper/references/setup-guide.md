@@ -159,20 +159,13 @@ If the production instance is already running Ollama with the model pulled, you 
 This works because Ollama is stateless for inference — sharing it is safe.
 
 **Option B: Start a fresh Ollama**
-If no production Ollama is running, start one in the test stack. You'll need to modify the compose command:
-```bash
-docker compose -p connapse-e2e-test --profile with-ollama up -d
-```
-Then add Ollama port mapping to the override:
+If no production Ollama is running, the test stack's own one starts by default and downloads the model. Add a port mapping to the override:
 ```yaml
   ollama:
     ports:
       - "11535:11434"
 ```
-After startup, pull the embedding model:
-```bash
-docker compose -p connapse-e2e-test exec ollama ollama pull nomic-embed-text
-```
+After startup, `/health/ready` returns 200 once the model is ready.
 This may take a few minutes depending on download speed.
 
 **Option C: Skip semantic search testing**

@@ -1,23 +1,32 @@
 # Development overrides — must be explicitly loaded alongside the base file.
 # Exposes backing services to the host so `dotnet run` can connect directly.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Ports are bound to this machine only. The fixed passwords below match appsettings.json for `dotnet run`.
+# They are used only when the secrets volume is empty: a stack first started without this file keeps its random
+# passwords, and `dotnet run` then needs those in User Secrets (or start over with `down -v`).
 services:
+  setup:
+    environment:
+      DEV_POSTGRES_PASSWORD: connapse_dev
+      DEV_MINIO_ROOT_USER: connapse_dev
+      DEV_MINIO_ROOT_PASSWORD: connapse_dev_secret
+
   postgres:
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     networks:
       - frontend
 
   minio:
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     networks:
       - frontend
 
   ollama:
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     networks:
       - frontend
     # Dev overrides for running larger LLMs locally on an NVIDIA GPU.
@@ -37,8 +46,10 @@ services:
   # Matches the default Search → Base URL (http://localhost:8080) for `dotnet run`.
   reranker:
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
   web:
+    # Always from this checkout, never the prebuilt image.
+    pull_policy: build
     environment:
       ASPNETCORE_ENVIRONMENT: Development

@@ -109,6 +109,13 @@ public static class ServiceCollectionExtensions
         // Embedding providers — resolved at runtime based on EmbeddingSettings.Provider
         services.AddHttpClient<OllamaEmbeddingProvider>().AddProviderResilience("ollama-embeddings");
 
+        // Downloads the bundled Ollama's model. A download takes as long as it takes, so no timeout or resilience here.
+        services.Configure<LocalModelOptions>(configuration.GetSection(LocalModelOptions.Section));
+        services.AddHttpClient(OllamaModelClient.HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddSingleton<OllamaModelClient>();
+        services.AddSingleton<LocalModelDownloadService>();
+        services.AddSingleton<ILocalModelMonitor>(sp => sp.GetRequiredService<LocalModelDownloadService>());
+
         // Roles Anywhere CreateSession calls; named so tests can substitute the transport.
         services.AddHttpClient(CloudScope.ConnapseAwsCredentials.RolesAnywhereHttpClientName);
         services.AddScoped<OpenAiEmbeddingProvider>();

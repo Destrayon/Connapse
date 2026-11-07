@@ -12,13 +12,14 @@ Use this when you want to put a Connapse server on a network other people can re
 ## Prerequisites
 
 - A working install from [Install Connapse](install.md), and shell access to its host.
+- A compose file in a folder, from the downloaded or source path in [Install Connapse](install.md): the override in step 5 sits next to it.
 - Docker Compose 2.24 or later, for the `!override` tag in step 5.
 - A DNS name for the server and a TLS certificate for it, or a reverse proxy that gets one for you, such as Caddy or Traefik with Let's Encrypt.
 - Somewhere to keep secrets outside git: a secrets manager, or at least a `.env` file readable only by the account that runs Docker.
 
 ## Steps
 
-1. Replace every default credential. In `.env`, set `POSTGRES_PASSWORD`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` to random values of 20 characters or more, and never reuse one across services:
+1. Check the database and file storage passwords. A new install makes its own random ones and keeps them in the `secrets` volume, so there's nothing to do. To manage them yourself, set `POSTGRES_PASSWORD`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` in `.env` before the first start, to random values of 20 characters or more, and never reuse one across services. An install older than the one-command start may still use the public `connapse_dev` defaults; [Upgrade Connapse](upgrade.md#moving-to-the-one-command-start) covers those.
 
    ```bash
    openssl rand -base64 32
@@ -73,10 +74,10 @@ Use this when you want to put a Connapse server on a network other people can re
        restart: unless-stopped
    ```
 
-   Start with both files, adding any profiles you use:
+   Start with both files:
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile with-ollama up -d
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
    ```
 
    PostgreSQL, MinIO, Ollama and the reranker already sit on an internal network with no published ports. Don't load `docker-compose.dev.yml` on a server, because it publishes them all.

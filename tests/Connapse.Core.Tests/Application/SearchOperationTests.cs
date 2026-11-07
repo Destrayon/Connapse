@@ -432,6 +432,42 @@ public class SearchOperationTests
         await searching.Should().ThrowAsync<InvalidOperationException>();
     }
 
+    [Theory]
+    [InlineData(LocalModelState.Downloading, "downloading")]
+    [InlineData(LocalModelState.Failed, "keeps trying")]
+    [InlineData(LocalModelState.NoProvider, "switched off")]
+    public async Task Search_EmbeddingFailsWhileModelIsNotReady_SaysSoInsteadOfOutage(LocalModelState state, string says)
+    {
+        var world = new World();
+        var container = world.Container();
+        world.Search.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new EmbeddingUnavailableException(new HttpRequestException("ollama:11434")));
+        var model = Substitute.For<ILocalModelMonitor>();
+        model.Current.Returns(new LocalModelStatus(state, "nomic-embed-text"));
+        var operation = new SearchKnowledge(world.Containers, world.Sources, world.Visibility, world.Search, world.Settings, world.Authorizer, model);
+
+        var searched = await operation.RunAsync(Caller, new SearchScope(container.Id), Query());
+
+        searched.Status.Should().Be(SearchStatus.ModelNotReady);
+        searched.Detail.Should().Contain(says).And.Contain("Keyword");
+    }
+
+    [Fact]
+    public async Task Search_EmbeddingFailsWhileModelIsReady_IsStillAnOutage()
+    {
+        var world = new World();
+        var container = world.Container();
+        world.Search.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns<SearchResult>(_ => throw new EmbeddingUnavailableException(new HttpRequestException("ollama:11434")));
+        var model = Substitute.For<ILocalModelMonitor>();
+        model.Current.Returns(new LocalModelStatus(LocalModelState.Ready, "nomic-embed-text"));
+        var operation = new SearchKnowledge(world.Containers, world.Sources, world.Visibility, world.Search, world.Settings, world.Authorizer, model);
+
+        var searched = await operation.RunAsync(Caller, new SearchScope(container.Id), Query());
+
+        searched.Status.Should().Be(SearchStatus.EmbeddingsUnavailable);
+    }
+
     [Fact]
     public async Task Search_VisibleContainerWhileEmbeddingsAreDown_IsEmbeddingsUnavailable()
     {

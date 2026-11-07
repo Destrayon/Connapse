@@ -303,7 +303,7 @@ def compose(env: dict, *args, check=True, capture=False):
     cmd = ["docker", "compose", "-p", PROJECT, "--project-directory", str(REPO)]
     for f in COMPOSE_FILES:
         cmd += ["-f", str(REPO / f)]
-    cmd += ["--profile", "with-ollama", *args]
+    cmd += list(args)
     return subprocess.run(cmd, env=env, check=check, text=True, capture_output=capture)
 
 

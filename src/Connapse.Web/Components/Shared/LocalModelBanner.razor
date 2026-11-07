@@ -1,0 +1,19 @@
+@using Connapse.Core
+@using Connapse.Core.Interfaces
+@implements IDisposable
+@inject ILocalModelMonitor Monitor
+
+@if (Monitor.Current is { HoldsEmbedding: true, Explanation: { } explanation } status)
+{
+    <div class="alert @(status.State is LocalModelState.Failed or LocalModelState.NoProvider ? "alert-warning" : "alert-info") mt-3" role="status">
+        @explanation
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Monitor.Changed += Refresh;
+
+    private void Refresh() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Monitor.Changed -= Refresh;
+}

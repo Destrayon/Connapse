@@ -505,6 +505,11 @@
       "risk": "read",
       "scope": null
     },
+    "GET /health/ready": {
+      "requires": "anonymous",
+      "risk": "read",
+      "scope": null
+    },
     "GET /oauth/clients/cli.json": {
       "requires": "anonymous",
       "risk": "read",

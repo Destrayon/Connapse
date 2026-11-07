@@ -18,12 +18,7 @@ Sleep 2s
 Show
 
 Sleep 600ms
-Type "docker compose --profile with-ollama up -d"
-Sleep 400ms
-Enter
-Wait
-Sleep 1500ms
-Type "docker compose exec ollama ollama pull nomic-embed-text"
+Type "docker compose up -d"
 Sleep 400ms
 Enter
 Wait

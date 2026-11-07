@@ -54,15 +54,13 @@ Every time you start a new conversation, your AI agent starts from zero — no m
 
 ## 📦 Quick Start
 
-You need Docker with the Compose plugin and port 5001 free.
+You need Docker with Compose 2.34 or later and port 5001 free.
 
 ```bash
-git clone https://github.com/Destrayon/Connapse.git
-cd Connapse
-cp .env.example .env
-docker compose --profile with-ollama up -d
-docker compose exec ollama ollama pull nomic-embed-text
+docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y
 ```
+
+That's the whole setup: nothing to clone and no file to edit. Connapse makes its own passwords and downloads its embedding model on the first start.
 
 Open <http://localhost:5001> and create the owner account. The full walk-through, from upload to a cited search result, is the [Quickstart](docs/get-started/quickstart.md).
 
