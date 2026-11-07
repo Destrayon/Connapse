@@ -74,7 +74,7 @@ Dependencies flow downward. `Core` has zero external dependencies. All projects 
 - **Provider factory delegates**: `IEmbeddingProvider` and `ILlmProvider` resolved via factory delegates that read settings at scope time (swap providers without restart)
 - **Endpoint registration**: Each domain has `Map{Feature}Endpoints()` extension methods in `src/Connapse.Web/Endpoints/`, registered in `Program.cs`
 - **DI registration**: Each layer has `ServiceCollectionExtensions` with `Add{Layer}()` methods
-- **Settings hierarchy**: appsettings.json < environment-specific < User Secrets < env vars < PostgreSQL `settings` table < CLI args. Services use `IOptionsMonitor<T>` for runtime reload.
+- **Settings hierarchy**: appsettings.json < environment-specific < User Secrets < env vars < CLI args < PostgreSQL `settings` table, except that an address set by env var or CLI arg beats the saved one (`DeploymentAddresses`). Services use `IOptionsMonitor<T>` for runtime reload.
 - **Container isolation**: Each Container has its own storage connector, vector index, and optional settings overrides — no cross-container data sharing
 
 ### Vector Storage

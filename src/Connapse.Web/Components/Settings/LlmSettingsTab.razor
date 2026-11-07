@@ -38,6 +38,7 @@
             <div class="col-md-6">
                 <label class="form-label">Base URL</label>
                 <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="e.g. http://ollama:11434 (Docker) or http://localhost:11434 (local)" />
+                <small class="form-text text-muted">An address set in the deployment's environment takes priority over this one.</small>
             </div>
 
             <div class="col-md-6">

@@ -7,6 +7,9 @@ namespace Connapse.Application.Ports;
 public interface IConfiguredSettings
 {
     T Current<T>() where T : class, new();
+
+    /// <summary>The value of a configuration key set by environment variable or command line, if any.</summary>
+    string? DeploymentValue(string key) => null;
 }
 
 /// <summary>
