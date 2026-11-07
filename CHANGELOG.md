@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Code files: `.cs`, `.ts`/`.mts`/`.cts`/`.tsx` and `.py`/`.pyi` are parsed with tree-sitter, cut into one passage per definition, and linked by definitions, imports, calls and base types (CON-36, CON-108, CON-109)
 - Code MCP tools: `code_find_symbol`, `code_references`, `code_impact` and `code_repo_map` (CON-37)
 - Agent memory MCP tools: `memory_remember`, `memory_correct`, `memory_forget`, `memory_recall` and `memory_timeline`, storing dated facts with sources and keeping their history (CON-39)
+- `memory_recall` and `memory_timeline` read several spaces as one memory with `spaces`, and a read of several or every space ranks all their facts together in one query instead of one query per space; the per-fact source check is unchanged (CON-228)
 - Embedding size setting works for any OpenAI-compatible model: "Ask the model for this size" sends `dimensions` to models such as Qwen3-Embedding, and vectors of the wrong size are refused with an error naming the setting to change (#666, reported by @marcusyoung)
 
 ### Changed

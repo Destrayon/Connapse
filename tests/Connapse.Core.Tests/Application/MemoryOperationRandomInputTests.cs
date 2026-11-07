@@ -275,9 +275,9 @@ public class MemoryOperationRandomInputTests
                 world.Memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
                     .Returns(denied ? MemoryRecall.DeniedResult : new MemoryRecall(facts));
 
-                // The query names another container; the one the call names must win.
+                // The query names other containers; the one the call names must win.
                 var recalled = await new RecallMemory(world.Containers, world.Memory, world.Authorizer)
-                    .RunAsync(caller, key.Key, new MemoryQuery(claimed, Text: "db"));
+                    .RunAsync(caller, key.Key, new MemoryQuery(claimed, Text: "db", ContainerIds: [claimed]));
 
                 MemoryStatus expected = !reader ? MemoryStatus.Forbidden
                     : !(exists && key.Names) ? MemoryStatus.ContainerNotFound
@@ -289,7 +289,8 @@ public class MemoryOperationRandomInputTests
                     world.Memory.ReceivedCalls().Should().BeEmpty();
                     return;
                 }
-                await world.Memory.Received(1).RecallAsync(Arg.Is<MemoryQuery>(q => q.ContainerId == id && q.Text == "db"),
+                await world.Memory.Received(1).RecallAsync(
+                    Arg.Is<MemoryQuery>(q => q.ContainerId == id && q.ContainerIds == null && q.Text == "db"),
                     Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
                 if (expected == MemoryStatus.Success)
                     recalled.Result.Should().Equal(facts);
@@ -345,72 +346,124 @@ public class MemoryOperationRandomInputTests
 
     [Fact]
     [RandomInputTestOf(typeof(RecallMemory))]
-    public Task SpacesAsync_NoSpaceNamed_ReadsEverySpaceWithFactsAndMergesTheirAnswers() =>
-        Gen.Select(Gen.Select(AnyCaller, Gen.Bool, AnyListedSpace.List[0, 6], Gen.Bool, Gen.Int[0, 4], Gen.Int[0, 8]),
-                Gen.Bool, Gen.Bool, Gen.Bool, (t, history, ranked, deniedAny) => (t, history, ranked, deniedAny))
-            .SelectMany(s => Gen.Int[0, 3].Array[s.t.Item3.Count].Select(counts => (s, counts)))
+    public Task SpacesAsync_NoSpaceNamed_ReadsEverySpaceWithFactsInOneRecall() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnyListedSpace.List[0, 6], Gen.Bool, Gen.Bool, Gen.Int[0, 3])
             .SampleAsync(async sample =>
             {
-                var (((caller, reader, listed, unchecked_, deniedAt, limit), history, ranked, deniedAny), counts) = sample;
+                var (caller, reader, listed, unchecked_, history, count) = sample;
                 var world = new World(reader, writer: false, new Container(Guid.NewGuid().ToString(), "unused", null, Epoch, Epoch), exists: false);
                 IMemorySpaceStore spaces = Substitute.For<IMemorySpaceStore>();
                 spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
                     .Returns(unchecked_ ? null : listed);
-
-                // Each space answers its own facts, recorded at distinct times; one may be unable to check access.
-                Dictionary<Guid, List<RecalledFact>> answers = [];
-                for (int i = 0; i < listed.Count; i++)
-                {
-                    Guid id = Guid.Parse(listed[i].Container.Id);
-                    answers[id] = [.. Enumerable.Range(0, counts[i]).Select(n => new RecalledFact(
-                        Stored(id) with { RecordedAt = DateTimeOffset.UnixEpoch.AddMinutes(i * 10 + n) }, []))];
-                }
-                Guid? deniedSpace = deniedAny && listed.Count > 0 ? Guid.Parse(listed[deniedAt % listed.Count].Container.Id) : null;
+                var facts = Enumerable.Range(0, count).Select(_ => new RecalledFact(Stored(Guid.NewGuid()), [])).ToList();
                 world.Memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
-                    .Returns(call => call.Arg<MemoryQuery>().ContainerId == deniedSpace
-                        ? MemoryRecall.DeniedResult
-                        : new MemoryRecall(answers.GetValueOrDefault(call.Arg<MemoryQuery>().ContainerId) ?? []));
+                    .Returns(new MemoryRecall(facts));
 
-                MemoryQuery query = new(Guid.Empty, Text: ranked ? "db" : null, History: history, Limit: limit);
+                MemoryQuery query = new(Guid.Empty, Text: "db", History: history);
                 var recalled = await new RecallMemory(world.Containers, world.Memory, world.Authorizer, spaces)
                     .SpacesAsync(caller, " ", query);
 
                 // Spaces read: those with facts, or every one for history, most recently changed first.
-                List<MemorySpaceSummary> read = [.. listed.Where(x => history || x.Facts > 0)
-                    .OrderByDescending(x => x.UpdatedAt).ThenBy(x => x.Container.Id, StringComparer.Ordinal)];
+                List<Guid> read = [.. listed.Where(x => history || x.Facts > 0)
+                    .OrderByDescending(x => x.UpdatedAt).ThenBy(x => x.Container.Id, StringComparer.Ordinal)
+                    .Select(x => Guid.Parse(x.Container.Id))];
                 MemoryStatus expected = !reader ? MemoryStatus.Forbidden
                     : unchecked_ ? MemoryStatus.Unchecked
-                    : read.Any(x => Guid.Parse(x.Container.Id) == deniedSpace) ? MemoryStatus.Unchecked
                     : MemoryStatus.Success;
                 recalled.Status.Should().Be(expected);
                 if (!reader)
-                {
                     spaces.ReceivedCalls().Should().BeEmpty();
+                if (expected != MemoryStatus.Success || read.Count == 0)
+                {
                     world.Memory.ReceivedCalls().Should().BeEmpty();
+                    if (expected == MemoryStatus.Success)
+                        recalled.Result!.Facts.Should().BeEmpty();
                     return;
                 }
-                if (expected != MemoryStatus.Success)
-                    return;
 
-                world.Memory.ReceivedCalls().Select(c => ((MemoryQuery)c.GetArguments()[0]!).ContainerId)
-                    .Should().Equal(read.Select(x => Guid.Parse(x.Container.Id)));
-                List<List<RecalledFact>> perSpace = [.. read.Select(x => answers[Guid.Parse(x.Container.Id)])];
-                List<RecalledFact> want = [];
-                if (ranked)
-                {
-                    for (int position = 0; want.Count < limit && position < 3; position++)
-                        foreach (List<RecalledFact> facts in perSpace)
-                            if (position < facts.Count && want.Count < limit)
-                                want.Add(facts[position]);
-                }
-                else
-                {
-                    want = [.. perSpace.SelectMany(f => f).OrderByDescending(f => f.Fact.RecordedAt).Take(limit)];
-                }
-                recalled.Result!.Facts.Should().Equal(want);
-                recalled.Result.Spaces.Keys.Should().BeEquivalentTo(read.Select(x => Guid.Parse(x.Container.Id)));
+                // Every space is ranked in the one read, never one read per space.
+                await world.Memory.Received(1).RecallAsync(
+                    Arg.Is<MemoryQuery>(q => q.Text == "db" && q.History == history && read.Contains(q.ContainerId)
+                        && (read.Count == 1 ? q.ContainerIds == null : q.ContainerIds != null && q.ContainerIds.Count == read.Count && read.ToHashSet().SetEquals(q.ContainerIds))),
+                    Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+                recalled.Result!.Facts.Should().Equal(facts);
+                recalled.Result.Spaces.Keys.Should().BeEquivalentTo(read);
                 recalled.Result.SkippedSpaces.Should().Be(0);
             }, iter: 1000);
+
+    [Fact]
+    [RandomInputTestOf(typeof(RecallMemory))]
+    public Task AcrossAsync_SpacesNamed_ReadsExactlyThoseInOneRecallAndShowsNothingWhenAccessIsUnchecked() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnySpace.Select(Gen.Bool).List[0, 4], Gen.Bool, Gen.Int[0, 3], Gen.Bool)
+            .SelectMany(t => Gen.Int[0, 5].List[1, 5].Select(picks => (t, picks)))
+            .SampleAsync(async s =>
+            {
+                var ((caller, reader, generated, denied, count, claimed), picks) = s;
+                // Names are unique, as the store makes them.
+                List<(Container, bool)> stored = [.. generated.DistinctBy(c => c.Item1.Name)];
+                IContainerStore containers = ContainerStoreFakes.Create();
+                var memory = Substitute.For<IMemoryService>();
+                var authorizer = new PolicyAuthorizer(policy => policy == Policies.KnowledgeRead && reader);
+                foreach ((Container container, bool exists) in stored)
+                {
+                    containers.GetAsync(Guid.Parse(container.Id), Arg.Any<CancellationToken>()).Returns(exists ? container : null);
+                    containers.GetByNameAsync(container.Name, Arg.Any<CancellationToken>()).Returns(exists ? container : null);
+                }
+                var facts = Enumerable.Range(0, count).Select(_ => new RecalledFact(Stored(Guid.NewGuid()), [])).ToList();
+                memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                    .Returns(denied ? MemoryRecall.DeniedResult : new MemoryRecall(facts));
+
+                // Each pick names a stored space by id or by name, or (past the stored ones) a space that isn't there.
+                List<(string Key, Container? Names)> keys = [.. picks.Select(p => p < stored.Count
+                    ? (p % 2 == 0 ? stored[p].Item1.Id : stored[p].Item1.Name.ToUpperInvariant(), stored[p].Item2 ? stored[p].Item1 : null)
+                    : (p == 4 ? " " : Guid.NewGuid().ToString(), (Container?)null))];
+                Guid other = Guid.NewGuid();
+
+                // The query names another container; the spaces the call names must win.
+                var recalled = await new RecallMemory(containers, memory, authorizer).AcrossAsync(caller,
+                    [.. keys.Select(k => k.Key)], new MemoryQuery(other, Text: "db", ContainerIds: claimed ? [other] : null));
+
+                HashSet<Guid> ids = [.. keys.Select(k => k.Names).OfType<Container>().Select(c => Guid.Parse(c.Id))];
+                // The first key that names no space decides the refusal: a document container never holds memory.
+                MemoryStatus? refused = keys
+                    .Select(k => k.Names is null ? MemoryStatus.ContainerNotFound
+                        : k.Names.Kind == ContainerKind.Documents ? MemoryStatus.Invalid
+                        : (MemoryStatus?)null)
+                    .FirstOrDefault(status => status is not null);
+                MemoryStatus expected = !reader ? MemoryStatus.Forbidden
+                    : refused ?? (denied ? MemoryStatus.Unchecked : MemoryStatus.Success);
+                recalled.Status.Should().Be(expected);
+                if (expected is MemoryStatus.Forbidden or MemoryStatus.ContainerNotFound or MemoryStatus.Invalid)
+                {
+                    memory.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                await memory.Received(1).RecallAsync(
+                    Arg.Is<MemoryQuery>(q => q.Text == "db" && ids.Contains(q.ContainerId)
+                        && (ids.Count == 1 ? q.ContainerIds == null : q.ContainerIds != null && q.ContainerIds.Count == ids.Count && ids.SetEquals(q.ContainerIds))),
+                    Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+                if (expected == MemoryStatus.Success)
+                {
+                    recalled.Result!.Facts.Should().Equal(facts);
+                    recalled.Result.Spaces.Keys.Should().BeEquivalentTo(ids);
+                }
+            }, iter: 1000);
+
+    [Fact]
+    public async Task AcrossAsync_MoreThanTheCapNamed_IsInvalidAndReadsNothing()
+    {
+        IContainerStore containers = ContainerStoreFakes.Create();
+        var memory = Substitute.For<IMemoryService>();
+        string[] keys = [.. Enumerable.Range(0, RecallMemory.MaxSpaces + 1).Select(_ => Guid.NewGuid().ToString())];
+
+        var recalled = await new RecallMemory(containers, memory, new PolicyAuthorizer(_ => true))
+            .AcrossAsync(new OperationContext(new ClaimsPrincipal(), OperationSurface.Mcp), keys, new MemoryQuery(Guid.Empty));
+
+        recalled.Status.Should().Be(MemoryStatus.Invalid);
+        recalled.Field.Should().Be("spaces");
+        containers.ReceivedCalls().Should().BeEmpty();
+        memory.ReceivedCalls().Should().BeEmpty();
+    }
 
     [Fact]
     [RandomInputTestOf(typeof(ListMemorySpaces))]

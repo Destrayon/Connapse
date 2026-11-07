@@ -40,6 +40,9 @@ public interface IMemoryStore
     /// </summary>
     Task<IReadOnlyList<MemorySource>> CitedSourcesAsync(Guid containerId, Guid? chainId = null, CancellationToken ct = default);
 
+    /// <summary>Every distinct source the facts of all of <paramref name="containerIds"/> cite, in one read.</summary>
+    Task<IReadOnlyList<MemorySource>> CitedSourcesAcrossAsync(IReadOnlyCollection<Guid> containerIds, CancellationToken ct = default);
+
     /// <summary>The first <paramref name="take"/> facts matching <paramref name="query"/> that <paramref name="viewer"/> can see, in <see cref="QueryAsync"/>'s order.</summary>
     Task<IReadOnlyList<MemoryFact>> VisibleAsync(MemoryQuery query, MemoryViewer viewer, int take, CancellationToken ct = default);
 

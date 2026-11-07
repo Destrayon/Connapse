@@ -31,6 +31,15 @@ public sealed partial class PostgresMemoryStore
         return [.. cited.Select(s => new MemorySource((MemorySourceKind)s.Kind, s.Ref))];
     }
 
+    public async Task<IReadOnlyList<MemorySource>> CitedSourcesAcrossAsync(IReadOnlyCollection<Guid> containerIds, CancellationToken ct = default)
+    {
+        Guid[] ids = [.. containerIds.Distinct()];
+        await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        var cited = await context.MemoryFacts.AsNoTracking().Where(f => ids.Contains(f.ContainerId))
+            .SelectMany(f => f.Sources).Select(s => new { s.Kind, s.Ref }).Distinct().ToListAsync(ct);
+        return [.. cited.Select(s => new MemorySource((MemorySourceKind)s.Kind, s.Ref))];
+    }
+
     /// <summary>
     /// The facts <paramref name="viewer"/> can see: no cited source outside the readable set, and team or its own (the
     /// rule of <see cref="MemoryCaller.IsAuthorOf"/>: the same user, or for an author with no user, the same agent also
