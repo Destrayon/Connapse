@@ -36,7 +36,7 @@ public static class SearchEndpoints
                 : SearchMode.Hybrid;
             var searched = await search.RunAsync(Rest(http), containerId,
                 new SearchRequest(q, searchMode, topK, minScore, path), ct);
-            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, q);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(http, searched, q);
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -54,7 +54,7 @@ public static class SearchEndpoints
             CancellationToken ct) =>
         {
             var searched = await search.RunAsync(Rest(http), containerId, request.ToSearch(), ct);
-            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, request.Query);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(http, searched, request.Query);
         })
         .Produces<SearchResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -94,7 +94,7 @@ public static class SearchEndpoints
             CancellationToken ct) =>
         {
             var searched = await search.RunAsync(Rest(http), sourceId, request.ToSearch(), ct);
-            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(searched, request.Query);
+            return searched.Succeeded ? Results.Ok(searched.Result) : Problem(http, searched, request.Query);
         })
         .WithTags("Search")
         .RequireAuthorization("RequireViewer")
@@ -110,14 +110,20 @@ public static class SearchEndpoints
         return app;
     }
 
+    /// <summary>How long a client should wait before trying again while the search model downloads.</summary>
+    private const string ModelRetryAfterSeconds = "30";
+
     private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 
     /// <summary>
     /// A failed search's problem. Before search moved onto its operation (#916), a bad topK or minScore or an
     /// over-long query was answered with these codes in <c>error</c>, which scripts branch on, so they keep them.
     /// </summary>
-    private static IResult Problem(Attempt<SearchResult, SearchStatus> failed, string? query)
+    private static IResult Problem(HttpContext http, Attempt<SearchResult, SearchStatus> failed, string? query)
     {
+        if (failed.Status == SearchStatus.ModelNotReady)
+            http.Response.Headers.RetryAfter = ModelRetryAfterSeconds;
+
         var problem = OperationProblems.For(failed.Status, failed.Detail);
         if (failed.Field is { } field)
             problem.Extensions["field"] = field;

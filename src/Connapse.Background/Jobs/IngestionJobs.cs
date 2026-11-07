@@ -45,6 +45,9 @@ public sealed class IngestionJobs : IIngestionJobs
     /// </summary>
     internal static readonly TimeSpan QueuedStuckAfter = TimeSpan.FromMinutes(5);
 
+    /// <summary>How often a document waiting for the search model tries again. Waiting uses no attempt.</summary>
+    internal static readonly TimeSpan ModelWaitDelay = TimeSpan.FromSeconds(30);
+
     /// <summary>Hangfire states in which a job will still run, or is running.</summary>
     private static readonly HashSet<string> LiveJobStates = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -58,6 +61,7 @@ public sealed class IngestionJobs : IIngestionJobs
     private readonly IDbContextFactory<KnowledgeDbContext> _dbFactory;
     private readonly JobStorage _jobStorage;
     private readonly IReindexService _reindex;
+    private readonly ILocalModelMonitor _localModel;
     private readonly ILogger<IngestionJobs> _logger;
 
     public IngestionJobs(
@@ -68,6 +72,7 @@ public sealed class IngestionJobs : IIngestionJobs
         IDbContextFactory<KnowledgeDbContext> dbFactory,
         JobStorage jobStorage,
         IReindexService reindex,
+        ILocalModelMonitor localModel,
         ILogger<IngestionJobs> logger)
     {
         _ingester = ingester;
@@ -77,6 +82,7 @@ public sealed class IngestionJobs : IIngestionJobs
         _dbFactory = dbFactory;
         _jobStorage = jobStorage;
         _reindex = reindex;
+        _localModel = localModel;
         _logger = logger;
     }
 
@@ -102,6 +108,22 @@ public sealed class IngestionJobs : IIngestionJobs
                 return;
             }
             options = options with { Generation = generation };
+        }
+
+        if (_localModel.Current.HoldsEmbedding)
+        {
+            // The first upload can beat the model's download by many minutes, which would use up the retries.
+            string waitJobId = _bgClient.Schedule<IIngestionJobs>(j => j.IngestAsync(documentId, options, default), ModelWaitDelay);
+            if (!await _lifecycle.RecordJobAsync(id, generation, waitJobId, CancellationToken.None))
+            {
+                // Superseded, deleted or finished while waiting: without this the wait would reschedule itself for ever.
+                _bgClient.Delete(waitJobId);
+                _logger.LogInformation(
+                    "IngestSkipped {DocumentId} reason=not_current generation={Generation}",
+                    LogSanitizer.Sanitize(documentId), generation);
+            }
+
+            return;
         }
 
         if (!await _lifecycle.TryClaimAsync(id, generation, ct))

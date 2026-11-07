@@ -433,6 +433,13 @@
     "MarkupLogic": 6,
     "IsEmpty": false
   },
+  "Shared/LocalModelBanner.razor": {
+    "CodeLines": 3,
+    "Injects": 1,
+    "Complexity": 3,
+    "MarkupLogic": 2,
+    "IsEmpty": false
+  },
   "Shared/Pagination.razor": {
     "CodeLines": 22,
     "Injects": 0,

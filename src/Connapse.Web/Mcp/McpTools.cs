@@ -157,6 +157,7 @@ public partial class McpTools
                 SearchStatus.Invalid => $"Error: Invalid search: {searched.Detail}.",
                 // The operation says whether this is an outage or a size mismatch, and what to do about each.
                 SearchStatus.EmbeddingsUnavailable => $"Error: The search could not be run. {searched.Detail}",
+                SearchStatus.ModelNotReady => $"Error: The search could not be run yet. {searched.Detail}",
                 SearchStatus.MemoryContainer => Refused(searched),
                 _ => $"Error: Container '{containerId}' not found.",
             };

@@ -27,6 +27,9 @@ public enum SearchStatus
 
     [Failure(409, "memory-container", "Agent memory container")]
     MemoryContainer,
+
+    [Failure(503, "model-not-ready", "Search isn't ready yet")]
+    ModelNotReady,
 }
 
 /// <summary>Which kind of scope a search may name.</summary>
@@ -73,7 +76,7 @@ public sealed record SearchRequest(
 [Operation("search.knowledge", Scope = Scope, Risk = RiskTier.Read)]
 public sealed class SearchKnowledge(
     IContainerStore containers, ISourceStore sources, ISourceVisibility visibility, IKnowledgeSearch search,
-    IOptionsMonitor<SearchSettings> settings, IOperationAuthorizer authorizer)
+    IOptionsMonitor<SearchSettings> settings, IOperationAuthorizer authorizer, ILocalModelMonitor? localModel = null)
 {
     public const string Scope = "knowledge:read";
 
@@ -118,6 +121,11 @@ public sealed class SearchKnowledge(
             // A settings problem, not an outage: retrying won't help, so say what to change.
             return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.EmbeddingsUnavailable,
                 mismatch.Message + " Keyword mode still works meanwhile.");
+        }
+        catch (EmbeddingUnavailableException) when (localModel?.Current is { HoldsEmbedding: true } waiting)
+        {
+            return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.ModelNotReady,
+                waiting.Explanation + " Keyword mode works meanwhile.");
         }
         catch (EmbeddingUnavailableException)
         {

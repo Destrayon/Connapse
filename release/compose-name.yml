@@ -1,0 +1,2 @@
+# Added when the compose file is published, so the project is always `connapse`. See release.yml.
+name: connapse
