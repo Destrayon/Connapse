@@ -427,6 +427,7 @@ app.UseMcpOriginValidation(app.Configuration);
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
+app.UseUploadBodyLimit();
 
 // Hangfire dashboard — gated by HangfireDashboardAuthFilter (defers to "RequireAdmin" policy).
 // Its storage opens a database connection, so OpenAPI generation leaves it out.

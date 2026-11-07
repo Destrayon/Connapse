@@ -18,7 +18,7 @@ Use this when you want Connapse to hold the files itself: you upload them to a c
 
 1. On the **Containers** page, choose **New Container**.
 2. Enter a name of 2 to 128 lowercase letters, digits and hyphens, such as `team-handbook`, then choose **Create**.
-3. Open the container and choose **Upload**. Pick one or more files, or drag them onto the page. Each file can be up to 256 MiB.
+3. Open the container and choose **Upload**. Pick one or more files, or drag them onto the page. Each file can be up to 256 MiB, unless an admin changed the limit under **Settings** → **Upload**.
 4. Optional: create folders to organise the files. Folders are part of each file's path and can be used to narrow a search.
 
 You should see: each file's status change from **Queued** to **Processing** to **Ready**. See [Supported file types](../reference/file-types.md) for what Connapse can read.

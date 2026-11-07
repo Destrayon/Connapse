@@ -25,7 +25,9 @@ Spreadsheets (`.xlsx`) and older Office formats (`.doc`, `.ppt`) aren't supporte
 
 ## Limits
 
-Each limit is an **Upload** setting, changed on the **Settings** page or as `Knowledge__Upload__<Setting>` in [Configuration](configuration.md). A file over a limit fails with the code shown, which appears in its row's error.
+Each limit is an **Upload** setting, changed on the **Settings** page or as `Knowledge__Upload__<Setting>` in [Configuration](configuration.md). A file over a limit fails with the code shown, which appears in its row's error. A change applies to the next upload, with no restart.
+
+`MaxFileBytes` is also checked at upload, so the upload form, folder upload and the REST API refuse a larger file before it is stored, and a single request can't be much larger than one such file. Over MCP, a file travels inside a JSON message, which the server limits to about 30 MB however this is set.
 
 | Limit | Setting | Default | Fails with |
 |-------|---------|---------|-----------|

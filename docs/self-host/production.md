@@ -42,7 +42,7 @@ Use this when you want to put a Connapse server on a network other people can re
        ssl_certificate     /etc/letsencrypt/live/connapse.example.com/fullchain.pem;
        ssl_certificate_key /etc/letsencrypt/live/connapse.example.com/privkey.pem;
 
-       client_max_body_size 256m;
+       client_max_body_size 257m;
 
        location / {
            proxy_pass http://127.0.0.1:5001;
@@ -57,7 +57,9 @@ Use this when you want to put a Connapse server on a network other people can re
    }
    ```
 
-   `client_max_body_size` matches Connapse's default upload limit of 256 MiB. Raise both together if you raise one.
+   `client_max_body_size` is Connapse's default upload limit of 256 MiB plus 1 MiB for the form around the file. Raise both together if you raise one. A proxy's own limit below Connapse's refuses a file before Connapse sees it.
+
+   Connapse keeps a large upload in its temp folder while it arrives, and again while parsing it, so leave free disk there of about twice the size of the largest uploads running at once.
 
 5. Bind the web port to the proxy only. Create `docker-compose.prod.yml` next to `docker-compose.yml`:
 

@@ -228,7 +228,7 @@ public class IngestionPipeline : IKnowledgeIngester
         var stopwatch = Stopwatch.StartNew();
         var warnings = new List<string>();
         Stream? workingStream = null;
-        bool createdMemoryStream = false;
+        bool createdSpool = false;
 
         var documentId = !string.IsNullOrEmpty(options.DocumentId) && Guid.TryParse(options.DocumentId, out var providedId)
             ? providedId
@@ -252,12 +252,13 @@ public class IngestionPipeline : IKnowledgeIngester
             if (!content.CanSeek)
             {
                 // Bounded while copying: a connector stream of unknown length would otherwise be
-                // buffered whole, and hashed, before the size limit could refuse it.
-                var ms = new MemoryStream();
-                await CopyBoundedAsync(content, ms, maxFileBytes, options.FileName, ct);
-                ms.Position = 0;
-                workingStream = ms;
-                createdMemoryStream = true;
+                // buffered whole, and hashed, before the size limit could refuse it. On disk because
+                // every worker can hold a file at the limit, which wouldn't fit beside the web process.
+                var spool = NewSpool();
+                workingStream = spool;
+                createdSpool = true;
+                await CopyBoundedAsync(content, spool, maxFileBytes, options.FileName, ct);
+                spool.Position = 0;
             }
             else
             {
@@ -272,7 +273,8 @@ public class IngestionPipeline : IKnowledgeIngester
             // Parsing and chunking first: they need nothing from the database, and a file that
             // cannot be read is known to be a permanent failure before any row is touched.
             workingStream.Position = 0;
-            var parsedDocument = await ParseDocumentAsync(workingStream, options.FileName ?? "", ct);
+            var parsedDocument = await OneLargeFileAtATimeAsync(workingStream.Length,
+                () => ParseDocumentAsync(workingStream, options.FileName ?? "", ct), ct);
 
             // Text that came out of a PDF's glyph mappings can be junk end to end. Indexed, it is a
             // document that shows as Ready and matches nothing anyone types. Judged before the
@@ -518,8 +520,8 @@ public class IngestionPipeline : IKnowledgeIngester
         }
         finally
         {
-            // Dispose working stream if we created a MemoryStream
-            if (createdMemoryStream && workingStream != null)
+            // Dispose working stream if we created the spool
+            if (createdSpool && workingStream != null)
             {
                 await workingStream.DisposeAsync();
             }
@@ -914,7 +916,7 @@ public class IngestionPipeline : IKnowledgeIngester
         ParsedDocument parsed;
         if (isolated)
         {
-            ReadOnlyMemory<byte> bytes = BufferOf(content);
+            ReadOnlyMemory<byte> bytes = await BufferOfAsync(content, ct);
             // A layout parse that runs out of memory is read again; both share the one deadline.
             var started = Stopwatch.StartNew();
             parsed = await ParseWithinMemoryAsync(
@@ -1000,15 +1002,46 @@ public class IngestionPipeline : IKnowledgeIngester
             : null;
 
     /// <summary>The bytes from the stream's position on, without a copy when it is already a MemoryStream.</summary>
-    private static ReadOnlyMemory<byte> BufferOf(Stream content)
+    private static async Task<ReadOnlyMemory<byte>> BufferOfAsync(Stream content, CancellationToken ct)
     {
         if (content is MemoryStream memory && memory.TryGetBuffer(out ArraySegment<byte> buffer))
             return buffer.AsMemory((int)memory.Position, (int)(memory.Length - memory.Position));
 
-        using var copy = new MemoryStream();
-        content.CopyTo(copy);
-        return copy.ToArray();
+        byte[] copy = new byte[content.Length - content.Position];
+        await content.ReadExactlyAsync(copy, ct);
+        return copy;
     }
+
+    /// <summary>
+    /// Files past this size take turns in <see cref="OneLargeFileAtATimeAsync"/>: reading one takes the whole file in
+    /// memory, and several at the upload limit wouldn't fit beside the web process.
+    /// </summary>
+    internal const long LargeFileBytes = 32 * 1024 * 1024;
+
+    /// <summary>Process-wide, as the memory it protects is, and the pipeline is created per scope.</summary>
+    private static readonly SemaphoreSlim LargeFileTurn = new(1, 1);
+
+    internal static async Task<T> OneLargeFileAtATimeAsync<T>(long bytes, Func<Task<T>> parse, CancellationToken ct)
+    {
+        if (bytes <= LargeFileBytes)
+            return await parse();
+
+        await LargeFileTurn.WaitAsync(ct);
+        try
+        {
+            return await parse();
+        }
+        finally
+        {
+            LargeFileTurn.Release();
+        }
+    }
+
+    /// <summary>A file for a stored file's bytes, gone when the stream is disposed, whatever ended the run.</summary>
+    private static FileStream NewSpool() => new(
+        Path.Combine(Path.GetTempPath(), $"connapse-ingest-{Guid.NewGuid():N}"),
+        FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920,
+        FileOptions.Asynchronous | FileOptions.DeleteOnClose);
 
     /// <summary>
     /// Runs the parser on the thread pool and stops waiting for it at the deadline.

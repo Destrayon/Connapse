@@ -1,9 +1,10 @@
 // Uploads a whole folder to a container. No DOM and no Blazor in here, so tests/Connapse.Web.Js runs this same file
 // under Node against a real folder; fileDrop.js connects it to the page.
 //
-// A browser can't send a large folder in one request: the API takes at most 100 files a request, the server refuses a
-// request of about 30 MB, and a call into Blazor is limited to 32 KB. So files go in small batches, each file naming
-// its own folder, and the full list of failures stays here while the page gets counts and the first few.
+// A browser can't send a large folder in one request: the API takes at most 100 files a request, a request's size is
+// limited, and a call into Blazor is limited to 32 KB. So files go in small batches, each file naming its own folder,
+// and the full list of failures stays here while the page gets counts and the first few. MAX_BYTES_PER_REQUEST stays
+// under the smallest body limit the server can have; a larger file goes alone, up to the upload limit.
 
 export const MAX_FILES_PER_REQUEST = 100;
 export const MAX_BYTES_PER_REQUEST = 20 * 1024 * 1024;
@@ -120,6 +121,22 @@ export function splitByType(items, supportedExtensions) {
     return { send, refused };
 }
 
+/** The server's wording for the same refusal, rounded up so a file one byte over doesn't read as being at the limit. */
+export function fileTooLarge(bytes, maxFileBytes) {
+    const megabytes = size => Math.ceil(size / (1024 * 1024) * 10) / 10;
+    return `The file is ${megabytes(bytes)} MB, over the ${megabytes(maxFileBytes)} MB limit.`;
+}
+
+/** Splits files into those worth sending and those the server would refuse for their size. */
+export function splitBySize(items, maxFileBytes) {
+    const send = [];
+    const refused = [];
+    for (const item of items) {
+        (item.file.size > maxFileBytes ? refused : send).push(item);
+    }
+    return { send, refused };
+}
+
 /** Batches within the API's file count and the server's body limit. A file over the byte limit goes alone. */
 export function planBatches(items, maxFiles = MAX_FILES_PER_REQUEST, maxBytes = MAX_BYTES_PER_REQUEST) {
     const batches = [];
@@ -154,12 +171,12 @@ function abortableWait(ms, signal) {
     });
 }
 
-async function problemDetail(response) {
+async function problemDetail(response, fallback = `The server answered ${response.status}.`) {
     try {
         const problem = await response.json();
-        return problem.detail ?? problem.title ?? `The server answered ${response.status}.`;
+        return problem.detail ?? problem.title ?? fallback;
     } catch {
-        return `The server answered ${response.status}.`;
+        return fallback;
     }
 }
 
@@ -206,7 +223,8 @@ async function sendBatch(batch, { url, basePath, fetchImpl, signal, wait, onWait
         if (response.status === 401 || response.status === 403 || response.status === 404) {
             throw new RunRefused(await problemDetail(response));
         }
-        if (response.status === 413) throw new TooLarge('This file is larger than the server accepts in one request.');
+        // A reverse proxy's own 413 has no detail to show.
+        if (response.status === 413) throw new TooLarge(await problemDetail(response, 'This file is larger than the server accepts in one request.'));
         throw new BatchFailed(`The server couldn't take this file: ${await problemDetail(response)}`);
     }
 }
@@ -216,7 +234,7 @@ async function sendBatch(batch, { url, basePath, fetchImpl, signal, wait, onWait
  * until the file at fault is alone.
  *
  * Options: url, basePath ('/' or '/sub/'), fetchImpl, signal, onOutcome(item, error|null), onWaiting(), and optionally
- * wait(ms, signal), concurrency, maxFiles, maxBytes.
+ * onSent(documents), wait(ms, signal), concurrency, maxFiles, maxBytes.
  * Answers null, or why the run stopped early; every file not attempted has then had a failed outcome.
  */
 export async function uploadItems(items, options) {
@@ -224,6 +242,7 @@ export async function uploadItems(items, options) {
         url, basePath, signal, onOutcome,
         fetchImpl = fetch,
         onWaiting = () => { },
+        onSent = () => { },
         wait = abortableWait,
         concurrency = CONCURRENT_REQUESTS,
         maxFiles = MAX_FILES_PER_REQUEST,
@@ -249,6 +268,7 @@ export async function uploadItems(items, options) {
             try {
                 const documents = await sendBatch(batch, sendOptions);
                 failedInARow = 0;
+                await onSent(documents);
                 batch.forEach((item, i) => onOutcome(item, documents[i]?.error ?? null));
             } catch (err) {
                 if (signal.aborted) {
@@ -287,11 +307,11 @@ export async function uploadItems(items, options) {
 
 /**
  * One folder upload from the files found to the final count. Options are uploadItems' plus unreadable (from walkEntries),
- * supportedExtensions and onProgress(state). State is { total, succeeded, failures: [{ path, error }], waiting }.
+ * supportedExtensions, maxFileBytes and onProgress(state). State is { total, succeeded, failures: [{ path, error }], waiting }.
  * Answers the state, with stoppedBecause set when the run ended early.
  */
 export async function runFolderUpload(items, options) {
-    const { unreadable = [], supportedExtensions, onProgress = () => { }, basePath } = options;
+    const { unreadable = [], supportedExtensions, maxFileBytes = Infinity, onProgress = () => { }, basePath } = options;
     const destination = relativePath => `${folderFor(basePath, relativePath)}${relativePath.slice(relativePath.lastIndexOf('/') + 1)}`;
     const state = { total: items.length + unreadable.length, succeeded: 0, failures: [], waiting: false, stoppedBecause: null };
     const fail = (relativePath, error) => state.failures.push({ path: destination(relativePath), error });
@@ -301,8 +321,10 @@ export async function runFolderUpload(items, options) {
     for (const { relativePath, file } of refused) {
         fail(relativePath, extensionOf(file.name) ? `Connapse can't read ${extensionOf(file.name)} files.` : "Connapse can't read files with no extension.");
     }
-    const safe = send.filter(item => !folderNameChangesOnServer(item.relativePath));
-    for (const { relativePath } of send.filter(item => folderNameChangesOnServer(item.relativePath))) {
+    const { send: withinLimit, refused: tooLarge } = splitBySize(send, maxFileBytes);
+    for (const { relativePath, file } of tooLarge) fail(relativePath, fileTooLarge(file.size, maxFileBytes));
+    const safe = withinLimit.filter(item => !folderNameChangesOnServer(item.relativePath));
+    for (const { relativePath } of withinLimit.filter(item => folderNameChangesOnServer(item.relativePath))) {
         fail(relativePath, "Connapse can't keep this folder's name, because it has a backslash or is only dots.");
     }
     onProgress(state);

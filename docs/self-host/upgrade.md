@@ -120,6 +120,7 @@ From v0.4.0, every REST API error is a [problem](../problems.md): its `type` end
 | Old code in `error` | New `type` slug | Status |
 |---|---|---|
 | `unsupported_file_type` | `unsupported-file-type` | 400 |
+| `file_too_large` | `file-too-large` | 413 |
 | `filename_too_long` | `invalid-file-request`, with `field` set to `fileName` | 400 |
 | `document_not_ready` | `file-not-ready` | 400 |
 | `document_failed` | `file-ingestion-failed` | 400 |

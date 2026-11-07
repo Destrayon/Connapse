@@ -886,6 +886,9 @@
     [JSInvokable]
     public string GetCurrentPath() => currentPath;
 
+    [JSInvokable]
+    public long GetMaxFileBytes() => FileOps.Upload.MaxFileBytes;
+
     /// <summary>
     /// Optimistic eager insert — JS calls this BEFORE the upload fetch starts so the user
     /// sees a row immediately with a Pending spinner. HandleDropUploadResult later dedups
@@ -894,9 +897,7 @@
     [JSInvokable]
     public async Task AddUploadPlaceholders(string filesJson)
     {
-        var placeholders = System.Text.Json.JsonSerializer.Deserialize<List<UploadPlaceholderDto>>(
-            filesJson,
-            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var placeholders = System.Text.Json.JsonSerializer.Deserialize<List<UploadPlaceholderDto>>(filesJson, System.Text.Json.JsonSerializerOptions.Web);
         if (placeholders is null) return;
 
         foreach (var p in placeholders)
@@ -916,20 +917,22 @@
                 IngestionStatus: DocumentStatus.Queued,
                 ContentType: null);
 
-            var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, p.Name, StringComparison.OrdinalIgnoreCase) > 0);
-            if (insertIdx < 0) insertIdx = entries.Count;
-            entries.Insert(insertIdx, placeholder);
+            InsertByName(placeholder);
         }
 
         await InvokeAsync(StateHasChanged);
     }
 
+    private void InsertByName(BrowseEntryDto entry)
+    {
+        int index = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, entry.Name, StringComparison.OrdinalIgnoreCase) > 0);
+        entries.Insert(index < 0 ? entries.Count : index, entry);
+    }
+
     [JSInvokable]
     public async Task HandleDropUploadResult(string resultJson)
     {
-        var result = System.Text.Json.JsonSerializer.Deserialize<UploadResponseDto>(
-            resultJson,
-            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var result = System.Text.Json.JsonSerializer.Deserialize<UploadResponseDto>(resultJson, System.Text.Json.JsonSerializerOptions.Web);
 
         if (result is not null)
         {
@@ -959,9 +962,7 @@
                 }
                 else
                 {
-                    var insertIdx = entries.FindIndex(e => !e.IsFolder && string.Compare(e.Name, doc.FileName, StringComparison.OrdinalIgnoreCase) > 0);
-                    if (insertIdx < 0) insertIdx = entries.Count;
-                    entries.Insert(insertIdx, newEntry);
+                    InsertByName(newEntry);
                 }
 
                 // Race-recovery: a Hangfire job that finished BEFORE the placeholder
@@ -992,7 +993,8 @@
     [JSInvokable]
     public Task HandleDropUploadError(string error)
     {
-        errorMessage = $"Drop upload failed: {error}";
+        errorMessage = $"Upload failed: {error}";
+        entries.RemoveAll(e => e.Status == "Uploading");
         StateHasChanged();
         return Task.CompletedTask;
     }

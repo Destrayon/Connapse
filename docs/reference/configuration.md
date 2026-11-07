@@ -187,7 +187,7 @@ Each group below is a tab on the **Settings** page and a category of `GET` and `
 | `MaxOcrPagesPerDocument`: Most pages of one PDF that are OCR'd (default: 50). | **Settings** → **Upload** | `Knowledge__Upload__MaxOcrPagesPerDocument` | int | `50` | No | No |
 | `PdfOcrThreads`: CPU threads each OCR'd page may use (default: 1). | **Settings** → **Upload** | `Knowledge__Upload__PdfOcrThreads` | int | `1` | No | No |
 | `PdfOcrDpi`: Resolution PDF pages are rendered at for OCR (default: 200 dpi). | **Settings** → **Upload** | `Knowledge__Upload__PdfOcrDpi` | int | `200` | No | No |
-| `MaxFileBytes`: Largest file that is parsed at all (default: 256 MiB). | **Settings** → **Upload** | `Knowledge__Upload__MaxFileBytes` | long | `256 MiB` | No | No |
+| `MaxFileBytes`: Largest file that can be uploaded or parsed (default: 256 MiB). | **Settings** → **Upload** | `Knowledge__Upload__MaxFileBytes` | long | `256 MiB` | No | No |
 | `MaxPdfPages`: Most pages a PDF may have (default: 5,000). | **Settings** → **Upload** | `Knowledge__Upload__MaxPdfPages` | int | `5000` | No | No |
 | `MaxDecompressedBytes`: Most bytes a DOCX or PPTX may expand to (default: 512 MiB). | **Settings** → **Upload** | `Knowledge__Upload__MaxDecompressedBytes` | long | `512 MiB` | No | No |
 | `MaxCompressionRatio`: Highest overall compression ratio a DOCX or PPTX may have once it expands past 10 MiB (default: 100). | **Settings** → **Upload** | `Knowledge__Upload__MaxCompressionRatio` | int | `100` | No | No |
