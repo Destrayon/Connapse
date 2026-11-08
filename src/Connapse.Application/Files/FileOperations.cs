@@ -348,12 +348,16 @@ public sealed class GetFileContent(
 
 /// <summary>
 /// Reads up to 50 files' text in one call, each as files.content does, and answers each in place: its text, or why it
-/// has none. Open to viewers and reading agent keys.
+/// has none. A call returns at most 2,000,000 characters in all; a file that would go past that is answered with an
+/// error instead. Open to viewers and reading agent keys.
 /// </summary>
 [Operation("files.contents", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class GetFileContents(IContainerStore containers, GetFileContent content, IOperationAuthorizer authorizer)
 {
     public const int MaxFiles = 50;
+
+    /// <summary>The most text one call returns, across all its files; a file that would go past it is answered with an error.</summary>
+    public const int MaxTotalChars = 2_000_000;
 
     public async Task<Attempt<IReadOnlyList<FileContentItem>, FileStatus>> RunAsync(
         OperationContext context, Guid containerId, IReadOnlyList<string> fileRefs, CancellationToken ct = default)
@@ -370,12 +374,33 @@ public sealed class GetFileContents(IContainerStore containers, GetFileContent c
             return FileRules.ContainerNotFound<IReadOnlyList<FileContentItem>>(containerId);
 
         var items = new List<FileContentItem>(fileRefs.Count);
+        long returned = 0;
         foreach (string fileRef in fileRefs)
         {
-            var read = await content.ReadInAsync(context, containerId, container, fileRef, ct);
-            items.Add(read.Succeeded
-                ? new FileContentItem(fileRef, read.Status, read.Result)
-                : new FileContentItem(fileRef, read.Status, null, read.Detail));
+            Attempt<FileContent, FileStatus> read;
+            try
+            {
+                read = await content.ReadInAsync(context, containerId, container, fileRef, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // A parser that throws on one file costs that file, not the whole call.
+                items.Add(new FileContentItem(fileRef, FileStatus.NotReadable, null, "The file's text could not be read"));
+                continue;
+            }
+            if (!read.Succeeded)
+            {
+                items.Add(new FileContentItem(fileRef, read.Status, null, read.Detail));
+                continue;
+            }
+            if (returned + read.Result!.Content.Length > MaxTotalChars)
+            {
+                items.Add(new FileContentItem(fileRef, FileStatus.TooLarge, null,
+                    $"Skipped: this file's text would take the call past the maximum of {MaxTotalChars} characters; read it in a call of its own"));
+                continue;
+            }
+            returned += read.Result.Content.Length;
+            items.Add(new FileContentItem(fileRef, read.Status, read.Result));
         }
         return Attempt<IReadOnlyList<FileContentItem>, FileStatus>.Succeed(items);
     }

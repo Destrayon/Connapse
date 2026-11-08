@@ -151,7 +151,8 @@
       "id": "files.append",
       "capability": "Add text to the end of a file",
       "routes": [
-        "POST /api/containers/{containerId:guid}/files/{fileId}/append"
+        "POST /api/containers/{containerId:guid}/files/{fileId}/append",
+        "POST /api/containers/{containerId:guid}/files/append"
       ],
       "mcp": "append_to_file"
     },

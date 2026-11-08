@@ -177,6 +177,7 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `containers.settings.reset` | `DELETE /api/containers/{containerId}/settings` | Write | Generic tools |
 | `containers.settings.update` | `PUT /api/containers/{containerId}/settings` | Credential | Generic tools |
 | `files.append` | `POST /api/containers/{containerId}/files/{fileId}/append` | Write | — |
+| `files.append` | `POST /api/containers/{containerId}/files/append` | Write | — |
 | `files.bulkDelete` | `POST /api/containers/{containerId}/files/bulk-delete` | Destructive | — |
 | `files.delete` | `DELETE /api/containers/{containerId}/files/{fileId}` | Destructive | — |
 | `files.retry` | `POST /api/containers/{containerId}/files/{fileId}/retry` | Write | Generic tools |

@@ -79,6 +79,17 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
                     violations.Add($"cross-object POST /api/containers/{{containerId:guid}}/files/{{fileId}}/append: expects 404, got {(int)response.StatusCode}");
             await OtherFileUnchangedAsync("POST /api/containers/{containerId:guid}/files/{fileId}/append");
 
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/append", new { file = fileOfB, text = Probe }))
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                    violations.Add($"cross-object POST /api/containers/{{containerId:guid}}/files/append: expects 404, got {(int)response.StatusCode}");
+            await OtherFileUnchangedAsync("POST /api/containers/{containerId:guid}/files/append");
+
+            // The body route only proves something if it appends through the right container, here by a path with a slash.
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/append", new { file = "/same.txt", text = " body append" }))
+                response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+            await WaitUntilReadyAsync(a, fileOfA);
+            (await http.GetStringAsync($"/api/containers/{a}/files/{fileOfA}/content")).Should().Contain(TextOfA + " body append");
+
             // MCP takes the same pair of ids. A tool that answers with either file's text through
             // the wrong container, or deletes the other container's file, leaks whatever it says.
             await using (var mcp = await CrossSurface.Surfaces.McpAsync(fixture))

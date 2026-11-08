@@ -345,6 +345,26 @@ public class McpToolsListFilesTests
     }
 
     [Fact]
+    public async Task ListFiles_SortName_KeepsNameOrderSoLimitKeepsTheFirstNames()
+    {
+        var now = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+        var first = MakeDocument("/a-old.txt", "a-old.txt", createdAt: now.AddHours(-2));
+        var newer = MakeDocument("/z-new.txt", "z-new.txt", createdAt: now.AddHours(-1));
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document> { newer, first, MakeDocument("/b/x.txt", "x.txt") });
+
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http,
+            ContainerId.ToString(), "/", limit: 2, sort: "name");
+
+        result.Should().Contain(
+            "Contents of /:\n\n" +
+            "[DIR]  b/\n" +
+            $"[FILE] a-old.txt (1,024 bytes) ID: {first.Id} added 2026-11-08 10:00:00Z\n");
+        result.Should().NotContain("z-new.txt");
+    }
+
+    [Fact]
     public async Task ListFiles_SortNewest_ListsEveryEntryNewestFirstAndLimitKeepsTheNewest()
     {
         var now = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);

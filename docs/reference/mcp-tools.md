@@ -35,9 +35,9 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `search_knowledge` | `knowledge:read` | Read | Searches a container or source and returns ranked passages with their document ids and scores. |
 | `list_files` | `knowledge:read` | Read | Lists the folders and documents at a path in a container, each document with the date it was added and, if different, last updated. Sorts by name or newest first. |
 | `get_document` | `knowledge:read` | Read | Returns one document's full extracted text, by id or path. |
-| `get_documents` | `knowledge:read` | Read | Returns up to 50 documents' full text in one call, by id or path, in the order asked. A file that can't be read gets an error line and doesn't stop the others. |
+| `get_documents` | `knowledge:read` | Read | Returns up to 50 documents' full text in one call, by id or path, in the order asked. A file that can't be read gets an error line and doesn't stop the others. Past 2,000,000 characters in all, the remaining files get an error line too. |
 | `upload_file` | `knowledge:write` | Write | Uploads one file to be ingested. |
-| `append_to_file` | `knowledge:write` | Write | Adds text to the end of an existing text file and reindexes it. The file keeps its id, path and added date. |
+| `append_to_file` | `knowledge:write` | Write | Adds text to the end of an existing text file, in the file's own encoding, and reindexes it. The file keeps its id, path and added date. Appends to one file through the same server queue behind each other; appends through different servers sharing a database are not serialized. |
 | `bulk_upload` | `knowledge:write` | Write | Uploads up to 100 files in one call. |
 | `delete_file` | `knowledge:write` | Destructive | Deletes a file and its passages. To replace a file, delete it, then upload it again. |
 | `bulk_delete` | `knowledge:write` | Destructive | Deletes up to 100 files in one call. |

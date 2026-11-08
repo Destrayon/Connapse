@@ -527,12 +527,13 @@ public class FileRandomInputTests
         Gen.Select(
                 Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>(), Gen.Bool,
                     Gen.OneOf(Gen.Const(".md"), Gen.Const(".LOG"), Gen.Const(".pdf")), Gen.OneOfConst<string?>(null, "", "\n- b", "é")),
-                Gen.Select(Gen.Bool, Gen.Int[0, 12], Gen.Bool))
+                Gen.Select(Gen.Bool, Gen.Int[0, 12], Gen.Bool, Gen.Int[0, 6]))
             .SampleAsync(async s =>
             {
-                var ((caller, writer, exists, kind, readable, extension, text), (missing, maxFileBytes, uploads)) = s;
+                var ((caller, writer, exists, kind, readable, extension, text), (missing, maxFileBytes, uploads, recorded)) = s;
                 var world = new World(reader: true, writer, exists);
-                var own = Doc(Own.Id, $"/docs/notes{extension}", Here);
+                // The size the document's row records, which can differ from the three bytes stored.
+                var own = Doc(Own.Id, $"/docs/notes{extension}", Here) with { SizeBytes = recorded };
                 world.Holds([own, Doc(Other.Id, $"/docs/notes{extension}", Elsewhere)]);
                 world.Access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(readable);
                 var stored = world.Files.ReadFileAsync(own.Path, Arg.Any<CancellationToken>());
@@ -548,18 +549,20 @@ public class FileRandomInputTests
                     .RunAsync(caller, Here, RefFor(kind, own, Other), text);
 
                 string combined = "- a" + text;
+                long fewest = text is null ? 0 : Math.Min(Encoding.UTF8.GetByteCount(text), text.Length * 2L);
                 FileStatus expected = !writer ? FileStatus.Forbidden
                     : string.IsNullOrEmpty(text) ? FileStatus.Invalid
                     : !exists ? FileStatus.ContainerNotFound
                     : kind is not (FileRef.OwnId or FileRef.OwnPath) || !readable ? FileStatus.NotFound
                     : extension == ".pdf" ? FileStatus.UnsupportedType
+                    : recorded + fewest > maxFileBytes ? FileStatus.TooLarge
                     : missing ? FileStatus.NotReadable
                     : Encoding.UTF8.GetByteCount(combined) > maxFileBytes ? FileStatus.TooLarge
                     : uploads ? FileStatus.Success
                     : FileStatus.Invalid;
                 appended.Status.Should().Be(expected);
                 if (expected is FileStatus.Forbidden or FileStatus.ContainerNotFound or FileStatus.NotFound or FileStatus.UnsupportedType
-                    || (expected == FileStatus.Invalid && string.IsNullOrEmpty(text)))
+                    || (expected == FileStatus.Invalid && string.IsNullOrEmpty(text)) || recorded + fewest > maxFileBytes)
                     world.Files.ReceivedCalls().Where(c => c.GetMethodInfo().Name == "ReadFileAsync").Should().BeEmpty();
                 if (expected is not (FileStatus.Success or FileStatus.Invalid) || string.IsNullOrEmpty(text))
                     uploadService.ReceivedCalls().Should().BeEmpty();

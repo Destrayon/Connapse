@@ -315,7 +315,27 @@ public static class DocumentsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
         .WithName("files.append")
-        .WithDescription("Add text to the end of a text file, exactly as given (send your own leading newline), and reindex it. The file keeps its id, path and added date. The file is an id or a path.")
+        .WithDescription("Add text to the end of a text file, exactly as given (send your own leading newline), and reindex it. The file keeps its id, path and added date. The file is an id or a path; to name a path with slashes, use POST /api/containers/{containerId}/files/append with the file in the body.")
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
+
+        // POST /api/containers/{containerId}/files/append - The same, with the file in the body, so a path needs no escaping
+        group.MapPost("/append", async (
+            HttpContext http,
+            Guid containerId,
+            [FromBody] AppendToFileRequest? request,
+            [FromServices] AppendToFile append,
+            CancellationToken ct) =>
+        {
+            var appended = await append.RunAsync(Rest(http), containerId, request?.File ?? "", request?.Text, ct);
+            return appended.Succeeded ? Results.Ok(appended.Result) : FileProblems.Result(appended);
+        })
+        .Produces<FileAppend>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+        .WithName("files.appendByBody")
+        .WithDescription("Add text to the end of a text file, as files.append does, with the file (an id or a path such as notes/today.md) "
+            + "in the body's file field instead of the route, so a path with slashes needs no escaping.")
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         return app;
@@ -415,7 +435,7 @@ public record FileContentsResponse(List<FileContentsItem> Results, int ReadCount
 public record BulkDeleteFilesRequest(List<string>? FileIds);
 
 /// <summary>The text to add to the end of a file, exactly as given.</summary>
-public record AppendToFileRequest(string? Text);
+public record AppendToFileRequest(string? Text, string? File = null);
 
 /// <summary>What a bulk delete did with each file, in the order asked, and how many were deleted.</summary>
 public record BulkDeleteFilesResponse(List<BulkDeleteItem> Results, int DeletedCount, int FailedCount);

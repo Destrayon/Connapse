@@ -209,7 +209,7 @@ public partial class McpTools
         [Description("Folder path to list (default: root '/')")] string? path = null,
         [Description($"Maximum number of entries to return. When set, large listings are truncated instead of returning a soft error. Recommended: 25.")] int? limit = null,
         [Description("Set to true to confirm you intentionally want the full listing of a large folder. Without this, listings exceeding the soft limit return an error directing you to `search_knowledge`.")] bool? confirmLarge = null,
-        [Description("\"name\" (default): folders by name, then files newest first. \"newest\": every entry most recently added first, so `limit` keeps the newest.")] string? sort = null,
+        [Description("Leave unset for folders by name, then files newest first. \"name\": every entry by name, folders first, so `limit` keeps the first names. \"newest\": every entry most recently added first, so `limit` keeps the newest.")] string? sort = null,
         CancellationToken ct = default)
     {
         // Validate `limit` upfront. A non-positive value would otherwise bypass the
@@ -256,9 +256,9 @@ public partial class McpTools
         int rendered = 0;
         int effectiveLimit = limit ?? int.MaxValue;
 
-        // Folders by name, then files newest first, the order this tool has always listed them in; or, sorted newest,
-        // the operation's own order.
-        var ordered = string.Equals(sort, "newest", StringComparison.OrdinalIgnoreCase)
+        // Unsorted: folders by name, then files newest first, the order this tool has always listed them in. A sort the
+        // caller named keeps the operation's own order.
+        var ordered = sort is not null
             ? entries
             : entries.Where(e => e.IsFolder).Concat(entries.Where(e => !e.IsFolder).OrderByDescending(e => e.Document!.CreatedAt));
         foreach (var entry in ordered)
@@ -588,7 +588,7 @@ public partial class McpTools
     [McpServerTool(Name = "get_documents", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Retrieve up to 50 documents' full text in one call, by ID or path, each under its own header in the order asked. "
-        + "A file that can't be read gets an error line and doesn't stop the others. Pair with `list_files` sort \"newest\" and `limit` "
+        + "A file that can't be read gets an error line and doesn't stop the others; past 2,000,000 characters in all, the rest get one too. Pair with `list_files` sort \"newest\" and `limit` "
         + "to read the newest entries of a folder in two calls.")]
     public static async Task<string> GetDocuments(
         GetFileContents getContents,
@@ -634,7 +634,7 @@ public partial class McpTools
     [McpServerTool(Name = "append_to_file", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Add text to the end of an existing text file (.md, .txt, .log, ...) and reindex it. The text goes on exactly as given, "
-        + "so start it with a newline to put it on a new line. The file keeps its ID, path and added date; appends to one file at once all land.")]
+        + "so start it with a newline to put it on a new line. The file keeps its ID, path and added date; appends to one file through this server at once all land.")]
     public static async Task<string> AppendToFile(
         AppendToFile append,
         GetContainer getContainer,

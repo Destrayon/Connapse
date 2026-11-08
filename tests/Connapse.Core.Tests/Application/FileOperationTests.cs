@@ -156,6 +156,61 @@ public class FileOperationTests
             i.Status == FileStatus.NotReady && i.Content == null && i.Error == "Document is still being ingested (status: Pending)");
     }
 
+    [Fact]
+    public async Task Contents_PastTheTotalLimit_AFileGetsAnErrorAndSmallerOnesStillFit()
+    {
+        _documents.GetByPathAsync(Here, "/big.md", Arg.Any<CancellationToken>()).Returns(Doc("/big.md"));
+        _documents.GetByPathAsync(Here, "/small.md", Arg.Any<CancellationToken>()).Returns(Doc("/small.md"));
+        string big = new('x', GetFileContents.MaxTotalChars - 5);
+        var connector = Substitute.For<IConnector>();
+        connector.ReadFileAsync("/big.md", Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes(big)));
+        connector.ReadFileAsync("/small.md", Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes("small")));
+        var contents = new GetFileContents(_containers, Content(Storage(connector)), _authorizer);
+
+        var read = await contents.RunAsync(Caller, Here, ["big.md", "big.md", "small.md", "small.md"]);
+
+        read.Result!.Select(i => (i.Status, i.Content?.Content.Length, i.Error)).Should().Equal(
+            (FileStatus.Success, big.Length, null),
+            (FileStatus.TooLarge, null, "Skipped: this file's text would take the call past the maximum of 2000000 characters; read it in a call of its own"),
+            (FileStatus.Success, 5, null),
+            (FileStatus.TooLarge, null, "Skipped: this file's text would take the call past the maximum of 2000000 characters; read it in a call of its own"));
+    }
+
+    [Fact]
+    public async Task Contents_AParserThatThrows_FailsOnlyThatFile()
+    {
+        _documents.GetByPathAsync(Here, "/a.pdf", Arg.Any<CancellationToken>()).Returns(Doc("/a.pdf"));
+        _documents.GetByPathAsync(Here, "/b.md", Arg.Any<CancellationToken>()).Returns(Doc("/b.md"));
+        var connector = Substitute.For<IConnector>();
+        connector.ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes("text")));
+        var parser = Substitute.For<IDocumentParser>();
+        parser.SupportedExtensions.Returns(new HashSet<string> { ".pdf" });
+        parser.ParseAsync(Arg.Any<Stream>(), "a.pdf", Arg.Any<CancellationToken>()).Returns<ParsedDocument>(_ => throw new InvalidDataException("corrupt"));
+        var contents = new GetFileContents(_containers, Content(Storage(connector), parser), _authorizer);
+
+        var read = await contents.RunAsync(Caller, Here, ["a.pdf", "b.md"]);
+
+        read.Result!.Select(i => (i.Status, i.Content?.Content, i.Error)).Should().Equal(
+            (FileStatus.NotReadable, null, "The file's text could not be read"),
+            (FileStatus.Success, "text", null));
+    }
+
+    [Fact]
+    public async Task Contents_Cancelled_StopsTheCall()
+    {
+        _documents.GetByPathAsync(Here, "/a.pdf", Arg.Any<CancellationToken>()).Returns(Doc("/a.pdf"));
+        var connector = Substitute.For<IConnector>();
+        connector.ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes("text")));
+        var parser = Substitute.For<IDocumentParser>();
+        parser.SupportedExtensions.Returns(new HashSet<string> { ".pdf" });
+        parser.ParseAsync(Arg.Any<Stream>(), "a.pdf", Arg.Any<CancellationToken>()).Returns<ParsedDocument>(_ => throw new OperationCanceledException());
+        var contents = new GetFileContents(_containers, Content(Storage(connector), parser), _authorizer);
+
+        var read = () => contents.RunAsync(Caller, Here, ["a.pdf", "a.pdf"]);
+
+        await read.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     // ── edges ─────────────────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -427,7 +482,8 @@ public class FileOperationTests
         _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/notes/log.md"));
         UploadRequest? request = null;
         string? sent = null;
-        _uploads.UploadAsync(Arg.Do<UploadRequest>(r => { request = r; sent = new StreamReader(r.Content).ReadToEnd(); }), Arg.Any<CancellationToken>())
+        // The real upload service disposes the stream it is given.
+        _uploads.UploadAsync(Arg.Do<UploadRequest>(r => { request = r; sent = new StreamReader(r.Content).ReadToEnd(); r.Content.Dispose(); }), Arg.Any<CancellationToken>())
             .Returns(new UploadResult(true, Id, "job-1"));
         var (storage, connector) = Holding("first");
 
@@ -478,6 +534,7 @@ public class FileOperationTests
 
         (await append.RunAsync(Caller, Here, Id, "")).Should().BeEquivalentTo(new { Status = FileStatus.Invalid, Detail = "text is required", Field = "text" });
         (await append.RunAsync(Caller, Here, Id, null)).Status.Should().Be(FileStatus.Invalid);
+        (await append.RunAsync(Caller, Here, " ", "b")).Should().BeEquivalentTo(new { Status = FileStatus.Invalid, Detail = "file is required", Field = "file" });
         (await append.RunAsync(Caller, Guid.NewGuid(), Id, "b")).Status.Should().Be(FileStatus.ContainerNotFound);
         (await append.RunAsync(Caller, Here, "missing.md", "b")).Status.Should().Be(FileStatus.NotFound);
         Deny();
@@ -550,6 +607,63 @@ public class FileOperationTests
             appended.Should().BeEquivalentTo(new { Status = FileStatus.TooLarge, Field = "text" }, o => o.ExcludingMissingMembers());
             appended.Detail.Should().Be(Connapse.Core.Utilities.UploadLimits.FileTooLarge(10, 9));
         }
+    }
+
+    [Fact]
+    public async Task Append_AFileAlreadyAtTheLimit_IsRefusedBeforeItIsRead()
+    {
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/notes/log.md") with { SizeBytes = 98 });
+        var (storage, connector) = Holding("a");
+
+        var appended = await Append(storage).RunAsync(Caller, Here, Id, "abc");
+
+        appended.Should().BeEquivalentTo(new { Status = FileStatus.TooLarge, Field = "text" }, o => o.ExcludingMissingMembers());
+        appended.Detail.Should().Be(Connapse.Core.Utilities.UploadLimits.FileTooLarge(101, 100));
+        await connector.DidNotReceiveWithAnyArgs().ReadFileAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task Append_AStoredFileBiggerThanItsRecord_StopsReadingPastTheLimit()
+    {
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/notes/log.md"));
+        var (storage, _) = Holding(new string('x', 1_000_000));
+
+        var appended = await Append(storage).RunAsync(Caller, Here, Id, "abc");
+
+        // One 80 KiB buffer is read past the limit, and no more of the megabyte.
+        appended.Status.Should().Be(FileStatus.TooLarge);
+        appended.Detail.Should().Be(Connapse.Core.Utilities.UploadLimits.FileTooLarge(81920 + 3, 100));
+        await _uploads.DidNotReceiveWithAnyArgs().UploadAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData("utf-8 bom")]
+    [InlineData("utf-16le")]
+    [InlineData("utf-16be")]
+    [InlineData("utf-32le")]
+    [InlineData("utf-32be")]
+    public async Task Append_AFileWithAByteOrderMark_GetsTheTextInItsOwnEncoding(string name)
+    {
+        Encoding encoding = name switch
+        {
+            "utf-8 bom" => new UTF8Encoding(true),
+            "utf-16le" => new UnicodeEncoding(false, true),
+            "utf-16be" => new UnicodeEncoding(true, true),
+            "utf-32le" => new UTF32Encoding(false, true),
+            _ => new UTF32Encoding(true, true),
+        };
+        byte[] Encoded(string text) => [.. encoding.GetPreamble(), .. encoding.GetBytes(text)];
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/notes/log.md"));
+        var connector = Substitute.For<IWritableConnector>();
+        connector.ReadFileAsync("/notes/log.md", Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoded("first")));
+        byte[]? sent = null;
+        _uploads.UploadAsync(Arg.Do<UploadRequest>(r => { using var copy = new MemoryStream(); r.Content.CopyTo(copy); sent = copy.ToArray(); }), Arg.Any<CancellationToken>())
+            .Returns(new UploadResult(true, Id));
+
+        var appended = await Append(Storage(connector)).RunAsync(Caller, Here, Id, "\nsécond");
+
+        sent.Should().Equal(Encoded("first\nsécond"));
+        appended.Result!.SizeBytes.Should().Be(Encoded("first\nsécond").Length);
     }
 
     [Theory]

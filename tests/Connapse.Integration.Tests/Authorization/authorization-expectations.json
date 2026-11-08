@@ -235,6 +235,11 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "POST /api/containers/{containerId:guid}/files/append": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "POST /api/containers/{containerId:guid}/files/contents": {
       "requires": "viewer",
       "risk": "read",
