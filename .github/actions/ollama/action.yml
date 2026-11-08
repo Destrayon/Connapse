@@ -1,8 +1,32 @@
 name: Ollama
 description: Install Ollama on the runner, start it, and pull the embedding model the integration tests use.
+inputs:
+  version:
+    description: Ollama version. Changing it changes the program cache key, so the next run downloads it once.
+    default: '0.40.15'
 runs:
   using: composite
   steps:
+  # The program comes from this cache; install.sh runs only on a miss, and tries ollama.com, the GitHub
+  # release and Docker Hub in turn (CON-286: an ollama.com 504 failed two PRs before any test ran).
+  - name: Cache Ollama program
+    id: program
+    uses: actions/cache@v4
+    with:
+      path: ~/.ollama-dist
+      key: ${{ runner.os }}-ollama-program-${{ inputs.version }}-cpu
+
+  - name: Install Ollama
+    if: steps.program.outputs.cache-hit != 'true'
+    shell: bash
+    env:
+      OLLAMA_VERSION: ${{ inputs.version }}
+    run: OLLAMA_DIST="$HOME/.ollama-dist" bash "$GITHUB_ACTION_PATH/install.sh"
+
+  - name: Add Ollama to PATH
+    shell: bash
+    run: echo "$HOME/.ollama-dist/bin" >> "$GITHUB_PATH"
+
   # Cache must be restored BEFORE Ollama is set up so the pulled model is available immediately
   - name: Cache Ollama models
     uses: actions/cache@v4
@@ -12,9 +36,6 @@ runs:
       restore-keys: |
         ${{ runner.os }}-ollama-nomic-embed-text-
         ${{ runner.os }}-ollama-
-
-  - name: Setup Ollama
-    uses: ai-action/setup-ollama@v2
 
   - name: Start Ollama service
     shell: bash
@@ -30,6 +51,11 @@ runs:
       for attempt in 1 2 3 4 5; do
         ollama pull nomic-embed-text && break
         if [ "$attempt" -eq 5 ]; then
+          # The model cache already holds it, so a registry outage costs only the freshness check.
+          if ollama show nomic-embed-text > /dev/null 2>&1; then
+            echo "::warning::ollama pull failed 5 times; using the cached nomic-embed-text"
+            break
+          fi
           echo "::error::ollama pull failed 5 times"
           exit 1
         fi
