@@ -180,6 +180,11 @@
       "risk": "read",
       "scope": null
     },
+    "GET /api/approvals/{id:guid}": {
+      "requires": "mcp",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/batches/{id}/status": {
       "requires": "viewer",
       "risk": "read",
@@ -291,6 +296,11 @@
       "scope": "knowledge:read"
     },
     "GET /api/memory/facts/{id}/history": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/timeline": {
       "requires": "viewer",
       "risk": "read",
       "scope": "knowledge:read"
@@ -1202,9 +1212,19 @@
       "scope": "knowledge:read",
       "risk": "read"
     },
+    "memory_space_create": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
     "memory_spaces": {
       "requires": "mcp",
       "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "approval_status": {
+      "requires": "mcp",
+      "scope": "none",
       "risk": "read"
     }
   }

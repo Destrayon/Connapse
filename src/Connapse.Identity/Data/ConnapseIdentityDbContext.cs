@@ -801,6 +801,7 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.Property(e => e.DecidedAt).HasColumnName("decided_at");
             entity.Property(e => e.DecidedByUserId).HasColumnName("decided_by_user_id");
             entity.Property(e => e.UsedAt).HasColumnName("used_at");
+            entity.Property(e => e.DecisionReason).HasColumnName("decision_reason").HasMaxLength(McpApprovalEntity.DecisionReasonMaxLength);
 
             // The retried call looks itself up by token, tool and arguments.
             entity.HasIndex(e => new { e.TokenKey, e.ToolName, e.ArgumentsHash });

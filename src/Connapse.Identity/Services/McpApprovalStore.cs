@@ -32,8 +32,14 @@ public interface IMcpApprovalStore
     /// <summary>Requests still waiting: a person's own, or everyone's for an administrator.</summary>
     Task<IReadOnlyList<McpApprovalEntity>> ListPendingAsync(Guid userId, bool isAdmin, CancellationToken ct = default);
 
-    /// <summary>Approves or denies a waiting request; only its owner or an administrator may.</summary>
-    Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, CancellationToken ct = default);
+    /// <summary>
+    /// Approves or denies a waiting request; only its owner or an administrator may. <paramref name="reason"/> is what
+    /// the person says about it, which the agent that asked reads (CON-292).
+    /// </summary>
+    Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, string? reason = null, CancellationToken ct = default);
+
+    /// <summary>One request, only if <paramref name="tokenKey"/> made it: a token sees its own requests and no one else's (CON-292).</summary>
+    Task<McpApprovalEntity?> GetForTokenAsync(Guid id, string tokenKey, CancellationToken ct = default);
 
     /// <summary>
     /// Empties expired requests and runs <see cref="McpApprovalStore.HideUnredactedSecrets"/>, on a schedule rather
@@ -212,8 +218,17 @@ public sealed class McpApprovalStore(
             .ToListAsync(ct);
     }
 
-    public async Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, CancellationToken ct = default)
+    public async Task<McpApprovalEntity?> GetForTokenAsync(Guid id, string tokenKey, CancellationToken ct = default)
     {
+        await using var db = await contexts.CreateDbContextAsync(ct);
+        return await db.McpApprovals.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id && a.TokenKey == tokenKey, ct);
+    }
+
+    public async Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, string? reason = null, CancellationToken ct = default)
+    {
+        reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        if (reason?.Length > McpApprovalEntity.DecisionReasonMaxLength)
+            reason = reason[..McpApprovalEntity.DecisionReasonMaxLength];
         await using var db = await contexts.CreateDbContextAsync(ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var request = await db.McpApprovals.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id, ct);
@@ -231,6 +246,7 @@ public sealed class McpApprovalStore(
                 .SetProperty(a => a.DecidedAt, now)
                 .SetProperty(a => a.DecidedByUserId, userId)
                 .SetProperty(a => a.ExpiresAt, expiresAt)
+                .SetProperty(a => a.DecisionReason, reason)
                 .SetProperty(a => a.ArgumentsHash, a => approve ? a.ArgumentsHash : "")
                 .SetProperty(a => a.ArgumentsProtected, a => approve ? a.ArgumentsProtected : null), ct);
         return decided == 1 ? McpApprovalDecision.Decided : McpApprovalDecision.NotPending;

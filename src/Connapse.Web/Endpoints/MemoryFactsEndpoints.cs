@@ -152,6 +152,36 @@ public static class MemoryFactsEndpoints
         .WithName("memory.recall")
         .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites");
 
+        // GET /api/memory/timeline - Facts in date order, as the memory_timeline tool reads them
+        group.MapGet("/timeline", async (
+            HttpContext http,
+            [FromQuery] string? space,
+            [FromQuery] string? q,
+            [FromQuery] string? subject,
+            [FromQuery] string? attribute,
+            [FromQuery] string? from,
+            [FromQuery] string? to,
+            [FromQuery] int? limit,
+            [FromQuery] string? cursor,
+            [FromServices] RecallMemory recall,
+            CancellationToken ct) =>
+        {
+            if (!MemoryInput.TryDate(from, out DateTimeOffset? since))
+                return ApiProblem.BadRequest("from must be an ISO 8601 date or time.", field: "from");
+            if (!MemoryInput.TryDate(to, out DateTimeOffset? until))
+                return ApiProblem.BadRequest("to must be an ISO 8601 date or time.", field: "to");
+
+            var read = await recall.TimelineAsync(Rest(http),
+                new MemoryTimelineRequest(space, q, subject, attribute, since, until, limit ?? 50, cursor), ct);
+            return read.Succeeded ? Results.Ok(RecallResponse(read.Result!)) : OperationProblems.Result(read);
+        })
+        .Produces<MemoryRecallResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("memory.timeline")
+        .WithDescription("Facts in date order, ended and corrected ones included, in one space (by id or name) or in every space the caller can see. With from/to, only the facts that started or ended in that window. Reading one space without from, to or attribute pages newest first, each page in date order: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites");
+
         // Writes declare their own policy, so they don't also carry the reads' RequireViewer.
         var writes = app.MapGroup("/api/memory").WithTags("Memory")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -207,7 +237,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.remember")
-        .WithDescription("Stores one fact in a memory space, by id or name; \"my-memory\" is your own personal space, made on first use. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them");
+        .WithDescription("Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them");
 
         // POST /api/memory/facts/{id}/correct - Replace a fact, keeping the old one in history
         writes.MapPost("/facts/{id}/correct", async (

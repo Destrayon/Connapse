@@ -144,7 +144,7 @@ only to callers who can read every source it cites, so a hidden fact and a missi
 The memory write was refused: `subject`, `attribute` or `value` is missing or too long, `validTo` isn't
 after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, a
 cited source doesn't exist or can't be read by the writer, or the `space` names only a documents container or
-is ambiguous. A name other than `my-memory` used by
+is ambiguous. A name used by
 one of your personal spaces and by a team space is ambiguous; pass the id instead. The detail
 says which.
 
@@ -239,7 +239,9 @@ A token must never approve the call it is waiting on, so REST and MCP callers ar
 ## approval-not-found
 
 No waiting approval request has this id, or it belongs to someone else. Only the person a token
-acts for, or an administrator, can see and decide its requests.
+acts for, or an administrator, can see and decide its requests. When an agent checks a request's
+status, only the token that made it can see it; any other caller, an administrator included, gets
+this answer.
 
 ## approval-not-pending
 

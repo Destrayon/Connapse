@@ -530,6 +530,7 @@ api.MapProvidersEndpoints();
 api.MapGitHubAppEndpoints();
 api.MapAtlassianEndpoints();
 api.MapAtlassianLinkAppEndpoints();
+api.MapApprovalEndpoints();
 
 // Map OAuth 2.1 endpoints (discovery, token, registration)
 app.MapOAuthEndpoints();

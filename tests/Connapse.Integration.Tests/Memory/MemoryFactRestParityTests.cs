@@ -112,6 +112,8 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
             await using (McpClient owner = await ConnectAsync(
                 await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Viewer), "knowledge:read", "knowledge:write")))
             {
+                // No space is made for an agent (CON-291), so it makes its own personal one first.
+                await CallAsync(owner, "memory_space_create", new() { ["name"] = "my-memory", ["kind"] = "personal" });
                 string saved = await CallAsync(owner, "memory_remember", new()
                 {
                     ["space"] = "my-memory",
@@ -154,6 +156,131 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
             await DeleteSpacesAsync(team, personal);
         }
     }
+
+    [Fact]
+    public async Task Timeline_OverRest_MatchesTheMemoryTimelineTool_AndRefusesWhatItRefuses()
+    {
+        HttpClient rest = fixture.AdminClient;
+        string space = await CreateSpaceAsync(rest, $"fact-timeline-{Guid.NewGuid():N}"[..40]);
+        string? personal = null;
+        string subject = $"orion-{Guid.NewGuid():N}";
+        using HttpClient viewer = await AuthzPrincipals.ClientAsync(fixture, AuthzPrincipal.Viewer);
+        try
+        {
+            await using McpClient mcp = await ConnectAsync(
+                await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Admin), "knowledge:read", "knowledge:write"));
+
+            // A value that changed twice, plus one that started in March and never changed.
+            string database = Id(await CallAsync(mcp, "memory_remember", new()
+            {
+                ["space"] = space,
+                ["subject"] = subject,
+                ["attribute"] = "database",
+                ["value"] = "PostgreSQL 14",
+                ["validFrom"] = "2026-01-10",
+            }), "remembered");
+            string second = Id(await CallAsync(mcp, "memory_correct", new()
+            {
+                ["factId"] = database,
+                ["value"] = "PostgreSQL 15",
+                ["kind"] = "changed",
+                ["validFrom"] = "2026-04-01",
+            }), "remembered");
+            await CallAsync(mcp, "memory_correct", new()
+            {
+                ["factId"] = second,
+                ["value"] = "PostgreSQL 16",
+                ["kind"] = "changed",
+                ["validFrom"] = "2026-08-01",
+            });
+            await CallAsync(mcp, "memory_remember", new()
+            {
+                ["space"] = space,
+                ["subject"] = subject,
+                ["attribute"] = "cache",
+                ["value"] = "Redis 7",
+                ["validFrom"] = "2026-03-01",
+            });
+
+            // Every shape of read: one space paged, a window in one space, a window everywhere, one attribute everywhere.
+            (string Query, Dictionary<string, object?> Arguments)[] reads =
+            [
+                ($"space={space}&subject={subject}", new() { ["space"] = space, ["subject"] = subject }),
+                ($"space={space}&subject={subject}&from=2026-02-01&to=2026-05-01",
+                    new() { ["space"] = space, ["subject"] = subject, ["from"] = "2026-02-01", ["to"] = "2026-05-01" }),
+                ($"subject={subject}&from=2026-07-01", new() { ["subject"] = subject, ["from"] = "2026-07-01" }),
+                ($"subject={subject}&attribute=database", new() { ["subject"] = subject, ["attribute"] = "database" }),
+            ];
+            foreach ((string query, Dictionary<string, object?> arguments) in reads)
+            {
+                List<Recalled> overRest = await RestTimelineAsync(rest, query);
+                overRest.Should().NotBeEmpty(query);
+                overRest.Should().Equal(await McpTimelineAsync(mcp, arguments), query);
+            }
+
+            // In date order, ended and corrected versions included.
+            (await RestTimelineAsync(rest, $"space={space}&subject={subject}")).Select(f => f.Value)
+                .Should().Equal("PostgreSQL 14", "Redis 7", "PostgreSQL 15", "PostgreSQL 16");
+
+            // One space paged a fact at a time reaches every fact, the same pages on both.
+            List<Recalled> paged = [];
+            string? cursor = null;
+            do
+            {
+                HttpResponseMessage page = await rest.GetAsync(
+                    $"/api/memory/timeline?space={space}&subject={subject}&limit=1{(cursor is null ? "" : $"&cursor={Uri.EscapeDataString(cursor)}")}");
+                page.StatusCode.Should().Be(HttpStatusCode.OK, await page.Content.ReadAsStringAsync());
+                JsonElement body = await Json(page);
+                paged.AddRange(Facts(body.GetProperty("facts"), f => f.GetProperty("fact")));
+                cursor = body.GetProperty("nextCursor").GetString();
+            }
+            while (cursor is not null && paged.Count < 10);
+            paged.Select(f => f.Value).Should().BeEquivalentTo("PostgreSQL 14", "Redis 7", "PostgreSQL 15", "PostgreSQL 16");
+
+            // Values that can't be read are refused with the field they came in.
+            await RefusedAsync(await rest.GetAsync($"/api/memory/timeline?subject={subject}&from=lately"), "from");
+            await RefusedAsync(await rest.GetAsync($"/api/memory/timeline?subject={subject}&to=soon"), "to");
+            await RefusedAsync(await rest.GetAsync($"/api/memory/timeline?space={space}&from=2026-01-01&cursor=abc"), "cursor");
+
+            // Someone else's personal space is not found over REST, as over MCP, and its facts never show in a read of everything.
+            await using (McpClient owner = await ConnectAsync(
+                await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Viewer), "knowledge:read", "knowledge:write")))
+            {
+                personal = JsonDocument.Parse(await CallAsync(owner, "memory_remember", new()
+                {
+                    ["space"] = "my-memory",
+                    ["subject"] = subject,
+                    ["attribute"] = "lunch",
+                    ["value"] = "Tacos on Tuesdays",
+                })).RootElement.GetProperty("savedTo").GetProperty("id").GetString()!;
+            }
+            (await RestTimelineAsync(viewer, $"space={personal}&subject={subject}")).Select(f => f.Value).Should().Equal("Tacos on Tuesdays");
+            (await rest.GetAsync($"/api/memory/timeline?space={personal}&subject={subject}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await CallAsync(mcp, "memory_timeline", new() { ["space"] = personal, ["subject"] = subject })).Should().ContainEquivalentOf("not found");
+            (await RestTimelineAsync(rest, $"subject={subject}&attribute=lunch")).Should().BeEmpty();
+        }
+        finally
+        {
+            await DeleteSpacesAsync(space, personal);
+        }
+    }
+
+    private static async Task<List<Recalled>> RestTimelineAsync(HttpClient http, string query)
+    {
+        HttpResponseMessage response = await http.GetAsync($"/api/memory/timeline?{query}");
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        return Facts((await Json(response)).GetProperty("facts"), f => f.GetProperty("fact"));
+    }
+
+    private static async Task<List<Recalled>> McpTimelineAsync(McpClient mcp, Dictionary<string, object?> arguments)
+    {
+        string read = await CallAsync(mcp, "memory_timeline", arguments);
+        read.Should().StartWith("{", read);
+        return Facts(JsonDocument.Parse(read).RootElement.GetProperty("facts"), f => f);
+    }
+
+    private static List<Recalled> Facts(JsonElement facts, Func<JsonElement, JsonElement> fact) =>
+        [.. facts.EnumerateArray().Select(fact).Select(f => new Recalled(f.GetProperty("id").GetString()!, f.GetProperty("value").GetString()!))];
 
     private sealed record Recalled(string Id, string Value);
 

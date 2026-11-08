@@ -28,7 +28,7 @@ Every fact is saved in a **space**, and the space decides who will see it. There
 | Who sees it | Only its owner, and the agents acting for them | Everyone in this Connapse |
 | Its facts are | Personal | Team |
 
-Everyone who can save memory has a personal space called `my-memory`, made the first time they or their agent save to it. A space's kind is fixed when it is made, because its audience is what tells an agent who will read a fact. To share a personal fact, save it again in a team space.
+No space is made for anyone: a person makes one on the Memory page, and an agent makes one with `memory_space_create`, giving it a name, a description and its kind. A save that names a space that doesn't exist is refused and says to pick or create one. A space's kind is fixed when it is made, because its audience is what tells an agent who will read a fact. To share a personal fact, save it again in a team space.
 
 A document container holds documents and can't hold memory, so a save or read that names one is refused. A source can't hold memory either, because Connapse doesn't write into the systems sources read from.
 
