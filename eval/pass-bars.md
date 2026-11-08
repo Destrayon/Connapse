@@ -35,6 +35,32 @@ before any of these features or their results existed. A change merges only when
 | **Tables container** (suite `tables-v1`, CON-E6; see below) | On the 180 held-out questions: +25 points over rag, exact McNemar p < 0.01, at least 70% correct, no family lower than rag; "both" no worse than rag on the 30 mixed questions | All suites; the leak suite and the table leak tests | 0 server AI tokens, `table_aggregate` p95 under 500 ms on 100k rows, agent cost at most 1.5x rag's |
 | **Passage links to tables** (CON-E6 ticket 15, the `tables-v1` linked set; see below) | 80% of the 20 table questions follow a link; both-linked at least as many of 30 right as both-unlinked and 4 more of the 20 | 10 prose questions: at most 2 make a table call, none fewer right; the hidden-table leak test | Agent cost at most 1.2x both-unlinked's |
 | **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
+| **Meaningful search scores** (CON-278; see below) | Unrelated questions no longer score near 1; scores track relevance better; a no-match signal that works | Rankings identical to the baseline on `v1` | Search p95 +10% at most; a search after the embedding model's idle unload measured and fixed or explained |
+
+## Meaningful search scores (CON-278)
+
+Written on 2026-11-08, before the `scores` command or any measurement existed. Today hybrid search scales each
+side of the fusion to 0–1 within each query, so the top hit always scores about 1 however unrelated it is.
+
+- **Measured with** the `scores` command on suite `v1`, `hybrid` config, test queries. Each dataset's own test
+  queries are **in-domain**. Each dataset is also searched with the test queries of another dataset in the suite
+  (the next one in suite order, wrapping around); those are **foreign** queries. A hit is relevant when its document
+  has a grade above 0. Rules are tuned on the `dev` suite only and judged once on `v1`.
+- **Baseline:** the same command on the scoring of the commit this change branches from.
+- **Bars** (all must pass):
+  1. **No near-perfect unrelated hit.** Over foreign queries, the median top-1 score is at most 0.5 and at most 10%
+     of them have a top-1 score of 0.8 or more.
+  2. **Scores track relevance.** Pooled AUROC of the score over every top-10 hit of in-domain queries, relevant
+     against not relevant, is at least 0.05 above the baseline's, and the 95% bootstrap interval of the difference
+     (resampling queries, 1,000 draws, seed 278) lies above 0.
+  3. **No-match signal.** The search result's no-match flag is set for at least 70% of foreign queries and for at
+     most 10% of in-domain queries whose top-1 hit is relevant.
+  4. **No regression.** Every in-domain query's top-10 ranking is identical to the baseline's, so nDCG@10 is
+     unchanged. `enterprise-v1` and `pdfqa-v1` are covered by the same identity, which a unit test proves for any
+     input with the default settings (no reranker, minimum score 0, auto-cut off).
+  5. **Speed.** Search p95 over in-domain queries is at most 10% above the baseline's. A search made after the
+     embedding model has been idle longer than Ollama's unload time is measured before and after; after the change
+     it is at most 1.5 times the warm p95, or the report explains why not.
 
 ## Container memory for search (CON-244)
 
