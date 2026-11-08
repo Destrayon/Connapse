@@ -50,8 +50,8 @@ public class AppendToFileTests(SharedWebAppFixture fixture)
                 .ListAsync(containerId, pathPrefix: "/log/", take: int.MaxValue);
             documents.Should().ContainSingle().Which.Id.Should().Be(documentId);
         }
-        (await fixture.AdminClient.GetStringAsync($"/api/containers/{containerId}/files/{documentId}/content"))
-            .Should().Contain("First entry.\nSecond entry.");
+        var content = await fixture.AdminClient.GetFromJsonAsync<JsonElement>($"/api/containers/{containerId}/files/{documentId}/content");
+        content.GetProperty("content").GetString().Should().Be("First entry.\nSecond entry.");
     }
 
     private async Task<Document> StoredAsync(string documentId)
