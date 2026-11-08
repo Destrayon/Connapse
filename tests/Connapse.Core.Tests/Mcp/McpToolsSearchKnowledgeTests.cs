@@ -84,6 +84,29 @@ public class McpToolsSearchKnowledgeTests
         result.Should().Be("No results found.");
     }
 
+    [Theory]
+    [InlineData(0, 2, "No results found.\nNote: 2 documents here are still waiting to be indexed, so search can't find them yet. Text files can already be read with get_document.")]
+    [InlineData(1, 1, "\nNote: 1 document here is still waiting to be indexed, so search can't find it yet. Text files can already be read with get_document.\n\n")]
+    [InlineData(1, 0, "(mode: Hybrid):\n\n")]
+    public async Task SearchKnowledge_DocumentsWaitingToBeIndexed_SaysSearchCantFindThemYet(int hits, int pending, string says)
+    {
+        var documents = Substitute.For<IDocumentStore>();
+        documents.GetContainerStatsAsync(ContainerId, Arg.Any<CancellationToken>()).Returns(new ContainerStats(pending, 0, pending, 0, 0, 0, null));
+        var authorizer = Substitute.For<IOperationAuthorizer>();
+        authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+        var search = new SearchKnowledge(_containerStore, Substitute.For<ISourceStore>(), Substitute.For<ISourceVisibility>(), _searchService,
+            _searchSettings, authorizer, documents: documents);
+        var found = Enumerable.Range(0, hits).Select(i => new SearchHit($"c{i}", $"d{i}", "text", 0.5f, [])).ToList();
+        _searchService.SearchAsync(Arg.Any<string>(), Arg.Any<SearchOptions>(), Arg.Any<CancellationToken>())
+            .Returns(new SearchResult(found, hits, TimeSpan.FromMilliseconds(5)));
+
+        var result = await McpTools.SearchKnowledge(search, _http, "journal", ContainerId.ToString());
+
+        result.Should().Contain(says);
+        if (pending == 0)
+            result.Should().NotContain("waiting to be indexed");
+    }
+
     [Fact]
     public async Task SearchKnowledge_MultipleResults_NumberedCorrectly()
     {

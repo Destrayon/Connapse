@@ -209,7 +209,8 @@ public static class DocumentsEndpoints
                 return Results.Text(text, "text/plain");
 
             return Results.Ok(new FileContentResponse(
-                document.Id, document.FileName, document.Path, document.ContentType, document.SizeBytes, document.CreatedAt, text));
+                document.Id, document.FileName, document.Path, document.ContentType, document.SizeBytes, document.CreatedAt, text,
+                read.Result!.AwaitingIndex));
         })
         .Produces<FileContentResponse>()
         // Accept: text/plain gets the text alone. A second Produces for the same status would replace
@@ -336,7 +337,8 @@ public record FileContentResponse(
     string? ContentType,
     long SizeBytes,
     DateTime CreatedAt,
-    string Content);
+    string Content,
+    bool AwaitingIndex = false);
 
 public record BulkDeleteFilesRequest(List<string>? FileIds);
 

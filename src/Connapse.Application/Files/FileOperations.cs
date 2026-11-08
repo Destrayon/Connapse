@@ -73,7 +73,11 @@ public sealed record FileListing(IReadOnlyList<FileEntry> Entries, int TotalCoun
 public sealed record ListFilesQuery(string? Path = null, int Skip = 0, int? Take = null);
 
 /// <summary>A document and its text, as read from storage and parsed where it isn't text already.</summary>
-public sealed record FileContent(Document Document, string Content);
+public sealed record FileContent(Document Document, string Content)
+{
+    /// <summary>The document is still waiting to be indexed, so search can't find it yet; only a text file is read then.</summary>
+    public bool AwaitingIndex => FileRules.IsAwaitingIndex(Document);
+}
 
 /// <summary>A deleted document, and whether its stored file could not be removed and needs cleaning up by hand.</summary>
 public sealed record FileDeletion(Document Document, bool StorageCleanupFailed);
@@ -91,6 +95,10 @@ internal static class FileRules
     {
         ".txt", ".md", ".markdown", ".csv", ".log", ".css", ".js", ".ts", ".jsx", ".tsx", ".json", ".xml", ".yaml", ".yml",
     };
+
+    /// <summary>Whether a document's ingestion hasn't finished, so it isn't searchable yet.</summary>
+    public static bool IsAwaitingIndex(Document document) =>
+        document.Metadata.GetValueOrDefault("Status") is "Pending" or "Processing" or "Queued";
 
     public static Attempt<T, FileStatus> Fail<T>(FileStatus status, string detail, string? field = null) =>
         Attempt<T, FileStatus>.Fail(status, detail, field);
@@ -226,7 +234,8 @@ public sealed class GetFileLinks(
 
 /// <summary>
 /// Reads one document's full text, by id or path, from its stored file: text files as they are, other types through
-/// their parser. A document still ingesting, or whose ingestion failed, has no text to give yet.
+/// their parser. A text file is read as soon as it is stored, while it still waits to be indexed for search; another
+/// type still ingesting, or any document whose ingestion failed, has no text to give yet.
 /// </summary>
 [Operation("files.content", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class GetFileContent(
@@ -247,16 +256,18 @@ public sealed class GetFileContent(
         if (await FileRules.FindReadableAsync(documents, access, context, containerId, fileRef, ct) is not { } document)
             return FileRules.FileNotFound<FileContent>(containerId, fileRef);
 
+        string extension = Path.GetExtension(document.FileName).ToLowerInvariant();
+        bool isText = FileRules.TextExtensions.Contains(extension);
         document.Metadata.TryGetValue("Status", out var status);
-        if (status is "Pending" or "Processing" or "Queued")
+        // A text file's stored bytes are its text, so it needn't wait for indexing to be read (CON-277).
+        if (!isText && FileRules.IsAwaitingIndex(document))
             return FileRules.Fail<FileContent>(FileStatus.NotReady, $"Document is still being ingested (status: {status})");
         if (status == "Failed")
             return FileRules.Fail<FileContent>(FileStatus.IngestionFailed,
                 $"Document failed ingestion: {document.Metadata.GetValueOrDefault("ErrorMessage") ?? "unknown error"}");
 
-        string extension = Path.GetExtension(document.FileName).ToLowerInvariant();
         var parser = parsers.FirstOrDefault(p => p.SupportedExtensions.Contains(extension));
-        if (!FileRules.TextExtensions.Contains(extension) && parser is null)
+        if (!isText && parser is null)
             return FileRules.Fail<FileContent>(FileStatus.NoParser, $"No parser available for '{extension}' files");
 
         var connector = storage.CreateConnector(container.Id);

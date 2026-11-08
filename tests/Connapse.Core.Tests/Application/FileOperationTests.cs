@@ -104,12 +104,12 @@ public class FileOperationTests
     }
 
     [Theory]
-    [InlineData("Pending", FileStatus.NotReady, "Document is still being ingested (status: Pending)")]
-    [InlineData("Queued", FileStatus.NotReady, "Document is still being ingested (status: Queued)")]
-    [InlineData("Failed", FileStatus.IngestionFailed, "Document failed ingestion: unknown error")]
-    public async Task Content_NotYetReadable_SaysWhy(string status, FileStatus expected, string detail)
+    [InlineData("/a.pdf", "Pending", FileStatus.NotReady, "Document is still being ingested (status: Pending)")]
+    [InlineData("/a.pdf", "Queued", FileStatus.NotReady, "Document is still being ingested (status: Queued)")]
+    [InlineData("/a.md", "Failed", FileStatus.IngestionFailed, "Document failed ingestion: unknown error")]
+    public async Task Content_NotYetReadable_SaysWhy(string path, string status, FileStatus expected, string detail)
     {
-        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/a.md", status));
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc(path, status));
 
         var read = await Content(Substitute.For<IManagedStorageProvider>()).RunAsync(Caller, Here, Id);
 
@@ -220,6 +220,38 @@ public class FileOperationTests
         connector.ReadFileAsync("/a.md", Arg.Any<CancellationToken>()).Returns(new MemoryStream(Encoding.UTF8.GetBytes("héllo")));
 
         (await Content(Storage(connector)).RunAsync(Caller, Here, Id)).Result!.Content.Should().Be("héllo");
+    }
+
+    [Theory]
+    [InlineData("Pending", true)]
+    [InlineData("Queued", true)]
+    [InlineData("Processing", true)]
+    [InlineData("Ready", false)]
+    public async Task Content_TextFileStillWaitingToBeIndexed_IsReadAndSaysItIsNotSearchableYet(string status, bool awaiting)
+    {
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/journal/today.md", status));
+        var connector = Substitute.For<IConnector>();
+        connector.ReadFileAsync("/journal/today.md", Arg.Any<CancellationToken>()).Returns(new MemoryStream(Encoding.UTF8.GetBytes("just saved")));
+
+        var read = await Content(Storage(connector)).RunAsync(Caller, Here, Id);
+
+        read.Status.Should().Be(FileStatus.Success);
+        read.Result!.Content.Should().Be("just saved");
+        read.Result.AwaitingIndex.Should().Be(awaiting);
+    }
+
+    [Fact]
+    public async Task Content_ParsedTypeStillWaitingToBeIndexed_IsNotReadFromStorage()
+    {
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/a.pdf", "Processing"));
+        var connector = Substitute.For<IConnector>();
+        var parser = Substitute.For<IDocumentParser>();
+        parser.SupportedExtensions.Returns(new HashSet<string> { ".pdf" });
+
+        var read = await Content(Storage(connector), parser).RunAsync(Caller, Here, Id);
+
+        read.Status.Should().Be(FileStatus.NotReady);
+        connector.ReceivedCalls().Should().BeEmpty();
     }
 
     [Theory]

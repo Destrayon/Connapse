@@ -292,7 +292,9 @@ around the file. In a bulk upload, a file over the limit is reported in its plac
 ## file-not-ready
 
 The document is still being ingested, so it has no text to read yet; the detail gives its status. Try again
-once ingestion finishes.
+once ingestion finishes. Only a file that needs parsing, such as a PDF, waits: a text file (`.md`, `.txt`, `.json`
+and the like) is read as soon as it is stored, and its content response says `awaitingIndex: true` until search
+can find it.
 
 ## file-ingestion-failed
 

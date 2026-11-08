@@ -16562,6 +16562,10 @@
           },
           "content": {
             "type": "string"
+          },
+          "awaitingIndex": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -19027,6 +19031,15 @@
           "duration": {
             "pattern": "^-?(\\d+\\.)?\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,7})?$",
             "type": "string"
+          },
+          "pendingDocuments": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32",
+            "default": 0
           }
         }
       },

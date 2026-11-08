@@ -28,6 +28,7 @@ public class SearchOperationTests
         public readonly ISourceVisibility Visibility = Substitute.For<ISourceVisibility>();
         public readonly IKnowledgeSearch Search = Substitute.For<IKnowledgeSearch>();
         public readonly IOptionsMonitor<SearchSettings> Settings = Substitute.For<IOptionsMonitor<SearchSettings>>();
+        public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly PolicyAuthorizer Authorizer;
         public SearchOptions? Asked;
         public string? AskedQuery;
@@ -46,7 +47,11 @@ public class SearchOperationTests
             });
         }
 
-        public SearchKnowledge Operation() => new(Containers, Sources, Visibility, Search, Settings, Authorizer);
+        public SearchKnowledge Operation() => new(Containers, Sources, Visibility, Search, Settings, Authorizer, documents: Documents);
+
+        /// <summary>How many documents in <paramref name="ownerId"/> still wait to be indexed.</summary>
+        public void Pending(Guid ownerId, int count) =>
+            Documents.GetContainerStatsAsync(ownerId, Arg.Any<CancellationToken>()).Returns(new ContainerStats(count, 0, count, 0, 0, 0, null));
 
         public Container Container(string name = "docs")
         {
@@ -352,6 +357,49 @@ public class SearchOperationTests
         searched.Result!.Hits.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public async Task Search_ContainerWithDocumentsWaitingToBeIndexed_SaysHowMany(int pending)
+    {
+        var world = new World(hits: 0);
+        var container = world.Container();
+        world.Pending(Guid.Parse(container.Id), pending);
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope(container.Id), Query());
+
+        searched.Status.Should().Be(SearchStatus.Success);
+        searched.Result!.PendingDocuments.Should().Be(pending);
+    }
+
+    [Fact]
+    public async Task Search_HiddenSourceSearchableById_NeverSaysHowManyWaitToBeIndexed()
+    {
+        var world = new World(hits: 1);
+        var source = world.Source(visible: false, searchableWhenHidden: true);
+        world.Pending(source.Id, 5);
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope(source.Id.ToString()), Query());
+
+        searched.Result!.PendingDocuments.Should().Be(0);
+        world.Documents.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Search_PendingCountFails_StillAnswersTheSearch()
+    {
+        var world = new World(hits: 1);
+        var container = world.Container();
+        world.Documents.GetContainerStatsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns<ContainerStats>(_ => throw new InvalidOperationException("db"));
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope(container.Id), Query());
+
+        searched.Status.Should().Be(SearchStatus.Success);
+        searched.Result!.Hits.Should().ContainSingle();
+        searched.Result.PendingDocuments.Should().Be(0);
+    }
+
     [Fact]
     public async Task Search_UnknownId_ReadsAsMissing()
     {
@@ -628,7 +676,11 @@ public class SearchOperationTests
                     _ => "nothing",
                 };
 
-                var operation = new SearchKnowledge(world.Containers, world.Sources, world.Visibility, world.Search, world.Settings, world.Authorizer);
+                if (Guid.TryParse(container.Id, out var pendingContainer))
+                    world.Pending(pendingContainer, 3);
+                world.Pending(source.Id, 3);
+                var operation = new SearchKnowledge(world.Containers, world.Sources, world.Visibility, world.Search, world.Settings, world.Authorizer,
+                    documents: world.Documents);
                 var searched = await operation.RunAsync(caller, new SearchScope(target, kind), request);
 
                 if (!allowed)
@@ -676,6 +728,11 @@ public class SearchOperationTests
                 else
                     world.Asked.Filters.Should().BeEquivalentTo(filters);
                 searched.Status.Should().Be(hits == 0 && !discoverable ? SearchStatus.NotFound : SearchStatus.Success);
+                // A scope the caller may not know exists never tells its backlog (CON-277).
+                if (searched.Succeeded)
+                    searched.Result!.PendingDocuments.Should().Be(discoverable ? 3 : 0);
+                if (!discoverable)
+                    world.Documents.ReceivedCalls().Should().BeEmpty();
             }, iter: 2000);
 
     [Fact]
