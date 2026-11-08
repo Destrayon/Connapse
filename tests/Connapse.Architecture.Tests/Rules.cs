@@ -44,6 +44,45 @@ internal static class Rules
             .SelectMany(h => h.Dependencies.Where(HandlerScan.IsStore).Select(t => $"{h.Name} -> {HandlerScan.Display(t)}"))
             .Distinct();
 
+    /// <summary>
+    /// Operations no web route reaches: the route handler, or a helper it calls, takes the operation's class. The web
+    /// API is the surface every client can script, so an action the MCP tools or pages run without a route is one a
+    /// script can't. An exemption names the operation id and why it has no route; an exemption with no reason, for an
+    /// operation that is routed after all, or for an id no operation has, is reported too, so the list can't rot.
+    /// </summary>
+    public static IEnumerable<string> UnroutedOperations(
+        IEnumerable<Type> types, IEnumerable<(string Path, string Source)> files, IReadOnlyDictionary<string, string> exempt)
+    {
+        var routed = HandlerScan.Handlers(files.ToList())
+            .Where(h => h.IsRoute)
+            .SelectMany(h => h.Dependencies.Select(HandlerScan.Display))
+            .Select(t => t.TrimEnd('?'))
+            .ToHashSet(StringComparer.Ordinal);
+        // Only a route taking the operation itself counts. One operation calling another doesn't: memory.copy calls
+        // memory.remember to save the copy, and that never let a script save a fact of its own.
+        var operations = types
+            .Where(t => !t.IsAbstract)
+            .Select(t => (Type: t, Attribute: t.GetCustomAttribute<Connapse.Application.OperationAttribute>(inherit: false)))
+            .Where(o => o.Attribute is not null)
+            .Select(o => (Id: o.Attribute!.Id, Routed: routed.Contains(o.Type.Name)))
+            .ToList();
+
+        foreach (var (id, isRouted) in operations.OrderBy(o => o.Id, StringComparer.Ordinal))
+        {
+            if (!exempt.TryGetValue(id, out string? reason))
+            {
+                if (!isRouted)
+                    yield return $"{id}: no web route";
+            }
+            else if (string.IsNullOrWhiteSpace(reason))
+                yield return $"{id}: exempt without a reason";
+            else if (isRouted)
+                yield return $"{id}: exempt, but a web route reaches it";
+        }
+        foreach (string id in exempt.Keys.Where(k => operations.All(o => o.Id != k)).Order(StringComparer.Ordinal))
+            yield return $"{id}: exempt, but no operation has this id";
+    }
+
     private static bool IsStoreName(string type) =>
         System.Text.RegularExpressions.Regex.IsMatch(type, @"(Store|DbContext)\b|\bIDbContextFactory\b");
 

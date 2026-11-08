@@ -21,7 +21,8 @@ internal static class HandlerScan
     private static readonly HashSet<string> Resolvers =
         ["GetService", "GetRequiredService", "GetKeyedService", "GetRequiredKeyedService", "GetServices", "GetKeyedServices"];
 
-    public sealed record Handler(string Name, IReadOnlyList<TypeSyntax> Dependencies);
+    /// <param name="IsRoute">A web route, rather than an MCP tool.</param>
+    public sealed record Handler(string Name, IReadOnlyList<TypeSyntax> Dependencies, bool IsRoute = true);
 
     /// <summary>Every route lambda or method group and every [McpServerTool] method across the given files.</summary>
     public static IEnumerable<Handler> Handlers(IReadOnlyList<(string Path, string Source)> files)
@@ -57,7 +58,7 @@ internal static class HandlerScan
                 string toolName = tool.ArgumentList?.Arguments
                     .FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "Name")?.Expression is LiteralExpressionSyntax n
                     ? n.Token.ValueText : m.Identifier.ValueText;
-                yield return new Handler($"{owner} {toolName}", Dependencies(m, index));
+                yield return new Handler($"{owner} {toolName}", Dependencies(m, index), IsRoute: false);
             }
         }
     }

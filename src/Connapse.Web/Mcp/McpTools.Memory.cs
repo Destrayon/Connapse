@@ -201,13 +201,8 @@ public partial class McpTools
         [Description("New attribute, if it changed")] string? attribute = null,
         CancellationToken ct = default)
     {
-        MemoryCorrection correction;
-        switch (kind?.Trim().ToLowerInvariant())
-        {
-            case null or "" or "changed": correction = MemoryCorrection.Changed; break;
-            case "wrong": correction = MemoryCorrection.Wrong; break;
-            default: return "Error: kind must be \"changed\" or \"wrong\".";
-        }
+        if (MemoryInput.Correction(kind) is not { } correction)
+            return "Error: kind must be \"changed\" or \"wrong\".";
         if (ParseDates(validFrom, validTo) is not { } dates)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
         if (ParseSources(sources) is not { } parsed)
@@ -254,19 +249,8 @@ public partial class McpTools
         if (ParseDates(asOf, null) is not { } at)
             return "Error: asOf must be YYYY-MM-DD or ISO 8601.";
 
-        string? named = NamedSpace(space, containerId);
-        bool pageable = !string.IsNullOrWhiteSpace(named) && string.IsNullOrWhiteSpace(asOf) && string.IsNullOrWhiteSpace(attribute);
-        if (pageable)
-        {
-            MemoryFactFilter filter = new(Text: query, Subject: subject, Status: includeHistory ? MemoryFactStatus.All : MemoryFactStatus.Current);
-            MemoryFactSort sort = string.IsNullOrWhiteSpace(query) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
-            return RecallJson(await recall.PageAsync(Mcp(http), named!, new MemoryFactListing(filter, sort, cursor, Math.Clamp(limit, 1, 100)), ct));
-        }
-        if (!string.IsNullOrWhiteSpace(cursor))
-            return "Error: cursor works only when you name a `space` and leave out `asOf` and `attribute`.";
-
-        return RecallJson(await recall.SpacesAsync(Mcp(http), named,
-            new MemoryQuery(Guid.Empty, query, subject, attribute, at.From, includeHistory, Limit: limit), ct));
+        return RecallJson(await recall.RecallAsync(Mcp(http),
+            new MemoryRecallRequest(NamedSpace(space, containerId), query, subject, attribute, at.From, includeHistory, limit, cursor), ct));
     }
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),
@@ -348,37 +332,8 @@ public partial class McpTools
     };
 
     /// <summary>Both dates parsed (a missing one as null), or null when either is not a date. A bare date is midnight UTC.</summary>
-    internal static (DateTimeOffset? From, DateTimeOffset? To)? ParseDates(string? from, string? to)
-    {
-        static bool TryParse(string? text, out DateTimeOffset? value)
-        {
-            value = null;
-            if (string.IsNullOrWhiteSpace(text))
-                return true;
-            if (!DateTimeOffset.TryParse(text.Trim(), CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out DateTimeOffset parsed))
-                return false;
-            value = parsed;
-            return true;
-        }
-
-        return TryParse(from, out DateTimeOffset? f) && TryParse(to, out DateTimeOffset? t) ? (f, t) : null;
-    }
+    internal static (DateTimeOffset? From, DateTimeOffset? To)? ParseDates(string? from, string? to) => MemoryInput.Dates(from, to);
 
     /// <summary>Sources as given: a UUID is a document, "node:&lt;id&gt;" a link node. Null when one is neither.</summary>
-    internal static IReadOnlyList<MemorySource>? ParseSources(string[]? sources)
-    {
-        List<MemorySource> parsed = [];
-        foreach (string raw in sources ?? [])
-        {
-            string text = raw.Trim();
-            if (text.StartsWith("node:", StringComparison.OrdinalIgnoreCase) && text.Length > 5)
-                parsed.Add(new MemorySource(MemorySourceKind.Node, text[5..]));
-            else if (Guid.TryParse(text, out Guid document))
-                parsed.Add(new MemorySource(MemorySourceKind.Document, document.ToString()));
-            else
-                return null;
-        }
-        return parsed;
-    }
+    internal static IReadOnlyList<MemorySource>? ParseSources(string[]? sources) => MemoryInput.Sources(sources);
 }
