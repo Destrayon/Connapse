@@ -1103,10 +1103,9 @@
       "id": "memory.recall",
       "capability": "List a subject's facts in date order",
       "routes": [
-        "GET /api/containers/{containerId:guid}/memory/timeline"
+        "GET /api/memory/timeline"
       ],
-      "mcp": "memory_timeline",
-      "note": "MCP only: no REST route yet."
+      "mcp": "memory_timeline"
     },
     {
       "id": "memorySpaces.list",

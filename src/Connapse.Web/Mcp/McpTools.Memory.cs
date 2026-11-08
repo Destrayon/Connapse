@@ -273,33 +273,20 @@ public partial class McpTools
         if (ParseDates(from, to) is not { } window)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
 
-        bool windowed = window.From is not null || window.To is not null;
-        string? named = NamedSpace(space, containerId);
-        if (!string.IsNullOrWhiteSpace(named) && !windowed && string.IsNullOrWhiteSpace(attribute))
-        {
-            MemoryFactFilter filter = new(Text: query, Subject: subject, Status: MemoryFactStatus.All);
-            return RecallJson(await recall.PageAsync(Mcp(http), named, new MemoryFactListing(filter, MemoryFactSort.ValidFrom, cursor,
-                Math.Clamp(limit, 1, 100)), ct), inDateOrder: true);
-        }
-        if (!string.IsNullOrWhiteSpace(cursor))
-            return "Error: cursor works only when you name a `space` and leave out `from`, `to` and `attribute`.";
-
-        return RecallJson(await recall.SpacesAsync(Mcp(http), named, new MemoryQuery(Guid.Empty, query, subject, attribute,
-            History: !windowed, ChangedFrom: window.From, ChangedTo: window.To, Limit: limit), ct), inDateOrder: true);
+        return RecallJson(await recall.TimelineAsync(Mcp(http),
+            new MemoryTimelineRequest(NamedSpace(space, containerId), query, subject, attribute, window.From, window.To, limit, cursor), ct));
     }
 
     /// <summary>The space a read names: <c>space</c>, or the older <c>containerId</c> when only that is given.</summary>
     private static string? NamedSpace(string? space, string? containerId) =>
         string.IsNullOrWhiteSpace(space) ? containerId : space;
 
-    private static string RecallJson(Attempt<SpacedRecall, MemoryStatus> recalled, bool inDateOrder = false)
+    private static string RecallJson(Attempt<SpacedRecall, MemoryStatus> recalled)
     {
         if (!recalled.Succeeded)
             return Refused(recalled);
         SpacedRecall result = recalled.Result!;
-        IEnumerable<RecalledFact> facts = inDateOrder
-            ? result.Facts.OrderBy(f => f.Fact.ValidFrom ?? DateTimeOffset.MinValue).ThenBy(f => f.Fact.RecordedAt)
-            : result.Facts;
+        IEnumerable<RecalledFact> facts = result.Facts;
         return JsonSerializer.Serialize(new
         {
             notice = MemoryNotice,
