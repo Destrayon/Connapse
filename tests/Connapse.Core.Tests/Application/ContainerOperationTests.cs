@@ -62,7 +62,7 @@ public class ContainerOperationTests
     [Fact]
     public async Task List_MoreThanAPage_AsksForOneMoreAndSaysMoreFollow()
     {
-        _containers.ListAsync(0, 3, Arg.Any<CancellationToken>()).Returns([Named("a"), Named("b"), Named("c")]);
+        _containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns([Named("a"), Named("b"), Named("c")]);
 
         var listed = await new ListContainers(_containers, _authorizer).RunAsync(Caller, new ListContainersQuery(0, 2));
 
@@ -73,13 +73,14 @@ public class ContainerOperationTests
     [Fact]
     public async Task List_MemorySpace_IsNotAFileContainerSoIsNotListed()
     {
-        _containers.ListAsync(0, 11, Arg.Any<CancellationToken>())
-            .Returns([Named("docs"), Named("agent-notes") with { Kind = ContainerKind.Memory }]);
+        _containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([Named("agent-notes") with { Kind = ContainerKind.Memory }, Named("docs")]);
 
-        var listed = await new ListContainers(_containers, _authorizer).RunAsync(Caller, new ListContainersQuery(0, 10));
+        var listed = await new ListContainers(_containers, _authorizer).RunAsync(Caller, new ListContainersQuery(0, 1));
 
         listed.Result!.Items.Select(c => c.Name).Should().Equal("docs");
-        await _containers.Received().ListAsync(0, 11, Arg.Any<MemoryCaller?>(), ContainerKind.Documents, Arg.Any<CancellationToken>());
+        listed.Result.HasMore.Should().BeFalse("a memory space ahead of it doesn't take its place on the page");
+        await _containers.Received().ListAsync(0, 2, Arg.Any<MemoryCaller?>(), ContainerKind.Documents, Arg.Any<CancellationToken>());
     }
 
     [Fact]
