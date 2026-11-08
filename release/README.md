@@ -87,6 +87,9 @@ see [Upgrade Connapse](https://github.com/Destrayon/Connapse/blob/main/docs/self
 
 ## Stopping and removing
 
+Every service restarts on its own after a reboot or a crash, as long as Docker starts at boot. A stopped
+service stays stopped.
+
 ```bash
 # Stop without removing data
 docker compose down

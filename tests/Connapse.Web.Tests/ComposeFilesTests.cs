@@ -49,6 +49,66 @@ public class ComposeFilesTests
         script.Should().NotContain("[ -d /minio-data/.minio.sys ]");
     }
 
+    [Theory]
+    [InlineData("docker-compose.yml")]
+    [InlineData("release/docker-compose.yml")]
+    public void ComposeFile_LongRunningServices_ComeBackAfterAReboot(string file)
+    {
+        // Without a restart policy, the one-command install stayed down after the host rebooted (CON-276).
+        Dictionary<string, string[]> services = Services(file);
+
+        foreach (string name in new[] { "postgres", "minio", "ollama", "reranker", "web" })
+        {
+            services[name].Should().Contain(line => line.Trim() == "restart: unless-stopped", $"{name} must restart after a reboot");
+        }
+
+        services["setup"].Should().Contain(line => line.Trim() == "restart: \"no\"", "setup runs once per start and exits");
+    }
+
+    [Theory]
+    [InlineData("docker-compose.yml")]
+    [InlineData("release/docker-compose.yml")]
+    public void ComposeFile_ThirdPartyImages_ArePinned(string file)
+    {
+        // web's tag is CONNAPSE_VERSION, which the release workflow pins to the release.
+        string[] images = SettingLines(file)
+            .Where(line => line.TrimStart().StartsWith("image:", StringComparison.Ordinal))
+            .Select(line => line.Trim()["image:".Length..].Trim())
+            .Where(image => !image.Contains("CONNAPSE_VERSION"))
+            .ToArray();
+
+        images.Should().NotBeEmpty();
+        foreach (string image in images)
+        {
+            string name = image.Split('@')[0];
+            string lastPart = name[(name.LastIndexOf('/') + 1)..];
+            bool hasDigest = image.Contains("@sha256:");
+            bool hasVersionTag = lastPart.Contains(':') && !lastPart.EndsWith(":latest", StringComparison.Ordinal);
+
+            (hasDigest || hasVersionTag).Should().BeTrue($"{image} must name a version or a digest, not float on latest");
+        }
+    }
+
+    private static Dictionary<string, string[]> Services(string relativePath)
+    {
+        string[] lines = SettingLines(relativePath)
+            .SkipWhile(line => line != "services:")
+            .Skip(1)
+            .TakeWhile(line => line.StartsWith(' '))
+            .ToArray();
+        Dictionary<string, string[]> services = [];
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].StartsWith("  ", StringComparison.Ordinal) && !lines[i].StartsWith("   ", StringComparison.Ordinal))
+            {
+                string name = lines[i].Trim().TrimEnd(':');
+                services[name] = lines.Skip(i + 1).TakeWhile(line => line.StartsWith("   ", StringComparison.Ordinal)).ToArray();
+            }
+        }
+
+        return services;
+    }
+
     [Fact]
     public void DevOverlay_FixedPasswords_OnlyFillAnEmptyVolume()
     {

@@ -87,6 +87,8 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17
+    # Comes back on its own after a reboot or a crash; `docker compose stop` keeps it stopped.
+    restart: unless-stopped
     environment:
       POSTGRES_DB: connapse
       POSTGRES_USER: connapse
@@ -117,8 +119,10 @@ services:
     # MinIO no longer publishes images to Docker Hub or Quay; Chainguard's build is maintained.
     # It runs as a non-root user by default, which cannot write /data (or read a volume the old
     # image wrote as root), so it runs as root like the image it replaces.
-    image: cgr.dev/chainguard/minio
+    # Chainguard's free tier tags only `latest`, so this pins the digest: MinIO RELEASE.2026-10-23T20-06-51Z.
+    image: cgr.dev/chainguard/minio@sha256:a1ac4589a5f8136b616e667b48a0bea9719bb10bd45799ea946f24bbedfafde4
     user: "0"
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER_FILE: /connapse-secrets/minio/user
@@ -147,14 +151,14 @@ services:
   # What CONNAPSE_LOCAL_MODEL=on|off picks for the ollama service below. Off runs none of it and
   # downloads nothing; Compose has no other way for a setting to switch a service on or off.
   local-model-on:
-    image: ollama/ollama
+    image: ollama/ollama:0.40.15
     profiles:
       - never-started
     scale: 1
     pull_policy: missing
 
   local-model-off:
-    image: ollama/ollama
+    image: ollama/ollama:0.40.15
     profiles:
       - never-started
     scale: 0
@@ -164,6 +168,7 @@ services:
     extends:
       service: local-model-${CONNAPSE_LOCAL_MODEL:-on}
     profiles: !reset []
+    restart: unless-stopped
     environment:
       OLLAMA_HOST: "0.0.0.0"
     volumes:
@@ -187,6 +192,7 @@ services:
   # searches skip it for a minute at a time and return the un-reranked order.
   reranker:
     image: ${RERANKER_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
+    restart: unless-stopped
     # The 2048-token cap keeps warm-up inside 2G: uncapped, it runs one 8192-token input and is killed even at
     # 3.5G. Chunks are far shorter, and --auto-truncate cuts any longer input instead of rejecting it.
     command: ["--model-id", "Alibaba-NLP/gte-reranker-modernbert-base", "--max-client-batch-size", "128", "--max-batch-tokens", "2048", "--auto-truncate"]
@@ -206,6 +212,7 @@ services:
 
   web:
     image: ghcr.io/destrayon/connapse:${CONNAPSE_VERSION:-latest}
+    restart: unless-stopped
     build: .
     ports:
       - "5001:8080"
