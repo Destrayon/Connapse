@@ -52,13 +52,13 @@ If a client refuses the server, or you want the UI and tokens encrypted on your 
            dns cloudflare {env.CLOUDFLARE_API_TOKEN}
        }
        request_body {
-           max_size 257MB
+           max_size 257MiB
        }
        reverse_proxy web:8080
    }
    ```
 
-   Caddy passes WebSocket upgrades and sets `X-Forwarded-Proto`, which Connapse reads to know it was reached over https. `max_size` is Connapse's 256 MiB upload limit plus 1 MiB for the form around the file.
+   Caddy passes WebSocket upgrades and sets `X-Forwarded-Proto`, which Connapse reads to know it was reached over https. `max_size` is Connapse's 256 MiB upload limit plus 1 MiB for the form around the file. Write `MiB`: Caddy reads `MB` as millions of bytes, and `257MB` is smaller than 256 MiB.
 
 4. Add Caddy and stop publishing the web port. Put `CLOUDFLARE_API_TOKEN=...` in `.env`, then create `docker-compose.https.yml`:
 
@@ -89,7 +89,7 @@ If a client refuses the server, or you want the UI and tokens encrypted on your 
    docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
    ```
 
-   `caddydata` keeps the certificate and its key, so a restart doesn't request a new one.
+   `caddydata` keeps the certificate and its key, so a restart doesn't request a new one. If `docker compose logs caddy` shows `API token appears invalid`, the token in `.env` is mistyped or missing: the Cloudflare plugin checks its format before Caddy starts.
 
 5. If the name doesn't resolve at home, add it to the hosts file. Many routers refuse DNS answers that point at a private address, as a guard against DNS rebinding, so `nslookup connapse.home.example.com` returns nothing. On each computer that uses Connapse, add this line to `/etc/hosts` on Linux and macOS, or `C:\Windows\System32\drivers\etc\hosts` on Windows:
 
@@ -109,7 +109,38 @@ If a client refuses the server, or you want the UI and tokens encrypted on your 
 
 ### Use nginx-proxy instead of Caddy
 
-If you already run [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy) with [acme-companion](https://github.com/nginx-proxy/acme-companion), give the `web` service `VIRTUAL_HOST`, `VIRTUAL_PORT: "8080"` and `LETSENCRYPT_HOST` set to your name, and switch acme-companion to the DNS-01 challenge with `ACME_CHALLENGE: DNS-01` and an `ACMESH_DNS_API_CONFIG` for your provider, as its DNS-01 documentation shows. Raise nginx's `client_max_body_size` to `257m`. Steps 1, 2, 5 and 6 are the same.
+If you already run [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy) with [acme-companion](https://github.com/nginx-proxy/acme-companion), switch acme-companion to the DNS-01 challenge with `ACME_CHALLENGE: DNS-01` and an `ACMESH_DNS_API_CONFIG` for your provider, as its DNS-01 documentation shows. Then, in place of steps 3 and 4:
+
+1. Create `docker-compose.https.yml` next to `docker-compose.yml`. nginx-proxy only reaches containers on a network it shares, so attach `web` to nginx-proxy's network. This example assumes that network is named `proxy`; `docker network ls` shows its real name.
+
+   ```yaml
+   services:
+     web:
+       environment:
+         VIRTUAL_HOST: connapse.home.example.com
+         VIRTUAL_PORT: "8080"
+         LETSENCRYPT_HOST: connapse.home.example.com
+       ports: !reset []
+       networks:
+         - frontend
+         - proxy
+
+   networks:
+     proxy:
+       external: true
+   ```
+
+2. Raise the upload limit for this name only. In the folder that nginx-proxy mounts at `/etc/nginx/vhost.d`, create a file named exactly `connapse.home.example.com` that holds one line:
+
+   ```text
+   client_max_body_size 257m;
+   ```
+
+   Without it, nginx refuses any upload over 1 MiB. nginx's `m` means MiB, so `257m` is above Connapse's 256 MiB limit.
+
+3. Start with both files: `docker compose -f docker-compose.yml -f docker-compose.https.yml up -d`.
+
+Steps 1, 2, 5 and 6 are the same. nginx-proxy passes WebSocket upgrades and `X-Forwarded-Proto` by default.
 
 ## Do it with the API
 
