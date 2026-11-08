@@ -311,7 +311,7 @@ public class McpToolsGetDocumentTests
     {
         (await GetDocuments("[]")).Should().Be("Error: At least one file is required");
         string many = System.Text.Json.JsonSerializer.Serialize(Enumerable.Range(0, 51).Select(i => $"/f{i}.md"));
-        (await GetDocuments(many)).Should().Be("Error: At most 50 files can be read in one call");
+        (await GetDocuments(many)).Should().Be("Error: A maximum of 50 files can be read in one call");
     }
 
     [Fact]

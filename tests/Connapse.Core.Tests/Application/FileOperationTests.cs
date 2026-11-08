@@ -137,7 +137,7 @@ public class FileOperationTests
         var contents = new GetFileContents(_containers, Content(Substitute.For<IManagedStorageProvider>()), _authorizer);
 
         (await contents.RunAsync(Caller, Here, [])).Should().BeEquivalentTo(new { Status = FileStatus.Invalid, Detail = "At least one file is required", Field = "files" });
-        (await contents.RunAsync(Caller, Here, [.. Enumerable.Repeat(Id, 51)])).Detail.Should().Be("At most 50 files can be read in one call");
+        (await contents.RunAsync(Caller, Here, [.. Enumerable.Repeat(Id, 51)])).Detail.Should().Be("A maximum of 50 files can be read in one call");
         (await contents.RunAsync(Caller, Here, [Id, ""])).Detail.Should().Be("Every file must be an id or a path");
         (await contents.RunAsync(Caller, Guid.NewGuid(), [Id])).Status.Should().Be(FileStatus.ContainerNotFound);
         Deny();
@@ -572,17 +572,30 @@ public class FileOperationTests
         string stored = "start";
         var connector = Substitute.For<IWritableConnector>();
         connector.ReadFileAsync("/notes/log.md", Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes(stored)));
+        var firstUploading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int uploads = 0;
         _uploads.UploadAsync(Arg.Any<UploadRequest>(), Arg.Any<CancellationToken>()).Returns(async c =>
         {
             string text = await new StreamReader(c.Arg<UploadRequest>().Content).ReadToEndAsync();
-            await Task.Delay(20);
+            if (Interlocked.Increment(ref uploads) == 1)
+            {
+                firstUploading.SetResult();
+                await releaseFirst.Task;
+            }
             stored = text;
             return new UploadResult(true, Id);
         });
         var append = Append(Storage(connector));
 
-        await Task.WhenAll(Task.Run(() => append.RunAsync(Caller, Here, Id, "+a")), Task.Run(() => append.RunAsync(Caller, Here, Id, "+b")));
+        // The first append is held mid-upload while the second starts. Every step before the lock
+        // completes synchronously, so without the lock the second would read "start" right here.
+        var first = Task.Run(() => append.RunAsync(Caller, Here, Id, "+a"));
+        await firstUploading.Task;
+        var second = append.RunAsync(Caller, Here, Id, "+b");
+        releaseFirst.SetResult();
+        await Task.WhenAll(first, second);
 
-        stored.Should().BeOneOf("start+a+b", "start+b+a");
+        stored.Should().Be("start+a+b");
     }
 }

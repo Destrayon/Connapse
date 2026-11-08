@@ -363,7 +363,7 @@ public sealed class GetFileContents(IContainerStore containers, GetFileContent c
         if (fileRefs.Count == 0)
             return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Invalid, "At least one file is required", "files");
         if (fileRefs.Count > MaxFiles)
-            return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Invalid, $"At most {MaxFiles} files can be read in one call", "files");
+            return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Invalid, $"A maximum of {MaxFiles} files can be read in one call", "files");
         if (fileRefs.Any(string.IsNullOrWhiteSpace))
             return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Invalid, "Every file must be an id or a path", "files");
         if (await containers.GetAsync(containerId, ct) is not { } container)

@@ -3,6 +3,7 @@ using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
+using Connapse.Ingestion.Pipeline;
 using Microsoft.Extensions.Options;
 using IDocumentAccess = Connapse.Application.Ports.IDocumentAccess;
 
@@ -28,9 +29,6 @@ public sealed class AppendToFile(
 {
     // One lock per stripe of container and path, shared by every instance in this process.
     private static readonly SemaphoreSlim[] Locks = [.. Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1))];
-
-    private const string ChunkingStrategyKey = "IndexedWith:ChunkingStrategy";
-    private const string StrategyExplicitKey = "IndexedWith:StrategyExplicit";
 
     public async Task<Attempt<FileAppend, FileStatus>> RunAsync(
         OperationContext context, Guid containerId, string fileRef, string? text, CancellationToken ct = default)
@@ -81,8 +79,8 @@ public sealed class AppendToFile(
             combined.Position = 0;
 
             // An explicit chunking strategy stays; otherwise the upload picks one again, as it did the first time.
-            string? strategy = document.Metadata.GetValueOrDefault(StrategyExplicitKey) == "true"
-                ? document.Metadata.GetValueOrDefault(ChunkingStrategyKey)
+            string? strategy = document.Metadata.GetValueOrDefault(IngestionPipeline.MetadataKeyStrategyExplicit) == "true"
+                ? document.Metadata.GetValueOrDefault(IngestionPipeline.MetadataKeyChunkingStrategy)
                 : null;
             var upload = new FileUpload(document.FileName, combined, PathUtilities.GetParentPath(document.Path), document.ContentType, strategy);
             var uploaded = await uploads.UploadAsync(UploadRules.Request(context, containerId, upload), ct);
