@@ -151,7 +151,7 @@ class SlowRunnerRun41957977547(unittest.TestCase):
     def test_its_31_s_on_a_slow_runner_passes(self):
         code, out = self.check(self.RUN, 31)
         self.assertEqual(code, 0, out)
-        self.assertIn("22.8 s on a median runner", out)
+        self.assertIn("22.8 s on a fast runner", out)
 
     def test_its_31_s_failed_against_a_reference_that_reads_typical_runners_at_080(self):
         # The cause, kept: against a reference 1.35x slower than main's tests, as the one written on
@@ -167,7 +167,7 @@ class SlowRunnerRun41957977547(unittest.TestCase):
         new = {f"New.SlowClass.Test{i}": 4.0 for i in range(3)}
         code, out = self.check(self.RUN | new, 31 + 12)
         self.assertEqual(code, 1, out)
-        self.assertIn("Small tier took 31.6 s on a median runner", out)
+        self.assertIn("Small tier took 31.6 s on a fast runner", out)
 
     def test_every_test_60_percent_slower_on_that_runner_still_fails(self):
         # A slowdown of every test alike reads as a slower runner until the factor reaches MAX_FACTOR.
@@ -177,7 +177,7 @@ class SlowRunnerRun41957977547(unittest.TestCase):
 
 
 class CheckReference(unittest.TestCase):
-    """The nightly's check that the reference still describes main's median runner (CON-250)."""
+    """The nightly's check that the reference still describes main's faster runners (CON-250, CON-294)."""
 
     @staticmethod
     def runs(root: str, factors: list[float], tests: int | list[int] = len(REFERENCE)) -> list[str]:
@@ -199,13 +199,20 @@ class CheckReference(unittest.TestCase):
                                *self.runs(root, factors, tests)])
             return code, out.getvalue()
 
-    # main's two kinds of runner: about 0.7x and 1.2x a median one.
-    FLEET = [0.65, 1.2, 0.7, 1.25, 1.05, 0.7, 1.15, 1.2, 0.75, 1.1, 1.0, 1.2, 0.65, 1.3, 1.05]
+    # main's two kinds of runner against a fresh reference (CON-294): the faster at about 1, the slower at
+    # about 1.4, and 10 of 15 runs the slower kind, as main's latest 15 were on 2026-11-08.
+    FLEET = [1.0, 1.4, 1.05, 1.45, 1.35, 0.95, 1.4, 1.4, 1.0, 1.3, 1.4, 1.4, 1.05, 1.5, 1.35]
 
-    def test_a_fresh_reference_passes_on_a_mixed_fleet(self):
+    def test_a_fresh_reference_passes_on_a_mostly_slow_fleet(self):
         code, out = self.check(self.FLEET)
         self.assertEqual(code, 0, out)
-        self.assertIn("median runner factor of 1.05", out)
+        self.assertIn("the fastest quarter at a median runner factor of 1.00", out)
+
+    def test_a_reference_written_on_the_slower_kind_fails_and_says_to_refresh(self):
+        # CON-286's reference: the median of a mostly slow sample, so the faster kind reads about 0.72.
+        code, out = self.check([f / 1.4 for f in self.FLEET])
+        self.assertEqual(code, 1, out)
+        self.assertIn("refresh", out)
 
     def test_a_reference_main_has_outrun_fails_and_says_to_refresh(self):
         # The reference CON-250 found: main's runs read 0.80 against it, tests faster, runners not.
@@ -216,6 +223,19 @@ class CheckReference(unittest.TestCase):
     def test_a_reference_main_has_slowed_past_fails(self):
         code, out = self.check([f * 1.3 for f in self.FLEET])
         self.assertEqual(code, 1, out)
+
+    def test_too_few_of_the_faster_kind_keeps_the_reference_without_asking_for_a_refresh(self):
+        # 2 of 15 runs on the faster kind: the fastest quarter reads the slower kind at 1.4, and a refresh
+        # from these runs would be the slower kind's.
+        code, out = self.check([1.0, 1.05] + [1.4] * 13)
+        self.assertEqual(code, 0, out)
+        self.assertIn("only 2 of 15 runs are GitHub's faster kind", out)
+        self.assertNotIn("refresh", out)
+
+    def test_drift_found_in_fewer_runs_than_a_refresh_takes_says_to_download_more(self):
+        code, out = self.check([f * 0.73 for f in self.FLEET])
+        self.assertEqual(code, 1, out)
+        self.assertIn("these 15 runs are too few to write one from, so download 20 or more", out)
 
     def test_too_few_runs_fail(self):
         code, out = self.check(self.FLEET[:9])
@@ -241,42 +261,93 @@ class CheckReference(unittest.TestCase):
 
 
 class WriteReference(unittest.TestCase):
+    # Enough other tests that a runner's speed can be read from the reference.
+    FILLERS = {f"F.Test{j}": 0.05 for j in range(b.MIN_MATCHED)}
+
     @staticmethod
-    def runs(root: str, factors: list[float]) -> list[str]:
+    def runs(root: str, factors: list[float], fillers: dict[str, float] = FILLERS) -> list[str]:
         dirs = []
         for i, factor in enumerate(factors):
             d = pathlib.Path(root, f"run{i}", "tests", "P", "TestResults")
             d.mkdir(parents=True)
             durations = {"A": 0.1 * factor, "Tiny": 0.001, "B": 0.2 * factor}
+            durations |= {name: seconds * factor for name, seconds in fillers.items()}
             if i != 1:
                 durations["Sometimes"] = 0.5
             (d / "small-tests.trx").write_text(trx(durations))
             dirs.append(str(pathlib.Path(root, f"run{i}")))
         return dirs
 
-    def test_keeps_each_tests_median_over_runs_for_tests_every_run_timed_at_10_ms_or_more(self):
+    def test_keeps_each_tests_median_over_the_fastest_quarter_for_tests_every_run_timed_at_10_ms_or_more(self):
         with tempfile.TemporaryDirectory() as root:
             out = pathlib.Path(root, "reference.json")
 
-            reference = b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 2.0, 3.0, 4.0, 5.0]))
+            # The fastest quarter of 20 runs is the five at 2.6 to 3.4, whose median is 3.
+            reference = b.write_reference(str(out), "small-tests.trx", self.runs(root, [6.0] * 15 + [3.4, 3.2, 3.0, 2.8, 2.6]))
 
-            self.assertEqual(set(reference), {"A", "B"})
+            self.assertEqual(set(reference), {"A", "B"} | set(self.FILLERS))
             self.assertAlmostEqual(reference["A"], 0.3)
             self.assertAlmostEqual(reference["B"], 0.6)
             self.assertEqual(json.loads(out.read_text()), reference)
 
-    def test_from_fewer_than_five_runs_writes_nothing(self):
-        # One run is one runner's speed, not a median runner's.
+    def test_from_a_mostly_slow_fleet_it_is_the_faster_kinds(self):
+        # 6 of 20 runs on the faster kind, 14 on one 1.4x slower: the median run is the slower kind's.
+        with tempfile.TemporaryDirectory() as root:
+            factors = [0.95, 1.0, 1.0, 1.0, 1.05, 1.1] + [1.4] * 14
+            reference = b.write_reference(str(pathlib.Path(root, "reference.json")), "small-tests.trx", self.runs(root, factors))
+
+            self.assertAlmostEqual(reference["A"], 0.1)
+
+    def test_from_too_few_of_the_faster_kind_keeps_the_old_reference(self):
+        # 2 of 20 on the faster kind: the fastest quarter would be 2 of them and 3 of the slower kind.
+        with tempfile.TemporaryDirectory() as root:
+            out = pathlib.Path(root, "reference.json")
+            out.write_text("old")
+
+            with self.assertRaisesRegex(ValueError, "only 2 of 20 runs are GitHub's faster kind"):
+                b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 1.05] + [1.4] * 18))
+            self.assertEqual(out.read_text(), "old")
+
+    def test_from_one_kind_alone_it_is_that_kinds_fastest_quarter(self):
+        with tempfile.TemporaryDirectory() as root:
+            factors = [0.9 + 0.01 * i for i in range(20)]
+            reference = b.write_reference(str(pathlib.Path(root, "reference.json")), "small-tests.trx", self.runs(root, factors))
+
+            self.assertAlmostEqual(reference["A"], 0.092)
+
+    def test_with_too_few_tests_to_read_a_runner_keeps_the_old_reference(self):
+        with tempfile.TemporaryDirectory() as root:
+            out = pathlib.Path(root, "reference.json")
+            out.write_text("old")
+
+            with self.assertRaisesRegex(ValueError, "only 2 tests"):
+                b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0] * 5 + [1.4] * 15, fillers={}))
+            self.assertEqual(out.read_text(), "old")
+
+    def test_pr_1171s_slow_runner_passes_against_a_reference_from_main_mixed_fleet(self):
+        # #1171 failed at 30.9 s on the slower kind against CON-286's reference, which that kind read at
+        # 1.07, then passed at 20 s on a rerun. Written from a fleet like main's, the reference reads that
+        # runner at 1.4 and its 31 s as 22.1 s.
+        with tempfile.TemporaryDirectory() as root:
+            dirs = CheckReference.runs(root, [0.95, 1.0, 1.0, 1.0, 1.05, 1.1] + [1.4] * 14)
+            reference = b.write_reference(str(pathlib.Path(root, "reference.json")), "small-tests.trx", dirs)
+        with tier(scaled(1.4), reference):
+            code, out = run("--wall-seconds", "31", "--max-wall-seconds", "30", "--reference", "reference.json")
+        self.assertEqual(code, 0, out)
+        self.assertIn("22.1 s on a fast runner", out)
+
+    def test_from_fewer_than_twenty_runs_writes_nothing(self):
+        # Fewer, and the fastest quarter is too few runs to be the faster kind's speed rather than one runner's.
         with tempfile.TemporaryDirectory() as root:
             out = pathlib.Path(root, "reference.json")
 
             with self.assertRaises(ValueError):
-                b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 2.0, 3.0, 4.0]))
+                b.write_reference(str(out), "small-tests.trx", self.runs(root, [float(f) for f in range(1, 20)]))
             self.assertFalse(out.exists())
 
     def test_a_run_with_no_results_writes_nothing(self):
         with tempfile.TemporaryDirectory() as root:
-            dirs = self.runs(root, [1.0, 2.0, 3.0, 4.0]) + [str(pathlib.Path(root, "empty"))]
+            dirs = self.runs(root, [float(f) for f in range(1, 20)]) + [str(pathlib.Path(root, "empty"))]
             out = pathlib.Path(root, "reference.json")
 
             with self.assertRaises(ValueError):
