@@ -7,7 +7,7 @@ audience: operator
 
 # Run Connapse in production
 
-Use this when you want to put a Connapse server on a network other people can reach: behind TLS, with your own secrets, and with nothing exposed but the web app.
+Use this when you want to put a Connapse server on a network other people can reach: behind TLS, with your own secrets, and with nothing exposed but the web app. For a server only your home network reaches, [Add https to a home server](home-network-https.md) lists which sign-ins need https and gets a certificate without opening a port.
 
 ## Prerequisites
 
@@ -134,5 +134,6 @@ None of these steps has an API equivalent. They configure the host, the proxy an
 ## Related
 
 - [Upgrade Connapse](upgrade.md)
+- [Add https to a home server](home-network-https.md)
 - [Configuration reference](../reference/configuration.md)
 - [Security policy](../../SECURITY.md)

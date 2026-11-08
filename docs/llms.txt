@@ -13,6 +13,7 @@ Every page below is Markdown. API keys go in the `X-Api-Key` header; errors are 
 
 - [Install Connapse](self-host/install.md): requirements and Compose profiles (Ollama, reranker, GPU)
 - [Run Connapse in production](self-host/production.md): TLS, secrets, reverse proxy and hardening
+- [Add https to a home server](self-host/home-network-https.md): which sign-ins need https, and a certificate for a server only your home network reaches
 - [Back up and restore Connapse](self-host/backup-and-restore.md): PostgreSQL, MinIO and the data directory
 - [Upgrade Connapse](self-host/upgrade.md): upgrade, migrations, rollback and the v0.3.x to v0.4.0 steps
 - [Troubleshoot a self-hosted server](self-host/troubleshooting.md): symptoms and fixes

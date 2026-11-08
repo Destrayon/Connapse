@@ -58,9 +58,9 @@ public static class OAuthEndpoints
         {
             var baseUrl = GetBaseUrl(ctx);
             return Results.Json(new ClientMetadataDocument(
-                ClientId: $"{baseUrl}/oauth/clients/cli.json",
-                ClientName: "Connapse CLI",
-                RedirectUris: ["http://127.0.0.1/callback"],
+                ClientId: baseUrl + OAuthClientService.FirstPartyCliPath,
+                ClientName: OAuthClientService.FirstPartyCliName,
+                RedirectUris: OAuthClientService.FirstPartyCliRedirectUris,
                 GrantTypes: ["authorization_code", "refresh_token"],
                 ResponseTypes: ["code"],
                 TokenEndpointAuthMethod: "none"));
@@ -125,7 +125,7 @@ public static class OAuthEndpoints
                 var result = await clientService.RegisterAsync(
                     request.ClientName,
                     request.RedirectUris,
-                    request.ApplicationType ?? "web",
+                    request.ApplicationType,
                     ctx.Connection.RemoteIpAddress?.ToString(),
                     ct);
 
@@ -195,7 +195,7 @@ public static class OAuthEndpoints
         // exchange or waits and then revokes the refresh token tagged here (CON-189).
         async Task<IResult> IssueAsync(OAuthCodeExchangeResult? exchangeResult, CancellationToken ct)
         {
-            if (exchangeResult is null || !await ClientMayHoldGrantsAsync(dbContext, clientId, ct))
+            if (exchangeResult is null || !await ClientMayHoldGrantsAsync(ctx, dbContext, clientId, ct))
                 return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
 
             // RFC 8707 §2 / MCP §Token Audience Binding: if the client included a
@@ -257,8 +257,9 @@ public static class OAuthEndpoints
     /// exists, so a code or refresh token minted while it was being revoked (#881) stops working at its next
     /// use. A client known by its metadata URL never registers; revoking it ends its current grants only.
     /// </summary>
-    private static async Task<bool> ClientMayHoldGrantsAsync(ConnapseIdentityDbContext dbContext, string clientId, CancellationToken ct) =>
-        Uri.TryCreate(clientId, UriKind.Absolute, out var uri) && (uri.Scheme == "https" || (uri.Scheme == "http" && uri.Host is "127.0.0.1" or "localhost"))
+    private static async Task<bool> ClientMayHoldGrantsAsync(HttpContext ctx, ConnapseIdentityDbContext dbContext, string clientId, CancellationToken ct) =>
+        OAuthClientService.IsFirstPartyCliClientId(clientId, GetBaseUrl(ctx))
+            || Uri.TryCreate(clientId, UriKind.Absolute, out var uri) && OAuthClientService.IsMetadataDocumentClientId(uri)
             || await dbContext.OAuthClients.AnyAsync(c => c.ClientId == clientId, ct);
 
     private static async Task<IResult> HandleRefreshTokenGrant(
@@ -282,7 +283,7 @@ public static class OAuthEndpoints
         // /api/v1/auth/token/refresh: rotating it here would bind its replacement to this client with no granted
         // scope, which no refresh accepts afterwards (#934).
         if (oldRefreshEntity?.ClientId is not { } boundClient
-            || !string.Equals(boundClient, clientId, StringComparison.Ordinal) || !await ClientMayHoldGrantsAsync(dbContext, boundClient, ct))
+            || !string.Equals(boundClient, clientId, StringComparison.Ordinal) || !await ClientMayHoldGrantsAsync(ctx, dbContext, boundClient, ct))
         {
             return Results.Json(new OAuthError("invalid_grant"), statusCode: 400);
         }

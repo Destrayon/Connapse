@@ -131,6 +131,14 @@ You might see: `docker compose ps` shows `web` restarting or exited with code 13
 2. Optional: lower `Hangfire__IngestionWorkerCount` in the override file (default `4`), so fewer files are parsed at once.
 3. Restart with `docker compose up -d web`.
 
+## Error: Unknown or unregistered client.
+
+The sign-in page shows this when an app signs in with a client ID that is a web address Connapse won't fetch: an http address other than `localhost`, `127.0.0.1` or `[::1]`. Connapse fetches such a client's description only over https. The CLI's own client ID is the exception, so `connapse auth login` works against an http server from the release after v0.4.0. For any other app, give the server https, as [Add https to a home server](home-network-https.md) shows.
+
+## Error: Web clients must use https redirect URIs
+
+An app registered itself to receive its sign-in at an http address that isn't on your own computer. Connapse only sends a sign-in to an https address or to `localhost`, `127.0.0.1` or `[::1]`. Use the app's local callback, or put the app behind https.
+
 ## Turn on debug logging
 
 To see more detail for any of these errors, raise the log level in the override file and restart `web`:
