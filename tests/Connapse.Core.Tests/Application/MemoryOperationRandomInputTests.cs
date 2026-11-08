@@ -423,8 +423,8 @@ public class MemoryOperationRandomInputTests
                 return;
             }
             recalled.Status.Should().Be(MemoryStatus.Success);
-            // One space's answer comes back as memory gave it; merging every space's keeps at most limit, so none below 1.
-            recalled.Result!.Facts.Should().HaveCount(shape.Space || shape.Limit >= 1 ? 1 : 0);
+            // Every read is one recall, one space or all of them, and its answer comes back as memory gave it.
+            recalled.Result!.Facts.Should().HaveCount(1);
             if (pages)
             {
                 MemoryFactFilter filter = new(Text: shape.Text ? "db" : null, Subject: "Halcyon",
