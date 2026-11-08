@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Connapse.Application.Containers;
 using Connapse.Application.Ports;
@@ -61,16 +62,35 @@ public enum FileStatus
 /// One entry at a folder level: a folder, or a document directly in it. A folder with no record of its own is one a
 /// document's path implies, from uploads made before folders were tracked; it has no id.
 /// </summary>
-public sealed record FileEntry(string Name, string Path, bool IsFolder, long? SizeBytes, DateTime? LastModified, string? Id, Document? Document);
+public sealed record FileEntry(string Name, string Path, bool IsFolder, long? SizeBytes, DateTime? LastModified, string? Id, Document? Document)
+{
+    /// <summary>When the entry last changed: a document's last upload or append, otherwise when it was added.</summary>
+    public DateTime? UpdatedAt => Document is null ? LastModified : FileDates.UpdatedAt(Document);
+}
 
-/// <summary>A page of a folder's entries, folders first, then by name.</summary>
+/// <summary>A page of a folder's entries, in the order the query asked for.</summary>
 public sealed record FileListing(IReadOnlyList<FileEntry> Entries, int TotalCount, bool HasMore);
 
 /// <summary>
 /// What to list. <see cref="Take"/> null is every entry, which only MCP's list_files asks for; REST and the file
-/// browser name a page.
+/// browser name a page. <see cref="Sort"/> is "name" (the default: folders first, then by name) or "newest" (most
+/// recently added first, entries with no date last), so the newest N are one call with Take = N.
 /// </summary>
-public sealed record ListFilesQuery(string? Path = null, int Skip = 0, int? Take = null);
+public sealed record ListFilesQuery(string? Path = null, int Skip = 0, int? Take = null, string? Sort = null);
+
+/// <summary>The dates a document carries.</summary>
+public static class FileDates
+{
+    /// <summary>
+    /// When the document's file last changed. An upload to the same path, or an append, keeps the document's id and
+    /// added date and stamps the upload time in its metadata.
+    /// </summary>
+    public static DateTime UpdatedAt(Document document) =>
+        document.Metadata.TryGetValue("UploadedAt", out var stamp)
+        && DateTime.TryParse(stamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var uploaded)
+            ? uploaded.ToUniversalTime()
+            : document.CreatedAt;
+}
 
 /// <summary>A document and its text, as read from storage and parsed where it isn't text already.</summary>
 public sealed record FileContent(Document Document, string Content)
@@ -78,6 +98,9 @@ public sealed record FileContent(Document Document, string Content)
     /// <summary>The document is still waiting to be indexed, so search can't find it yet; only a text file is read then.</summary>
     public bool AwaitingIndex => FileRules.IsAwaitingIndex(Document);
 }
+
+/// <summary>One file of a several-file read, as the caller named it: its text, or the status and detail saying why not.</summary>
+public sealed record FileContentItem(string File, FileStatus Status, FileContent? Content, string? Error = null);
 
 /// <summary>A deleted document, and whether its stored file could not be removed and needs cleaning up by hand.</summary>
 public sealed record FileDeletion(Document Document, bool StorageCleanupFailed);
@@ -141,6 +164,9 @@ public sealed class ListFiles(IContainerStore containers, IDocumentStore documen
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
             return FileRules.Fail<FileListing>(FileStatus.Forbidden, "You don't have permission to view files.");
+        bool newest = string.Equals(query.Sort, "newest", StringComparison.OrdinalIgnoreCase);
+        if (!newest && query.Sort is not null && !string.Equals(query.Sort, "name", StringComparison.OrdinalIgnoreCase))
+            return FileRules.Fail<FileListing>(FileStatus.Invalid, "sort must be \"name\" or \"newest\"", "sort");
         if (query.Skip < 0)
             return FileRules.Fail<FileListing>(FileStatus.InvalidPage, "skip must be >= 0");
         if (query.Take is < 1)
@@ -181,12 +207,21 @@ public sealed class ListFiles(IContainerStore containers, IDocumentStore documen
                 entries.Add(new FileEntry(below[..slash], $"{level}{below[..slash]}/", IsFolder: true, null, null, null, null));
         }
 
-        entries.Sort((a, b) => a.IsFolder != b.IsFolder
-            ? (a.IsFolder ? -1 : 1)
-            : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        entries.Sort(newest ? ByNewest : ByName);
 
         var page = entries.Skip(query.Skip).Take(query.Take ?? int.MaxValue).ToList();
         return Attempt<FileListing, FileStatus>.Succeed(new FileListing(page, entries.Count, query.Skip + page.Count < entries.Count));
+    }
+
+    private static int ByName(FileEntry a, FileEntry b) => a.IsFolder != b.IsFolder
+        ? (a.IsFolder ? -1 : 1)
+        : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Most recently added first; a folder only a document's path implies has no date and goes last.</summary>
+    private static int ByNewest(FileEntry a, FileEntry b)
+    {
+        int byDate = Nullable.Compare(b.LastModified, a.LastModified);
+        return byDate != 0 ? byDate : ByName(a, b);
     }
 }
 
@@ -253,6 +288,13 @@ public sealed class GetFileContent(
         var container = await containers.GetAsync(containerId, ct);
         if (container is null)
             return FileRules.ContainerNotFound<FileContent>(containerId);
+        return await ReadInAsync(context, containerId, container, fileRef, ct);
+    }
+
+    /// <summary>One file's text, once the caller's role and the container are known to be good.</summary>
+    internal async Task<Attempt<FileContent, FileStatus>> ReadInAsync(
+        OperationContext context, Guid containerId, Container container, string fileRef, CancellationToken ct)
+    {
         if (await FileRules.FindReadableAsync(documents, access, context, containerId, fileRef, ct) is not { } document)
             return FileRules.FileNotFound<FileContent>(containerId, fileRef);
 
@@ -301,6 +343,41 @@ public sealed class GetFileContent(
         {
             (connector as IDisposable)?.Dispose();
         }
+    }
+}
+
+/// <summary>
+/// Reads up to 50 files' text in one call, each as files.content does, and answers each in place: its text, or why it
+/// has none. Open to viewers and reading agent keys.
+/// </summary>
+[Operation("files.contents", Scope = "knowledge:read", Risk = RiskTier.Read)]
+public sealed class GetFileContents(IContainerStore containers, GetFileContent content, IOperationAuthorizer authorizer)
+{
+    public const int MaxFiles = 50;
+
+    public async Task<Attempt<IReadOnlyList<FileContentItem>, FileStatus>> RunAsync(
+        OperationContext context, Guid containerId, IReadOnlyList<string> fileRefs, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
+            return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Forbidden, "You don't have permission to view files.");
+        if (fileRefs.Count == 0)
+            return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Invalid, "At least one file is required", "files");
+        if (fileRefs.Count > MaxFiles)
+            return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Invalid, $"At most {MaxFiles} files can be read in one call", "files");
+        if (fileRefs.Any(string.IsNullOrWhiteSpace))
+            return FileRules.Fail<IReadOnlyList<FileContentItem>>(FileStatus.Invalid, "Every file must be an id or a path", "files");
+        if (await containers.GetAsync(containerId, ct) is not { } container)
+            return FileRules.ContainerNotFound<IReadOnlyList<FileContentItem>>(containerId);
+
+        var items = new List<FileContentItem>(fileRefs.Count);
+        foreach (string fileRef in fileRefs)
+        {
+            var read = await content.ReadInAsync(context, containerId, container, fileRef, ct);
+            items.Add(read.Succeeded
+                ? new FileContentItem(fileRef, read.Status, read.Result)
+                : new FileContentItem(fileRef, read.Status, null, read.Detail));
+        }
+        return Attempt<IReadOnlyList<FileContentItem>, FileStatus>.Succeed(items);
     }
 }
 

@@ -140,6 +140,22 @@
       "mcp": "get_document"
     },
     {
+      "id": "files.contents",
+      "capability": "Read several documents' text at once",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/files/contents"
+      ],
+      "mcp": "get_documents"
+    },
+    {
+      "id": "files.append",
+      "capability": "Add text to the end of a file",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/files/{fileId}/append"
+      ],
+      "mcp": "append_to_file"
+    },
+    {
       "id": "files.links",
       "capability": "See what a file links to and what links to it",
       "routes": [

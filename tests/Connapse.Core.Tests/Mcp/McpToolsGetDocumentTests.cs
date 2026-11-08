@@ -271,6 +271,53 @@ public class McpToolsGetDocumentTests
         result.Should().Contain("No parser available");
     }
 
+    // ── get_documents ─────────────────────────────────────────────────────────────────────────────
+
+    private Task<string> GetDocuments(string files, string? containerId = null) =>
+        McpTools.GetDocuments(McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http,
+            containerId ?? ContainerId.ToString(), files);
+
+    [Fact]
+    public async Task GetDocuments_ReadsEachFileInOrderAndAnswersAMissingOneInPlace()
+    {
+        _documentStore.GetByPathAsync(ContainerId, FilePath, Arg.Any<CancellationToken>()).Returns(MakeDocument());
+
+        var result = await GetDocuments($"[\"{FilePath}\", \"/docs/missing.md\"]");
+
+        result.Should().StartWith("Read 1 of 2 document(s).");
+        result.Should().Contain($"=== {FileName} ===\nPath: {FilePath}\nID: {DocId}\nDates: added ");
+        result.Should().Contain(FileContent);
+        result.Should().EndWith($"=== /docs/missing.md ===\nError: File /docs/missing.md not found in container {ContainerId}");
+        result.IndexOf(FileContent, StringComparison.Ordinal).Should().BeLessThan(result.IndexOf("missing.md", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetDocuments_EmptyFile_SaysSoInsteadOfAnEmptyBody()
+    {
+        _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>()).Returns(MakeDocument());
+        _connector.ReadFileAsync(FilePath, Arg.Any<CancellationToken>()).Returns(new MemoryStream());
+
+        (await GetDocuments($"[\"{DocId}\"]")).Should().EndWith("---\n(no readable text content)");
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("{\"a\":1}")]
+    public async Task GetDocuments_NotAJsonArray_ReturnsError(string files) =>
+        (await GetDocuments(files)).Should().Be("Error: 'files' must be a valid JSON array of strings.");
+
+    [Fact]
+    public async Task GetDocuments_EmptyOrTooMany_ReturnsTheOperationsError()
+    {
+        (await GetDocuments("[]")).Should().Be("Error: At least one file is required");
+        string many = System.Text.Json.JsonSerializer.Serialize(Enumerable.Range(0, 51).Select(i => $"/f{i}.md"));
+        (await GetDocuments(many)).Should().Be("Error: At most 50 files can be read in one call");
+    }
+
+    [Fact]
+    public async Task GetDocuments_ContainerNotFound_ReturnsError() =>
+        (await GetDocuments($"[\"{DocId}\"]", Guid.NewGuid().ToString())).Should().StartWith("Error:").And.Contain("not found");
+
     private readonly Dictionary<string, string?> _uris = new() { [DocId] = null };
 
     private DocumentReadGuard NewGuard(ISearchResultVerifier verifier) =>

@@ -327,7 +327,7 @@ public class McpToolsListFilesTests
     [Fact]
     public async Task ListFiles_FoldersByNameThenFilesNewestFirst()
     {
-        var now = DateTime.UtcNow;
+        var now = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
         var older = MakeDocument("/a-old.txt", "a-old.txt", createdAt: now.AddHours(-2));
         var newer = MakeDocument("/z-new.txt", "z-new.txt", createdAt: now.AddHours(-1));
         _documentStore
@@ -340,8 +340,58 @@ public class McpToolsListFilesTests
             "Contents of /:\n\n" +
             "[DIR]  a/\n" +
             "[DIR]  b/\n" +
-            $"[FILE] z-new.txt (1,024 bytes) ID: {newer.Id}\n" +
-            $"[FILE] a-old.txt (1,024 bytes) ID: {older.Id}");
+            $"[FILE] z-new.txt (1,024 bytes) ID: {newer.Id} added 2026-11-08 11:00:00Z\n" +
+            $"[FILE] a-old.txt (1,024 bytes) ID: {older.Id} added 2026-11-08 10:00:00Z");
+    }
+
+    [Fact]
+    public async Task ListFiles_SortNewest_ListsEveryEntryNewestFirstAndLimitKeepsTheNewest()
+    {
+        var now = new DateTime(2026, 11, 8, 12, 0, 0, DateTimeKind.Utc);
+        var oldest = MakeDocument("/a.txt", "a.txt", createdAt: now.AddHours(-3));
+        var inFolder = MakeDocument("/sub/b.txt", "b.txt", createdAt: now.AddHours(-2));
+        var newest = MakeDocument("/c.txt", "c.txt", createdAt: now.AddHours(-1));
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document> { oldest, inFolder, newest });
+
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http,
+            ContainerId.ToString(), "/", limit: 1, sort: "newest");
+
+        result.Should().Contain($"[FILE] c.txt (1,024 bytes) ID: {newest.Id} added 2026-11-08 11:00:00Z\n");
+        result.Should().NotContain("a.txt");
+        result.Should().NotContain("[DIR]");
+        result.Should().Contain("more entries truncated");
+    }
+
+    [Fact]
+    public async Task ListFiles_FileChangedSinceAdded_ShowsBothDates()
+    {
+        var document = MakeDocument("/log.md", "log.md", createdAt: new DateTime(2026, 11, 1, 9, 0, 0, DateTimeKind.Utc)) with
+        {
+            Metadata = new() { ["UploadedAt"] = "2026-11-08T10:30:00.0000000Z" },
+        };
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document> { document });
+
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http,
+            ContainerId.ToString(), "/");
+
+        result.Should().Contain("added 2026-11-01 09:00:00Z, updated 2026-11-08 10:30:00Z");
+    }
+
+    [Fact]
+    public async Task ListFiles_UnknownSort_ReturnsError()
+    {
+        _documentStore
+            .ListAsync(ContainerId, Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new List<Document> { MakeDocument("/a.txt", "a.txt") });
+
+        var result = await McpTools.ListFiles(McpCaller.Files(_services).List, McpCaller.Files(_services).Container, McpCaller.Http,
+            ContainerId.ToString(), "/", sort: "oldest");
+
+        result.Should().StartWith("Error:").And.Contain("sort");
     }
 
     private static Container MakeContainer() => new(

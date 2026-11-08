@@ -33,9 +33,11 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `container_create` | `knowledge:write` | Write | Creates a container. |
 | `container_delete` | `knowledge:write` | Destructive | Deletes an empty container. Sources can't be deleted here. |
 | `search_knowledge` | `knowledge:read` | Read | Searches a container or source and returns ranked passages with their document ids and scores. |
-| `list_files` | `knowledge:read` | Read | Lists the folders and documents at a path in a container. |
+| `list_files` | `knowledge:read` | Read | Lists the folders and documents at a path in a container, each document with the date it was added and, if different, last updated. Sorts by name or newest first. |
 | `get_document` | `knowledge:read` | Read | Returns one document's full extracted text, by id or path. |
+| `get_documents` | `knowledge:read` | Read | Returns up to 50 documents' full text in one call, by id or path, in the order asked. A file that can't be read gets an error line and doesn't stop the others. |
 | `upload_file` | `knowledge:write` | Write | Uploads one file to be ingested. |
+| `append_to_file` | `knowledge:write` | Write | Adds text to the end of an existing text file and reindexes it. The file keeps its id, path and added date. |
 | `bulk_upload` | `knowledge:write` | Write | Uploads up to 100 files in one call. |
 | `delete_file` | `knowledge:write` | Destructive | Deletes a file and its passages. To replace a file, delete it, then upload it again. |
 | `bulk_delete` | `knowledge:write` | Destructive | Deletes up to 100 files in one call. |
@@ -69,8 +71,14 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `path` | string | No | Folder to list; default `/` |
 | | `limit` | integer | No | Most entries to return. Without it, a folder of more than 50 entries returns an error suggesting `search_knowledge` |
 | | `confirmLarge` | boolean | No | `true` lists a large folder in full |
+| | `sort` | string | No | `name` (default; folders first) or `newest` (most recently added first). With `limit`, `newest` gives a folder's latest entries |
 | `get_document` | `containerId` | string | Yes | Container id or name |
 | | `fileId` | string | Yes | Document id, or its path such as `/docs/readme.md` |
+| `get_documents` | `containerId` | string | Yes | Container id or name |
+| | `files` | string | Yes | A JSON array of up to 50 document ids or paths |
+| `append_to_file` | `containerId` | string | Yes | Container id or name |
+| | `file` | string | Yes | Document id, or its path. Only text files (`.md`, `.txt`, `.log`, `.csv`, `.json` and similar) |
+| | `text` | string | Yes | Added exactly as given; start it with a newline to put it on a new line |
 | `upload_file` | `containerId` | string | Yes | Container id or name |
 | | `fileName` | string | Yes | File name with its extension |
 | | `textContent` | string | One of the two | The file's text, for text formats |

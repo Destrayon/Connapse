@@ -64,13 +64,15 @@ internal static class McpCaller
         var delete = new DeleteFile(containers, documents, Get<IFolderStore>(), Get<IManagedStorageProvider>(), Get<IIngestionQueue>(), Get<IStoredFileRemovalStore>(), Get<IAuditLogger>(), Allowed,
             Get<Microsoft.Extensions.Logging.ILogger<DeleteFile>>());
         var parsers = (IEnumerable<IDocumentParser>?)services.GetService(typeof(IEnumerable<IDocumentParser>)) ?? [];
+        var content = new GetFileContent(containers, documents, access, Get<IManagedStorageProvider>(), parsers, Allowed);
         return new FileTools(
             new GetContainer(containers, Allowed),
             new ListFiles(containers, documents, Get<IFolderStore>(), access, Allowed),
             new GetFile(containers, documents, access, Allowed),
-            new GetFileContent(containers, documents, access, Get<IManagedStorageProvider>(), parsers, Allowed),
+            content,
             delete,
-            new BulkDeleteFiles(containers, delete, Allowed));
+            new BulkDeleteFiles(containers, delete, Allowed),
+            new GetFileContents(containers, content, Allowed));
     }
 
     /// <summary>
@@ -107,5 +109,6 @@ internal static class McpCaller
         return access;
     }
 
-    public sealed record FileTools(GetContainer Container, ListFiles List, GetFile Get, GetFileContent Content, DeleteFile Delete, BulkDeleteFiles BulkDelete);
+    public sealed record FileTools(
+        GetContainer Container, ListFiles List, GetFile Get, GetFileContent Content, DeleteFile Delete, BulkDeleteFiles BulkDelete, GetFileContents Contents);
 }

@@ -81,6 +81,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             ["delete_file"] = new() { ["containerId"] = missing, ["fileId"] = Guid.NewGuid().ToString() },
             ["bulk_delete"] = new() { ["containerId"] = missing, ["fileIds"] = $"[\"{Guid.NewGuid()}\"]" },
             ["bulk_upload"] = new() { ["containerId"] = missing, ["files"] = "[{\"filename\":\"probe.txt\",\"content\":\"probe\"}]" },
+            ["append_to_file"] = new() { ["containerId"] = missing, ["file"] = Guid.NewGuid().ToString(), ["text"] = "probe" },
             [McpApiTools.WriteName] = new() { ["operation"] = missing },
             ["memory_remember"] = new() { ["containerId"] = missing, ["subject"] = "probe", ["attribute"] = "probe", ["value"] = "probe" },
             ["memory_correct"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString(), ["value"] = "probe", ["kind"] = "wrong" },

@@ -62,6 +62,23 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
                     violations.Add($"cross-object {method} {route}: expects 404, got {(int)response.StatusCode}");
             }
 
+            // Fetching several files answers per file, so the proof is that B's text never comes back.
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/contents", new { files = new[] { fileOfB } }))
+                if ((await response.Content.ReadAsStringAsync()).Contains(TextOfB, StringComparison.Ordinal))
+                    violations.Add("cross-object POST /api/containers/{containerId:guid}/files/contents: returned the other container's text");
+
+            const string Probe = " cross-object append probe";
+            async Task OtherFileUnchangedAsync(string what)
+            {
+                if ((await http.GetStringAsync($"/api/containers/{b}/files/{fileOfB}/content")).Contains(Probe, StringComparison.Ordinal))
+                    violations.Add($"cross-object {what}: appended to the other container's file");
+            }
+
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/{fileOfB}/append", new { text = Probe }))
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                    violations.Add($"cross-object POST /api/containers/{{containerId:guid}}/files/{{fileId}}/append: expects 404, got {(int)response.StatusCode}");
+            await OtherFileUnchangedAsync("POST /api/containers/{containerId:guid}/files/{fileId}/append");
+
             // MCP takes the same pair of ids. A tool that answers with either file's text through
             // the wrong container, or deletes the other container's file, leaks whatever it says.
             await using (var mcp = await CrossSurface.Surfaces.McpAsync(fixture))
@@ -69,6 +86,11 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
                 string read = Text(await mcp.CallToolAsync("get_document", new Dictionary<string, object?> { ["containerId"] = a, ["fileId"] = fileOfB }));
                 if (read.Contains(TextOfB, StringComparison.Ordinal) || read.Contains(TextOfA, StringComparison.Ordinal))
                     violations.Add("cross-object mcp get_document: returned a file's text through the other container");
+                string many = Text(await mcp.CallToolAsync("get_documents", new Dictionary<string, object?> { ["containerId"] = a, ["files"] = $"[\"{fileOfB}\"]" }));
+                if (many.Contains(TextOfB, StringComparison.Ordinal))
+                    violations.Add("cross-object mcp get_documents: returned the other container's text");
+                await mcp.CallToolAsync("append_to_file", new Dictionary<string, object?> { ["containerId"] = a, ["file"] = fileOfB, ["text"] = Probe });
+                await OtherFileUnchangedAsync("mcp append_to_file");
                 await mcp.CallToolAsync("delete_file", new Dictionary<string, object?> { ["containerId"] = a, ["fileId"] = fileOfB });
                 await OtherFileSurvivesAsync("mcp delete_file");
                 await mcp.CallToolAsync("bulk_delete", new Dictionary<string, object?> { ["containerId"] = a, ["fileIds"] = $"[\"{fileOfB}\"]" });
