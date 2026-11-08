@@ -96,7 +96,7 @@ internal static class ContainerRules
         Attempt<T, ContainerStatus>.Fail(ContainerStatus.MemoryContainer, MemoryOnly(container));
 }
 
-/// <summary>Lists containers. Open to viewers; a container has no per-item visibility.</summary>
+/// <summary>Lists document containers; memory spaces are not among them. Open to viewers; a container has no per-item visibility.</summary>
 [Operation("containers.list", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class ListContainers(IContainerStore containers, IOperationAuthorizer authorizer)
 {
@@ -114,7 +114,9 @@ public sealed class ListContainers(IContainerStore containers, IOperationAuthori
             return Attempt<ContainerList, ContainerStatus>.Fail(ContainerStatus.InvalidPage, $"take must be <= {MaxTake}");
 
         // One more than the page, to know whether another follows.
-        var listed = await containers.ListAsync(query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ContainerRules.Viewer(context), ct);
+        // Memory spaces are not file containers: they are listed by memorySpaces.list, never here (CON-291).
+        var listed = await containers.ListAsync(
+            query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ContainerRules.Viewer(context), ContainerKind.Documents, ct);
         bool hasMore = query.Take is int size && listed.Count > size;
         return Attempt<ContainerList, ContainerStatus>.Succeed(new ContainerList(hasMore ? listed.Take(query.Take!.Value).ToList() : listed, hasMore));
     }

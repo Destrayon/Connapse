@@ -71,6 +71,18 @@ public class ContainerOperationTests
     }
 
     [Fact]
+    public async Task List_MemorySpace_IsNotAFileContainerSoIsNotListed()
+    {
+        _containers.ListAsync(0, 11, Arg.Any<CancellationToken>())
+            .Returns([Named("docs"), Named("agent-notes") with { Kind = ContainerKind.Memory }]);
+
+        var listed = await new ListContainers(_containers, _authorizer).RunAsync(Caller, new ListContainersQuery(0, 10));
+
+        listed.Result!.Items.Select(c => c.Name).Should().Equal("docs");
+        await _containers.Received().ListAsync(0, 11, Arg.Any<MemoryCaller?>(), ContainerKind.Documents, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Get_ByName_LooksUpTheLowercasedNameAndQuotesItWhenMissing()
     {
         var read = await new GetContainer(_containers, _authorizer).RunAsync(Caller, ContainerKey.ByName(" Docs "));

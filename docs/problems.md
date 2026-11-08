@@ -144,7 +144,7 @@ only to callers who can read every source it cites, so a hidden fact and a missi
 The memory write was refused: `subject`, `attribute` or `value` is missing or too long, `validTo` isn't
 after `validFrom`, there are more than 20 sources, a correction's `kind` isn't `changed` or `wrong`, a
 cited source doesn't exist or can't be read by the writer, or the `space` names only a documents container or
-is ambiguous. A name other than `my-memory` used by
+is ambiguous. A name used by
 one of your personal spaces and by a team space is ambiguous; pass the id instead. The detail
 says which.
 

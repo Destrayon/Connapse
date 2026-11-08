@@ -1202,6 +1202,11 @@
       "scope": "knowledge:read",
       "risk": "read"
     },
+    "memory_space_create": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
     "memory_spaces": {
       "requires": "mcp",
       "scope": "knowledge:read",

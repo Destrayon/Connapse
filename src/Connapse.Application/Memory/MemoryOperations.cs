@@ -53,9 +53,6 @@ internal static class MemoryRules
     public const string ReadScope = "knowledge:read";
     public const string WriteScope = "knowledge:write";
 
-    /// <summary>The personal space every writer has, made the first time it is named.</summary>
-    public const string MyMemory = "my-memory";
-
     /// <summary>
     /// The memory space named by id or name, as <paramref name="viewer"/> may see it, or null. Only memory containers
     /// resolve: naming a document container is refused, and someone else's personal space reads as missing. A name a
@@ -130,7 +127,8 @@ internal static class MemoryRules
         await authorizer.AllowsAsync(context.User, Policies.Writer) && await authorizer.AllowsAsync(context.User, Policies.KnowledgeWrite);
 
     public static Attempt<T, MemoryStatus> WriteContainerNotFound<T>(string? containerId) =>
-        Fail<T>(MemoryStatus.ContainerNotFound, $"Space '{containerId}' not found. Memory lives in personal and team spaces.");
+        Fail<T>(MemoryStatus.ContainerNotFound, $"Space '{containerId}' not found. Memory lives in personal and team spaces: "
+            + "pick one you have, or create one, then save to it. No space is made for you.");
 
     public static Attempt<T, MemoryStatus> FactNotFound<T>(string? factId) =>
         Fail<T>(MemoryStatus.FactNotFound, $"Fact '{factId}' not found.");
@@ -174,20 +172,10 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 
         MemoryCaller caller = MemoryRules.Caller(context.User);
         string field = target.IsSpace ? "space" : "containerId";
-        // my-memory always means the caller's own space, even when a team space or container has that name, since
-        // the tools offer it as the private place to save; the team one is still reachable by id.
-        bool myMemory = target.IsSpace && string.Equals(target.IdOrName?.Trim(), MemoryRules.MyMemory, StringComparison.OrdinalIgnoreCase);
-        (Container? named, string? refused) = myMemory
-            ? (null, null)
-            : await MemoryRules.SpaceAsync(containers, target.IdOrName, caller, ct);
+        // No space is made by naming it (CON-291): a save names a space that exists, or is told to pick or create one.
+        (Container? named, string? refused) = await MemoryRules.SpaceAsync(containers, target.IdOrName, caller, ct);
         if (refused is not null)
             return Invalid(refused, field);
-        if (myMemory)
-        {
-            if (!MemoryRules.CanOwn(caller))
-                return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Forbidden, "personal memory needs a signed-in user or agent to belong to.");
-            named = await containers.EnsurePersonalSpaceAsync(caller, MemoryRules.MyMemory, "Your own memory: only you see what is saved here.", ct);
-        }
         if (named is null)
             return MemoryRules.WriteContainerNotFound<MemoryWritten>(target.IdOrName);
 
@@ -223,7 +211,7 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
             .Where(c => c.Audience == MemoryScope.Personal).Select(c => c.Name).ToList();
         string where = own.Count > 0
             ? $"Save it to one of your personal spaces: {string.Join(", ", own)}."
-            : $"You have no personal space yet: save it to space \"{MemoryRules.MyMemory}\" and it is made for you.";
+            : "You have no personal space yet: create one, then save it there.";
         return $"'{named.Name}' is a team space, so everyone can see what is saved there. {where}";
     }
 }

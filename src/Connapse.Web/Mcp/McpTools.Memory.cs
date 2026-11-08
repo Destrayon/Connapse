@@ -38,7 +38,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_spaces", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("List the memory spaces you can use: your personal spaces (only you see them) and team spaces (everyone in this Connapse sees them). Each comes with its id, name, kind, description, whether you can add to it, and who sees it. Call this before saving to pick a `space` for memory_remember. At most 100 are returned; pass `name` to find others.")]
+     Description("List the memory spaces you can use: your personal spaces (only you see them) and team spaces (everyone in this Connapse sees them). Each comes with its id, name, kind, description, whether you can add to it, and who sees it. Call this before saving to pick a `space` for memory_remember; if none fits, make one with memory_space_create. At most 100 are returned; pass `name` to find others.")]
     public static async Task<string> MemorySpaces(
         ListMemorySpaces spaces,
         IHttpContextAccessor http,
@@ -83,6 +83,44 @@ public partial class McpTools
         }, MemoryJson);
     }
 
+    [McpServerTool(Name = "memory_space_create", Destructive = false),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
+     Description("Make a memory space to save facts in. Kind \"personal\" is yours alone: only you see its facts. Kind \"team\" is seen by everyone in this Connapse. "
+        + SaveTest
+        + " Check memory_spaces first: no space is made for you, so make one only when none fits. Names are lowercase letters, numbers and hyphens.")]
+    public static async Task<string> MemorySpaceCreate(
+        CreateMemorySpace create,
+        ListMemorySpaces spaces,
+        IHttpContextAccessor http,
+        [Description("Name for the space, e.g. \"halcyon-notes\"")] string name,
+        [Description("\"personal\" (only you see it) or \"team\" (everyone in this Connapse sees it)")] string kind,
+        [Description("What belongs in this space, so you and others pick it for the right facts")] string? description = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(kind) || !Enum.TryParse(kind.Trim(), ignoreCase: true, out MemorySpaceKind parsed)
+            || !Enum.IsDefined(parsed) || int.TryParse(kind.Trim(), out _))
+            return "Error: kind must be \"personal\" or \"team\".";
+
+        OperationContext context = Mcp(http);
+        var created = await create.RunAsync(context, new NewMemorySpace(name, description, parsed), ct);
+        if (!created.Succeeded)
+            return Refused(created);
+        MemorySpaceView space = created.Result!;
+        MemorySpaceAudience audience = await spaces.AudienceAsync(context, ct);
+        return JsonSerializer.Serialize(new
+        {
+            created = new
+            {
+                id = space.Id,
+                name = space.Name,
+                kind = space.Kind,
+                description = space.Description,
+                whoSees = WhoSees(space.Kind, audience.Accounts),
+            },
+            note = $"Save facts here with memory_remember and space=\"{space.Name}\".",
+        }, MemoryJson);
+    }
+
     /// <summary>Who reads a space's facts, in words.</summary>
     internal static string WhoSees(MemorySpaceKind kind, int? accounts) => kind switch
     {
@@ -94,7 +132,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_remember", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name the `space` (memory_spaces lists yours; \"my-memory\" is your own and is made on first use). "
+     Description("Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name a `space` that exists: memory_spaces lists yours, and memory_space_create makes one if none fits. No space is made for you. "
         + SaveTest
         + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead.")]
     public static async Task<string> MemoryRemember(
@@ -104,7 +142,7 @@ public partial class McpTools
         [Description("What the fact is about, e.g. a project, person or service")] string subject,
         [Description("Which property of the subject, e.g. \"database\" or \"tech lead\"")] string attribute,
         [Description("The value")] string value,
-        [Description("Space ID or name to save to (required). memory_spaces lists yours; \"my-memory\" is your personal one")] string? space = null,
+        [Description("Space ID or name to save to (required). memory_spaces lists yours; make one with memory_space_create")] string? space = null,
         [Description("Date it became true (YYYY-MM-DD or ISO 8601). Omit if unknown.")] string? validFrom = null,
         [Description("Date it stopped being true, if it already has")] string? validTo = null,
         [Description("Sources: document IDs, or link node IDs as \"node:<id>\"")] string[]? sources = null,
@@ -141,14 +179,14 @@ public partial class McpTools
         const string head = "Error: name the `space` to save to. ";
         var listed = await spaces.RunAsync(context, new MemorySpaceQuery(Limit: ListMemorySpaces.MaxLimit), ct);
         if (!listed.Succeeded)
-            return head + SaveTest + " Call memory_spaces to see your spaces, or save to \"my-memory\", your personal space.";
+            return head + SaveTest + " Call memory_spaces to see your spaces, or make one with memory_space_create.";
 
         IReadOnlyList<MemorySpaceView> items = listed.Result!.Items;
         System.Text.StringBuilder text = new(head);
         text.Append(SaveTest);
         if (items.Count == 0)
         {
-            text.Append(" You have no spaces yet; save to \"my-memory\" to make your personal one.");
+            text.Append(" You have no spaces yet: make one with memory_space_create (kind \"personal\" or \"team\"), then save to it.");
             return text.ToString();
         }
         text.Append(" Your spaces:");
@@ -158,7 +196,7 @@ public partial class McpTools
         if (more > 0)
             text.Append(CultureInfo.InvariantCulture, $"\n...and {more} more (memory_spaces lists them).");
         if (!items.Any(s => s.Kind == MemorySpaceKind.Personal))
-            text.Append("\nYou have no personal space yet; save to \"my-memory\" to make one.");
+            text.Append("\nYou have no personal space yet; make one with memory_space_create (kind \"personal\").");
         return text.ToString();
     }
 

@@ -86,6 +86,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             ["memory_remember"] = new() { ["containerId"] = missing, ["subject"] = "probe", ["attribute"] = "probe", ["value"] = "probe" },
             ["memory_correct"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString(), ["value"] = "probe", ["kind"] = "wrong" },
             ["memory_forget"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString() },
+            ["memory_space_create"] = new() { ["name"] = "NOT A VALID NAME", ["kind"] = "team" },
         };
 
         var hidden = Tools.Keys.Where(t => !Visible(AuthzPrincipal.AgentRead, t)).Order().ToList();
@@ -132,8 +133,13 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             string first = await UploadAsync(http, full, "first.txt");
             string second = await UploadAsync(http, full, "second.txt");
             string third = await UploadAsync(http, full, "third.txt", "/probe");
+            // CON-291: no space is made for an agent, so it makes its own personal one first.
+            string notes = $"authz-notes-{Guid.NewGuid():N}"[..24];
+            var made = await agent.CallToolAsync("memory_space_create",
+                new Dictionary<string, object?> { ["name"] = notes, ["kind"] = "personal" });
+            space = JsonDocument.Parse(Text(made)).RootElement.GetProperty("created").GetProperty("id").GetString()!;
             var remembered = await agent.CallToolAsync("memory_remember",
-                new Dictionary<string, object?> { ["space"] = "my-memory", ["subject"] = "probe", ["attribute"] = "kept", ["value"] = "yes" });
+                new Dictionary<string, object?> { ["space"] = notes, ["subject"] = "probe", ["attribute"] = "kept", ["value"] = "yes" });
             JsonElement saved = JsonDocument.Parse(Text(remembered)).RootElement;
             string fact = saved.GetProperty("remembered").GetProperty("id").GetString()!;
             // CON-235: a fact citing nothing goes to the caller's own personal space, so it is forgotten from there.

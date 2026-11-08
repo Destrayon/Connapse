@@ -112,6 +112,8 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
             await using (McpClient owner = await ConnectAsync(
                 await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Viewer), "knowledge:read", "knowledge:write")))
             {
+                // No space is made for an agent (CON-291), so it makes its own personal one first.
+                await CallAsync(owner, "memory_space_create", new() { ["name"] = "my-memory", ["kind"] = "personal" });
                 string saved = await CallAsync(owner, "memory_remember", new()
                 {
                     ["space"] = "my-memory",
