@@ -171,13 +171,13 @@
     "CodeLines": 138,
     "Injects": 3,
     "Complexity": 18,
-    "MarkupLogic": 24,
+    "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Pages/MemoryPage.razor": {
-    "CodeLines": 220,
+    "CodeLines": 204,
     "Injects": 3,
-    "Complexity": 81,
+    "Complexity": 77,
     "MarkupLogic": 36,
     "IsEmpty": false
   },
