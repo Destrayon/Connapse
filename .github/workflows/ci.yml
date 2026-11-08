@@ -99,12 +99,6 @@ jobs:
     - name: Ensure ShellCheck is available
       run: shellcheck --version || sudo apt-get install -y shellcheck
 
-    # TEMPORARY (CON-286 proof, reverted next commit): make every Ollama download source unreachable.
-    - name: Block Ollama download hosts
-      run: |
-        echo "127.0.0.1 ollama.com github.com registry.ollama.ai" | sudo tee -a /etc/hosts
-        if curl -sS --max-time 10 -o /dev/null https://ollama.com/; then echo "::error::ollama.com still reachable"; exit 1; fi
-
     - uses: ./.github/actions/ollama
 
     - name: Run Medium tests
