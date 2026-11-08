@@ -295,6 +295,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/memory/timeline": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/memory/spaces/": {
       "requires": "viewer",
       "risk": "read",
