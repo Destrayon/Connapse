@@ -78,10 +78,10 @@ Claude calls `search_knowledge` and answers from the passage, naming `retries.md
 Agent memory keeps facts between sessions. Ask Claude:
 
 ```text
-Remember in my-memory that our retry policy uses exponential backoff with jitter, citing retries.md as the source.
+Make me a personal memory space called my-memory, then remember in it that our retry policy uses exponential backoff with jitter, citing retries.md as the source.
 ```
 
-`my-memory` is your personal space, which Connapse makes the first time it is used. Claude calls `memory_remember` with the subject, an attribute such as `retry policy`, the value, and the document ID of `retries.md`. Now quit Claude Code, start it again so it has no memory of this conversation, and ask:
+Connapse makes no memory space for you, so Claude first calls `memory_space_create` with the name `my-memory` and the kind `personal`. It then calls `memory_remember` with the subject, an attribute such as `retry policy`, the value, and the document ID of `retries.md`. Now quit Claude Code, start it again so it has no memory of this conversation, and ask:
 
 ```text
 What do you remember in my-memory about our retry policy?

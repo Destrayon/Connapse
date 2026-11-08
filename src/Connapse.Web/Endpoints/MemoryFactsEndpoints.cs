@@ -237,7 +237,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.remember")
-        .WithDescription("Stores one fact in a memory space, by id or name; \"my-memory\" is your own personal space, made on first use. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them");
+        .WithDescription("Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them");
 
         // POST /api/memory/facts/{id}/correct - Replace a fact, keeping the old one in history
         writes.MapPost("/facts/{id}/correct", async (

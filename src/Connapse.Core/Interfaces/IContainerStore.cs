@@ -25,6 +25,12 @@ public interface IContainerStore
     Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, CancellationToken ct = default);
 
     /// <summary>
+    /// As <see cref="ListAsync(int, int, MemoryCaller?, CancellationToken)"/>, only containers of <paramref name="kind"/>:
+    /// the container list asks for document containers, since memory spaces are listed on their own.
+    /// </summary>
+    Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, ContainerKind kind, CancellationToken ct = default);
+
+    /// <summary>
     /// <paramref name="owner"/>'s personal memory space called <paramref name="name"/>, made now when it doesn't exist
     /// yet. Throws <see cref="ArgumentException"/> when the name isn't a valid container name or the owner has no id.
     /// </summary>

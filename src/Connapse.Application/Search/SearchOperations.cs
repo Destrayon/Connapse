@@ -202,13 +202,18 @@ public sealed class SearchKnowledge(
 
         // Names are stored lower case.
         string name = scope.IdOrName.ToLowerInvariant();
-        if (containersAllowed && (await containers.FindByNameAsync(name, ContainerRules.Viewer(context), ct)).FirstOrDefault() is { } container)
-            return Guid.TryParse(container.Id, out var containerId) ? (containerId, true, MemoryOf(container)) : null;
-        if (!sourcesAllowed)
-            return null;
-        var named = await sources.FindByNameAsync(name, ct);
-        var canSeeNamed = await visibility.ForAsync(context.User, ct);
-        return named is not null && canSeeNamed(named) ? (named.Id, true, null) : null;
+        IReadOnlyList<Container> byName = containersAllowed ? await containers.FindByNameAsync(name, ContainerRules.Viewer(context), ct) : [];
+        // A memory space is not a file container (CON-291), so one never hides a document container or source of the same name.
+        if (byName.FirstOrDefault(c => c.Kind != ContainerKind.Memory) is { } container)
+            return Guid.TryParse(container.Id, out var containerId) ? (containerId, true, null) : null;
+        if (sourcesAllowed)
+        {
+            var named = await sources.FindByNameAsync(name, ct);
+            var canSeeNamed = await visibility.ForAsync(context.User, ct);
+            if (named is not null && canSeeNamed(named))
+                return (named.Id, true, null);
+        }
+        return byName.FirstOrDefault() is { } memory && Guid.TryParse(memory.Id, out var memoryId) ? (memoryId, true, memory) : null;
     }
 
     private static Container? MemoryOf(Container container) => container.Kind == ContainerKind.Memory ? container : null;

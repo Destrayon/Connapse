@@ -28,13 +28,13 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_create", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Create a new container. Use when setting up a new knowledge domain or project. kind=documents (the default) holds documents; kind=memory holds only agent memory facts — general facts that belong to no document set — and refuses uploads and document tools.")]
+     Description("Create a new container for documents. Use when setting up a new knowledge domain or project. To make a place for memory facts, use `memory_space_create` instead.")]
     public static async Task<string> ContainerCreate(
         CreateContainer create,
         IHttpContextAccessor http,
         [Description("Container name (lowercase alphanumeric and hyphens, 2-128 chars)")] string name,
         [Description("Optional description for the container")] string? description = null,
-        [Description("What the container holds: \"documents\" (default) or \"memory\" (agent memory facts only). Fixed once created.")] string? kind = null,
+        [Description("Older option: \"documents\" (default) or \"memory\". Make memory spaces with `memory_space_create` instead")] string? kind = null,
         CancellationToken ct = default)
     {
         if (ParseKind(kind) is not { } containerKind)
@@ -53,7 +53,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Lists every searchable knowledge scope with its description and document count. Each entry is kind=managed (storage Connapse owns, browsable with `list_files`), kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing), or kind=memory (agent memory only: use `memory_recall` and `memory_remember`; document tools refuse it). Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
+     Description("Lists every searchable knowledge scope with its description and document count. Each entry is kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). Memory spaces are not listed here: `memory_spaces` lists them. Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
         ListContainers list,
         ListSources listSources,
@@ -92,9 +92,7 @@ public partial class McpTools
         text += $"Found {owners.Count} knowledge scope(s):\n\n";
         foreach (var owner in owners)
         {
-            text += owner.IsMemory
-                ? $"- {owner.Name} [{owner.Kind}] (agent memory: use memory_recall)"
-                : $"- {owner.Name} [{owner.Kind}] ({owner.DocumentCount} files)";
+            text += $"- {owner.Name} [{owner.Kind}] ({owner.DocumentCount} files)";
             if (!string.IsNullOrEmpty(owner.Description))
                 text += $" — {owner.Description}";
             text += "\n";

@@ -93,34 +93,18 @@ public class MemoryContainerPagesTests : IDisposable
     }
 
     [Fact]
-    public void Cards_MemoryContainer_SaysAgentMemoryInsteadOfCountingFiles()
+    public void Cards_MemorySpace_IsNotListedAmongFileContainers()
     {
+        // CON-291: memory spaces live on the Memory page; the Files page lists document containers only.
         List<Container> seeded = [Seed("docs", ContainerKind.Documents, files: 3), Seed("agent-notes", ContainerKind.Memory)];
         containers.ListAsync(default, default, default).ReturnsForAnyArgs(seeded);
 
         var cut = ctx.Render<Home>();
 
-        cut.WaitForAssertion(() => cut.FindAll(".container-card").Should().HaveCount(2));
-        var cards = cut.FindAll(".container-card");
-        cards[0].QuerySelector(".container-card-meta")!.TextContent.Should().Contain("3 files");
-        cards[1].QuerySelector(".container-card-meta")!.TextContent.Should().Contain("Agent memory").And.NotContain("files");
-        cards[1].QuerySelector(".container-card-memory-icon").Should().NotBeNull();
-    }
-
-    [Fact]
-    public void DeleteDialog_MemoryContainer_WarnsThatItsFactsGoToo()
-    {
-        List<Container> seeded = [Seed("docs", ContainerKind.Documents), Seed("agent-notes", ContainerKind.Memory)];
-        containers.ListAsync(default, default, default).ReturnsForAnyArgs(seeded);
-        var cut = ctx.Render<Home>();
-        cut.WaitForAssertion(() => cut.FindAll(".container-card").Should().HaveCount(2));
-
-        cut.FindAll(".container-delete-btn")[0].Click();
-        cut.FindAll("#delete-memory-warning").Should().BeEmpty();
-        cut.Find(".modal-footer-custom .btn-outline-secondary").Click();
-        cut.FindAll(".container-delete-btn")[1].Click();
-
-        cut.Find("#delete-memory-warning").TextContent.Should().Contain("Every memory fact in it is deleted too");
+        cut.WaitForAssertion(() => cut.FindAll(".container-card").Should().ContainSingle());
+        cut.Find(".container-card-name").TextContent.Should().Be("docs");
+        cut.Find(".container-card-meta").TextContent.Should().Contain("3 files");
+        cut.Markup.Should().NotContain("agent-notes");
     }
 
     [Fact]

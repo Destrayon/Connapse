@@ -1121,8 +1121,7 @@
       "routes": [
         "POST /api/memory/spaces/"
       ],
-      "mcp": null,
-      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+      "mcp": "memory_space_create"
     },
     {
       "id": "memorySpaces.update",

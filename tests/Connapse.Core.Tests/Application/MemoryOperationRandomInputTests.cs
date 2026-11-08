@@ -125,13 +125,7 @@ public class MemoryOperationRandomInputTests
                     if (space?.Kind == ContainerKind.Documents)
                         return (MemoryStatus.Invalid, null, default, null);
                     string? made = null;
-                    if (space is null && asSpace && myMemory)
-                    {
-                        if (!owns)
-                            return (MemoryStatus.Forbidden, null, default, null);
-                        space = new Container(ensuredId.ToString(), "my-memory", null, Epoch, Epoch, Kind: ContainerKind.Memory, Audience: MemoryScope.Personal);
-                        made = "my-memory";
-                    }
+                    // CON-291: "my-memory" is a name like any other, so one nobody made is not found.
                     if (space is null)
                         return (MemoryStatus.ContainerNotFound, null, default, null);
                     bool personalSpace = space.Audience == MemoryScope.Personal;

@@ -85,11 +85,20 @@ public class PostgresContainerStore(
     public Task<IReadOnlyList<Container>> ListAsync(int skip = 0, int take = 50, CancellationToken ct = default) =>
         ListAsync(skip, take, viewer: null, ct);
 
-    public async Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, CancellationToken ct = default)
+    public Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, CancellationToken ct = default) =>
+        ListAsync(skip, take, viewer, kind: null, ct);
+
+    public Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, ContainerKind kind, CancellationToken ct = default) =>
+        ListAsync(skip, take, viewer, (ContainerKind?)kind, ct);
+
+    private async Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, ContainerKind? kind, CancellationToken ct)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
-        var results = await VisibleTo(context.Containers.AsNoTracking(), viewer)
+        var visible = VisibleTo(context.Containers.AsNoTracking(), viewer);
+        if (kind is { } only)
+            visible = visible.Where(c => c.Kind == only);
+        var results = await visible
             .OrderBy(c => c.Name)
             .ThenBy(c => c.Audience == MemoryScope.Personal)
             .Skip(skip)
