@@ -191,6 +191,17 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | `POST` | `/api/containers/{containerId}/search` | `knowledge:read` | Search within a container with advanced filters and options |
 | `GET` | `/api/containers/{containerId}/search/models` | — | Get embedding models with vectors in this container |
 
+### Code
+
+The same questions the `code_*` MCP tools answer, over indexed C#, Python and TypeScript, with the same answer and the same permissions. `containerId` takes a container or source, by id or by name; an unknown one is `404`, and a memory space is `409`. Paths come back without a leading `/`, and only files the caller can read are shown.
+
+| Method | Path | Scope | Description |
+|--------|------|-------|-------------|
+| `GET` | `/api/code/symbols` | `knowledge:read` | Where a symbol is defined (`?containerId=&query=`). `match` is `exact` (default), `words` or `meaning`; `follow=true` adds what the first definition calls, constructs or inherits; `limit` 1–100, default 10. |
+| `GET` | `/api/code/references` | `knowledge:read` | Where a symbol is used (`?containerId=&symbol=`). `kind` is `all` (default), `calls` or `inherits`; `limit` default 20. |
+| `GET` | `/api/code/impact` | `knowledge:read` | What could break if a symbol changes: callers up to `depth` hops (default 2), their files, and the tests among them; `limit` default 30. |
+| `GET` | `/api/code/map` | `knowledge:read` | The most central files and their main symbols (`?containerId=`), optionally under `path`; `maxFiles` default 30. |
+
 ### Audit
 
 | Method | Path | Scope | Description |

@@ -523,6 +523,7 @@ api.MapDocumentsEndpoints();
 api.MapFoldersEndpoints();
 api.MapSearchEndpoints();
 api.MapMemoryFactsEndpoints();
+api.MapCodeEndpoints();
 api.MapBatchesEndpoints();
 api.MapSettingsEndpoints();
 api.MapProvidersEndpoints();
