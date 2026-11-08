@@ -185,6 +185,35 @@ public class OAuthEndpointTests(SharedWebAppFixture fixture)
         json!.RootElement.GetProperty("error").GetString().Should().Be("unsupported_grant_type");
     }
 
+    public static TheoryData<string, string> UnreadableTokenBodies() => new()
+    {
+        // More fields than the form reader allows (1,024).
+        { string.Join('&', Enumerable.Range(0, 2_000).Select(i => $"k{i}=v")), "application/x-www-form-urlencoded" },
+        // One value longer than the form reader allows (4 MB).
+        { "grant_type=refresh_token&refresh_token=" + new string('a', 5 * 1024 * 1024), "application/x-www-form-urlencoded" },
+        // A form type the token endpoint does not take, without the boundary it would need.
+        { "grant_type=refresh_token", "multipart/form-data" },
+        // A multipart body cut off before its closing boundary.
+        { "--b\r\nContent-Disposition: form-data; name=\"grant_type\"\r\n\r\nrefresh_token", "multipart/form-data; boundary=b" },
+        { "{\"grant_type\":\"refresh_token\"}", "application/json" },
+    };
+
+    [Theory]
+    [MemberData(nameof(UnreadableTokenBodies))]
+    public async Task TokenEndpoint_UnreadableBody_Returns400InvalidRequest(string body, string contentType)
+    {
+        using var client = fixture.Factory.CreateClient();
+        using var content = new StringContent(body, Encoding.UTF8);
+        content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+
+        var response = await client.PostAsync("/oauth/token", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        var json = await response.Content.ReadFromJsonAsync<JsonDocument>();
+        json!.RootElement.GetProperty("error").GetString().Should().Be("invalid_request");
+    }
+
     [Fact]
     public async Task CliMetadataDocument_ReturnsValidJson()
     {
