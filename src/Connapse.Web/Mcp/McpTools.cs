@@ -162,14 +162,15 @@ public partial class McpTools
                 _ => $"Error: Container '{containerId}' not found.",
             };
         var result = searched.Result!;
+        string pendingNote = PendingNote(result.PendingDocuments);
 
         if (result.Hits.Count == 0)
-            return "No results found.";
+            return "No results found." + pendingNote;
 
         var countSummary = result.Hits.Count < result.TotalMatches
             ? $"Showing {result.Hits.Count} of {result.TotalMatches} matching chunk(s)"
             : $"Found {result.TotalMatches} result(s)";
-        var resultText = $"{countSummary} in {result.Duration.TotalMilliseconds:F0}ms (mode: {parsedMode}):\n\n";
+        var resultText = $"{countSummary} in {result.Duration.TotalMilliseconds:F0}ms (mode: {parsedMode}):{pendingNote}\n\n";
         for (var i = 0; i < result.Hits.Count; i++)
         {
             var hit = result.Hits[i];
@@ -189,6 +190,13 @@ public partial class McpTools
 
         return resultText.TrimEnd();
     }
+
+    /// <summary>
+    /// Says that documents still waiting to be indexed can't be in a search's results yet (CON-277), so an agent
+    /// doesn't read a miss as absence; empty when none are waiting.
+    /// </summary>
+    internal static string PendingNote(int pendingDocuments) =>
+        SearchNotes.Pending(pendingDocuments) is { } note ? $"\nNote: {note} Text files can already be read with get_document." : "";
 
     [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
@@ -566,6 +574,7 @@ public partial class McpTools
                      $"ID: {document.Id}\n" +
                      $"Size: {document.SizeBytes:N0} bytes\n" +
                      $"Created: {document.CreatedAt:u}\n" +
+                     (read.Result.AwaitingIndex ? "Indexing: still waiting, so search_knowledge can't find this document yet.\n" : "") +
                      $"---\n";
 
         return header + content;

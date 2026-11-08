@@ -21,10 +21,15 @@ public record SearchOptions(
     Dictionary<string, string>? Filters = null,
     Guid? UserId = null);
 
+/// <param name="PendingDocuments">
+/// Documents in the searched container or source still waiting to be indexed, so none of their text can be in
+/// <paramref name="Hits"/> yet (CON-277). Zero when the caller may not know the scope exists.
+/// </param>
 public record SearchResult(
     List<SearchHit> Hits,
     int TotalMatches,
-    TimeSpan Duration);
+    TimeSpan Duration,
+    int PendingDocuments = 0);
 
 public record SearchHit(
     string ChunkId,

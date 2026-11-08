@@ -159,11 +159,29 @@ public class McpToolsGetDocumentTests
         result.Should().Contain("not found in this container");
     }
 
-    [Fact]
-    public async Task GetDocument_PendingStatus_ReturnsError()
+    [Theory]
+    [InlineData("Pending", true)]
+    [InlineData("Queued", true)]
+    [InlineData("Ready", false)]
+    public async Task GetDocument_TextFileWaitingToBeIndexed_ReturnsItsTextAndSaysSearchCantFindItYet(string status, bool waiting)
     {
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
-            .Returns(MakeDocument(status: "Pending"));
+            .Returns(MakeDocument(status: status));
+
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+
+        result.Should().EndWith(FileContent);
+        if (waiting)
+            result.Should().Contain("Indexing: still waiting, so search_knowledge can't find this document yet.\n---\n");
+        else
+            result.Should().NotContain("Indexing:");
+    }
+
+    [Fact]
+    public async Task GetDocument_ParsedTypeStillIngesting_ReturnsError()
+    {
+        _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
+            .Returns(MakeDocument(status: "Pending", fileName: "report.pdf", path: "/docs/report.pdf"));
 
         var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 

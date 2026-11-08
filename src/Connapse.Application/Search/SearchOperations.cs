@@ -76,7 +76,8 @@ public sealed record SearchRequest(
 [Operation("search.knowledge", Scope = Scope, Risk = RiskTier.Read)]
 public sealed class SearchKnowledge(
     IContainerStore containers, ISourceStore sources, ISourceVisibility visibility, IKnowledgeSearch search,
-    IOptionsMonitor<SearchSettings> settings, IOperationAuthorizer authorizer, ILocalModelMonitor? localModel = null)
+    IOptionsMonitor<SearchSettings> settings, IOperationAuthorizer authorizer, ILocalModelMonitor? localModel = null,
+    IDocumentStore? documents = null)
 {
     public const string Scope = "knowledge:read";
 
@@ -134,7 +135,27 @@ public sealed class SearchKnowledge(
         }
 
         // A hidden source the caller can read nothing in answers as a missing id, so naming one can't confirm it exists.
-        return owner is null || result.Hits.Count == 0 && !discoverable ? NotFound(scope) : Attempt<SearchResult, SearchStatus>.Succeed(result);
+        if (owner is null || result.Hits.Count == 0 && !discoverable)
+            return NotFound(scope);
+        // Only for a scope the caller may know exists: a hidden source's backlog would say what is in it.
+        if (discoverable)
+            result = result with { PendingDocuments = await PendingAsync(ownerId, ct) };
+        return Attempt<SearchResult, SearchStatus>.Succeed(result);
+    }
+
+    /// <summary>How many documents in the scope still wait to be indexed; zero when that can't be counted, which mustn't fail a search that ran.</summary>
+    private async Task<int> PendingAsync(Guid ownerId, CancellationToken ct)
+    {
+        if (documents is null)
+            return 0;
+        try
+        {
+            return await documents.CountAwaitingIndexAsync(ownerId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return 0;
+        }
     }
 
     /// <summary>What is wrong with a request, and the field at fault; null when nothing is.</summary>
@@ -215,4 +236,16 @@ public sealed class SearchSource(SearchKnowledge search)
 {
     public Task<Attempt<SearchResult, SearchStatus>> RunAsync(OperationContext context, Guid sourceId, SearchRequest request, CancellationToken ct = default) =>
         search.RunAsync(context, SearchScope.Source(sourceId), request, ct);
+}
+
+/// <summary>What a search says about documents it can't find yet, shared by the Search page and MCP.</summary>
+public static class SearchNotes
+{
+    /// <summary>The sentence for <paramref name="pendingDocuments"/> documents still waiting to be indexed; null when there are none.</summary>
+    public static string? Pending(int pendingDocuments) => pendingDocuments switch
+    {
+        <= 0 => null,
+        1 => "1 document in the searched container or source is still waiting to be indexed, so search can't find it yet.",
+        _ => $"{pendingDocuments} documents in the searched container or source are still waiting to be indexed, so search can't find them yet.",
+    };
 }

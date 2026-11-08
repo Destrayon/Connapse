@@ -145,6 +145,10 @@
                 </span>
             </div>
 
+            <p class="results-meta pending-index-note" role="status" hidden="@(SearchNotes.Pending(searchResult.PendingDocuments) is null)">
+                @SearchNotes.Pending(searchResult.PendingDocuments)
+            </p>
+
             @if (searchResult.Hits.Count == 0)
             {
                 <div class="no-results">

@@ -251,7 +251,8 @@ public class FileRandomInputTests
 
                 FileStatus expected = !reader ? FileStatus.Forbidden
                     : kind is not (FileRef.OwnId or FileRef.OwnPath) || !readable ? FileStatus.NotFound
-                    : status is "Pending" or "Processing" or "Queued" ? FileStatus.NotReady
+                    // A text file is read while it waits to be indexed (CON-277); a parsed type waits for ingestion.
+                    : extension != ".md" && status is "Pending" or "Processing" or "Queued" ? FileStatus.NotReady
                     : status == "Failed" ? FileStatus.IngestionFailed
                     : extension == ".xyz" ? FileStatus.NoParser
                     : storage != Storage.Reads ? FileStatus.NotReadable
@@ -263,6 +264,7 @@ public class FileRandomInputTests
                 {
                     read.Result!.Document.Should().Be(own);
                     read.Result.Content.Should().Be(extension == ".md" ? "raw text" : "parsed text");
+                    read.Result.AwaitingIndex.Should().Be(status is "Pending" or "Processing" or "Queued");
                 }
                 if (expected is FileStatus.Forbidden or FileStatus.NotFound or FileStatus.NotReady or FileStatus.IngestionFailed or FileStatus.NoParser)
                     connector.ReceivedCalls().Should().BeEmpty();
