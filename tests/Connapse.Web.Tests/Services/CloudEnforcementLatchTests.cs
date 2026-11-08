@@ -1,6 +1,7 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Settings;
+using System.Threading.Channels;
 using Connapse.Web.Services;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -76,7 +77,8 @@ public class CloudEnforcementLatchTests
         AzureAdSignInSettings? azureAd = null,
         bool alreadyEnforcing = false,
         bool azureAlreadyEnforcing = false,
-        bool settingsReadable = true)
+        bool settingsReadable = true,
+        TimeProvider? time = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(store);
@@ -96,6 +98,7 @@ public class CloudEnforcementLatchTests
             enforcement,
             migration,
             reloader,
+            time ?? new StepClock(),
             NullLogger<CloudEnforcementLatch>.Instance), migration);
     }
 
@@ -334,5 +337,190 @@ public class CloudEnforcementLatchTests
             PermissionEnforcementSettings.Category,
             Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DatabaseDownAtStartup_SearchesStayRefusedUntilItComesBack_ThenWorkWithoutRestart()
+    {
+        // CON-283. A reboot brings Connapse up before its database. The first version gave up after
+        // one attempt, so a deployment that had been enforcing refused every search until somebody
+        // restarted it.
+        var clock = new StepClock();
+        var (latch, migration) = Build(Complete(), alreadyEnforcing: true, settingsReadable: false, time: clock);
+        await latch.StartAsync(CancellationToken.None);
+
+        migration.Determined.Should().BeFalse();
+        Gate(migration).Should().Be(EnforcementState.EnforcingButUnusable, "searches are refused while it is unknown");
+
+        // Still down at the first retry: still refused.
+        (await clock.NextAsync()).Fire();
+        StepClock.Wait second = await clock.NextAsync();
+        migration.Determined.Should().BeFalse();
+        Gate(migration).Should().Be(EnforcementState.EnforcingButUnusable);
+
+        // The database is back. The next retry decides, with no restart.
+        reloader.Reload().Returns(true);
+        second.Fire();
+        await latch.Retrying!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        migration.Determined.Should().BeTrue();
+        Gate(migration).Should().Be(EnforcementState.Enforcing);
+    }
+
+    [Fact]
+    public async Task WhileTheDatabaseStaysDown_RetriesBackOffAndCapAtAMinute()
+    {
+        var clock = new StepClock();
+        var (latch, migration) = Build(Complete(), settingsReadable: false, time: clock);
+        await latch.StartAsync(CancellationToken.None);
+
+        var waits = new List<TimeSpan>();
+        for (int i = 0; i < 8; i++)
+        {
+            StepClock.Wait wait = await clock.NextAsync();
+            waits.Add(wait.Due);
+            wait.Fire();
+        }
+
+        waits.Should().Equal(
+            [2, 4, 8, 16, 32, 60, 60, 60],
+            (actual, seconds) => actual == TimeSpan.FromSeconds(seconds));
+        migration.Determined.Should().BeFalse("not one of those attempts could read the database");
+        reloader.Received(9).Reload();
+
+        await latch.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task WhenThePersistFailsAtStartup_ARetryLatches()
+    {
+        int calls = 0;
+        store.UpdateAsync(Arg.Any<string>(), Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(), Arg.Any<CancellationToken>())
+            .Returns<Task<PermissionEnforcementSettings>>(call =>
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                    throw new InvalidOperationException("database unavailable");
+
+                var merged = call.ArgAt<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(1)(null);
+                enforcement.CurrentValue.Returns(merged);
+                return Task.FromResult(merged);
+            });
+
+        var clock = new StepClock();
+        var (latch, migration) = Build(Complete(), time: clock);
+        await latch.StartAsync(CancellationToken.None);
+        migration.Determined.Should().BeFalse();
+
+        (await clock.NextAsync()).Fire();
+        await latch.Retrying!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        migration.Determined.Should().BeTrue();
+        (await SavedMarker())!.IsEnforcing.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WhenTheCommitSucceedsButTheReloadDoesNot_ARetryCompletesOnceTheReloadLands()
+    {
+        // The marker is committed but this process never sees it. The old message said a restart
+        // was needed; the next reload that reaches the database is enough.
+        store.UpdateAsync(Arg.Any<string>(), Arg.Any<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(), Arg.Any<CancellationToken>())
+            .Returns(call => call.ArgAt<Func<PermissionEnforcementSettings?, PermissionEnforcementSettings>>(1)(null));
+
+        var clock = new StepClock();
+        var (latch, migration) = Build(Complete(), time: clock);
+        await latch.StartAsync(CancellationToken.None);
+        migration.Determined.Should().BeFalse();
+
+        // The retry's reload brings the committed marker into the live options.
+        reloader.Reload().Returns(_ =>
+        {
+            enforcement.CurrentValue.Returns(new PermissionEnforcementSettings { IsEnforcing = true });
+            return true;
+        });
+        (await clock.NextAsync()).Fire();
+        await latch.Retrying!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        migration.Determined.Should().BeTrue();
+        Gate(migration).Should().Be(EnforcementState.Enforcing);
+    }
+
+    [Fact]
+    public async Task WhenTheFirstAttemptDecides_NothingRetries()
+    {
+        var (latch, migration) = Build(Complete());
+        await latch.StartAsync(CancellationToken.None);
+
+        migration.Determined.Should().BeTrue();
+        latch.Retrying.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Stopping_EndsTheRetries_AndLeavesSearchesRefused()
+    {
+        var clock = new StepClock();
+        var (latch, migration) = Build(Complete(), settingsReadable: false, time: clock);
+        await latch.StartAsync(CancellationToken.None);
+        await clock.NextAsync();
+
+        await latch.StopAsync(CancellationToken.None);
+
+        latch.Retrying!.IsCompletedSuccessfully.Should().BeTrue();
+        migration.Determined.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task StoppingAfterDispose_DoesNotThrow()
+    {
+        // WebApplicationFactory disposes the host's services and then stops them again, and the
+        // first version of the retry loop threw ObjectDisposedException there, failing CI.
+        var clock = new StepClock();
+        var (latch, _) = Build(Complete(), settingsReadable: false, time: clock);
+        await latch.StartAsync(CancellationToken.None);
+        await clock.NextAsync();
+
+        latch.Dispose();
+
+        await latch.Awaiting(l => l.StopAsync(CancellationToken.None)).Should().NotThrowAsync();
+        latch.Retrying!.IsCompleted.Should().BeTrue("disposing ends the retries too");
+    }
+
+    /// <summary>What the AWS resolver would answer for a configured SAML deployment, from the live
+    /// options and whether the migration has decided.</summary>
+    private EnforcementState Gate(EnforcementMigration migration) =>
+        enforcement.CurrentValue.StateFor(Complete(), migration.Determined);
+
+    /// <summary>
+    /// A clock that only moves when a test says so. Each delay the latch starts shows up in
+    /// <see cref="NextAsync"/> with its length, and ends when the test fires it, so the retry
+    /// schedule is checked exactly and nothing waits on real time.
+    /// </summary>
+    private sealed class StepClock : TimeProvider
+    {
+        private readonly Channel<Wait> waits = Channel.CreateUnbounded<Wait>();
+
+        public sealed record Wait(TimeSpan Due, Action Fire);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            waits.Writer.TryWrite(new Wait(dueTime, () => callback(state)));
+            return new Timer();
+        }
+
+        public async Task<Wait> NextAsync()
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            return await waits.Reader.ReadAsync(timeout.Token);
+        }
+
+        private sealed class Timer : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+            public void Dispose()
+            {
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 }

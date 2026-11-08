@@ -39,6 +39,12 @@ namespace Connapse.Web.Services;
 /// Enforcement is opt-in via SAML or Azure AD, either one. A deployment that configured either
 /// identity provider had per-user permissions working, so either configuration latches it.
 /// </para>
+/// <para>
+/// <b>It keeps trying until it knows.</b> When the first attempt cannot decide -- typically because
+/// the database is still coming up after a reboot -- searches are refused, and this retries in the
+/// background with a doubling delay capped at <see cref="MaxRetryDelay"/>. The first success
+/// completes the migration and searches work without a restart. Startup is never held for it.
+/// </para>
 /// </remarks>
 public sealed class CloudEnforcementLatch(
     IServiceScopeFactory scopes,
@@ -47,9 +53,83 @@ public sealed class CloudEnforcementLatch(
     IOptionsMonitor<PermissionEnforcementSettings> enforcement,
     EnforcementMigration migration,
     ISettingsReloader settingsReloader,
-    ILogger<CloudEnforcementLatch> logger) : IHostedService
+    TimeProvider time,
+    ILogger<CloudEnforcementLatch> logger) : IHostedService, IDisposable
 {
+    /// <summary>How long the first retry waits after a failed attempt at startup.</summary>
+    internal static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(2);
+
+    /// <summary>The longest wait between retries, so a database that comes back late is noticed
+    /// within a minute of it doing so.</summary>
+    internal static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(1);
+
+    private readonly CancellationTokenSource stopping = new();
+    private int disposed;
+
+    /// <summary>The background retry loop, when the attempt at startup could not decide.</summary>
+    internal Task? Retrying { get; private set; }
+
     public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        if (await TryDetermineAsync(cancellationToken))
+            return;
+
+        // Not awaited: startup must not wait on the database. Searches are refused meanwhile,
+        // because the migration stays undetermined until an attempt succeeds.
+        Retrying = RetryUntilDeterminedAsync(stopping.Token);
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        // A host can dispose its services and then stop them again (WebApplicationFactory does,
+        // on disposal), so stopping after Dispose must be a no-op rather than throw.
+        if (Volatile.Read(ref disposed) == 0)
+            await stopping.CancelAsync();
+
+        if (Retrying is not null)
+            await Retrying.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+            return;
+
+        // Ends the retry loop too, if the host never stopped it.
+        stopping.Cancel();
+        stopping.Dispose();
+    }
+
+    private async Task RetryUntilDeterminedAsync(CancellationToken cancellationToken)
+    {
+        TimeSpan delay = FirstRetryDelay;
+        int attempts = 1;
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(delay, time, cancellationToken);
+                attempts++;
+
+                if (await TryDetermineAsync(cancellationToken))
+                {
+                    logger.LogInformation(
+                        "Established whether per-user permissions are enforced after {Attempts} attempts; searches are no longer refused",
+                        attempts);
+                    return;
+                }
+
+                delay = delay * 2 < MaxRetryDelay ? delay * 2 : MaxRetryDelay;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The host is stopping.
+        }
+    }
+
+    /// <summary>One attempt. True when the enforcement state is now known.</summary>
+    private async Task<bool> TryDetermineAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -63,8 +143,8 @@ public sealed class CloudEnforcementLatch(
             if (!settingsReloader.Reload())
             {
                 logger.LogError(
-                    "Could not read the stored settings, so whether per-user permissions are enforced is unknown; searches will be refused until the database can be read");
-                return;
+                    "Could not read the stored settings, so whether per-user permissions are enforced is unknown; searches will be refused until the database can be read; retrying");
+                return false;
             }
 
             // Enforcement is opt-in and latches PER identity provider, independently. Each provider
@@ -81,7 +161,7 @@ public sealed class CloudEnforcementLatch(
             if (samlLatched == current.IsEnforcing && azureLatched == current.AzureEnforcing)
             {
                 migration.Complete();
-                return;
+                return true;
             }
 
             // Configured but unmarked: filtering was in force under the old rule, so it stays in
@@ -109,9 +189,9 @@ public sealed class CloudEnforcementLatch(
             if (live.IsEnforcing != merged.IsEnforcing || live.AzureEnforcing != merged.AzureEnforcing)
             {
                 logger.LogError(
-                    "Per-user enforcement was recorded (SAML={SamlEnforcing}, Azure={AzureEnforcing}) but the stored settings could not be reloaded into this process; searches will be refused until Connapse is restarted with the database reachable",
+                    "Per-user enforcement was recorded (SAML={SamlEnforcing}, Azure={AzureEnforcing}) but the stored settings could not be reloaded into this process; searches will be refused until it can be reloaded; retrying",
                     merged.IsEnforcing, merged.AzureEnforcing);
-                return;
+                return false;
             }
 
             migration.Complete();
@@ -119,6 +199,12 @@ public sealed class CloudEnforcementLatch(
             logger.LogInformation(
                 "Per-user search permissions were already configured; recorded that this deployment enforces them (SAML={SamlEnforcing}, Azure={AzureEnforcing})",
                 samlLatched, azureLatched);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The host is stopping, which is not a failure to report. Still undetermined.
+            return false;
         }
         catch (Exception ex)
         {
@@ -131,9 +217,8 @@ public sealed class CloudEnforcementLatch(
             // deployment that had been filtering, that choice turned one transient database error
             // at boot into the whole corpus being readable, with a single log line to show for it.
             logger.LogError(ex,
-                "Could not establish whether per-user permissions are enforced; searches will be refused until this is resolved");
+                "Could not establish whether per-user permissions are enforced; searches will be refused until this is resolved; retrying");
+            return false;
         }
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
