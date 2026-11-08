@@ -5,14 +5,14 @@ name: Mutation
 # Medium ones (the random-input tests under Application/, CON-89) against each one, and
 # fails when the share it catches, the mutation score, is under the break threshold in
 # tests/Connapse.Core.Tests/stryker-config.json. A workflow of its own, so its time doesn't count against
-# ci.yml's six-minute pipeline budget. It runs on every PR into main or an epic branch, after every merge
-# into an epic branch, every night on main (GitHub runs schedules only from the default branch), and on
+# ci.yml's six-minute pipeline budget. It runs on every PR into main, an epic branch or a release branch, after every merge
+# into an epic or release branch, every night on main (GitHub runs schedules only from the default branch), and on
 # demand.
 on:
   pull_request:
-    branches: [ main, 'epic/**' ]
+    branches: [ main, 'epic/**', 'release/**' ]
   push:
-    branches: [ 'epic/**' ]
+    branches: [ 'epic/**', 'release/**' ]
   schedule:
     - cron: '0 8 * * *'
   workflow_dispatch:
