@@ -468,6 +468,22 @@ public class CloudEnforcementLatchTests
         migration.Determined.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task StoppingAfterDispose_DoesNotThrow()
+    {
+        // WebApplicationFactory disposes the host's services and then stops them again, and the
+        // first version of the retry loop threw ObjectDisposedException there, failing CI.
+        var clock = new StepClock();
+        var (latch, _) = Build(Complete(), settingsReadable: false, time: clock);
+        await latch.StartAsync(CancellationToken.None);
+        await clock.NextAsync();
+
+        latch.Dispose();
+
+        await latch.Awaiting(l => l.StopAsync(CancellationToken.None)).Should().NotThrowAsync();
+        latch.Retrying!.IsCompleted.Should().BeTrue("disposing ends the retries too");
+    }
+
     /// <summary>What the AWS resolver would answer for a configured SAML deployment, from the live
     /// options and whether the migration has decided.</summary>
     private EnforcementState Gate(EnforcementMigration migration) =>

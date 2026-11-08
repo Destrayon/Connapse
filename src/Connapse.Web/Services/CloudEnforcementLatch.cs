@@ -64,6 +64,7 @@ public sealed class CloudEnforcementLatch(
     internal static readonly TimeSpan MaxRetryDelay = TimeSpan.FromMinutes(1);
 
     private readonly CancellationTokenSource stopping = new();
+    private int disposed;
 
     /// <summary>The background retry loop, when the attempt at startup could not decide.</summary>
     internal Task? Retrying { get; private set; }
@@ -80,12 +81,24 @@ public sealed class CloudEnforcementLatch(
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        await stopping.CancelAsync();
+        // A host can dispose its services and then stop them again (WebApplicationFactory does,
+        // on disposal), so stopping after Dispose must be a no-op rather than throw.
+        if (Volatile.Read(ref disposed) == 0)
+            await stopping.CancelAsync();
+
         if (Retrying is not null)
             await Retrying.WaitAsync(cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
     }
 
-    public void Dispose() => stopping.Dispose();
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0)
+            return;
+
+        // Ends the retry loop too, if the host never stopped it.
+        stopping.Cancel();
+        stopping.Dispose();
+    }
 
     private async Task RetryUntilDeterminedAsync(CancellationToken cancellationToken)
     {
