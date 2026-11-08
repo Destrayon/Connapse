@@ -47,7 +47,16 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             if (replacement.ValidFrom is not { } from)
                 return MemoryWriteResult.Failed("A change needs 'validFrom', the date the new value took effect.");
             if (old.ValidFrom is { } oldFrom && from <= oldFrom)
-                return MemoryWriteResult.Failed($"'validFrom' must be after the old fact's start ({oldFrom:u}).");
+            {
+                // A date-only change on the day the old value started can't be ordered by its date, so it takes
+                // effect now (CON-290).
+                if (SameDayNow(from, oldFrom) is not { } now)
+                    return MemoryWriteResult.Failed($"'validFrom' must be after the old fact's start ({oldFrom:u}).");
+                if (replacement.ValidTo is { } to && to <= now)
+                    return MemoryWriteResult.Failed("'validTo' must be after the time the change takes effect.");
+                from = now;
+                next = next with { ValidFrom = now };
+            }
             old.ValidTo = from;
         }
         else
@@ -68,6 +77,20 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
         return new MemoryWriteResult(ToFact(row), ToFact(old), null);
+    }
+
+    /// <summary>
+    /// The time now, when <paramref name="from"/> is a bare date (midnight UTC) on the same day as both
+    /// <paramref name="oldFrom"/> and now, and now is after <paramref name="oldFrom"/>; otherwise null.
+    /// </summary>
+    private DateTimeOffset? SameDayNow(DateTimeOffset from, DateTimeOffset oldFrom)
+    {
+        DateTimeOffset now = clock.GetUtcNow();
+        DateTime day = from.UtcDateTime;
+        bool dateOnly = day.TimeOfDay == TimeSpan.Zero;
+        return dateOnly && oldFrom.UtcDateTime.Date == day.Date && now.UtcDateTime.Date == day.Date && now > oldFrom
+            ? now
+            : null;
     }
 
     /// <summary>
