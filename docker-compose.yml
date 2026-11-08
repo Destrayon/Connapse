@@ -125,8 +125,10 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER_FILE: /connapse-secrets/minio/user
-      MINIO_ROOT_PASSWORD_FILE: /connapse-secrets/minio/password
+      # The same files web reads, so a setup run cut short (by a reboot, say) can't leave MinIO and web on
+      # different passwords when Docker restarts them without it. Root reads them despite web's ownership.
+      MINIO_ROOT_USER_FILE: /connapse-secrets/web/Knowledge__Storage__MinIO__AccessKey
+      MINIO_ROOT_PASSWORD_FILE: /connapse-secrets/web/Knowledge__Storage__MinIO__SecretKey
     volumes:
       - miniodata:/data
       - secrets:/connapse-secrets:ro

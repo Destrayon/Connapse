@@ -69,6 +69,15 @@ Use this when you want to put a Connapse server on a network other people can re
      web:
        ports: !override
          - "127.0.0.1:5001:8080"
+       restart: unless-stopped
+     postgres:
+       restart: unless-stopped
+     minio:
+       restart: unless-stopped
+     ollama:
+       restart: unless-stopped
+     reranker:
+       restart: unless-stopped
    ```
 
    Start with both files:
@@ -77,7 +86,7 @@ Use this when you want to put a Connapse server on a network other people can re
    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
    ```
 
-   Every long-running service in `docker-compose.yml` has `restart: unless-stopped`, so the stack comes back after a reboot or a crash without anything in this file. Make sure Docker itself starts at boot (`sudo systemctl enable docker` on most Linux hosts). A service you stop with `docker compose stop` stays stopped.
+   The `restart` lines bring each service back after a reboot or a crash. Compose files released after v0.4.0 already have them, but the v0.4.0 file and earlier don't, so keep them here. Make sure Docker itself starts at boot (`sudo systemctl enable docker` on most Linux hosts). A service you stop with `docker compose stop` stays stopped.
 
    PostgreSQL, MinIO, Ollama and the reranker already sit on an internal network with no published ports. Don't load `docker-compose.dev.yml` on a server, because it publishes them all.
 

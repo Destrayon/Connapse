@@ -55,14 +55,15 @@ public class ComposeFilesTests
     public void ComposeFile_LongRunningServices_ComeBackAfterAReboot(string file)
     {
         // Without a restart policy, the one-command install stayed down after the host rebooted (CON-276).
+        // Exact indentation: the key must sit directly on the service, where Compose reads it.
         Dictionary<string, string[]> services = Services(file);
 
         foreach (string name in new[] { "postgres", "minio", "ollama", "reranker", "web" })
         {
-            services[name].Should().Contain(line => line.Trim() == "restart: unless-stopped", $"{name} must restart after a reboot");
+            services[name].Should().Contain("    restart: unless-stopped", $"{name} must restart after a reboot");
         }
 
-        services["setup"].Should().Contain(line => line.Trim() == "restart: \"no\"", "setup runs once per start and exits");
+        services["setup"].Should().Contain("    restart: \"no\"", "setup runs once per start and exits");
     }
 
     [Theory]
@@ -87,6 +88,18 @@ public class ComposeFilesTests
 
             (hasDigest || hasVersionTag).Should().BeTrue($"{image} must name a version or a digest, not float on latest");
         }
+    }
+
+    [Theory]
+    [InlineData("docker-compose.yml")]
+    [InlineData("release/docker-compose.yml")]
+    public void ComposeFile_MinioAndWeb_ReadTheSameSavedCredentials(string file)
+    {
+        // Docker restarts both after a reboot without rerunning setup, so separate copies could disagree.
+        string[] minio = Services(file)["minio"];
+
+        minio.Should().Contain("      MINIO_ROOT_USER_FILE: /connapse-secrets/web/Knowledge__Storage__MinIO__AccessKey");
+        minio.Should().Contain("      MINIO_ROOT_PASSWORD_FILE: /connapse-secrets/web/Knowledge__Storage__MinIO__SecretKey");
     }
 
     private static Dictionary<string, string[]> Services(string relativePath)
