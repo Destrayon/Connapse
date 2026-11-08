@@ -6,13 +6,17 @@ name: Mutation
 # fails when the share it catches, the mutation score, is under the break threshold in
 # tests/Connapse.Core.Tests/stryker-config.json. A workflow of its own, so its time doesn't count against
 # ci.yml's six-minute pipeline budget. It runs on every PR into main, an epic branch or a release branch, after every merge
-# into an epic or release branch, every night on main (GitHub runs schedules only from the default branch), and on
+# into main, an epic branch or a release branch, every night on main (GitHub runs schedules only from the default branch), and on
 # demand.
+# A merge's full run is what keeps a PR's baseline current. With main refreshed only nightly, a PR into main
+# was diffed against a baseline up to a day old, so one build file or test helper merged that day sent every
+# later PR to a full run, and the check's median went from about 4 to 8 minutes once PRs moved from the
+# epics to main (#1063, CON-293).
 on:
   pull_request:
     branches: [ main, 'epic/**', 'release/**' ]
   push:
-    branches: [ 'epic/**', 'release/**' ]
+    branches: [ main, 'epic/**', 'release/**' ]
   schedule:
     - cron: '0 8 * * *'
   workflow_dispatch:
@@ -20,12 +24,14 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same PR, or a newer merge into the same branch, replaces the run in progress: a full run
+# A newer push to the same PR replaces the run in progress: a full run
 # holds a runner for about 11 minutes, and on the Free plan's 20 concurrent jobs those slots made CI queue
 # behind it during mass rebases (CON-91).
+# A newer merge into the same branch waits for the run in progress instead, replacing only one still waiting:
+# on main, merges minutes apart would otherwise cancel each other's runs and no baseline would be saved.
 concurrency:
   group: mutation-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 # One Stryker job re-testing a PR's mutants one after another went from about 4 to 7 minutes as PRs moved
 # endpoints into Connapse.Application, and a full run from 11 to 17 (CON-138). So `plan` splits the project's
 # files into up to four shards of about the same number of mutants to test (mutation_shards.py), each shard runs
