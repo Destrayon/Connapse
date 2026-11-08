@@ -28,14 +28,23 @@ runs read the newest 12 at 0.89), so the nightly reads main's latest runs agains
 --check-reference and fails once their median factor leaves MIN_DRIFT..MAX_DRIFT, with a refreshed
 reference attached to commit.
 
+A median runner was never a stable thing to measure against (CON-294). GitHub hands out two kinds of
+runner, one about 1.4x slower than the other, so a median of main's runs lands in whichever kind happened
+to be the majority that week (10 of main's latest 15 were the slow kind). The reference CON-286 wrote
+landed on the slow kind: 27 of 58 runs from 2026-11-06 to 11-08 read 26 to 31 s against the 30 s limit
+with no test slower, and #1171's failed at 30.9 s then passed at 20 s on a rerun. The reference is now
+the fastest quarter of the runs it is written from, which is GitHub's faster kind while that kind is at
+least a quarter of the runs, and the drift check reads the fastest quarter the same way. The 30 s is on
+that faster runner. The slower kind reads 1.2 to 1.56 against it, so MAX_FACTOR still leaves it room.
+
 Usage:
   test_budgets.py --tier Small --trx small-tests.trx --max-test-seconds 10 --wall-seconds 22 --max-wall-seconds 30 \
       --reference .github/test-timings/small-reference.json
   test_budgets.py --tier Large --trx large-tests.trx            # no time limits, but every project must report
   test_budgets.py --trx small-tests.trx --write-reference .github/test-timings/small-reference.json RUN_DIR...
-      # each RUN_DIR a downloaded test-results-small artifact; several runs, so the reference is a median runner
+      # each RUN_DIR a downloaded test-results-small artifact; 20 or more runs, so its fastest quarter is GitHub's faster runners
   test_budgets.py --trx small-tests.trx --check-reference .github/test-timings/small-reference.json RUN_DIR...
-      # main's latest runs, newest first; fails when the reference no longer reads them as a median runner
+      # main's latest runs, newest first; fails when the reference no longer reads their fastest quarter at about 1
 """
 import argparse
 import glob
@@ -86,6 +95,12 @@ MIN_FACTOR = 1.0
 # A reference is a median runner's only if it comes from several runners.
 MIN_REFERENCE_RUNS = 5
 
+# The reference, and the drift check, read the fastest this share of the runs (CON-294): GitHub's faster
+# kind of runner while that kind is at least this share of them. Writing one takes enough runs that the
+# fastest quarter is still MIN_REFERENCE_RUNS of them.
+FAST_SHARE = 1 / 4
+MIN_WRITE_RUNS = 20
+
 # main's latest runs must read a median factor inside this band against the reference (CON-250).
 # GitHub hands out two kinds of runner, about 0.7x and 1.2x a median one, so the median of 15 runs moved
 # from 1.00 to 1.17 against a fresh reference; the stale one read 0.80 to 0.89. Below the band, slow
@@ -118,10 +133,27 @@ def runner_factor(run: dict[str, float], reference: dict[str, float]) -> tuple[f
     return (statistics.median(ratios) if ratios else 0.0), len(ratios)
 
 
+def fastest_share(values: list[float]) -> list[float]:
+    """The lowest FAST_SHARE of these runner factors, at least one: the faster kind of runner's (CON-294)."""
+    return sorted(values)[:max(1, int(len(values) * FAST_SHARE))]
+
+
+def median_reference(runs: list[dict[str, float]], names: set[str]) -> dict[str, float]:
+    """Each named test's median duration over the runs, kept when that is 10 ms or more."""
+    reference = {}
+    for name in sorted(names):
+        median = statistics.median(r[name] for r in runs)
+        if median >= MIN_REFERENCE_SECONDS:
+            reference[name] = round(median, 6)
+    return reference
+
+
 def write_reference(out: str, trx_name: str, run_dirs: list[str]) -> dict[str, float]:
-    """Each test's median duration over the runs, for tests every run timed at 10 ms or more on the median."""
-    if len(run_dirs) < MIN_REFERENCE_RUNS:
-        raise ValueError(f"a reference needs at least {MIN_REFERENCE_RUNS} runs, so it is a median runner's; got {len(run_dirs)}")
+    """Each test's median duration over the fastest quarter of the runs, for tests every run timed, kept
+    when that is 10 ms or more. The runs are ranked by their factor against all of them's median."""
+    if len(run_dirs) < MIN_WRITE_RUNS:
+        raise ValueError(f"a reference needs at least {MIN_WRITE_RUNS} runs, so its fastest quarter is several "
+                         f"of GitHub's faster runners; got {len(run_dirs)}")
     runs = []
     for d in run_dirs:
         timed = durations(glob.glob(f"{d}/**/{trx_name}", recursive=True))
@@ -129,24 +161,25 @@ def write_reference(out: str, trx_name: str, run_dirs: list[str]) -> dict[str, f
             raise ValueError(f"{d} has no {trx_name} with timed results")
         runs.append(timed)
     common = set.intersection(*(set(r) for r in runs))
-    reference = {}
-    for name in sorted(common):
-        median = statistics.median(r[name] for r in runs)
-        if median >= MIN_REFERENCE_SECONDS:
-            reference[name] = round(median, 6)
+    everyone = median_reference(runs, common)
+    factors = [runner_factor(r, everyone)[0] for r in runs]
+    cutoff = fastest_share(factors)[-1]
+    fastest = [r for r, f in zip(runs, factors) if f <= cutoff]
+    reference = median_reference(fastest, common)
     pathlib.Path(out).write_text(json.dumps(reference, indent=2) + "\n", encoding="utf-8")
     return reference
 
 
 def reference_drift(reference: dict[str, float], trx_name: str, run_dirs: list[str]) -> tuple[float, list[float]]:
-    """The median runner factor of these runs against the reference, and each run's: about 1 while the
-    reference is a median runner's. A run that timed too few of its tests says nothing and is left out."""
+    """The median runner factor of the fastest quarter of these runs against the reference, and each run's:
+    about 1 while the reference is GitHub's faster runners' (CON-294). A run that timed too few of its
+    tests says nothing and is left out."""
     factors = []
     for d in run_dirs:
         factor, matched = runner_factor(durations(glob.glob(f"{d}/**/{trx_name}", recursive=True)), reference)
         if matched >= max(MIN_MATCHED, MIN_MATCHED_SHARE * len(reference)):
             factors.append(factor)
-    return (statistics.median(factors) if factors else 0.0), factors
+    return (statistics.median(fastest_share(factors)) if factors else 0.0), factors
 
 
 def results(trx_name: str, projects: list[str]):
@@ -181,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wall-seconds", type=float, default=-1, help="measured wall time of the tier's dotnet test step")
     p.add_argument("--max-wall-seconds", type=float)
     p.add_argument("--solution", default="Connapse.slnx", help="where the expected test projects are listed")
-    p.add_argument("--reference", help="per-test durations on a median runner; the wall limit is read on that runner")
+    p.add_argument("--reference", help="per-test durations on a fast runner; the wall limit is read on that runner")
     p.add_argument("--write-reference", help="write a reference from the run directories given, and check nothing")
     p.add_argument("--check-reference", help="read the run directories given against this reference, and check nothing else")
     p.add_argument("runs", nargs="*", help="with --write-reference or --check-reference: downloaded test-results artifacts, one per run")
@@ -190,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.check_reference:
         reference = json.loads(pathlib.Path(a.check_reference).read_text(encoding="utf-8"))
         median, factors = reference_drift(reference, a.trx, a.runs)
-        print(f"{a.check_reference} reads {len(factors)} of {len(a.runs)} runs at a median runner factor of {median:.2f}: "
+        print(f"{a.check_reference} reads {len(factors)} of {len(a.runs)} runs, the fastest quarter at a median runner factor of {median:.2f}: "
               + ", ".join(f"{f:.2f}" for f in factors))
         if len(a.runs) - len(factors) > MAX_DRIFT_LEFT_OUT:
             print(f"::error::{len(a.runs) - len(factors)} of {len(a.runs)} runs timed too few of the reference's tests: "
@@ -202,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if not MIN_DRIFT <= median <= MAX_DRIFT:
             print(f"::error::{a.check_reference} reads main's runs at {median:.2f}, outside {MIN_DRIFT:g} to {MAX_DRIFT:g}: "
-                  f"it no longer describes a median runner, so the Small wall's slow-runner relief is off; refresh it "
+                  f"it no longer describes GitHub's faster runners, so the Small wall's slow-runner relief is off; refresh it "
                   f"with --write-reference from recent runs' artifacts")
             return 1
         return 0
@@ -255,8 +288,8 @@ def main(argv: list[str] | None = None) -> int:
                     note = (f", capped at {MAX_FACTOR:g}" if capped < factor
                             else f", read as {MIN_FACTOR:g}" if capped > factor else "")
                     print(f"{a.tier} runner factor {factor:.2f}{note} over {matched} reference tests: "
-                          f"{a.wall_seconds:g} s wall is {a.wall_seconds / capped:.1f} s on a median runner")
-                    wall, on = a.wall_seconds / capped, "on a median runner"
+                          f"{a.wall_seconds:g} s wall is {a.wall_seconds / capped:.1f} s on a fast runner")
+                    wall, on = a.wall_seconds / capped, "on a fast runner"
             if wall is not None and wall > a.max_wall_seconds:
                 failures.append(f"{a.tier} tier took {wall:.1f} s {on}, over its {a.max_wall_seconds:g} s budget")
             elif wall is not None:

@@ -343,8 +343,8 @@ jobs:
 
     # Every tier is checked even if another fails, and every test project must have reported. The
     # Medium tier's wall time is its slowest job's, since the jobs run side by side.
-    # The Small tier's 30 s is on a median runner: its wall, divided by how much slower than the
-    # reference this runner ran the same tests (CON-87).
+    # The Small tier's 30 s is on GitHub's faster kind of runner: its wall, divided by how much slower than
+    # the reference this runner ran the same tests (CON-87, CON-294).
     - name: Check test-speed budgets
       if: success() || failure()
       run: |

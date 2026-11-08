@@ -151,7 +151,7 @@ class SlowRunnerRun41957977547(unittest.TestCase):
     def test_its_31_s_on_a_slow_runner_passes(self):
         code, out = self.check(self.RUN, 31)
         self.assertEqual(code, 0, out)
-        self.assertIn("22.8 s on a median runner", out)
+        self.assertIn("22.8 s on a fast runner", out)
 
     def test_its_31_s_failed_against_a_reference_that_reads_typical_runners_at_080(self):
         # The cause, kept: against a reference 1.35x slower than main's tests, as the one written on
@@ -167,7 +167,7 @@ class SlowRunnerRun41957977547(unittest.TestCase):
         new = {f"New.SlowClass.Test{i}": 4.0 for i in range(3)}
         code, out = self.check(self.RUN | new, 31 + 12)
         self.assertEqual(code, 1, out)
-        self.assertIn("Small tier took 31.6 s on a median runner", out)
+        self.assertIn("Small tier took 31.6 s on a fast runner", out)
 
     def test_every_test_60_percent_slower_on_that_runner_still_fails(self):
         # A slowdown of every test alike reads as a slower runner until the factor reaches MAX_FACTOR.
@@ -177,7 +177,7 @@ class SlowRunnerRun41957977547(unittest.TestCase):
 
 
 class CheckReference(unittest.TestCase):
-    """The nightly's check that the reference still describes main's median runner (CON-250)."""
+    """The nightly's check that the reference still describes main's faster runners (CON-250, CON-294)."""
 
     @staticmethod
     def runs(root: str, factors: list[float], tests: int | list[int] = len(REFERENCE)) -> list[str]:
@@ -199,13 +199,20 @@ class CheckReference(unittest.TestCase):
                                *self.runs(root, factors, tests)])
             return code, out.getvalue()
 
-    # main's two kinds of runner: about 0.7x and 1.2x a median one.
-    FLEET = [0.65, 1.2, 0.7, 1.25, 1.05, 0.7, 1.15, 1.2, 0.75, 1.1, 1.0, 1.2, 0.65, 1.3, 1.05]
+    # main's two kinds of runner against a fresh reference (CON-294): the faster at about 1, the slower at
+    # about 1.4, and 10 of 15 runs the slower kind, as main's latest 15 were on 2026-11-08.
+    FLEET = [1.0, 1.4, 1.05, 1.45, 1.35, 0.95, 1.4, 1.4, 1.0, 1.3, 1.4, 1.4, 1.05, 1.5, 1.35]
 
-    def test_a_fresh_reference_passes_on_a_mixed_fleet(self):
+    def test_a_fresh_reference_passes_on_a_mostly_slow_fleet(self):
         code, out = self.check(self.FLEET)
         self.assertEqual(code, 0, out)
-        self.assertIn("median runner factor of 1.05", out)
+        self.assertIn("the fastest quarter at a median runner factor of 1.00", out)
+
+    def test_a_reference_written_on_the_slower_kind_fails_and_says_to_refresh(self):
+        # CON-286's reference: the median of a mostly slow sample, so the faster kind reads about 0.72.
+        code, out = self.check([f / 1.4 for f in self.FLEET])
+        self.assertEqual(code, 1, out)
+        self.assertIn("refresh", out)
 
     def test_a_reference_main_has_outrun_fails_and_says_to_refresh(self):
         # The reference CON-250 found: main's runs read 0.80 against it, tests faster, runners not.
@@ -254,29 +261,50 @@ class WriteReference(unittest.TestCase):
             dirs.append(str(pathlib.Path(root, f"run{i}")))
         return dirs
 
-    def test_keeps_each_tests_median_over_runs_for_tests_every_run_timed_at_10_ms_or_more(self):
+    def test_keeps_each_tests_median_over_the_fastest_quarter_for_tests_every_run_timed_at_10_ms_or_more(self):
         with tempfile.TemporaryDirectory() as root:
             out = pathlib.Path(root, "reference.json")
 
-            reference = b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 2.0, 3.0, 4.0, 5.0]))
+            # The fastest quarter of 20 runs is the five at 1 to 5, whose median is 3.
+            reference = b.write_reference(str(out), "small-tests.trx", self.runs(root, [float(f) for f in range(20, 0, -1)]))
 
             self.assertEqual(set(reference), {"A", "B"})
             self.assertAlmostEqual(reference["A"], 0.3)
             self.assertAlmostEqual(reference["B"], 0.6)
             self.assertEqual(json.loads(out.read_text()), reference)
 
-    def test_from_fewer_than_five_runs_writes_nothing(self):
-        # One run is one runner's speed, not a median runner's.
+    def test_from_a_mostly_slow_fleet_it_is_the_faster_kinds(self):
+        # 6 of 20 runs on the faster kind, 14 on one 1.4x slower: the median run is the slower kind's.
+        with tempfile.TemporaryDirectory() as root:
+            factors = [0.95, 1.0, 1.0, 1.0, 1.05, 1.1] + [1.4] * 14
+            reference = b.write_reference(str(pathlib.Path(root, "reference.json")), "small-tests.trx", self.runs(root, factors))
+
+            self.assertAlmostEqual(reference["A"], 0.1)
+
+    def test_pr_1171s_slow_runner_passes_against_a_reference_from_main_mixed_fleet(self):
+        # #1171 failed at 30.9 s on the slower kind against CON-286's reference, which that kind read at
+        # 1.07, then passed at 20 s on a rerun. Written from a fleet like main's, the reference reads that
+        # runner at 1.4 and its 31 s as 22.1 s.
+        with tempfile.TemporaryDirectory() as root:
+            dirs = CheckReference.runs(root, [0.95, 1.0, 1.0, 1.0, 1.05, 1.1] + [1.4] * 14)
+            reference = b.write_reference(str(pathlib.Path(root, "reference.json")), "small-tests.trx", dirs)
+        with tier(scaled(1.4), reference):
+            code, out = run("--wall-seconds", "31", "--max-wall-seconds", "30", "--reference", "reference.json")
+        self.assertEqual(code, 0, out)
+        self.assertIn("22.1 s on a fast runner", out)
+
+    def test_from_fewer_than_twenty_runs_writes_nothing(self):
+        # Fewer, and the fastest quarter is too few runs to be the faster kind's speed rather than one runner's.
         with tempfile.TemporaryDirectory() as root:
             out = pathlib.Path(root, "reference.json")
 
             with self.assertRaises(ValueError):
-                b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 2.0, 3.0, 4.0]))
+                b.write_reference(str(out), "small-tests.trx", self.runs(root, [float(f) for f in range(1, 20)]))
             self.assertFalse(out.exists())
 
     def test_a_run_with_no_results_writes_nothing(self):
         with tempfile.TemporaryDirectory() as root:
-            dirs = self.runs(root, [1.0, 2.0, 3.0, 4.0]) + [str(pathlib.Path(root, "empty"))]
+            dirs = self.runs(root, [float(f) for f in range(1, 20)]) + [str(pathlib.Path(root, "empty"))]
             out = pathlib.Path(root, "reference.json")
 
             with self.assertRaises(ValueError):
