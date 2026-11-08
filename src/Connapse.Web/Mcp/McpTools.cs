@@ -195,12 +195,8 @@ public partial class McpTools
     /// Says that documents still waiting to be indexed can't be in a search's results yet (CON-277), so an agent
     /// doesn't read a miss as absence; empty when none are waiting.
     /// </summary>
-    internal static string PendingNote(int pendingDocuments) => pendingDocuments switch
-    {
-        <= 0 => "",
-        1 => "\nNote: 1 document here is still waiting to be indexed, so search can't find it yet. Text files can already be read with get_document.",
-        _ => $"\nNote: {pendingDocuments} documents here are still waiting to be indexed, so search can't find them yet. Text files can already be read with get_document.",
-    };
+    internal static string PendingNote(int pendingDocuments) =>
+        SearchNotes.Pending(pendingDocuments) is { } note ? $"\nNote: {note} Text files can already be read with get_document." : "";
 
     [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),

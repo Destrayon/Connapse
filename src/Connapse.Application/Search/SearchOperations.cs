@@ -237,3 +237,15 @@ public sealed class SearchSource(SearchKnowledge search)
     public Task<Attempt<SearchResult, SearchStatus>> RunAsync(OperationContext context, Guid sourceId, SearchRequest request, CancellationToken ct = default) =>
         search.RunAsync(context, SearchScope.Source(sourceId), request, ct);
 }
+
+/// <summary>What a search says about documents it can't find yet, shared by the Search page and MCP.</summary>
+public static class SearchNotes
+{
+    /// <summary>The sentence for <paramref name="pendingDocuments"/> documents still waiting to be indexed; null when there are none.</summary>
+    public static string? Pending(int pendingDocuments) => pendingDocuments switch
+    {
+        <= 0 => null,
+        1 => "1 document here is still waiting to be indexed, so search can't find it yet.",
+        _ => $"{pendingDocuments} documents here are still waiting to be indexed, so search can't find them yet.",
+    };
+}

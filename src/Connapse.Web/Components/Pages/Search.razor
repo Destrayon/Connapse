@@ -145,14 +145,9 @@
                 </span>
             </div>
 
-            @if (searchResult.PendingDocuments > 0)
-            {
-                <p class="results-meta pending-index-note" role="status">
-                    @(searchResult.PendingDocuments == 1
-                        ? "1 document here is still waiting to be indexed, so search can't find it yet."
-                        : $"{searchResult.PendingDocuments} documents here are still waiting to be indexed, so search can't find them yet.")
-                </p>
-            }
+            <p class="results-meta pending-index-note" role="status" hidden="@(SearchNotes.Pending(searchResult.PendingDocuments) is null)">
+                @SearchNotes.Pending(searchResult.PendingDocuments)
+            </p>
 
             @if (searchResult.Hits.Count == 0)
             {
