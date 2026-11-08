@@ -204,6 +204,8 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
         McpApiTools.SearchName => ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: true) || ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: false),
         McpApiTools.ReadName => ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: true),
         McpApiTools.WriteName => ApiSpec.AllowsAny(principal.Scopes!.Contains, reads: false),
+        // Any token's call can be held for approval, so any token may ask what became of its own request (CON-292).
+        McpTools.ApprovalStatusName => true,
         _ => Tools[tool].Scope is { } scope && principal.Scopes!.Contains(scope),
     };
 

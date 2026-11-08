@@ -60,7 +60,8 @@ public sealed class ListMcpApprovals(IMcpApprovalStore store)
 [Operation("approvals.decide", Scope = "approvals:decide", Risk = RiskTier.Write)]
 public sealed class DecideMcpApproval(IMcpApprovalStore store)
 {
-    public async Task<Attempt<bool, McpApprovalOutcome>> ExecuteAsync(OperationContext context, Guid id, bool approve, CancellationToken ct = default)
+    /// <param name="reason">What the person says about the decision; the agent that asked reads it (CON-292).</param>
+    public async Task<Attempt<bool, McpApprovalOutcome>> ExecuteAsync(OperationContext context, Guid id, bool approve, string? reason = null, CancellationToken ct = default)
     {
         if (context.Surface != OperationSurface.Ui)
             return Attempt<bool, McpApprovalOutcome>.Fail(McpApprovalOutcome.NotFromUi);
@@ -68,7 +69,7 @@ public sealed class DecideMcpApproval(IMcpApprovalStore store)
             return Attempt<bool, McpApprovalOutcome>.Fail(McpApprovalOutcome.NotSignedIn);
 
         // Someone else's request reads as not found, so its existence isn't revealed.
-        return await store.DecideAsync(id, userId, isAdmin, approve, ct) switch
+        return await store.DecideAsync(id, userId, isAdmin, approve, reason, ct) switch
         {
             McpApprovalDecision.Decided => Attempt<bool, McpApprovalOutcome>.Succeed(approve),
             McpApprovalDecision.NotPending => Attempt<bool, McpApprovalOutcome>.Fail(McpApprovalOutcome.NotPending),

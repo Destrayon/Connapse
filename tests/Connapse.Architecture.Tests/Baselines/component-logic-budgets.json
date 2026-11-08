@@ -105,10 +105,10 @@
     "IsEmpty": false
   },
   "Pages/Approvals.razor": {
-    "CodeLines": 39,
+    "CodeLines": 43,
     "Injects": 3,
     "Complexity": 9,
-    "MarkupLogic": 8,
+    "MarkupLogic": 9,
     "IsEmpty": false
   },
   "Pages/Auth/Login.razor": {
