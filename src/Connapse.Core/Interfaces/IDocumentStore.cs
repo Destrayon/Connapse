@@ -37,6 +37,9 @@ public interface IDocumentStore
     Task<Document?> GetByPathAsync(Guid containerId, string path, CancellationToken ct = default);
     Task<ContainerStats> GetContainerStatsAsync(Guid containerId, CancellationToken ct = default);
 
+    /// <summary>How many of a container's or source's documents are still queued or processing, so search can't find them yet.</summary>
+    Task<int> CountAwaitingIndexAsync(Guid ownerId, CancellationToken ct = default);
+
     /// <summary>
     /// The <c>resource_uri</c> of each requested document (null when it has none — uploads and non-cloud
     /// connectors — or the id is unknown). One batched lookup, for the search verifier which must map

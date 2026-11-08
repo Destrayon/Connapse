@@ -335,6 +335,15 @@ public class PostgresDocumentStore : IDocumentStore
             stats.LastIndexedAt);
     }
 
+    public async Task<int> CountAwaitingIndexAsync(Guid ownerId, CancellationToken ct = default)
+    {
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        return await context.Documents
+            .AsNoTracking()
+            .CountAsync(d => d.OwnerId == ownerId
+                && (d.IngestionStatus == DocumentStatus.Queued || d.IngestionStatus == DocumentStatus.Processing), ct);
+    }
+
     public async Task<IReadOnlyDictionary<string, string?>> GetResourceUrisAsync(
         IReadOnlyCollection<string> documentIds, CancellationToken ct = default)
     {

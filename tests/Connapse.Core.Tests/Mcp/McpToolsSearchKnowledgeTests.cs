@@ -85,13 +85,13 @@ public class McpToolsSearchKnowledgeTests
     }
 
     [Theory]
-    [InlineData(0, 2, "No results found.\nNote: 2 documents here are still waiting to be indexed, so search can't find them yet. Text files can already be read with get_document.")]
-    [InlineData(1, 1, "\nNote: 1 document here is still waiting to be indexed, so search can't find it yet. Text files can already be read with get_document.\n\n")]
+    [InlineData(0, 2, "No results found.\nNote: 2 documents in the searched container or source are still waiting to be indexed, so search can't find them yet. Text files can already be read with get_document.")]
+    [InlineData(1, 1, "\nNote: 1 document in the searched container or source is still waiting to be indexed, so search can't find it yet. Text files can already be read with get_document.\n\n")]
     [InlineData(1, 0, "(mode: Hybrid):\n\n")]
     public async Task SearchKnowledge_DocumentsWaitingToBeIndexed_SaysSearchCantFindThemYet(int hits, int pending, string says)
     {
         var documents = Substitute.For<IDocumentStore>();
-        documents.GetContainerStatsAsync(ContainerId, Arg.Any<CancellationToken>()).Returns(new ContainerStats(pending, 0, pending, 0, 0, 0, null));
+        documents.CountAwaitingIndexAsync(ContainerId, Arg.Any<CancellationToken>()).Returns(pending);
         var authorizer = Substitute.For<IOperationAuthorizer>();
         authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
         var search = new SearchKnowledge(_containerStore, Substitute.For<ISourceStore>(), Substitute.For<ISourceVisibility>(), _searchService,

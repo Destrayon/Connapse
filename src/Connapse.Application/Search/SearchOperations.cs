@@ -150,7 +150,7 @@ public sealed class SearchKnowledge(
             return 0;
         try
         {
-            return (await documents.GetContainerStatsAsync(ownerId, ct)).ProcessingCount;
+            return await documents.CountAwaitingIndexAsync(ownerId, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -245,7 +245,7 @@ public static class SearchNotes
     public static string? Pending(int pendingDocuments) => pendingDocuments switch
     {
         <= 0 => null,
-        1 => "1 document here is still waiting to be indexed, so search can't find it yet.",
-        _ => $"{pendingDocuments} documents here are still waiting to be indexed, so search can't find them yet.",
+        1 => "1 document in the searched container or source is still waiting to be indexed, so search can't find it yet.",
+        _ => $"{pendingDocuments} documents in the searched container or source are still waiting to be indexed, so search can't find them yet.",
     };
 }

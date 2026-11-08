@@ -51,7 +51,7 @@ public class SearchOperationTests
 
         /// <summary>How many documents in <paramref name="ownerId"/> still wait to be indexed.</summary>
         public void Pending(Guid ownerId, int count) =>
-            Documents.GetContainerStatsAsync(ownerId, Arg.Any<CancellationToken>()).Returns(new ContainerStats(count, 0, count, 0, 0, 0, null));
+            Documents.CountAwaitingIndexAsync(ownerId, Arg.Any<CancellationToken>()).Returns(count);
 
         public Container Container(string name = "docs")
         {
@@ -390,8 +390,8 @@ public class SearchOperationTests
     {
         var world = new World(hits: 1);
         var container = world.Container();
-        world.Documents.GetContainerStatsAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
-            .Returns<ContainerStats>(_ => throw new InvalidOperationException("db"));
+        world.Documents.CountAwaitingIndexAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .Returns<int>(_ => throw new InvalidOperationException("db"));
 
         var searched = await world.Operation().RunAsync(Caller, new SearchScope(container.Id), Query());
 
