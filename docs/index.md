@@ -22,6 +22,7 @@ Connapse is a self-hosted knowledge platform: it indexes your documents and the 
 
 - [Install Connapse](self-host/install.md)
 - [Run Connapse in production](self-host/production.md)
+- [Add https to a home server](self-host/home-network-https.md)
 - [Back up and restore Connapse](self-host/backup-and-restore.md)
 - [Upgrade Connapse](self-host/upgrade.md)
 - [Troubleshoot a self-hosted server](self-host/troubleshooting.md)

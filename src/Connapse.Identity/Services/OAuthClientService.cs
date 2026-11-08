@@ -14,15 +14,21 @@ public class OAuthClientService(
 {
     // -- Dynamic Client Registration --
 
+    /// <summary>
+    /// Registers a client (RFC 7591). With no <paramref name="applicationType"/>, a client whose redirect URIs are
+    /// all http loopback is native and any other is web. A loopback redirect is a native app's (RFC 8252 §7.3), so a
+    /// client declaring "web" whose redirects are all loopback is recorded as native rather than turned away.
+    /// </summary>
     public async Task<OAuthClientInfo> RegisterAsync(
         string clientName,
         List<string> redirectUris,
-        string applicationType,
+        string? applicationType,
         string? registeredFromIp = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(clientName))
             throw new ArgumentException("client_name is required.");
+        applicationType = ResolveApplicationType(redirectUris, applicationType);
         ValidateRedirectUris(redirectUris, applicationType);
 
         string clientId = Guid.NewGuid().ToString();
@@ -65,8 +71,7 @@ public class OAuthClientService(
             return null;
 
         // HTTPS required, except HTTP allowed for loopback (RFC 8252 §8.3)
-        bool isLoopback = uri.Host is "127.0.0.1" or "localhost";
-        if (uri.Scheme != "https" && !(uri.Scheme == "http" && isLoopback))
+        if (!IsMetadataDocumentClientId(uri))
         {
             return null;
         }
@@ -106,11 +111,15 @@ public class OAuthClientService(
 
     // -- Resolve client (metadata doc or DB lookup) --
 
-    public async Task<OAuthClientInfo?> ResolveClientAsync(string clientId, CancellationToken ct = default)
+    /// <param name="serverBaseUrl">This server's own scheme and host, as it publishes its CLI document under; the
+    /// CLI's client_id for this server resolves from it without a fetch, over http too.</param>
+    public async Task<OAuthClientInfo?> ResolveClientAsync(string clientId, string? serverBaseUrl = null, CancellationToken ct = default)
     {
+        if (IsFirstPartyCliClientId(clientId, serverBaseUrl))
+            return FirstPartyCliClient(clientId);
+
         // URL-formatted client_id = Client ID Metadata Document
-        if (Uri.TryCreate(clientId, UriKind.Absolute, out var uri) &&
-            (uri.Scheme == "https" || (uri.Scheme == "http" && uri.Host is "127.0.0.1" or "localhost")))
+        if (Uri.TryCreate(clientId, UriKind.Absolute, out var uri) && IsMetadataDocumentClientId(uri))
         {
             return await FetchMetadataDocumentAsync(clientId, ct);
         }
@@ -139,9 +148,7 @@ public class OAuthClientService(
             return true;
 
         // RFC 8252 Section 7.3: loopback redirect URIs may use any port
-        if (Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri) &&
-            uri.Host is "127.0.0.1" or "localhost" &&
-            uri.Scheme == "http")
+        if (Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri) && IsLoopbackHttp(uri))
         {
             // Check if any registered URI matches except for port
             return client.RedirectUris.Any(registered =>
@@ -157,7 +164,52 @@ public class OAuthClientService(
         return false;
     }
 
+    // -- First-party CLI client --
+
+    /// <summary>Where this server publishes the connapse CLI's client metadata document.</summary>
+    public const string FirstPartyCliPath = "/oauth/clients/cli.json";
+
+    public const string FirstPartyCliName = "Connapse CLI";
+
+    public static readonly IReadOnlyList<string> FirstPartyCliRedirectUris = ["http://127.0.0.1/callback"];
+
+    /// <summary>
+    /// Whether <paramref name="clientId"/> is the CLI document this server itself publishes at
+    /// <paramref name="serverBaseUrl"/>. Such a client_id is answered from this server's own definition and never
+    /// fetched, so its scheme doesn't matter: the https rule for client ID URLs protects a document fetched from
+    /// someone else, and nothing is fetched here. Only the exact URL of this server's document qualifies.
+    /// </summary>
+    public static bool IsFirstPartyCliClientId(string clientId, string? serverBaseUrl) =>
+        !string.IsNullOrEmpty(serverBaseUrl)
+        && string.Equals(clientId, serverBaseUrl + FirstPartyCliPath, StringComparison.Ordinal);
+
+    private static OAuthClientInfo FirstPartyCliClient(string clientId) =>
+        new(clientId, FirstPartyCliName, [.. FirstPartyCliRedirectUris], "native");
+
     // -- Validation --
+
+    /// <summary>
+    /// Whether a URL client_id names a Client ID Metadata Document this server will fetch: https, or http on a
+    /// loopback host (RFC 8252 §8.3).
+    /// </summary>
+    public static bool IsMetadataDocumentClientId(Uri clientId) =>
+        clientId.Scheme == Uri.UriSchemeHttps || IsLoopbackHttp(clientId);
+
+    /// <summary>
+    /// An http URL on a loopback host: localhost, 127.0.0.1 or [::1] (RFC 8252 §7.3, §8.3), on any port.
+    /// </summary>
+    public static bool IsLoopbackHttp(Uri uri) =>
+        uri.Scheme == Uri.UriSchemeHttp && uri.Host is "127.0.0.1" or "localhost" or "[::1]";
+
+    private static string ResolveApplicationType(List<string> redirectUris, string? applicationType)
+    {
+        if (applicationType is not (null or "native" or "web"))
+            throw new ArgumentException($"application_type must be \"native\" or \"web\", got: {applicationType}");
+
+        bool allLoopback = redirectUris is { Count: > 0 } && redirectUris.All(
+            u => Uri.TryCreate(u, UriKind.Absolute, out var parsed) && IsLoopbackHttp(parsed));
+        return allLoopback ? "native" : applicationType ?? "web";
+    }
 
     private static void ValidateRedirectUris(List<string> redirectUris, string applicationType)
     {
@@ -169,14 +221,12 @@ public class OAuthClientService(
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed))
                 throw new ArgumentException($"Invalid redirect URI: {uri}");
 
-            bool isLoopback = parsed.Host is "127.0.0.1" or "localhost";
-
             switch (applicationType)
             {
-                case "native" when !isLoopback || parsed.Scheme != "http":
+                case "native" when !IsLoopbackHttp(parsed):
                     throw new ArgumentException(
-                        $"Native clients must use http://127.0.0.1 or http://localhost redirect URIs, got: {uri}");
-                case "web" when parsed.Scheme != "https":
+                        $"Native clients must use http://127.0.0.1, http://[::1] or http://localhost redirect URIs, got: {uri}");
+                case "web" when parsed.Scheme != Uri.UriSchemeHttps:
                     throw new ArgumentException(
                         $"Web clients must use https redirect URIs, got: {uri}");
             }

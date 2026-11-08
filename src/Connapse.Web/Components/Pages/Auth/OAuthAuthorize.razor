@@ -157,7 +157,7 @@
         }
 
         // Resolve and validate client
-        clientInfo = await OAuthClientService.ResolveClientAsync(ClientId!);
+        clientInfo = await OAuthClientService.ResolveClientAsync(ClientId!, $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}");
         if (clientInfo is null)
         {
             isError = true;

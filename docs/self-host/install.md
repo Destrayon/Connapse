@@ -123,6 +123,7 @@ A save against an outdated read returns `412` with the [`settings-changed`](../p
 ## Related
 
 - [Run Connapse in production](production.md)
+- [Add https to a home server](home-network-https.md)
 - [Upgrade Connapse](upgrade.md)
 - [Configuration reference](../reference/configuration.md)
 - [Troubleshoot a self-hosted server](troubleshooting.md)

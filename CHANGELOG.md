@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- On a server reached over plain http, such as one on a home network, `connapse auth login` and apps that sign in through the browser with a `localhost` callback no longer fail. An app that registers without saying what kind it is, and whose callbacks are all on `localhost`, `127.0.0.1` or `[::1]`, is now registered as an app on the user's computer instead of being refused for not using https. [Add https to a home server](docs/self-host/home-network-https.md) says which sign-ins still need https and how to get it without opening the server to the internet.
+
 ## [v0.4.0] - 2026-11-07
 
 v0.4.0 is the first release since v0.3.2 (March 2026) and the largest so far. It is also a clean break: an install upgrading from v0.3.2 has steps to take, listed under [Upgrading from v0.3.2](#upgrading-from-v032). Read them before you upgrade.
