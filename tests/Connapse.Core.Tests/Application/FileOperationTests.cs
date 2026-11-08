@@ -147,7 +147,7 @@ public class FileOperationTests
     [Fact]
     public async Task Contents_ExactlyTheLimit_IsReadAndEachFailureKeepsItsStatus()
     {
-        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/a.md", "Pending"));
+        _documents.GetAsync(Id, Arg.Any<CancellationToken>()).Returns(Doc("/a.pdf", "Pending"));
         var contents = new GetFileContents(_containers, Content(Substitute.For<IManagedStorageProvider>()), _authorizer);
 
         var read = await contents.RunAsync(Caller, Here, [.. Enumerable.Repeat(Id, GetFileContents.MaxFiles)]);
