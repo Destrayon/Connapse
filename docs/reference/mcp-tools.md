@@ -21,6 +21,8 @@ A browser request to `/mcp` must come from a loopback origin or one listed in `C
 
 A personal access token or agent key created with **Ask before it deletes anything over MCP** (the default) has every Destructive or Credential call held for a person. The first call returns a message naming the request; its owner approves it on **Approvals** (`/approvals`), and the same call with the same arguments then runs once. A request waits a day for a decision, and an approval must be used within 15 minutes. Read and Write calls are never held.
 
+The agent learns the decision by itself with `approval_status`, or `GET /api/approvals/{id}` over REST: either answers at once, or waits up to 50 seconds for a decision. The answer's state is `pending`, `approved` (repeat the exact call now), `denied` (with the reason the person typed, if any), `expired` (no one decided in time, or the approval lapsed unused) or `used`. Only the token that made a request can see it. Connapse never runs the call itself: the agent repeats it with its own arguments, which Connapse keeps only sealed, for matching.
+
 ## Named tools
 
 Every tool that takes `containerId` accepts a container's id or its name. `search_knowledge`, `container_describe` and the `code_*` tools also accept a source.
@@ -45,6 +47,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `code_references` | `knowledge:read` | Read | Lists the files that use a symbol, best evidence first: calls, base types and imports with their lines, then files whose text names it. |
 | `code_impact` | `knowledge:read` | Read | Lists what a change to a symbol could affect, up to three hops through callers and subtypes, with the tests among them. |
 | `code_repo_map` | `knowledge:read` | Read | Maps indexed code: the files the rest of the code refers to most, with their main definitions. |
+| `approval_status` | any | Read | Says whether a person approved, denied or let expire a call of yours held for approval, with their reason, optionally waiting for the decision. See [Approvals](#approvals). |
 | `memory_spaces` | `knowledge:read` | Read | Lists the memory spaces the caller can use, with who sees each one. See [Agent memory](#agent-memory). |
 | `memory_remember` | `knowledge:write` | Write | Stores a dated fact in a space, with the documents it was learned from. |
 | `memory_correct` | `knowledge:write` | Write | Replaces a fact and keeps the old one in history. |
@@ -107,6 +110,8 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `code_repo_map` | `containerId` | string | Yes | Container or source id or name |
 | | `path` | string | No | Only files under this folder, such as `src/billing` |
 | | `maxFiles` | integer | No | Most files, 1 to 200; default 30 |
+| `approval_status` | `requestId` | string | Yes | The request id the held call returned |
+| | `waitSeconds` | integer | No | Seconds to wait for a decision while pending, 0 to 50; default 0 |
 | `memory_spaces` | `name` | string | No | Only spaces whose name or description contains this text |
 | | `kind` | string | No | `personal` or `team` |
 | `memory_remember` | `space` | string | Yes | Space id or name, from `memory_spaces`; memory can't be written to a document container or a source |

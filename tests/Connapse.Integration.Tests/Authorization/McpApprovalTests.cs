@@ -417,17 +417,122 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         }
     }
 
-    private async Task<McpClient> AgentAsync(bool requiresApproval)
+    [Fact]
+    public async Task ApprovalStatus_WaitingWhileAPersonApproves_ReportsApprovedThenUsed()
+    {
+        string key = await AgentKeyAsync(requiresApproval: true);
+        await using var agent = await McpTestClient.ConnectAsync(KeyClient(key));
+        string target = await CreateContainerAsync(fixture.AdminClient, "approval-status");
+        try
+        {
+            var call = new Dictionary<string, object?> { ["containerId"] = target };
+            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("approval_status");
+            var pending = await PendingForAsync("container_delete", target);
+            (await StatusAsync(agent, pending.Id, waitSeconds: 1)).GetProperty("state").GetString().Should().Be("pending", "a wait that runs out says so");
+
+            var waiting = StatusAsync(agent, pending.Id, waitSeconds: 30);
+            (await DecideAsync(pending.Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
+            var decided = await waiting.WaitAsync(TimeSpan.FromSeconds(15));
+            decided.GetProperty("state").GetString().Should().Be("approved", "the wait ends once a person decides");
+
+            var ran = await agent.CallToolAsync("container_delete", call);
+            Text(ran).Should().NotContain("pending approval");
+            (await fixture.AdminClient.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeFalse("the repeated call ran");
+            (await StatusAsync(agent, pending.Id)).GetProperty("state").GetString().Should().Be("used");
+
+            // The web API answers the same token the same way, and no one else.
+            using var rest = KeyClient(key);
+            var viaRest = await rest.GetAsync($"/api/approvals/{pending.Id}?wait=5");
+            viaRest.IsSuccessStatusCode.Should().BeTrue(await viaRest.Content.ReadAsStringAsync());
+            (await viaRest.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("state").GetString().Should().Be("Used");
+            (await fixture.AdminClient.GetAsync($"/api/approvals/{pending.Id}")).StatusCode
+                .Should().Be(System.Net.HttpStatusCode.NotFound, "an administrator's own token didn't make the request");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{target}");
+        }
+    }
+
+    [Fact]
+    public async Task ApprovalStatus_DeniedWithAReason_TellsTheAgentWhy()
+    {
+        await using var agent = await AgentAsync(requiresApproval: true);
+        await using var stranger = await AgentAsync(requiresApproval: true);
+        string target = await CreateContainerAsync(fixture.AdminClient, "approval-deny");
+        try
+        {
+            await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = target });
+            var pending = await PendingForAsync("container_delete", target);
+            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+                (await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>()
+                    .ExecuteAsync(Admin(OperationSurface.Ui), pending.Id, approve: false, reason: "That container holds the audit records."))
+                    .Succeeded.Should().BeTrue();
+
+            var denied = await StatusAsync(agent, pending.Id, waitSeconds: 10);
+            denied.GetProperty("state").GetString().Should().Be("denied");
+            denied.GetProperty("reason").GetString().Should().Be("That container holds the audit records.");
+            denied.GetProperty("message").GetString().Should().Contain("audit records").And.Contain("Don't repeat");
+
+            var other = await stranger.CallToolAsync("approval_status", new Dictionary<string, object?> { ["requestId"] = pending.Id.ToString() });
+            Text(other).Should().Contain("not found", "another token can't see the request").And.NotContain("audit records");
+            (await fixture.AdminClient.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeTrue();
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{target}");
+        }
+    }
+
+    [Fact]
+    public async Task ApprovalStatus_NoOneDecidedInTime_ReportsExpired()
+    {
+        await using var agent = await AgentAsync(requiresApproval: true);
+        string target = await CreateContainerAsync(fixture.AdminClient, "approval-expired");
+        try
+        {
+            await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = target });
+            var pending = await PendingForAsync("container_delete", target);
+            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+            await using (var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync())
+                await db.McpApprovals.Where(a => a.Id == pending.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(a => a.ExpiresAt, DateTime.UtcNow.AddMinutes(-1)));
+
+            var expired = await StatusAsync(agent, pending.Id, waitSeconds: 10);
+            expired.GetProperty("state").GetString().Should().Be("expired", "an expired request isn't waited on");
+            expired.GetProperty("message").GetString().Should().Contain("without a decision");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{target}");
+        }
+    }
+
+    private static async Task<JsonElement> StatusAsync(McpClient agent, Guid id, int waitSeconds = 0)
+    {
+        var result = await agent.CallToolAsync("approval_status",
+            new Dictionary<string, object?> { ["requestId"] = id.ToString(), ["waitSeconds"] = waitSeconds });
+        result.IsError.Should().NotBe(true, Text(result));
+        return JsonDocument.Parse(Text(result)).RootElement.Clone();
+    }
+
+    private HttpClient KeyClient(string key)
+    {
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, key);
+        return http;
+    }
+
+    private async Task<McpClient> AgentAsync(bool requiresApproval) =>
+        await McpTestClient.ConnectAsync(KeyClient(await AgentKeyAsync(requiresApproval)));
+
+    private async Task<string> AgentKeyAsync(bool requiresApproval)
     {
         var created = await fixture.AdminClient.PostAsJsonAsync("/api/v1/agents/", new CreateAgentRequest($"approval-{Guid.NewGuid():N}"));
         var agent = (await created.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<AgentDto>())!;
         var issued = await fixture.AdminClient.PostAsJsonAsync($"/api/v1/agents/{agent.Id}/keys",
             new CreateAgentKeyRequest("approval", ["knowledge:read", "knowledge:write"], RequiresApproval: requiresApproval));
-        var key = (await issued.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<CreateAgentKeyResponse>())!;
-
-        var http = fixture.Factory.CreateClient();
-        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, key.Token);
-        return await McpTestClient.ConnectAsync(http);
+        return (await issued.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<CreateAgentKeyResponse>())!.Token;
     }
 
     /// <summary>An MCP client holding an OAuth token that a newly registered client was issued for the administrator.</summary>

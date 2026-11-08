@@ -180,6 +180,11 @@
       "risk": "read",
       "scope": null
     },
+    "GET /api/approvals/{id:guid}": {
+      "requires": "mcp",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/batches/{id}/status": {
       "requires": "viewer",
       "risk": "read",
@@ -1205,6 +1210,11 @@
     "memory_spaces": {
       "requires": "mcp",
       "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "approval_status": {
+      "requires": "mcp",
+      "scope": "none",
       "risk": "read"
     }
   }

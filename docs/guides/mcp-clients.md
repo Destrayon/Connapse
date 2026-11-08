@@ -88,7 +88,7 @@ Any client that speaks Streamable HTTP works with the address and header above. 
 
 ## Approve deletes
 
-A key created with **Ask before it deletes anything over MCP** has each delete held. The client reports that the call needs approval; approve or deny it on **Approvals** (`/approvals`), and the agent repeats the call within 15 minutes. See [Approve a held delete](tokens-and-agents.md#approve-a-held-delete).
+A key created with **Ask before it deletes anything over MCP** has each delete held. The client reports that the call needs approval; approve or deny it on **Approvals** (`/approvals`). The agent checks the decision with `approval_status` and, once approved, repeats the call within 15 minutes. See [Approve a held delete](tokens-and-agents.md#approve-a-held-delete).
 
 ## Revoke access
 

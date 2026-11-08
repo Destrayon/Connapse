@@ -7,6 +7,7 @@ using Connapse.Application.Ports;
 using Connapse.Application.Sources;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
+using Connapse.Identity.Authentication;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
@@ -690,14 +691,14 @@ public class OperationRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(DecideMcpApproval))]
     public Task DecideApproval_AnyCaller_DecidesOnlyFromABrowserSignInAndHidesOthersRequests() =>
-        Gen.Select(AnyApprovalCaller, Gen.Guid, Gen.Bool, Gen.Enum<McpApprovalDecision>())
+        Gen.Select(AnyApprovalCaller, Gen.Guid, Gen.Bool, Gen.Enum<McpApprovalDecision>(), Gen.OneOf(Gen.Const((string?)null), Gen.String.Select(s => (string?)s)))
             .SampleAsync(async t =>
             {
-                var (approver, id, approve, decision) = t;
+                var (approver, id, approve, decision, reason) = t;
                 var world = new World(viewer: true, admin: true);
-                world.Approvals.DecideAsync(Arg.Is(id), Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Is(approve), Arg.Any<CancellationToken>()).Returns(decision);
+                world.Approvals.DecideAsync(Arg.Is(id), Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Is(approve), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(decision);
 
-                var decided = await new DecideMcpApproval(world.Approvals).ExecuteAsync(approver.Context, id, approve);
+                var decided = await new DecideMcpApproval(world.Approvals).ExecuteAsync(approver.Context, id, approve, reason);
 
                 if (approver.Decider is not var (userId, isAdmin))
                 {
@@ -705,7 +706,7 @@ public class OperationRandomInputTests
                     world.Approvals.ReceivedCalls().Should().BeEmpty();
                     return;
                 }
-                await world.Approvals.Received(1).DecideAsync(id, userId, isAdmin, approve, Arg.Any<CancellationToken>());
+                await world.Approvals.Received(1).DecideAsync(id, userId, isAdmin, approve, reason, Arg.Any<CancellationToken>());
                 // Someone else's request (Forbidden in the store) reads as not found.
                 decided.Status.Should().Be(decision switch
                 {
@@ -716,6 +717,136 @@ public class OperationRandomInputTests
                 if (decided.Succeeded)
                     decided.Result.Should().Be(approve);
             }, iter: 2000);
+
+    // ── approvals.status ────────────────────────────────────────────────────────────────────────
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>A caller asking about a request: signed in or not, by PAT, agent key or sign-in, from any surface.</summary>
+    private static readonly Gen<OperationContext> AnyStatusCaller = Gen.Select(
+        Gen.Enum<OperationSurface>(), Gen.Bool, Gen.Int[0, 2], Gen.Guid,
+        (surface, authenticated, kind, id) =>
+        {
+            var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, id.ToString()) };
+            if (kind == 1)
+                claims.Add(new Claim("pat_id", id.ToString()));
+            if (kind == 2)
+                claims.Add(new Claim("agent_key_id", id.ToString()));
+            return new OperationContext(new ClaimsPrincipal(new ClaimsIdentity(claims, authenticated ? "Bearer" : null)), surface);
+        });
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetMcpApprovalStatus))]
+    public Task ApprovalStatus_AnyCallerAndRequest_ShowsOnlyTheCallersOwnRequestWithItsStateAndReason() =>
+        Gen.Select(AnyStatusCaller, Gen.Bool, Gen.Enum<McpApprovalStatus>(), Gen.Int[-120, 120],
+                Gen.OneOf(Gen.Const((string?)null), Gen.String[1, 40].Select(s => (string?)s)))
+            .SampleAsync(async t =>
+            {
+                var (caller, own, stored, expiresInMinutes, reason) = t;
+                var world = new World(viewer: true, admin: true);
+                var request = new McpApprovalEntity
+                {
+                    Id = Guid.NewGuid(),
+                    ToolName = "container_delete",
+                    TokenKey = "pat:someone",
+                    Status = stored,
+                    CreatedAt = Epoch.AddDays(-1),
+                    ExpiresAt = Epoch.AddMinutes(expiresInMinutes),
+                    DecisionReason = reason,
+                };
+                world.Approvals.GetForTokenAsync(request.Id, Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    .Returns(call => own ? request : null);
+
+                var status = await new GetMcpApprovalStatus(world.Approvals, new FixedClock(Epoch))
+                    .ExecuteAsync(caller, request.Id, TimeSpan.Zero);
+
+                if (caller.User.Identity?.IsAuthenticated != true)
+                {
+                    status.Status.Should().Be(McpApprovalStatusOutcome.NotFound);
+                    world.Approvals.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                // The store is asked only for the caller's own token's request.
+                await world.Approvals.Received(1).GetForTokenAsync(request.Id, McpApprovalClaims.TokenKey(caller.User), Arg.Any<CancellationToken>());
+                if (!own)
+                {
+                    status.Status.Should().Be(McpApprovalStatusOutcome.NotFound);
+                    return;
+                }
+
+                bool live = request.ExpiresAt > Epoch;
+                status.Result!.State.Should().Be(stored switch
+                {
+                    McpApprovalStatus.Pending => live ? McpApprovalState.Pending : McpApprovalState.Expired,
+                    McpApprovalStatus.Approved => live ? McpApprovalState.Approved : McpApprovalState.Expired,
+                    McpApprovalStatus.Denied => McpApprovalState.Denied,
+                    _ => McpApprovalState.Used,
+                });
+                status.Result.Reason.Should().Be(reason);
+                if (status.Result.State == McpApprovalState.Denied && reason is not null)
+                    status.Result.Message.Should().Contain(reason);
+                if (status.Result.State == McpApprovalState.Approved)
+                    status.Result.Message.Should().Contain("Repeat the exact same");
+            }, iter: 2000);
+
+    [Fact]
+    public async Task ApprovalStatus_WaitWhilePending_ReturnsOnceDecided()
+    {
+        var store = Substitute.For<IMcpApprovalStore>();
+        var request = new McpApprovalEntity
+        {
+            Id = Guid.NewGuid(),
+            ToolName = "container_delete",
+            TokenKey = "pat:1",
+            Status = McpApprovalStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddHours(1),
+        };
+        var denied = new McpApprovalEntity
+        {
+            Id = request.Id,
+            ToolName = request.ToolName,
+            TokenKey = request.TokenKey,
+            Status = McpApprovalStatus.Denied,
+            CreatedAt = request.CreatedAt,
+            ExpiresAt = request.ExpiresAt,
+            DecidedAt = DateTime.UtcNow,
+            DecisionReason = "not that one",
+        };
+        store.GetForTokenAsync(request.Id, "pat:1", Arg.Any<CancellationToken>()).Returns(request, request, denied);
+        var caller = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity([new Claim("pat_id", "1")], "Bearer")), OperationSurface.Mcp);
+
+        var status = await new GetMcpApprovalStatus(store, TimeProvider.System).ExecuteAsync(caller, request.Id, TimeSpan.FromSeconds(30));
+
+        status.Result!.State.Should().Be(McpApprovalState.Denied);
+        status.Result.Reason.Should().Be("not that one");
+        await store.Received(3).GetForTokenAsync(request.Id, "pat:1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApprovalStatus_WaitRunsOut_ReturnsStillPending()
+    {
+        var store = Substitute.For<IMcpApprovalStore>();
+        var request = new McpApprovalEntity
+        {
+            Id = Guid.NewGuid(),
+            ToolName = "container_delete",
+            TokenKey = "pat:1",
+            Status = McpApprovalStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddHours(1),
+        };
+        store.GetForTokenAsync(request.Id, "pat:1", Arg.Any<CancellationToken>()).Returns(request);
+        var caller = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity([new Claim("pat_id", "1")], "Bearer")), OperationSurface.Rest);
+
+        var status = await new GetMcpApprovalStatus(store, TimeProvider.System).ExecuteAsync(caller, request.Id, TimeSpan.FromMilliseconds(1500));
+
+        status.Result!.State.Should().Be(McpApprovalState.Pending);
+        status.Result.Message.Should().Contain("still waiting");
+    }
 
     [Trait("Category", "Unit")]
     public class AccountLinks

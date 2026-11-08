@@ -385,6 +385,11 @@ namespace Connapse.Identity.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("decided_by_user_id");
 
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("decision_reason");
+
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");

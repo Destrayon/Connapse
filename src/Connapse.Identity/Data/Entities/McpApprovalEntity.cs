@@ -51,4 +51,9 @@ public class McpApprovalEntity
     public DateTime? DecidedAt { get; set; }
     public Guid? DecidedByUserId { get; set; }
     public DateTime? UsedAt { get; set; }
+
+    /// <summary>What the person who decided said, if anything; the agent that asked reads it (CON-292).</summary>
+    public string? DecisionReason { get; set; }
+
+    public const int DecisionReasonMaxLength = 500;
 }

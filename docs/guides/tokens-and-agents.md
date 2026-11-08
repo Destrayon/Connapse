@@ -58,7 +58,7 @@ The `admin:` scopes do something only on a token of an Owner or Admin. The full 
 
 ### Approve a held delete
 
-When a key has **Ask before it deletes anything over MCP**, a delete it asks for over MCP is held rather than run. It appears on **Approvals** (`/approvals`), where you choose **Approve** or **Deny**. Once approved, the agent repeats the same call within 15 minutes and it runs once. You see requests from your own tokens; an administrator sees everyone's.
+When a key has **Ask before it deletes anything over MCP**, a delete it asks for over MCP is held rather than run. It appears on **Approvals** (`/approvals`), where you choose **Approve** or **Deny** and can type a reason for the agent. The agent finds out your decision, and your reason, by itself with the `approval_status` tool. Once approved, it repeats the same call within 15 minutes and it runs once. You see requests from your own tokens; an administrator sees everyone's.
 
 ## Do it with the API
 

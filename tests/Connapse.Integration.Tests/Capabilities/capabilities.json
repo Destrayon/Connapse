@@ -1200,6 +1200,15 @@
         "POST /api/memory/facts/{id}/copy"
       ],
       "mcpOff": "Agents share a fact by saving it again with memory_remember and a team space; the copy button is for people on the Memory page."
+    },
+    {
+      "id": "approvals.status",
+      "capability": "Check or wait for the decision on my held call",
+      "routes": [
+        "GET /api/approvals/{id:guid}"
+      ],
+      "mcp": "approval_status",
+      "note": "A token sees only the requests it made; anyone else's reads as not found. Deciding stays in the UI."
     }
   ],
   "plumbing": {

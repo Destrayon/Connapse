@@ -13814,6 +13814,96 @@
         }
       }
     },
+    "/api/approvals/{id}": {
+      "get": {
+        "tags": [
+          "Approvals"
+        ],
+        "description": "Where an approval request your token made stands: pending, approved, denied (with the person's reason), expired or used, and what to do next. ?wait=N (0-50) waits up to N seconds for a decision while it is pending. When approved, repeat the held call exactly and it runs once. Another token's request reads as not found.",
+        "operationId": "approvals.status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpApprovalRequestStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "approvals.status",
+          "scope": "none",
+          "risk": "Read",
+          "mcp": "Off"
+        }
+      }
+    },
     "/api/v1/identity/register": {
       "post": {
         "tags": [
@@ -19225,6 +19315,72 @@
           }
         }
       },
+      "McpApprovalRequestStatus": {
+        "required": [
+          "id",
+          "toolName",
+          "state",
+          "reason",
+          "createdAt",
+          "expiresAt",
+          "decidedAt",
+          "usedAt",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "toolName": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/McpApprovalState"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "usedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "McpApprovalState": {
+        "enum": [
+          "Pending",
+          "Approved",
+          "Denied",
+          "Expired",
+          "Used"
+        ]
+      },
       "MemoryCaller": {
         "required": [
           "userId",
@@ -22624,6 +22780,9 @@
     },
     {
       "name": "Providers"
+    },
+    {
+      "name": "Approvals"
     }
   ]
 }
