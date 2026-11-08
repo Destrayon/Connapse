@@ -97,3 +97,14 @@ internal static class PlantedMcpTools
         Microsoft.AspNetCore.Http.IHttpContextAccessor http, int? topK, Guid id, CancellationToken ct) =>
         Task.FromResult(id.ToString());
 }
+
+// CON-282: an operation only another operation calls has no route of its own, even when the caller is routed
+// (memory.copy calls memory.remember), so the route-coverage rule must still report it.
+[Connapse.Application.Operation("planted.caller", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal sealed class PlantedCallingOperation(PlantedCalledOperation called)
+{
+    public PlantedCalledOperation Called => called;
+}
+
+[Connapse.Application.Operation("planted.called", Scope = "knowledge:read", Risk = Connapse.Application.RiskTier.Read)]
+internal sealed class PlantedCalledOperation;

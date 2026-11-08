@@ -412,6 +412,62 @@ public class MemoryOperationRandomInputTests
                 recalled.Result.SkippedSpaces.Should().Be(0);
             }, iter: 1000);
 
+    /// <summary>A recall request's optional parts: each present or not, with a limit in and out of range.</summary>
+    private static readonly Gen<(bool Space, bool AsOf, bool Attribute, bool Text, bool History, bool Cursor, int Limit)> AnyRecallShape =
+        Gen.Select(Gen.Select(Gen.Bool, Gen.Bool, Gen.Bool, Gen.Bool), Gen.Bool, Gen.Bool, Gen.Int[-3, 140],
+            (a, history, cursor, limit) => (a.Item1, a.Item2, a.Item3, a.Item4, history, cursor, limit));
+
+    [Fact]
+    [RandomInputTestOf(typeof(RecallMemory))]
+    public Task RecallAsync_AnyRequest_PagesOneNamedSpaceWithoutAPointInTimeOrAttribute_AndReadsEveryOtherOneWhole() =>
+        Gen.Select(AnyContainer, AnyRecallShape).SampleAsync(async sample =>
+        {
+            var (container, shape) = sample;
+            Container space = container with { Kind = ContainerKind.Memory };
+            var world = new World(reader: true, writer: false, space, exists: true);
+            Guid id = Guid.Parse(space.Id);
+            IMemorySpaceStore spaces = Substitute.For<IMemorySpaceStore>();
+            spaces.ListAsync(Arg.Any<MemoryCaller>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                .Returns([new MemorySpaceSummary(space, 1, new DateTimeOffset(Epoch), false)]);
+            world.Memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(),
+                    Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                .Returns(new MemoryFactPage([new RecalledFact(Stored(id), [])], null));
+            world.Memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                .Returns(new MemoryRecall([new RecalledFact(Stored(id), [])]));
+            DateTimeOffset? asOf = shape.AsOf ? new DateTimeOffset(Epoch) : null;
+            MemoryRecallRequest request = new(shape.Space ? space.Name : " ", shape.Text ? "db" : null, "Halcyon",
+                shape.Attribute ? "database" : null, asOf, shape.History, shape.Limit, shape.Cursor ? "not-a-cursor" : null);
+
+            var recalled = await new RecallMemory(world.Containers, world.Memory, world.Authorizer, spaces).RecallAsync(AnyCallerOf(), request);
+
+            bool pages = shape.Space && !shape.AsOf && !shape.Attribute;
+            if (shape.Cursor)
+            {
+                // Paged, the cursor is checked and this one is no cursor; unpaged, no read takes one at all.
+                recalled.Status.Should().Be(MemoryStatus.Invalid);
+                recalled.Field.Should().Be("cursor");
+                world.Memory.ReceivedCalls().Should().BeEmpty();
+                return;
+            }
+            recalled.Status.Should().Be(MemoryStatus.Success);
+            // One space's answer comes back as memory gave it; merging every space's keeps at most limit, so none below 1.
+            recalled.Result!.Facts.Should().HaveCount(shape.Space || shape.Limit >= 1 ? 1 : 0);
+            if (pages)
+            {
+                MemoryFactFilter filter = new(Text: shape.Text ? "db" : null, Subject: "Halcyon",
+                    Status: shape.History ? MemoryFactStatus.All : MemoryFactStatus.Current);
+                await world.Memory.Received(1).ListAsync(id, filter, shape.Text ? MemoryFactSort.Relevance : MemoryFactSort.Recorded,
+                    null, Math.Clamp(shape.Limit, 1, 100), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+                await world.Memory.DidNotReceiveWithAnyArgs().RecallAsync(default!, default!, default);
+                return;
+            }
+            await world.Memory.Received(1).RecallAsync(new MemoryQuery(id, shape.Text ? "db" : null, "Halcyon",
+                shape.Attribute ? "database" : null, asOf, shape.History, Limit: shape.Limit), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+            await world.Memory.DidNotReceiveWithAnyArgs().ListAsync(default, default!, default, default, default, default!, default);
+        }, iter: 500);
+
+    private static OperationContext AnyCallerOf() => new(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Rest);
+
     [Fact]
     [RandomInputTestOf(typeof(ListMemorySpaces))]
     public Task AudienceAsync_AnyCaller_CanAddOnlyWithWriteAccessAndCountsEveryAccount() =>

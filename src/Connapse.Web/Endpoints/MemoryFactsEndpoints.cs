@@ -124,6 +124,34 @@ public static class MemoryFactsEndpoints
         .WithName("memory.history")
         .WithDescription("One page of a fact's versions the caller can see, newest first, with how many there are in all");
 
+        // GET /api/memory/facts - Recall facts, as the memory_recall tool does
+        group.MapGet("/facts", async (
+            HttpContext http,
+            [FromQuery] string? space,
+            [FromQuery] string? q,
+            [FromQuery] string? subject,
+            [FromQuery] string? attribute,
+            [FromQuery] string? asOf,
+            [FromQuery] bool? includeHistory,
+            [FromQuery] int? limit,
+            [FromQuery] string? cursor,
+            [FromServices] RecallMemory recall,
+            CancellationToken ct) =>
+        {
+            if (!MemoryInput.TryDate(asOf, out DateTimeOffset? at))
+                return ApiProblem.BadRequest("asOf must be an ISO 8601 date or time.", field: "asOf");
+
+            var recalled = await recall.RecallAsync(Rest(http),
+                new MemoryRecallRequest(space, q, subject, attribute, at, includeHistory ?? false, limit ?? 10, cursor), ct);
+            return recalled.Succeeded ? Results.Ok(RecallResponse(recalled.Result!)) : OperationProblems.Result(recalled);
+        })
+        .Produces<MemoryRecallResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("memory.recall")
+        .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites");
+
         // Writes declare their own policy, so they don't also carry the reads' RequireViewer.
         var writes = app.MapGroup("/api/memory").WithTags("Memory")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -154,8 +182,106 @@ public static class MemoryFactsEndpoints
         .WithName("memory.copy")
         .WithDescription("Copies the current version of a fact in your own personal space to a team space, as a new fact you wrote; the personal fact is unchanged. Needs knowledge:read as well as knowledge:write");
 
+        // POST /api/memory/spaces/{id}/facts - Remember a fact, as the memory_remember tool does
+        writes.MapPost("/spaces/{id}/facts", async (
+            HttpContext http,
+            string id,
+            [FromBody] RememberMemoryFactRequest request,
+            [FromServices] RememberFact remember,
+            CancellationToken ct) =>
+        {
+            (NewMemoryFact? fact, IResult? problem) = NewFact(request.Subject, request.Attribute, request.Value,
+                request.ValidFrom, request.ValidTo, request.Sources, request.Reason, keepSourcesWhenNone: false);
+            if (fact is null)
+                return problem!;
+
+            var written = await remember.RunAsync(Rest(http), MemoryTarget.Space(id), fact, ct);
+            return written.Succeeded
+                ? Results.Created($"/api/memory/facts/{written.Result!.Fact.Id}/history",
+                    new MemoryRememberedResponse(written.Result.Fact, Space(written.Result.SavedTo!)))
+                : OperationProblems.Result(written);
+        })
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
+        .Produces<MemoryRememberedResponse>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("memory.remember")
+        .WithDescription("Stores one fact in a memory space, by id or name; \"my-memory\" is your own personal space, made on first use. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them");
+
+        // POST /api/memory/facts/{id}/correct - Replace a fact, keeping the old one in history
+        writes.MapPost("/facts/{id}/correct", async (
+            HttpContext http,
+            string id,
+            [FromBody] CorrectMemoryFactRequest request,
+            [FromServices] CorrectFact correct,
+            CancellationToken ct) =>
+        {
+            if (MemoryInput.Correction(request.Kind) is not { } kind)
+                return ApiProblem.BadRequest("kind must be \"changed\" or \"wrong\".", field: "kind");
+            (NewMemoryFact? fact, IResult? problem) = NewFact(request.Subject, request.Attribute, request.Value,
+                request.ValidFrom, request.ValidTo, request.Sources, request.Reason, keepSourcesWhenNone: true);
+            if (fact is null)
+                return problem!;
+
+            var written = await correct.RunAsync(Rest(http), null, id, kind, fact, ct);
+            return written.Succeeded
+                ? Results.Ok(new MemoryCorrectedResponse(written.Result!.Fact, written.Result.Replaced!))
+                : OperationProblems.Result(written);
+        })
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
+        .Produces<MemoryCorrectedResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("memory.correct")
+        .WithDescription("Replaces a fact and keeps the old one in history. kind \"changed\" (the default): the old fact ends at validFrom, which is required. kind \"wrong\": the old fact is marked superseded and the new value takes its dates. Subject, attribute and sources default to the old fact's. Needs knowledge:read as well as knowledge:write");
+
+        // DELETE /api/memory/facts/{id} - Forget a fact and every version of it
+        writes.MapDelete("/facts/{id}", async (
+            HttpContext http,
+            string id,
+            [FromServices] ForgetFact forget,
+            CancellationToken ct) =>
+        {
+            var forgotten = await forget.RunAsync(Rest(http), null, id, ct);
+            return forgotten.Succeeded ? Results.Ok(new MemoryForgottenResponse(forgotten.Result)) : OperationProblems.Result(forgotten);
+        })
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
+        .Produces<MemoryForgottenResponse>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("memory.forget")
+        .WithDescription("Deletes a fact for good, with every earlier and later version of it from corrections, and says how many versions went. To record that a value changed, correct it instead");
+
         return app;
     }
+
+    /// <summary>
+    /// The fact a remember or correct body describes, read as the memory tools read theirs, or the problem with the
+    /// first value that can't be read. <paramref name="keepSourcesWhenNone"/>: no sources given means "keep the old
+    /// fact's" (a correction) rather than "none".
+    /// </summary>
+    internal static (NewMemoryFact? Fact, IResult? Problem) NewFact(string? subject, string? attribute, string? value,
+        string? validFrom, string? validTo, string?[]? sources, string? reason, bool keepSourcesWhenNone)
+    {
+        if (!MemoryInput.TryDate(validFrom, out DateTimeOffset? from))
+            return (null, ApiProblem.BadRequest("validFrom must be an ISO 8601 date or time.", field: "validFrom"));
+        if (!MemoryInput.TryDate(validTo, out DateTimeOffset? to))
+            return (null, ApiProblem.BadRequest("validTo must be an ISO 8601 date or time.", field: "validTo"));
+        if (MemoryInput.Sources(sources) is not { } cited)
+            return (null, ApiProblem.BadRequest("each source must be a document id (UUID) or \"node:<id>\".", field: "sources"));
+        return (new NewMemoryFact(subject ?? "", attribute ?? "", value ?? "", from, to,
+            keepSourcesWhenNone && sources is null ? null : cited, reason), null);
+    }
+
+    internal static MemoryRecallResponse RecallResponse(SpacedRecall recalled) => new(
+        recalled.Facts,
+        [.. recalled.Spaces.Values.Select(Space).OrderBy(s => s.Name, StringComparer.Ordinal)],
+        recalled.SkippedSpaces,
+        recalled.NextCursor);
+
+    private static MemorySpaceRef Space(Container space) => new(space.Id, space.Name, space.Audience);
 
     private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 
@@ -230,3 +356,40 @@ public sealed record MemoryCopyResponse(MemoryFact Fact, Guid CopiedFrom, string
 
 /// <summary>How many facts the caller can see; <paramref name="Capped"/>: counting stopped early, so there are at least this many.</summary>
 public sealed record MemoryFactCountResponse(long Count, bool Capped);
+
+/// <summary>
+/// A fact to remember: what it is about, which property, and its value; the dates it became and stopped being true
+/// (ISO 8601, a bare date being midnight UTC); the document ids or "node:&lt;id&gt;" link nodes it was learned from;
+/// and why.
+/// </summary>
+public sealed record RememberMemoryFactRequest(
+    string? Subject, string? Attribute, string? Value,
+    string? ValidFrom = null, string? ValidTo = null, string?[]? Sources = null, string? Reason = null);
+
+/// <summary>
+/// A correction: the new value, and whether the world <c>changed</c> (the default) or the old fact was <c>wrong</c>.
+/// Left out, subject, attribute and sources stay the old fact's.
+/// </summary>
+public sealed record CorrectMemoryFactRequest(
+    string? Value, string? Kind = null,
+    string? ValidFrom = null, string? ValidTo = null, string?[]? Sources = null, string? Reason = null,
+    string? Subject = null, string? Attribute = null);
+
+/// <summary>A memory space a fact is in: its id, name, and whether it is personal (only its owner sees it) or team.</summary>
+public sealed record MemorySpaceRef(string Id, string Name, MemoryScope Audience);
+
+/// <summary>The fact stored and the space it went into.</summary>
+public sealed record MemoryRememberedResponse(MemoryFact Fact, MemorySpaceRef SavedTo);
+
+/// <summary>The new version of the fact and the one it replaced, which history keeps.</summary>
+public sealed record MemoryCorrectedResponse(MemoryFact Fact, MemoryFact Replaced);
+
+/// <summary>How many versions of the fact were deleted.</summary>
+public sealed record MemoryForgottenResponse(int Deleted);
+
+/// <summary>
+/// The facts recalled, newest or best first; the spaces they are in (match each fact's containerId); how many spaces
+/// an unnamed read left out for being past its limit; and the cursor for the next page of a one-space read.
+/// </summary>
+public sealed record MemoryRecallResponse(
+    IReadOnlyList<RecalledFact> Facts, IReadOnlyList<MemorySpaceRef> Spaces, int SkippedSpaces, string? NextCursor);

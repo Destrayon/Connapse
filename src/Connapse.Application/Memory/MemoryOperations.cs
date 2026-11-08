@@ -397,6 +397,30 @@ public sealed class RecallMemory(
                 page.Next is { } next ? MemoryCursor.Encode(next, fingerprint) : null));
     }
 
+    /// <summary>
+    /// A recall as the API and the memory_recall tool both take it. One named space without a point in time or an
+    /// attribute is read a page at a time (by relevance when there is text, newest recorded first otherwise); any
+    /// other read goes through <see cref="SpacesAsync"/>, and a cursor on it is refused, since it has no next page.
+    /// </summary>
+    public Task<Attempt<SpacedRecall, MemoryStatus>> RecallAsync(
+        OperationContext context, MemoryRecallRequest request, CancellationToken ct = default)
+    {
+        if (!string.IsNullOrWhiteSpace(request.Space) && request.AsOf is null && string.IsNullOrWhiteSpace(request.Attribute))
+        {
+            MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject,
+                Status: request.History ? MemoryFactStatus.All : MemoryFactStatus.Current);
+            MemoryFactSort sort = string.IsNullOrWhiteSpace(request.Text) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
+            return PageAsync(context, request.Space,
+                new MemoryFactListing(filter, sort, request.Cursor, Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
+        }
+        if (!string.IsNullOrWhiteSpace(request.Cursor))
+            return Task.FromResult(MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
+                "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor"));
+
+        return SpacesAsync(context, request.Space,
+            new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
+    }
+
     private static Attempt<SpacedRecall, MemoryStatus> Unchecked() =>
         MemoryRules.Fail<SpacedRecall>(MemoryStatus.Unchecked, "access to memory sources could not be checked; nothing is shown.");
 
@@ -419,6 +443,22 @@ public sealed class RecallMemory(
             : Attempt<IReadOnlyList<RecalledFact>, MemoryStatus>.Succeed(recall.Facts);
     }
 }
+
+/// <summary>
+/// What to recall: one <paramref name="Space"/> by id or name, or every space the caller can see when it is blank;
+/// facts matching <paramref name="Text"/>, <paramref name="Subject"/> and <paramref name="Attribute"/>, true at
+/// <paramref name="AsOf"/> (now when null), ended and corrected ones too with <paramref name="History"/>; at most
+/// <paramref name="Limit"/>; and the <paramref name="Cursor"/> a previous page of one space returned.
+/// </summary>
+public sealed record MemoryRecallRequest(
+    string? Space = null,
+    string? Text = null,
+    string? Subject = null,
+    string? Attribute = null,
+    DateTimeOffset? AsOf = null,
+    bool History = false,
+    int Limit = 10,
+    string? Cursor = null);
 
 /// <summary>
 /// Facts read from one or more spaces, with the spaces they came from for labelling, and how many spaces an unnamed

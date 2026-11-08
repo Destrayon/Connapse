@@ -50,6 +50,11 @@
       "risk": "destructive",
       "scope": "knowledge:write"
     },
+    "DELETE /api/memory/facts/{id}": {
+      "requires": "editor",
+      "risk": "destructive",
+      "scope": "knowledge:write"
+    },
     "DELETE /api/memory/spaces/{spaceId:guid}": {
       "requires": "editor",
       "risk": "destructive",
@@ -241,6 +246,11 @@
       "scope": "knowledge:read"
     },
     "GET /api/containers/{containerId:guid}/stats": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/memory/facts": {
       "requires": "viewer",
       "risk": "read",
       "scope": "knowledge:read"
@@ -720,7 +730,17 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "POST /api/memory/facts/{id}/correct": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "POST /api/memory/spaces/": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/memory/spaces/{id}/facts": {
       "requires": "editor",
       "risk": "write",
       "scope": "knowledge:write"

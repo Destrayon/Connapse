@@ -1056,39 +1056,35 @@
     },
     {
       "id": "memory.remember",
-      "capability": "Remember a fact in a container's memory",
+      "capability": "Remember a fact in a memory space",
       "routes": [
-        "POST /api/containers/{containerId:guid}/memory"
+        "POST /api/memory/spaces/{id}/facts"
       ],
-      "mcp": "memory_remember",
-      "note": "MCP only: no REST route yet."
+      "mcp": "memory_remember"
     },
     {
       "id": "memory.correct",
       "capability": "Correct a remembered fact, keeping its history",
       "routes": [
-        "PUT /api/containers/{containerId:guid}/memory/{factId:guid}"
+        "POST /api/memory/facts/{id}/correct"
       ],
-      "mcp": "memory_correct",
-      "note": "MCP only: no REST route yet."
+      "mcp": "memory_correct"
     },
     {
       "id": "memory.forget",
       "capability": "Forget a fact and every version of it",
       "routes": [
-        "DELETE /api/containers/{containerId:guid}/memory/{factId:guid}"
+        "DELETE /api/memory/facts/{id}"
       ],
-      "mcp": "memory_forget",
-      "note": "MCP only: no REST route yet."
+      "mcp": "memory_forget"
     },
     {
       "id": "memory.recall",
       "capability": "Recall the facts true now or on a date",
       "routes": [
-        "GET /api/containers/{containerId:guid}/memory"
+        "GET /api/memory/facts"
       ],
-      "mcp": "memory_recall",
-      "note": "MCP only: no REST route yet."
+      "mcp": "memory_recall"
     },
     {
       "id": "memory.recall",
