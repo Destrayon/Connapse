@@ -28,6 +28,8 @@ That's the whole setup: there's nothing to clone and no file to edit. The comman
 
 You should see: `docker compose -p connapse ps` lists `postgres` and `minio` as `healthy`, and `web` and `ollama` as `running`.
 
+Connapse now starts again on its own after your machine restarts, as long as Docker starts at boot. To keep it stopped, run `docker compose -p connapse stop`.
+
 ## 2. Wait for the model
 
 ```bash

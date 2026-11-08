@@ -25,9 +25,11 @@ Connapse runs as a set of Compose services. Only the web app publishes a port; t
 | `setup` | `pgvector/pgvector:pg17` | once, on every start, then exits | 64 MB | Makes the random passwords on first start and keeps them in the `secrets` volume |
 | `web` | `ghcr.io/destrayon/connapse`, or built from the repo | always | 3 GB | The UI at `/`, the REST API at `/api`, and the MCP server at `/mcp` |
 | `postgres` | `pgvector/pgvector:pg17` | always | 512 MB | Documents, chunks, vectors, settings and accounts |
-| `minio` | `cgr.dev/chainguard/minio` | always | 256 MB | Uploaded files, in the `connapse-files` bucket |
-| `ollama` | `ollama/ollama` | unless `CONNAPSE_LOCAL_MODEL=off` | 4 GB | The default embedding model |
+| `minio` | `cgr.dev/chainguard/minio`, pinned by digest to MinIO `RELEASE.2026-10-23T20-06-51Z` | always | 256 MB | Uploaded files, in the `connapse-files` bucket |
+| `ollama` | `ollama/ollama:0.40.15` | unless `CONNAPSE_LOCAL_MODEL=off` | 4 GB | The default embedding model |
 | `reranker` | `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` | with `COMPOSE_PROFILES=with-reranker` | 2 GB | An optional cross-encoder that re-scores search results |
+
+Every service except `setup` has `restart: unless-stopped`, so the stack starts again on its own after a reboot or a crash, as long as Docker starts at boot. A service you stop with `docker compose stop` stays stopped until you start it.
 
 Data lives in the named volumes `pgdata`, `miniodata`, `ollamadata`, `rerankerdata`, `appdata` and `secrets`. They survive `docker compose down`; `docker compose down -v` deletes them.
 

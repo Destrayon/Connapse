@@ -87,6 +87,11 @@ see [Upgrade Connapse](https://github.com/Destrayon/Connapse/blob/main/docs/self
 
 ## Stopping and removing
 
+PostgreSQL, MinIO, Ollama, the reranker and the web app restart on their own after a reboot or a crash, as long
+as Docker starts at boot. A stopped service stays stopped. `setup` runs once on each `docker compose up` and
+never retries: if it fails, the services that wait for it don't start until you fix the cause and run
+`docker compose up -d` again.
+
 ```bash
 # Stop without removing data
 docker compose down
