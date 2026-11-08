@@ -230,6 +230,21 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "POST /api/containers/{containerId:guid}/files/{fileId}/append": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/files/append": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
+    "POST /api/containers/{containerId:guid}/files/contents": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/containers/{containerId:guid}/search/": {
       "requires": "viewer",
       "risk": "read",
@@ -1101,6 +1116,16 @@
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"
+    },
+    "get_documents": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "append_to_file": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
     },
     "container_stats": {
       "requires": "mcp",

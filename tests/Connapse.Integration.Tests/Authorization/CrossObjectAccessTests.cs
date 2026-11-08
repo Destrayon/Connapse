@@ -62,6 +62,40 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
                     violations.Add($"cross-object {method} {route}: expects 404, got {(int)response.StatusCode}");
             }
 
+            // Fetching several files answers per file, so the proof is that B's id reads as not found there and neither
+            // file's text comes back: reading B's path through A's storage would answer with A's text.
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/contents", new { files = new[] { fileOfB } }))
+            {
+                string body = await response.Content.ReadAsStringAsync();
+                if (body.Contains(TextOfB, StringComparison.Ordinal) || body.Contains(TextOfA, StringComparison.Ordinal))
+                    violations.Add("cross-object POST /api/containers/{containerId:guid}/files/contents: returned a file's text through the other container");
+                else if (!IsOnlyNotFound(response.StatusCode, body))
+                    violations.Add($"cross-object POST /api/containers/{{containerId:guid}}/files/contents: expects the file to read as not found, got {(int)response.StatusCode} {body}");
+            }
+
+            const string Probe = " cross-object append probe";
+            async Task OtherFileUnchangedAsync(string what)
+            {
+                if ((await http.GetStringAsync($"/api/containers/{b}/files/{fileOfB}/content")).Contains(Probe, StringComparison.Ordinal))
+                    violations.Add($"cross-object {what}: appended to the other container's file");
+            }
+
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/{fileOfB}/append", new { text = Probe }))
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                    violations.Add($"cross-object POST /api/containers/{{containerId:guid}}/files/{{fileId}}/append: expects 404, got {(int)response.StatusCode}");
+            await OtherFileUnchangedAsync("POST /api/containers/{containerId:guid}/files/{fileId}/append");
+
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/append", new { file = fileOfB, text = Probe }))
+                if (response.StatusCode != HttpStatusCode.NotFound)
+                    violations.Add($"cross-object POST /api/containers/{{containerId:guid}}/files/append: expects 404, got {(int)response.StatusCode}");
+            await OtherFileUnchangedAsync("POST /api/containers/{containerId:guid}/files/append");
+
+            // The body route only proves something if it appends through the right container, here by a path with a slash.
+            using (var response = await http.PostAsJsonAsync($"/api/containers/{a}/files/append", new { file = "/same.txt", text = " body append" }))
+                response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+            await WaitUntilReadyAsync(a, fileOfA);
+            (await http.GetStringAsync($"/api/containers/{a}/files/{fileOfA}/content")).Should().Contain(TextOfA + " body append");
+
             // MCP takes the same pair of ids. A tool that answers with either file's text through
             // the wrong container, or deletes the other container's file, leaks whatever it says.
             await using (var mcp = await CrossSurface.Surfaces.McpAsync(fixture))
@@ -69,6 +103,14 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
                 string read = Text(await mcp.CallToolAsync("get_document", new Dictionary<string, object?> { ["containerId"] = a, ["fileId"] = fileOfB }));
                 if (read.Contains(TextOfB, StringComparison.Ordinal) || read.Contains(TextOfA, StringComparison.Ordinal))
                     violations.Add("cross-object mcp get_document: returned a file's text through the other container");
+                string many = Text(await mcp.CallToolAsync("get_documents", new Dictionary<string, object?> { ["containerId"] = a, ["files"] = $"[\"{fileOfB}\"]" }));
+                if (many.Contains(TextOfB, StringComparison.Ordinal) || many.Contains(TextOfA, StringComparison.Ordinal))
+                    violations.Add("cross-object mcp get_documents: returned a file's text through the other container");
+                else if (!many.StartsWith("Read 0 of 1 document(s).", StringComparison.Ordinal)
+                    || !many.Contains($"=== {fileOfB} ===\nError: File {fileOfB} not found", StringComparison.Ordinal))
+                    violations.Add($"cross-object mcp get_documents: expects the file to read as not found, got {many}");
+                await mcp.CallToolAsync("append_to_file", new Dictionary<string, object?> { ["containerId"] = a, ["file"] = fileOfB, ["text"] = Probe });
+                await OtherFileUnchangedAsync("mcp append_to_file");
                 await mcp.CallToolAsync("delete_file", new Dictionary<string, object?> { ["containerId"] = a, ["fileId"] = fileOfB });
                 await OtherFileSurvivesAsync("mcp delete_file");
                 await mcp.CallToolAsync("bulk_delete", new Dictionary<string, object?> { ["containerId"] = a, ["fileIds"] = $"[\"{fileOfB}\"]" });
@@ -113,6 +155,21 @@ public class CrossObjectAccessTests(SharedWebAppFixture fixture)
 
     private const string TextOfA = "Container A holds the heron ledger.";
     private const string TextOfB = "Container B holds the walrus inventory.";
+
+    /// <summary>A several-file read that answered with one result, and that result a file-not-found with no text.</summary>
+    private static bool IsOnlyNotFound(HttpStatusCode status, string body)
+    {
+        if (status != HttpStatusCode.OK)
+            return false;
+        using var json = JsonDocument.Parse(body);
+        var results = json.RootElement.GetProperty("results");
+        if (results.GetArrayLength() != 1)
+            return false;
+        var only = results[0];
+        return only.GetProperty("problem").GetString() == "file-not-found"
+            && only.GetProperty("content").ValueKind == JsonValueKind.Null
+            && only.GetProperty("documentId").ValueKind == JsonValueKind.Null;
+    }
 
     private static string Text(ModelContextProtocol.Protocol.CallToolResult result) =>
         string.Concat(result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(b => b.Text));

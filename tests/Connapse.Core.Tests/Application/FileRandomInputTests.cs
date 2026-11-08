@@ -150,6 +150,46 @@ public class FileRandomInputTests
                 page.Entries.Where(e => !e.IsFolder).Should().OnlyContain(e => e.Document != null && e.Id == e.Document.Id);
             }, iter: 2000);
 
+    private static readonly Gen<string?> AnySort = Gen.OneOf(
+        Gen.OneOfConst<string?>(null, "name", "NEWEST", "newest", "oldest", ""), Gen.String[0, 8].Select(s => (string?)s));
+
+    [Fact]
+    [RandomInputTestOf(typeof(ListFiles))]
+    public Task List_AnySort_NewestPutsTheMostRecentlyAddedFirst() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnySort, Gen.Int[0, 30].Array[0, 6], Gen.Int[1, 8].Nullable())
+            .SampleAsync(async t =>
+            {
+                var (caller, reader, sort, ages, take) = t;
+                var world = new World(reader, writer: false, containerExists: true);
+                // Files directly in /docs/, each added some days after the epoch; a folder recorded on day 15.
+                var docs = ages.Select((days, i) => Doc($"d{i}", $"/docs/f{i}.md", Here) with { CreatedAt = Epoch.AddDays(days) }).ToList();
+                var folder = new Folder("folder", Here.ToString(), "/docs/kept/", Epoch.AddDays(15));
+                world.Folders.ListAsync(Here, "/docs/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(new List<Folder> { folder });
+                world.Documents.ListAsync(Here, "/docs/", Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(docs);
+                world.Access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+                    .Returns(c => (IReadOnlySet<string>)c.Arg<IReadOnlyList<Document>>().Select(d => d.Id).ToHashSet());
+
+                var listed = await new ListFiles(world.Containers, world.Documents, world.Folders, world.Access, world.Authorizer)
+                    .RunAsync(caller, Here, new ListFilesQuery("docs", 0, take, sort));
+
+                bool newest = string.Equals(sort, "newest", StringComparison.OrdinalIgnoreCase);
+                bool known = sort is null || newest || string.Equals(sort, "name", StringComparison.OrdinalIgnoreCase);
+                FileStatus expected = !reader ? FileStatus.Forbidden : !known ? FileStatus.Invalid : FileStatus.Success;
+                listed.Status.Should().Be(expected);
+                if (expected != FileStatus.Success)
+                {
+                    world.Documents.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+
+                var all = docs.Select(d => (Name: d.FileName, Date: d.CreatedAt)).Append((Name: "kept", Date: folder.CreatedAt)).ToList();
+                var order = newest
+                    ? all.OrderByDescending(e => e.Date).ThenBy(e => e.Name != "kept").ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                    : all.OrderBy(e => e.Name != "kept").ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
+                listed.Result!.Entries.Select(e => e.Name).Should().Equal(order.Take(take ?? int.MaxValue).Select(e => e.Name));
+                listed.Result.TotalCount.Should().Be(all.Count);
+            }, iter: 1000);
+
     // ── files.get ─────────────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -269,6 +309,52 @@ public class FileRandomInputTests
                 if (expected is FileStatus.Forbidden or FileStatus.NotFound or FileStatus.NotReady or FileStatus.IngestionFailed or FileStatus.NoParser)
                     connector.ReceivedCalls().Should().BeEmpty();
             }, iter: 2000);
+
+    // ── files.contents ────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetFileContents))]
+    public Task Contents_AnyReferences_AnswersEachInPlaceAsFilesContentWould() =>
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>().Array[0, 6], Gen.Int[0, 3], Gen.Bool)
+            .SampleAsync(async t =>
+            {
+                var (caller, reader, exists, kinds, extra, blank) = t;
+                var world = new World(reader, writer: false, exists);
+                var own = Doc(Own.Id, "/docs/notes.md", Here);
+                world.Holds([own, Other]);
+                world.Access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(true);
+                world.Files.ReadFileAsync(own.Path, Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes("raw text")));
+                // Over the limit by `extra` when it is above zero, by repeating the first reference; a blank one when asked.
+                var refs = kinds.Select(k => RefFor(k, own, Other)).ToList();
+                if (extra > 0 && refs.Count > 0)
+                    refs.AddRange(Enumerable.Repeat(refs[0], GetFileContents.MaxFiles - refs.Count + extra));
+                if (blank)
+                    refs.Add(" ");
+                var content = new GetFileContent(world.Containers, world.Documents, world.Access, world.Storage, [], world.Authorizer);
+
+                var read = await new GetFileContents(world.Containers, content, world.Authorizer).RunAsync(caller, Here, refs);
+
+                FileStatus expected = !reader ? FileStatus.Forbidden
+                    : refs.Count is 0 or > GetFileContents.MaxFiles || blank ? FileStatus.Invalid
+                    : !exists ? FileStatus.ContainerNotFound
+                    : FileStatus.Success;
+                read.Status.Should().Be(expected);
+                if (expected != FileStatus.Success)
+                {
+                    world.Documents.ReceivedCalls().Should().BeEmpty();
+                    world.Files.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+
+                read.Result!.Select(i => i.File).Should().Equal(refs);
+                foreach (var item in read.Result!)
+                {
+                    bool found = item.File == own.Id || item.File == own.Path;
+                    item.Status.Should().Be(found ? FileStatus.Success : FileStatus.NotFound);
+                    (item.Content?.Content).Should().Be(found ? "raw text" : null);
+                    (item.Error is null).Should().Be(found);
+                }
+            }, iter: 1000);
 
     // ── files.delete ──────────────────────────────────────────────────────────────────────────────
 
@@ -431,5 +517,58 @@ public class FileRandomInputTests
                     j.DocumentId == Own.Id && j.ResetAttempts && j.Options.Path == Own.Path && j.Options.FileName == Own.FileName
                     && j.Options.ContainerId == Here.ToString() && j.Options.ContentType == Own.ContentType), Arg.Any<CancellationToken>());
                 await world.Audit.Received(1).LogAsync("doc.retried", "document", Own.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
+    // ── files.append ──────────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    [RandomInputTestOf(typeof(AppendToFile))]
+    public Task Append_AnyFileAndText_UploadsTheStoredTextThenTheNewOnlyForAWriterWithinTheLimit() =>
+        Gen.Select(
+                Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, Gen.Enum<FileRef>(), Gen.Bool,
+                    Gen.OneOf(Gen.Const(".md"), Gen.Const(".LOG"), Gen.Const(".pdf")), Gen.OneOfConst<string?>(null, "", "\n- b", "é")),
+                Gen.Select(Gen.Bool, Gen.Int[0, 12], Gen.Bool, Gen.Int[0, 6]))
+            .SampleAsync(async s =>
+            {
+                var ((caller, writer, exists, kind, readable, extension, text), (missing, maxFileBytes, uploads, recorded)) = s;
+                var world = new World(reader: true, writer, exists);
+                // The size the document's row records, which can differ from the three bytes stored.
+                var own = Doc(Own.Id, $"/docs/notes{extension}", Here) with { SizeBytes = recorded };
+                world.Holds([own, Doc(Other.Id, $"/docs/notes{extension}", Elsewhere)]);
+                world.Access.CanReadAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<Document>(), Arg.Any<CancellationToken>()).Returns(readable);
+                var stored = world.Files.ReadFileAsync(own.Path, Arg.Any<CancellationToken>());
+                _ = missing ? stored.ThrowsAsync(new FileNotFoundException()) : stored.Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes("- a")));
+                var uploadService = Substitute.For<IUploadService>();
+                string? sent = null;
+                uploadService.UploadAsync(Arg.Do<UploadRequest>(r => sent = new StreamReader(r.Content).ReadToEnd()), Arg.Any<CancellationToken>())
+                    .Returns(uploads ? new UploadResult(true, own.Id, "job-1") : new UploadResult(false, Error: "no"));
+                var settings = Substitute.For<Microsoft.Extensions.Options.IOptionsMonitor<UploadSettings>>();
+                settings.CurrentValue.Returns(new UploadSettings { MaxFileBytes = maxFileBytes });
+
+                var appended = await new AppendToFile(world.Containers, world.Documents, world.Access, world.Storage, uploadService, world.Authorizer, settings)
+                    .RunAsync(caller, Here, RefFor(kind, own, Other), text);
+
+                string combined = "- a" + text;
+                long fewest = text is null ? 0 : Math.Min(Encoding.UTF8.GetByteCount(text), text.Length * 2L);
+                FileStatus expected = !writer ? FileStatus.Forbidden
+                    : string.IsNullOrEmpty(text) ? FileStatus.Invalid
+                    : !exists ? FileStatus.ContainerNotFound
+                    : kind is not (FileRef.OwnId or FileRef.OwnPath) || !readable ? FileStatus.NotFound
+                    : extension == ".pdf" ? FileStatus.UnsupportedType
+                    : recorded + fewest > maxFileBytes ? FileStatus.TooLarge
+                    : missing ? FileStatus.NotReadable
+                    : Encoding.UTF8.GetByteCount(combined) > maxFileBytes ? FileStatus.TooLarge
+                    : uploads ? FileStatus.Success
+                    : FileStatus.Invalid;
+                appended.Status.Should().Be(expected);
+                if (expected is FileStatus.Forbidden or FileStatus.ContainerNotFound or FileStatus.NotFound or FileStatus.UnsupportedType
+                    || (expected == FileStatus.Invalid && string.IsNullOrEmpty(text)) || recorded + fewest > maxFileBytes)
+                    world.Files.ReceivedCalls().Where(c => c.GetMethodInfo().Name == "ReadFileAsync").Should().BeEmpty();
+                if (expected is not (FileStatus.Success or FileStatus.Invalid) || string.IsNullOrEmpty(text))
+                    uploadService.ReceivedCalls().Should().BeEmpty();
+                else
+                    sent.Should().Be(combined);
+                if (expected == FileStatus.Success)
+                    appended.Result.Should().Be(new FileAppend(own.Id, "job-1", own.Path, Encoding.UTF8.GetByteCount(combined)));
             }, iter: 2000);
 }

@@ -200,7 +200,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "list_files", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Lists folder entries and document IDs at a path within a container (does NOT return file contents — for content questions, use `search_knowledge`). Intended for inventory requests such as 'what files exist in X' or when the user named a specific filename. Large listings return a soft error directing you to `search_knowledge`; override with `confirmLarge: true` or paginate with `limit`.")]
+     Description("Lists folder entries and document IDs at a path within a container (does NOT return file contents — for content questions, use `search_knowledge`). Intended for inventory requests such as 'what files exist in X' or when the user named a specific filename. Large listings return a soft error directing you to `search_knowledge`; override with `confirmLarge: true` or paginate with `limit`. Each file shows when it was added and, if since changed, when it was updated. For the newest N entries of a folder, pass `sort: \"newest\"` and `limit: N`, then read them all with `get_documents`.")]
     public static async Task<string> ListFiles(
         ListFiles list,
         GetContainer getContainer,
@@ -209,6 +209,7 @@ public partial class McpTools
         [Description("Folder path to list (default: root '/')")] string? path = null,
         [Description($"Maximum number of entries to return. When set, large listings are truncated instead of returning a soft error. Recommended: 25.")] int? limit = null,
         [Description("Set to true to confirm you intentionally want the full listing of a large folder. Without this, listings exceeding the soft limit return an error directing you to `search_knowledge`.")] bool? confirmLarge = null,
+        [Description("Leave unset for folders by name, then files newest first. \"name\": every entry by name, folders first, so `limit` keeps the first names. \"newest\": every entry most recently added first, so `limit` keeps the newest.")] string? sort = null,
         CancellationToken ct = default)
     {
         // Validate `limit` upfront. A non-positive value would otherwise bypass the
@@ -223,7 +224,7 @@ public partial class McpTools
             return missing!;
 
         var normalizedPath = PathUtilities.NormalizeFolderPath(path ?? "/");
-        var listed = await list.RunAsync(Mcp(http), resolvedId.Value, new ListFilesQuery(normalizedPath), ct);
+        var listed = await list.RunAsync(Mcp(http), resolvedId.Value, new ListFilesQuery(normalizedPath, Sort: sort), ct);
         if (!listed.Succeeded)
             return Refused(listed);
         var entries = listed.Result!.Entries;
@@ -255,13 +256,17 @@ public partial class McpTools
         int rendered = 0;
         int effectiveLimit = limit ?? int.MaxValue;
 
-        // Folders by name, then files newest first, the order this tool has always listed them in.
-        foreach (var entry in entries.Where(e => e.IsFolder).Concat(entries.Where(e => !e.IsFolder).OrderByDescending(e => e.Document!.CreatedAt)))
+        // Unsorted: folders by name, then files newest first, the order this tool has always listed them in. A sort the
+        // caller named keeps the operation's own order.
+        var ordered = sort is not null
+            ? entries
+            : entries.Where(e => e.IsFolder).Concat(entries.Where(e => !e.IsFolder).OrderByDescending(e => e.Document!.CreatedAt));
+        foreach (var entry in ordered)
         {
             if (rendered >= effectiveLimit) break;
             text += entry.IsFolder
                 ? $"[DIR]  {entry.Name}/\n"
-                : $"[FILE] {entry.Name} ({entry.SizeBytes:N0} bytes) ID: {entry.Id}\n";
+                : $"[FILE] {entry.Name} ({entry.SizeBytes:N0} bytes) ID: {entry.Id} {Dated(entry.Document!)}\n";
             rendered++;
         }
 
@@ -580,6 +585,78 @@ public partial class McpTools
         return header + content;
     }
 
+    [McpServerTool(Name = "get_documents", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
+     Description("Retrieve up to 50 documents' full text in one call, by ID or path, each under its own header in the order asked. "
+        + "A file that can't be read gets an error line and doesn't stop the others; past 2,000,000 characters in all, the rest get one too. Pair with `list_files` sort \"newest\" and `limit` "
+        + "to read the newest entries of a folder in two calls.")]
+    public static async Task<string> GetDocuments(
+        GetFileContents getContents,
+        GetContainer getContainer,
+        IHttpContextAccessor http,
+        [Description("Container ID or name")] string containerId,
+        [Description("JSON array of document IDs (UUID) or virtual paths, e.g. [\"/log/2026-11-08.md\",\"id2\"]. Max 50.")] string files,
+        CancellationToken ct = default)
+    {
+        List<string> refs;
+        try
+        {
+            refs = System.Text.Json.JsonSerializer.Deserialize<List<string>>(files) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return "Error: 'files' must be a valid JSON array of strings.";
+        }
+
+        var (resolvedId, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
+        if (resolvedId is null)
+            return missing!;
+
+        var read = await getContents.RunAsync(Mcp(http), resolvedId.Value, refs, ct);
+        if (!read.Succeeded)
+            return Refused(read);
+
+        var items = read.Result!;
+        var text = new System.Text.StringBuilder($"Read {items.Count(i => i.Content is not null)} of {items.Count} document(s).\n");
+        foreach (var item in items)
+        {
+            if (item.Content is not { Document: var document, Content: var content })
+            {
+                text.Append($"\n=== {item.File} ===\nError: {item.Error}\n");
+                continue;
+            }
+            text.Append($"\n=== {document.FileName} ===\nPath: {document.Path}\nID: {document.Id}\nDates: {Dated(document)}\n---\n");
+            text.Append(string.IsNullOrWhiteSpace(content) ? "(no readable text content)\n" : content.EndsWith('\n') ? content : content + "\n");
+        }
+        return text.ToString().TrimEnd('\n');
+    }
+
+    [McpServerTool(Name = "append_to_file", Destructive = false),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
+     Description("Add text to the end of an existing text file (.md, .txt, .log, ...) and reindex it. The text goes on exactly as given, "
+        + "so start it with a newline to put it on a new line. The file keeps its ID, path and added date; appends to one file through this server at once all land.")]
+    public static async Task<string> AppendToFile(
+        AppendToFile append,
+        GetContainer getContainer,
+        IHttpContextAccessor http,
+        [Description("Container ID or name")] string containerId,
+        [Description("Document ID (UUID) or virtual path of the file, e.g. /log/2026-11-08.md")] string file,
+        [Description("The text to add to the end of the file")] string text,
+        CancellationToken ct = default)
+    {
+        var (resolvedId, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
+        if (resolvedId is null)
+            return missing!;
+
+        var appended = await append.RunAsync(Mcp(http), resolvedId.Value, file, text, ct);
+        if (!appended.Succeeded)
+            return Refused(appended);
+
+        var result = appended.Result!;
+        return $"Appended to '{result.Path}' (ID: {result.DocumentId}); it is now {result.SizeBytes} bytes."
+            + (result.JobId is null ? "" : $" Reindexing (job {result.JobId}).");
+    }
+
     [McpServerTool(Name = "container_stats", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
      Description("Get container statistics: document counts, chunk count, storage size, and embedding model info.")]
@@ -715,6 +792,15 @@ public partial class McpTools
     /// <summary>The MCP caller, as an operation reads it.</summary>
     private static OperationContext Mcp(IHttpContextAccessor http) =>
         new(http.HttpContext?.User ?? new System.Security.Claims.ClaimsPrincipal(), OperationSurface.Mcp);
+
+    /// <summary>When a file was added, and when it last changed if that is later.</summary>
+    private static string Dated(Document document)
+    {
+        DateTime updated = FileDates.UpdatedAt(document);
+        return (updated - document.CreatedAt).Duration() > TimeSpan.FromSeconds(1)
+            ? $"added {document.CreatedAt:u}, updated {updated:u}"
+            : $"added {document.CreatedAt:u}";
+    }
 
     private static string FormatBytes(long bytes) => bytes switch
     {

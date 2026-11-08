@@ -96,24 +96,25 @@ public static class DocumentsEndpoints
             [FromQuery] string? path,
             [FromQuery] int? skip,
             [FromQuery] int? take,
+            [FromQuery] string? sort,
             [FromServices] ListFiles list,
             CancellationToken ct) =>
         {
-            var listed = await list.RunAsync(Rest(http), containerId, new ListFilesQuery(path, skip ?? 0, take ?? 50), ct);
+            var listed = await list.RunAsync(Rest(http), containerId, new ListFilesQuery(path, skip ?? 0, take ?? 50, sort), ct);
             if (!listed.Succeeded)
                 return FileProblems.Result(listed);
 
             var page = listed.Result!;
             return Results.Ok(new PagedResponse<BrowseEntry>(
                 [.. page.Entries.Select(e => new BrowseEntry(e.Name, e.Path, e.IsFolder, e.SizeBytes, e.LastModified,
-                    e.Document?.Metadata.GetValueOrDefault("Status"), e.Id))],
+                    e.Document?.Metadata.GetValueOrDefault("Status"), e.Id, e.UpdatedAt))],
                 page.TotalCount, page.HasMore));
         })
         .Produces<PagedResponse<BrowseEntry>>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("ListFiles")
-        .WithDescription("List files and folders at a path within a container (?skip=0&take=50)")
+        .WithDescription("List files and folders at a path within a container (?skip=0&take=50). sort=newest lists the most recently added first, so ?sort=newest&take=40 is the newest 40; each entry carries lastModified (when it was added) and updatedAt (its last upload or append).")
         .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/files/{fileId} - Get file details
@@ -190,6 +191,29 @@ public static class DocumentsEndpoints
         .WithDescription("Delete up to 100 files in one call. Answers with each file's result; one file failing doesn't fail the others.")
         // The scope too, so an Editor's knowledge:read token can't delete.
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
+
+        // POST /api/containers/{containerId}/files/contents - Get up to 50 files' text, each reported on
+        group.MapPost("/contents", async (
+            HttpContext http,
+            Guid containerId,
+            [FromBody] FileContentsRequest request,
+            [FromServices] GetFileContents contents,
+            CancellationToken ct) =>
+        {
+            var read = await contents.RunAsync(Rest(http), containerId, request.Files ?? [], ct);
+            if (!read.Succeeded)
+                return FileProblems.Result(read);
+
+            var items = read.Result!.Select(FileContentsItem.From).ToList();
+            return Results.Ok(new FileContentsResponse(items, items.Count(i => i.Content is not null), items.Count(i => i.Content is null)));
+        })
+        .Produces<FileContentsResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithName("files.contents")
+        .WithDescription("Get the full text of up to 50 files, named by id or path, in one call. Answers with each file in the order asked: "
+            + "its text, or the problem type and detail saying why it has none; one file failing doesn't fail the others.")
+        .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/files/{fileId}/content - Get file text content
         group.MapGet("/{fileId}/content", async (
@@ -274,6 +298,46 @@ public static class DocumentsEndpoints
         .WithDescription("Queue one file's ingestion again, with a fresh attempt budget. Answers with the ingestion job's id.")
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
+        // POST /api/containers/{containerId}/files/{fileId}/append - Add text to the end of a text file
+        group.MapPost("/{fileId}/append", async (
+            HttpContext http,
+            Guid containerId,
+            string fileId,
+            [FromBody] AppendToFileRequest? request,
+            [FromServices] AppendToFile append,
+            CancellationToken ct) =>
+        {
+            var appended = await append.RunAsync(Rest(http), containerId, fileId, request?.Text, ct);
+            return appended.Succeeded ? Results.Ok(appended.Result) : FileProblems.Result(appended);
+        })
+        .Produces<FileAppend>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+        .WithName("files.append")
+        .WithDescription("Add text to the end of a text file, exactly as given (send your own leading newline), and reindex it. The file keeps its id, path and added date. The file is an id or a path; to name a path with slashes, use POST /api/containers/{containerId}/files/append with the file in the body.")
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
+
+        // POST /api/containers/{containerId}/files/append - The same, with the file in the body, so a path needs no escaping
+        group.MapPost("/append", async (
+            HttpContext http,
+            Guid containerId,
+            [FromBody] AppendToFileRequest? request,
+            [FromServices] AppendToFile append,
+            CancellationToken ct) =>
+        {
+            var appended = await append.RunAsync(Rest(http), containerId, request?.File ?? "", request?.Text, ct);
+            return appended.Succeeded ? Results.Ok(appended.Result) : FileProblems.Result(appended);
+        })
+        .Produces<FileAppend>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+        .WithName("files.appendByBody")
+        .WithDescription("Add text to the end of a text file, as files.append does, with the file (an id or a path such as notes/today.md) "
+            + "in the body's file field instead of the route, so a path with slashes needs no escaping.")
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
+
         return app;
     }
 
@@ -340,7 +404,38 @@ public record FileContentResponse(
     string Content,
     bool AwaitingIndex = false);
 
+/// <summary>The files to read, each an id or a path in the container.</summary>
+public record FileContentsRequest(List<string>? Files);
+
+/// <summary>
+/// One file of a several-file read, as the caller named it: its text and details, or the problem type (a slug from
+/// docs/problems.md) and detail saying why it has none.
+/// </summary>
+public record FileContentsItem(
+    string File,
+    string? DocumentId,
+    string? FileName,
+    string? Path,
+    string? ContentType,
+    long? SizeBytes,
+    DateTime? CreatedAt,
+    DateTime? UpdatedAt,
+    string? Content,
+    string? Problem = null,
+    string? Error = null)
+{
+    public static FileContentsItem From(FileContentItem item) => item.Content is { Document: var d, Content: var text }
+        ? new(item.File, d.Id, d.FileName, d.Path, d.ContentType, d.SizeBytes, d.CreatedAt, FileDates.UpdatedAt(d), text)
+        : new(item.File, null, null, null, null, null, null, null, null, OperationProblems.Failure(item.Status)?.Slug, item.Error);
+}
+
+/// <summary>What a several-file read found for each file, in the order asked, and how many were read.</summary>
+public record FileContentsResponse(List<FileContentsItem> Results, int ReadCount, int FailedCount);
+
 public record BulkDeleteFilesRequest(List<string>? FileIds);
+
+/// <summary>The text to add to the end of a file, exactly as given.</summary>
+public record AppendToFileRequest(string? Text, string? File = null);
 
 /// <summary>What a bulk delete did with each file, in the order asked, and how many were deleted.</summary>
 public record BulkDeleteFilesResponse(List<BulkDeleteItem> Results, int DeletedCount, int FailedCount);
@@ -363,4 +458,5 @@ public record BrowseEntry(
     long? SizeBytes,
     DateTime? LastModified,
     string? Status,
-    string? Id);
+    string? Id,
+    DateTime? UpdatedAt = null);

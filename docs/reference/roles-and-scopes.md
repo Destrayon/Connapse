@@ -147,6 +147,7 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `containers.settings.get` | `GET /api/containers/{containerId}/settings` | Read | Generic tools |
 | `containers.stats` | `GET /api/containers/{containerId}/stats` | Read | — |
 | `files.content` | `GET /api/containers/{containerId}/files/{fileId}/content` | Read | — |
+| `files.contents` | `POST /api/containers/{containerId}/files/contents` | Read | — |
 | `files.get` | `GET /api/containers/{containerId}/files/{fileId}` | Read | Generic tools |
 | `files.links` | `GET /api/containers/{containerId}/files/{fileId}/links` | Read | Generic tools |
 | `files.list` | `GET /api/containers/{containerId}/files` | Read | — |
@@ -175,6 +176,8 @@ Generated from the `x-connapse-operation` extension in [`docs/api/openapi.json`]
 | `containers.retryFailed` | `POST /api/containers/{containerId}/retry-failed` | Write | Generic tools |
 | `containers.settings.reset` | `DELETE /api/containers/{containerId}/settings` | Write | Generic tools |
 | `containers.settings.update` | `PUT /api/containers/{containerId}/settings` | Credential | Generic tools |
+| `files.append` | `POST /api/containers/{containerId}/files/{fileId}/append` | Write | — |
+| `files.append` | `POST /api/containers/{containerId}/files/append` | Write | — |
 | `files.bulkDelete` | `POST /api/containers/{containerId}/files/bulk-delete` | Destructive | — |
 | `files.delete` | `DELETE /api/containers/{containerId}/files/{fileId}` | Destructive | — |
 | `files.retry` | `POST /api/containers/{containerId}/files/{fileId}/retry` | Write | Generic tools |
