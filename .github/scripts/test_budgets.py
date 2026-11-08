@@ -49,6 +49,7 @@ Usage:
 import argparse
 import glob
 import json
+import math
 import pathlib
 import re
 import statistics
@@ -101,6 +102,12 @@ MIN_REFERENCE_RUNS = 5
 FAST_SHARE = 1 / 4
 MIN_WRITE_RUNS = 20
 
+# Two groups of runs whose median factors are this far apart are GitHub's two kinds of runner; closer,
+# they are one kind's spread. Main's runs on 2026-11-08 were 0.72 to 1.10 and 1.22 to 1.61, medians 1.46x
+# apart, while one kind alone spans up to 1.5x from its fastest run to its slowest, so a rule anchored on
+# the fastest run can't tell them apart.
+KIND_GAP = 1.25
+
 # main's latest runs must read a median factor inside this band against the reference (CON-250).
 # GitHub hands out two kinds of runner, about 0.7x and 1.2x a median one, so the median of 15 runs moved
 # from 1.00 to 1.17 against a fresh reference; the stale one read 0.80 to 0.89. Below the band, slow
@@ -138,6 +145,31 @@ def fastest_share(values: list[float]) -> list[float]:
     return sorted(values)[:max(1, int(len(values) * FAST_SHARE))]
 
 
+def faster_kind_runs(factors: list[float]) -> int:
+    """How many of these runs are GitHub's faster kind of runner (CON-294): the lower of the two groups the
+    sorted factors split into most cleanly, when the groups' medians are KIND_GAP apart; every run when
+    they aren't, as one kind's spread."""
+    logs = sorted(math.log(f) for f in factors if f > 0)
+    best, split = 0.0, len(logs)
+    for i in range(1, len(logs)):
+        low, high = logs[:i], logs[i:]
+        separation = len(low) * len(high) * (statistics.mean(high) - statistics.mean(low)) ** 2
+        if separation > best:
+            best, split = separation, i
+    if split == len(logs) or statistics.median(logs[split:]) - statistics.median(logs[:split]) < math.log(KIND_GAP):
+        return len(factors)
+    return split
+
+
+def too_few_faster(factors: list[float]) -> str | None:
+    """Why the fastest quarter of these runs isn't only the faster kind's, or None when it is."""
+    faster, quarter = faster_kind_runs(factors), len(fastest_share(factors))
+    if faster >= quarter:
+        return None
+    return (f"only {faster} of {len(factors)} runs are GitHub's faster kind of runner, fewer than the fastest quarter's "
+            f"{quarter}, so that quarter would read the slower kind")
+
+
 def median_reference(runs: list[dict[str, float]], names: set[str]) -> dict[str, float]:
     """Each named test's median duration over the runs, kept when that is 10 ms or more."""
     reference = {}
@@ -163,9 +195,14 @@ def write_reference(out: str, trx_name: str, run_dirs: list[str]) -> dict[str, f
     common = set.intersection(*(set(r) for r in runs))
     everyone = median_reference(runs, common)
     factors = [runner_factor(r, everyone)[0] for r in runs]
+    if (why := too_few_faster(factors)) is not None:
+        raise ValueError(f"{why}; write it from runs with more of the faster kind")
     cutoff = fastest_share(factors)[-1]
-    fastest = [r for r, f in zip(runs, factors) if f <= cutoff]
+    fastest = [r for r, f in zip(runs, factors, strict=True) if f <= cutoff]
     reference = median_reference(fastest, common)
+    if len(reference) < MIN_MATCHED:
+        raise ValueError(f"only {len(reference)} tests every run timed took 10 ms or more, and reading a runner's "
+                         f"speed needs {MIN_MATCHED}")
     pathlib.Path(out).write_text(json.dumps(reference, indent=2) + "\n", encoding="utf-8")
     return reference
 
@@ -233,10 +270,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::error::only {len(factors)} runs timed enough of the reference's tests, and telling a stale reference "
                   f"needs {MIN_DRIFT_RUNS}; refresh it with --write-reference from recent runs' artifacts")
             return 1
+        if (why := too_few_faster(factors)) is not None:
+            # A refresh from these runs would be the slower kind's, so the reference stays (CON-294).
+            print(f"::warning::{why}: these runs can't tell whether {a.check_reference} has drifted, so it is kept")
+            return 0
         if not MIN_DRIFT <= median <= MAX_DRIFT:
+            short = (f"; these {len(a.runs)} runs are too few to write one from, so download {MIN_WRITE_RUNS} or more"
+                     if len(a.runs) < MIN_WRITE_RUNS else "")
             print(f"::error::{a.check_reference} reads main's runs at {median:.2f}, outside {MIN_DRIFT:g} to {MAX_DRIFT:g}: "
                   f"it no longer describes GitHub's faster runners, so the Small wall's slow-runner relief is off; refresh it "
-                  f"with --write-reference from recent runs' artifacts")
+                  f"with --write-reference from {MIN_WRITE_RUNS} or more recent runs' artifacts{short}")
             return 1
         return 0
 
@@ -247,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"::error::{e}")
             return 1
         print(f"Wrote {len(reference)} tests from {len(a.runs)} runs to {a.write_reference}")
-        return 0 if len(reference) >= MIN_MATCHED else 1
+        return 0
     if not a.tier:
         p.error("--tier is required")
 

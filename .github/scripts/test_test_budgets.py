@@ -224,6 +224,19 @@ class CheckReference(unittest.TestCase):
         code, out = self.check([f * 1.3 for f in self.FLEET])
         self.assertEqual(code, 1, out)
 
+    def test_too_few_of_the_faster_kind_keeps_the_reference_without_asking_for_a_refresh(self):
+        # 2 of 15 runs on the faster kind: the fastest quarter reads the slower kind at 1.4, and a refresh
+        # from these runs would be the slower kind's.
+        code, out = self.check([1.0, 1.05] + [1.4] * 13)
+        self.assertEqual(code, 0, out)
+        self.assertIn("only 2 of 15 runs are GitHub's faster kind", out)
+        self.assertNotIn("refresh", out)
+
+    def test_drift_found_in_fewer_runs_than_a_refresh_takes_says_to_download_more(self):
+        code, out = self.check([f * 0.73 for f in self.FLEET])
+        self.assertEqual(code, 1, out)
+        self.assertIn("these 15 runs are too few to write one from, so download 20 or more", out)
+
     def test_too_few_runs_fail(self):
         code, out = self.check(self.FLEET[:9])
         self.assertEqual(code, 1, out)
@@ -248,13 +261,17 @@ class CheckReference(unittest.TestCase):
 
 
 class WriteReference(unittest.TestCase):
+    # Enough other tests that a runner's speed can be read from the reference.
+    FILLERS = {f"F.Test{j}": 0.05 for j in range(b.MIN_MATCHED)}
+
     @staticmethod
-    def runs(root: str, factors: list[float]) -> list[str]:
+    def runs(root: str, factors: list[float], fillers: dict[str, float] = FILLERS) -> list[str]:
         dirs = []
         for i, factor in enumerate(factors):
             d = pathlib.Path(root, f"run{i}", "tests", "P", "TestResults")
             d.mkdir(parents=True)
             durations = {"A": 0.1 * factor, "Tiny": 0.001, "B": 0.2 * factor}
+            durations |= {name: seconds * factor for name, seconds in fillers.items()}
             if i != 1:
                 durations["Sometimes"] = 0.5
             (d / "small-tests.trx").write_text(trx(durations))
@@ -265,10 +282,10 @@ class WriteReference(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             out = pathlib.Path(root, "reference.json")
 
-            # The fastest quarter of 20 runs is the five at 1 to 5, whose median is 3.
-            reference = b.write_reference(str(out), "small-tests.trx", self.runs(root, [float(f) for f in range(20, 0, -1)]))
+            # The fastest quarter of 20 runs is the five at 2.6 to 3.4, whose median is 3.
+            reference = b.write_reference(str(out), "small-tests.trx", self.runs(root, [6.0] * 15 + [3.4, 3.2, 3.0, 2.8, 2.6]))
 
-            self.assertEqual(set(reference), {"A", "B"})
+            self.assertEqual(set(reference), {"A", "B"} | set(self.FILLERS))
             self.assertAlmostEqual(reference["A"], 0.3)
             self.assertAlmostEqual(reference["B"], 0.6)
             self.assertEqual(json.loads(out.read_text()), reference)
@@ -280,6 +297,32 @@ class WriteReference(unittest.TestCase):
             reference = b.write_reference(str(pathlib.Path(root, "reference.json")), "small-tests.trx", self.runs(root, factors))
 
             self.assertAlmostEqual(reference["A"], 0.1)
+
+    def test_from_too_few_of_the_faster_kind_keeps_the_old_reference(self):
+        # 2 of 20 on the faster kind: the fastest quarter would be 2 of them and 3 of the slower kind.
+        with tempfile.TemporaryDirectory() as root:
+            out = pathlib.Path(root, "reference.json")
+            out.write_text("old")
+
+            with self.assertRaisesRegex(ValueError, "only 2 of 20 runs are GitHub's faster kind"):
+                b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0, 1.05] + [1.4] * 18))
+            self.assertEqual(out.read_text(), "old")
+
+    def test_from_one_kind_alone_it_is_that_kinds_fastest_quarter(self):
+        with tempfile.TemporaryDirectory() as root:
+            factors = [0.9 + 0.01 * i for i in range(20)]
+            reference = b.write_reference(str(pathlib.Path(root, "reference.json")), "small-tests.trx", self.runs(root, factors))
+
+            self.assertAlmostEqual(reference["A"], 0.092)
+
+    def test_with_too_few_tests_to_read_a_runner_keeps_the_old_reference(self):
+        with tempfile.TemporaryDirectory() as root:
+            out = pathlib.Path(root, "reference.json")
+            out.write_text("old")
+
+            with self.assertRaisesRegex(ValueError, "only 2 tests"):
+                b.write_reference(str(out), "small-tests.trx", self.runs(root, [1.0] * 5 + [1.4] * 15, fillers={}))
+            self.assertEqual(out.read_text(), "old")
 
     def test_pr_1171s_slow_runner_passes_against_a_reference_from_main_mixed_fleet(self):
         # #1171 failed at 30.9 s on the slower kind against CON-286's reference, which that kind read at
