@@ -185,6 +185,26 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/code/impact": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/code/map": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/code/references": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "GET /api/code/symbols": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/containers/": {
       "requires": "viewer",
       "risk": "read",

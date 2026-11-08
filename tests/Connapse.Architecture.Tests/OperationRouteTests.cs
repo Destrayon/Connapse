@@ -17,10 +17,6 @@ public class OperationRouteTests
         ["approvals.list"] = "UI only by design (#782): a token must never approve the MCP call it is waiting on, so every non-UI caller is refused.",
         ["approvals.decide"] = "UI only by design (#782): a token must never approve the MCP call it is waiting on, so every non-UI caller is refused.",
         ["search.knowledge"] = "Routed as search.container and search.source, which are this operation narrowed to a container or a source id.",
-        ["code.findSymbol"] = "CON-284 adds their routes.",
-        ["code.references"] = "CON-284 adds their routes.",
-        ["code.impact"] = "CON-284 adds their routes.",
-        ["code.repoMap"] = "CON-284 adds their routes.",
     };
 
     [Fact]

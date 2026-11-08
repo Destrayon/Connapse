@@ -1039,37 +1039,33 @@
       "id": "code.findSymbol",
       "capability": "Find where a symbol is defined in indexed code",
       "routes": [
-        "GET /api/containers/{containerId:guid}/code/symbols"
+        "GET /api/code/symbols"
       ],
-      "mcp": "code_find_symbol",
-      "note": "MCP only: no REST route yet."
+      "mcp": "code_find_symbol"
     },
     {
       "id": "code.references",
       "capability": "List the files that use a symbol",
       "routes": [
-        "GET /api/containers/{containerId:guid}/code/references"
+        "GET /api/code/references"
       ],
-      "mcp": "code_references",
-      "note": "MCP only: no REST route yet."
+      "mcp": "code_references"
     },
     {
       "id": "code.impact",
       "capability": "List what a change to a symbol could affect",
       "routes": [
-        "GET /api/containers/{containerId:guid}/code/impact"
+        "GET /api/code/impact"
       ],
-      "mcp": "code_impact",
-      "note": "MCP only: no REST route yet."
+      "mcp": "code_impact"
     },
     {
       "id": "code.repoMap",
       "capability": "Map indexed code by its most-referenced files",
       "routes": [
-        "GET /api/containers/{containerId:guid}/code/map"
+        "GET /api/code/map"
       ],
-      "mcp": "code_repo_map",
-      "note": "MCP only: no REST route yet."
+      "mcp": "code_repo_map"
     },
     {
       "id": "memory.remember",
