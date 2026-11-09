@@ -5,8 +5,8 @@
 
 Bar 1: foreign queries' top-1 score (median, share at 0.8 or more).
 Bar 2: pooled AUROC of the score over in-domain top-10 hits of judged queries, relevant (grade > 0) against
-       not; with a baseline, the difference and its 95% bootstrap interval (queries resampled, 1,000 draws,
-       seed 278).
+       not, and over those hits plus every foreign query's top-10 hits (never relevant); with a baseline, each
+       difference and its 95% bootstrap interval (queries resampled, 1,000 draws, seed 278).
 Bar 3: no-match flag rate on foreign queries and on in-domain queries whose top-1 hit is relevant.
 Bar 4: with a baseline, in-domain queries whose top-10 chunk list differs.
 Bar 5: p95 search time over in-domain queries.
@@ -62,18 +62,27 @@ def judged_in(rows):
             for q in rows if q["kind"] == "in" and q["judged"]}
 
 
+def judged_all(rows):
+    """In-domain judged queries plus foreign queries, whose hits are never relevant."""
+    out = judged_in(rows)
+    out.update({key(q): [(h["score"], False) for h in q["hits"]] for q in rows if q["kind"] == "foreign"})
+    return out
+
+
 def summary(rows):
     foreign = [q for q in rows if q["kind"] == "foreign"]
     inside = [q for q in rows if q["kind"] == "in"]
     f_top = [top1(q) for q in foreign]
     relevant_top = [q for q in inside if q["judged"] and q["hits"] and q["hits"][0]["grade"] > 0]
     pooled = [p for hits in judged_in(rows).values() for p in hits]
+    pooled_all = [p for hits in judged_all(rows).values() for p in hits]
     return {
         "queries": {"in": len(inside), "foreign": len(foreign)},
         "bar1": {"foreign_top1_median": statistics.median(f_top) if f_top else float("nan"),
                  "foreign_top1_share_ge_0.8": sum(s >= 0.8 for s in f_top) / len(f_top) if f_top else float("nan"),
                  "in_top1_median": statistics.median([top1(q) for q in inside]) if inside else float("nan")},
-        "bar2": {"auroc": auroc(pooled), "hits": len(pooled)},
+        "bar2": {"auroc": auroc(pooled), "hits": len(pooled),
+                 "auroc_with_foreign": auroc(pooled_all), "hits_with_foreign": len(pooled_all)},
         "bar3": {"no_match_foreign": sum(q["noGoodMatch"] for q in foreign) / len(foreign) if foreign else float("nan"),
                  "no_match_in_relevant_top1": sum(q["noGoodMatch"] for q in relevant_top) / len(relevant_top)
                  if relevant_top else float("nan"),
@@ -83,8 +92,8 @@ def summary(rows):
     }
 
 
-def compare(run, base, draws=1000, seed=278):
-    a, b = judged_in(run), judged_in(base)
+def auroc_diff(a, b, draws=1000, seed=278):
+    """AUROC difference over the queries both runs have, and its 95% bootstrap interval (queries resampled)."""
     shared = sorted(set(a) & set(b))
     diff = auroc([p for k in shared for p in a[k]]) - auroc([p for k in shared for p in b[k]])
     rng = random.Random(seed)
@@ -96,12 +105,21 @@ def compare(run, base, draws=1000, seed=278):
             boot.append(d)
     boot.sort()
     lo, hi = boot[int(0.025 * len(boot))], boot[min(len(boot) - 1, int(0.975 * len(boot)))]
+    return diff, [lo, hi], len(shared)
+
+
+def compare(run, base):
+    diff, ci, n = auroc_diff(judged_in(run), judged_in(base))
+    diff_all, ci_all, n_all = auroc_diff(judged_all(run), judged_all(base))
 
     ra = {key(q): [h["chunkId"] for h in q["hits"]] for q in run if q["kind"] == "in"}
     rb = {key(q): [h["chunkId"] for h in q["hits"]] for q in base if q["kind"] == "in"}
     common = set(ra) & set(rb)
     changed = sorted(k for k in common if ra[k] != rb[k])
-    return {"bar2_auroc_diff": diff, "bar2_ci95": [lo, hi], "bar2_queries": len(shared),
+    return {"bar2_auroc_diff": diff, "bar2_ci95": ci, "bar2_queries": n,
+            "bar2_pass_in_domain_no_worse": ci[0] > -0.02,
+            "bar2_with_foreign_auroc_diff": diff_all, "bar2_with_foreign_ci95": ci_all,
+            "bar2_with_foreign_queries": n_all, "bar2_pass_with_foreign_better": ci_all[0] > 0,
             "bar4_in_queries_compared": len(common), "bar4_rankings_changed": len(changed),
             "bar4_missing": len(set(ra) ^ set(rb)), "bar4_examples": [list(k) for k in changed[:5]]}
 

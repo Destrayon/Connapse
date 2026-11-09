@@ -50,9 +50,18 @@ side of the fusion to 0–1 within each query, so the top hit always scores abou
 - **Bars** (all must pass):
   1. **No near-perfect unrelated hit.** Over foreign queries, the median top-1 score is at most 0.5 and at most 10%
      of them have a top-1 score of 0.8 or more.
-  2. **Scores track relevance.** Pooled AUROC of the score over every top-10 hit of in-domain queries, relevant
-     against not relevant, is at least 0.05 above the baseline's, and the 95% bootstrap interval of the difference
-     (resampling queries, 1,000 draws, seed 278) lies above 0.
+  2. **Scores track relevance.** Replaced on 2026-11-09 with the user's approval, after the first `v1` judgement
+     failed the original bar (in-domain AUROC at least 0.05 above the baseline's, interval above 0) and before the
+     held-out run below existed. Both parts must pass; intervals are 95% bootstrap intervals of the difference
+     against the baseline (resampling queries, 1,000 draws, seed 278).
+     - **In-domain, no worse.** Pooled AUROC of the score over every top-10 hit of in-domain queries, relevant
+       against not relevant: the interval's lower bound is above -0.02.
+     - **In-domain and foreign, better.** Pooled AUROC over every top-10 hit of in-domain and foreign queries,
+       where a foreign hit is never relevant: the interval's lower bound is above 0.
+     Judged on the held-out run: suite `v1`, `--split dev`, datasets `ragbench-techqa` and `ragbench-emanual`
+     (RAGBench validation questions, 304 and 132; each dataset's foreign queries are the other's). No dev or tune
+     run used these questions, and the `v1` test run that failed the original bar used only test questions; the
+     corpus is the same `v1` index. The `v1` test numbers are reported alongside.
   3. **No-match signal.** The search result's no-match flag is set for at least 70% of foreign queries and for at
      most 10% of in-domain queries whose top-1 hit is relevant.
   4. **No regression.** Every in-domain query's top-10 ranking is identical to the baseline's, so nDCG@10 is
