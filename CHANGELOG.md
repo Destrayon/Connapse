@@ -132,6 +132,7 @@ These change what a search returns rather than making a call fail.
 **MCP and agents**
 - Agent memory MCP tools: `memory_spaces`, `memory_remember`, `memory_correct`, `memory_forget`, `memory_recall` and `memory_timeline`, storing dated facts with sources and keeping their history (CON-39)
 - Memory spaces: every fact lives in a personal space only its owner sees or a team space everyone sees, an agent must name the space it saves to and is told who will see the fact, and a fact is shown only to readers who can open every source it cites. People manage spaces and facts on the **Memory** page and at `/api/memory/spaces` (CON-255)
+- `memory_recall` and `memory_timeline` read several spaces as one memory with `spaces`, and a read of several or every space ranks all their facts together in one query instead of one query per space; the per-fact source check is unchanged (CON-228)
 - Code MCP tools: `code_find_symbol`, `code_references`, `code_impact` and `code_repo_map` (CON-37)
 - `container_describe` MCP tool, and tool annotations that mark which tools read, delete or can be repeated safely (#274, #345)
 - OAuth 2.1 sign-in for MCP clients, with discovery, PKCE and dynamic client registration (#286, #306, #308)

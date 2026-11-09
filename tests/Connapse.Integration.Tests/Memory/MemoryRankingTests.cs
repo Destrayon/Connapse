@@ -35,4 +35,24 @@ public class MemoryRankingTests(SharedWebAppFixture fixture)
 
         found[0].Reason.Should().Be("HAL-17 done", "the project name and ticket prefix are in every fact; the number picks one");
     }
+
+    [Fact]
+    public async Task Query_AcrossContainersHoldingNoFacts_FindsNothing()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        await using (var db = await factory.CreateDbContextAsync())
+        {
+            db.Containers.Add(new ContainerEntity { Id = a, Name = $"rank-{a:N}" });
+            db.Containers.Add(new ContainerEntity { Id = b, Name = $"rank-{b:N}" });
+            await db.SaveChangesAsync();
+        }
+        var store = new PostgresMemoryStore(factory, TimeProvider.System);
+
+        IReadOnlyList<MemoryFact> found = await store.QueryAsync(
+            new MemoryQuery(Guid.Empty, Text: "What did HAL-17 change?", ContainerIds: [a, b]), 0, 5);
+
+        found.Should().BeEmpty();
+    }
 }

@@ -124,7 +124,9 @@ public sealed class MemoryService(
         try
         {
             // Hidden facts are filtered out by the query itself, so one read returns the page.
-            MemoryViewer viewer = await ViewerAsync(query.ContainerId, query.ChainId, caller, ct);
+            MemoryViewer viewer = query.Containers.Distinct().Count() > 1
+                ? new(caller, await ReadableAsync(await store.CitedSourcesAcrossAsync([.. query.Containers], ct), caller.UserId, ct))
+                : await ViewerAsync(query.Containers[0], query.ChainId, caller, ct);
             return new MemoryRecall(await ShownAsync(await store.VisibleAsync(query, viewer, limit, ct), ct));
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)

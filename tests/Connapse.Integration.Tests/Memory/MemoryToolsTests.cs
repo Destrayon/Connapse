@@ -502,6 +502,8 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         {
             string named = await McpTools.MemoryRecall(recall, http, space, subject: "Halcyon");
             named.Should().StartWith("Error: ").And.Contain("document container").And.NotContain(Value);
+            string among = await McpTools.MemoryRecall(recall, http, subject: "Halcyon", spaces: [C, space]);
+            among.Should().StartWith("Error: ").And.Contain("document container").And.NotContain(Value);
             string saved = await McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(), http,
                 "Halcyon", "database", "x", sources: [_upload], containerId: space);
             saved.Should().StartWith("Error: ").And.Contain("document container");
@@ -560,5 +562,107 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
 
         recalled.Should().HaveCount(230).And.OnlyHaveUniqueItems();
         timeline.Should().BeEquivalentTo(recalled);
+    }
+
+    /// <summary>A second container beside the class's, holding an upload anyone may read.</summary>
+    private async Task<(Guid Id, string Name, string Upload)> SecondContainerAsync()
+    {
+        await using var db = await Sp.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>().CreateDbContextAsync();
+        var container = new ContainerEntity { Id = Guid.NewGuid(), Name = $"mem-b-{Guid.NewGuid():N}", Kind = ContainerKind.Memory };
+        var upload = new DocumentEntity
+        {
+            Id = Guid.NewGuid(),
+            ContainerId = container.Id,
+            FileName = "b-upload.md",
+            Path = "/b-upload.md",
+            ContentHash = Guid.NewGuid().ToString("N"),
+            IngestionStatus = DocumentStatus.Ready,
+            CreatedAt = DateTime.UtcNow,
+            Metadata = [],
+        };
+        db.Containers.Add(container);
+        db.Documents.Add(upload);
+        await db.SaveChangesAsync();
+        return (container.Id, container.Name, upload.Id.ToString());
+    }
+
+    private Task<string> RecallAcross(string subject, string[]? spaces, string? space = null) =>
+        McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(),
+            space, subject: subject, limit: 100, spaces: spaces);
+
+    /// <summary>Each fact's value and the name of the space it says it came from.</summary>
+    private static IEnumerable<(string?, string?)> FromWhere(string json) => Facts(json).Select(f =>
+        (f.GetProperty("value").GetString(), f.GetProperty("space").GetProperty("name").GetString()));
+
+    [Fact]
+    public async Task RecallAcross_EverySpace_ShowsOnlyWhatEachSpaceWouldShowTheCaller()
+    {
+        string subject = $"Across-{Guid.NewGuid():N}";
+        (Guid b, string bName, string bUpload) = await SecondContainerAsync();
+        string a = C, bId = b.ToString();
+        string aName = (await Sp.GetRequiredService<IContainerStore>().GetAsync(_container))!.Name;
+        Task<string> RememberIn(string container, string value, string[] sources) =>
+            McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(),
+                Sp.GetRequiredService<IHttpContextAccessor>(), subject, value, value, sources: sources, containerId: container);
+
+        As(_writer);
+        Id(await RememberIn(a, "a-upload", [_upload]));
+        Id(await RememberIn(a, "a-page", [_allowedPage]));
+        Id(await RememberIn(bId, "b-upload", [bUpload]));
+        Id(await RememberIn(bId, "b-writer-own", []));
+        As(_reader);
+        Id(await RememberIn(bId, "b-reader-own", []));
+
+        // The reader can't read page 101, and the writer's sourceless fact is in the writer's own personal space.
+        FromWhere(await RecallAcross(subject, null)).Should().BeEquivalentTo(
+            [("a-upload", aName), ("b-upload", bName), ("b-reader-own", $"{bName}-personal")]);
+        FromWhere(await RecallAcross(subject, [bName.ToUpperInvariant(), $"{bName}-personal"])).Should().BeEquivalentTo(
+            [("b-upload", bName), ("b-reader-own", $"{bName}-personal")], "a recall naming spaces never reads another");
+        FromWhere(await RecallAcross(subject, [bId], space: a)).Should().BeEquivalentTo(
+            [("a-upload", aName), ("b-upload", bName)]);
+
+        As(_writer);
+        FromWhere(await RecallAcross(subject, null)).Should().BeEquivalentTo(
+            [("a-upload", aName), ("a-page", aName), ("b-upload", bName), ("b-writer-own", $"{bName}-personal")]);
+
+        As(_stranger);
+        Facts(await RecallAcross(subject, null)).Select(f => f.GetProperty("value").GetString())
+            .Should().BeEquivalentTo(["a-upload", "b-upload"], "a caller with no Atlassian account reads only the uploads");
+    }
+
+    [Fact]
+    public async Task TimelineAcross_CappedBelowWhatMatches_KeepsTheNewestChangeFirst()
+    {
+        string subject = $"Newest-{Guid.NewGuid():N}";
+        (Guid b, _, string bUpload) = await SecondContainerAsync();
+        As(_writer);
+        Task<string> RememberIn(string container, string value, string validFrom, string source) =>
+            McpTools.MemoryRemember(Sp.GetRequiredService<RememberFact>(), Sp.GetRequiredService<ListMemorySpaces>(),
+                Sp.GetRequiredService<IHttpContextAccessor>(), subject, value, value, validFrom: validFrom, sources: [source], containerId: container);
+        Id(await RememberIn(C, "older change", "2020-01-01", _upload));
+        Id(await RememberIn(b.ToString(), "newer change", "2026-01-01", bUpload));
+
+        Facts(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(),
+                subject: subject, limit: 1, spaces: [C, b.ToString()]))
+            .Select(f => f.GetProperty("value").GetString()).Should().Equal(["newer change"],
+                "a capped read across spaces drops the oldest changes, as one space's capped chain does");
+    }
+
+    [Fact]
+    public async Task RecallAcross_SeveralSpacesNamed_ReadAsOneAndAnUnknownSpaceIsRefused()
+    {
+        string subject = $"Single-{Guid.NewGuid():N}";
+        As(_writer);
+        await Remember("PostgreSQL 15", subject: subject);
+
+        Facts(await McpTools.MemoryTimeline(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), subject: subject, spaces: [C]))
+            .Single().GetProperty("space").GetProperty("id").GetString().Should().Be(C);
+        (await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), subject: subject, spaces: [C, C], cursor: "x"))
+            .Should().StartWith("Error: cursor");
+
+        string unknown = Guid.NewGuid().ToString();
+        (await RecallAcross(subject, [C, unknown])).Should().Contain(unknown).And.Contain("not found");
+        As(_writer, canRead: false);
+        (await RecallAcross(subject, null)).Should().Contain("knowledge:read");
     }
 }
