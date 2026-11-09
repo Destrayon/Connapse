@@ -53,9 +53,6 @@ internal static class MemoryRules
     public const string ReadScope = "knowledge:read";
     public const string WriteScope = "knowledge:write";
 
-    /// <summary>The personal space every writer has, made the first time it is named.</summary>
-    public const string MyMemory = "my-memory";
-
     /// <summary>
     /// The memory space named by id or name, as <paramref name="viewer"/> may see it, or null. Only memory containers
     /// resolve: naming a document container is refused, and someone else's personal space reads as missing. A name a
@@ -130,7 +127,8 @@ internal static class MemoryRules
         await authorizer.AllowsAsync(context.User, Policies.Writer) && await authorizer.AllowsAsync(context.User, Policies.KnowledgeWrite);
 
     public static Attempt<T, MemoryStatus> WriteContainerNotFound<T>(string? containerId) =>
-        Fail<T>(MemoryStatus.ContainerNotFound, $"Space '{containerId}' not found. Memory lives in personal and team spaces.");
+        Fail<T>(MemoryStatus.ContainerNotFound, $"Space '{containerId}' not found. Memory lives in personal and team spaces: "
+            + "pick one you have, or create one, then save to it. No space is made for you.");
 
     public static Attempt<T, MemoryStatus> FactNotFound<T>(string? factId) =>
         Fail<T>(MemoryStatus.FactNotFound, $"Fact '{factId}' not found.");
@@ -174,20 +172,10 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 
         MemoryCaller caller = MemoryRules.Caller(context.User);
         string field = target.IsSpace ? "space" : "containerId";
-        // my-memory always means the caller's own space, even when a team space or container has that name, since
-        // the tools offer it as the private place to save; the team one is still reachable by id.
-        bool myMemory = target.IsSpace && string.Equals(target.IdOrName?.Trim(), MemoryRules.MyMemory, StringComparison.OrdinalIgnoreCase);
-        (Container? named, string? refused) = myMemory
-            ? (null, null)
-            : await MemoryRules.SpaceAsync(containers, target.IdOrName, caller, ct);
+        // No space is made by naming it (CON-291): a save names a space that exists, or is told to pick or create one.
+        (Container? named, string? refused) = await MemoryRules.SpaceAsync(containers, target.IdOrName, caller, ct);
         if (refused is not null)
             return Invalid(refused, field);
-        if (myMemory)
-        {
-            if (!MemoryRules.CanOwn(caller))
-                return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Forbidden, "personal memory needs a signed-in user or agent to belong to.");
-            named = await containers.EnsurePersonalSpaceAsync(caller, MemoryRules.MyMemory, "Your own memory: only you see what is saved here.", ct);
-        }
         if (named is null)
             return MemoryRules.WriteContainerNotFound<MemoryWritten>(target.IdOrName);
 
@@ -223,7 +211,7 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
             .Where(c => c.Audience == MemoryScope.Personal).Select(c => c.Name).ToList();
         string where = own.Count > 0
             ? $"Save it to one of your personal spaces: {string.Join(", ", own)}."
-            : $"You have no personal space yet: save it to space \"{MemoryRules.MyMemory}\" and it is made for you.";
+            : "You have no personal space yet: create one, then save it there.";
         return $"'{named.Name}' is a team space, so everyone can see what is saved there. {where}";
     }
 }
@@ -421,6 +409,42 @@ public sealed class RecallMemory(
             new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
     }
 
+    /// <summary>
+    /// A timeline as the API and the memory_timeline tool both take it: facts in date order, ended and corrected ones
+    /// included. One named space without a window or an attribute is read newest first a page at a time, each page in
+    /// date order; with a window only the facts that started or ended in it are read, unpaged, and a cursor is refused.
+    /// </summary>
+    public async Task<Attempt<SpacedRecall, MemoryStatus>> TimelineAsync(
+        OperationContext context, MemoryTimelineRequest request, CancellationToken ct = default)
+    {
+        bool windowed = request.From is not null || request.To is not null;
+        Attempt<SpacedRecall, MemoryStatus> read;
+        if (!string.IsNullOrWhiteSpace(request.Space) && !windowed && string.IsNullOrWhiteSpace(request.Attribute))
+        {
+            MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject, Status: MemoryFactStatus.All);
+            read = await PageAsync(context, request.Space, new MemoryFactListing(filter, MemoryFactSort.ValidFrom, request.Cursor,
+                Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
+        }
+        else if (!string.IsNullOrWhiteSpace(request.Cursor))
+        {
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
+                "cursor works only when you name a `space` and leave out `from`, `to` and `attribute`.", "cursor");
+        }
+        else
+        {
+            read = await SpacesAsync(context, request.Space, new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute,
+                History: !windowed, ChangedFrom: request.From, ChangedTo: request.To, Limit: request.Limit), ct);
+        }
+
+        if (!read.Succeeded)
+            return read;
+        SpacedRecall result = read.Result!;
+        return Attempt<SpacedRecall, MemoryStatus>.Succeed(result with
+        {
+            Facts = [.. result.Facts.OrderBy(f => f.Fact.ValidFrom ?? DateTimeOffset.MinValue).ThenBy(f => f.Fact.RecordedAt)],
+        });
+    }
+
     private static Attempt<SpacedRecall, MemoryStatus> Unchecked() =>
         MemoryRules.Fail<SpacedRecall>(MemoryStatus.Unchecked, "access to memory sources could not be checked; nothing is shown.");
 
@@ -458,6 +482,22 @@ public sealed record MemoryRecallRequest(
     DateTimeOffset? AsOf = null,
     bool History = false,
     int Limit = 10,
+    string? Cursor = null);
+
+/// <summary>
+/// What a timeline reads: one <paramref name="Space"/> by id or name, or every space the caller can see when it is
+/// blank; facts matching <paramref name="Text"/>, <paramref name="Subject"/> and <paramref name="Attribute"/>; with
+/// <paramref name="From"/>/<paramref name="To"/>, only those that started or ended in that window; at most
+/// <paramref name="Limit"/>; and the <paramref name="Cursor"/> a previous page of one space returned.
+/// </summary>
+public sealed record MemoryTimelineRequest(
+    string? Space = null,
+    string? Text = null,
+    string? Subject = null,
+    string? Attribute = null,
+    DateTimeOffset? From = null,
+    DateTimeOffset? To = null,
+    int Limit = 50,
     string? Cursor = null);
 
 /// <summary>

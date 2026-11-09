@@ -57,7 +57,9 @@ public class MemorySpaceSurfaceTests(SharedWebAppFixture fixture)
                     .Should().Contain("Tacos on Tuesdays");
                 Values(await CallAsync(owner, "memory_recall", new() { ["containerId"] = personalName, ["subject"] = "owner" }))
                     .Should().Contain("Tacos on Tuesdays");
-                (await CallAsync(owner, "container_list", new())).Should().Contain(personalName);
+                // A memory space is not a file container (CON-291): the owner finds it among memory spaces instead.
+                (await CallAsync(owner, "container_list", new())).Should().NotContain(personalName);
+                (await CallAsync(owner, "memory_spaces", new())).Should().Contain(personalName);
             }
 
             // The owner sees it over REST, by id and by name.
@@ -73,7 +75,7 @@ public class MemorySpaceSurfaceTests(SharedWebAppFixture fixture)
             (await other.DeleteAsync($"/api/containers/{personal}/settings")).StatusCode.Should().Be(HttpStatusCode.NotFound);
             (await ownerRest.GetAsync($"/api/containers/{personal}/settings")).StatusCode.Should().Be(HttpStatusCode.OK);
             (await ListedAsync(other)).Should().NotContain(personal).And.NotContain(personalName);
-            (await ListedAsync(ownerRest)).Should().Contain(personal);
+            (await ListedAsync(ownerRest)).Should().NotContain(personal, "a memory space is not a file container (CON-291)");
 
             await using (var stranger = await ConnectAsync(await AuthzPrincipals.CredentialAsync(fixture, AuthzPrincipal.AgentWrite)))
             {

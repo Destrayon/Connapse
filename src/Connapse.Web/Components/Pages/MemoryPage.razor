@@ -183,9 +183,6 @@ else
 }
 
 @code {
-    /// <summary>The personal space every writer has, named as an agent's save names it (MemoryRules.MyMemory).</summary>
-    public const string MyMemory = "my-memory";
-
     private MemorySpacesView view = new();
     private List<MemorySpaceView> items = [];
     private MemorySpaceCounts? counts;
@@ -213,8 +210,6 @@ else
         Navigation.LocationChanged += OnLocationChanged;
         var context = await AuthStateProvider.OperationContextAsync();
         audience = await Spaces.List.AudienceAsync(context);
-        if (audience.CanAdd)
-            await EnsureMyMemoryAsync(context);
         await LoadAsync(MemorySpacesView.Parse(Navigation.Uri), fresh: true);
     }
 
@@ -222,19 +217,6 @@ else
     {
         disposed = true;
         Navigation.LocationChanged -= OnLocationChanged;
-    }
-
-    /// <summary>
-    /// Makes the person's <c>my-memory</c> space the first time they open the page, starred so it lists first, as
-    /// an agent's first personal save would make it. One they already have is refused as a duplicate and left alone,
-    /// so a star they removed stays removed.
-    /// </summary>
-    private async Task EnsureMyMemoryAsync(Connapse.Application.OperationContext context)
-    {
-        var made = await Spaces.Create.RunAsync(context,
-            new NewMemorySpace(MyMemory, "Your own memory: only you see what is saved here.", MemorySpaceKind.Personal));
-        if (made.Succeeded && Guid.TryParse(made.Result!.Id, out Guid id))
-            await Spaces.Star.RunAsync(context, id);
     }
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => _ = InvokeAsync(async () =>

@@ -271,6 +271,33 @@ public class SearchOperationTests
     }
 
     [Fact]
+    public async Task Search_NameOfAMemorySpaceAndASource_SearchesTheSource()
+    {
+        var world = new World();
+        world.Containers.GetByNameAsync("wiki", Arg.Any<CancellationToken>())
+            .Returns(new Container(Guid.NewGuid().ToString(), "wiki", null, Epoch, Epoch, Kind: ContainerKind.Memory));
+        var source = world.Source("wiki");
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope("wiki"), Query());
+
+        searched.Status.Should().Be(SearchStatus.Success);
+        world.Asked!.ContainerId.Should().Be(source.Id.ToString());
+    }
+
+    [Fact]
+    public async Task Search_NameOfOnlyAMemorySpace_SaysItHoldsNoDocuments()
+    {
+        var world = new World();
+        world.Containers.GetByNameAsync("notes", Arg.Any<CancellationToken>())
+            .Returns(new Container(Guid.NewGuid().ToString(), "notes", null, Epoch, Epoch, Kind: ContainerKind.Memory));
+
+        var searched = await world.Operation().RunAsync(Caller, new SearchScope("notes"), Query());
+
+        searched.Status.Should().Be(SearchStatus.MemoryContainer);
+        world.Searched.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Search_ContainerWhoseIdIsNotAGuid_ReadsAsMissing()
     {
         var world = new World();

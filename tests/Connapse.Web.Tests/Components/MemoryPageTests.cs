@@ -17,8 +17,8 @@ namespace Connapse.Web.Tests.Components;
 
 /// <summary>
 /// CON-248: the Memory page through the real space operations over a fake space store: cards up to nine spaces, the
-/// paged table past that with find, kind filters, sort and stars kept in the address, <c>my-memory</c> on a writer's
-/// first visit, and the New space dialog.
+/// paged table past that with find, kind filters, sort and stars kept in the address, no space made on a writer's
+/// first visit (CON-291), and the New space dialog.
 /// </summary>
 [Trait("Category", "Unit")]
 [Trait("Size", "Medium")]
@@ -71,12 +71,20 @@ public class MemoryPageTests : IDisposable
             spaces.Add($"team-{i:D3}", MemorySpaceKind.Team, i, minutes: i);
     }
 
+    /// <summary>A starred personal space the person made earlier; none is made for them (CON-291).</summary>
+    private void HaveMine()
+    {
+        Container mine = spaces.Add("my-memory", MemorySpaceKind.Personal, 0);
+        spaces.Stars.Add(mine.Id);
+    }
+
     private static IEnumerable<string> Names(IRenderedComponent<MemoryPage> cut) =>
         cut.FindAll("tbody tr[data-space-id] .space-name a").Select(a => a.TextContent);
 
     [Fact]
     public void Render_NineOrFewerSpaces_ShowsCardsInTheirSections()
     {
+        HaveMine();
         spaces.Add("on-call", MemorySpaceKind.Team, 4, description: "Who to page");
 
         var cut = Render();
@@ -91,6 +99,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void Render_TenSpaces_ShowsThePagedTable()
     {
+        HaveMine();
         AddTeams(9);
 
         var cut = Render();
@@ -100,28 +109,19 @@ public class MemoryPageTests : IDisposable
         cut.Find("#memory-spaces-range").TextContent.Should().Be("1–10 of 10 spaces");
         cut.Find("#memory-spaces-pill-all").TextContent.Should().Contain("10");
         cut.Find("#memory-spaces-pill-team").TextContent.Should().Contain("9");
-        cut.Find("#memory-spaces-pill-starred").TextContent.Should().Contain("1", "my-memory starts starred");
+        cut.Find("#memory-spaces-pill-starred").TextContent.Should().Contain("1", "my-memory is starred");
         Names(cut).First().Should().Be("my-memory", "starred spaces list first");
     }
 
     [Fact]
-    public void FirstVisit_Writer_MakesMyMemoryStarredOnce()
+    public void FirstVisit_Writer_MakesNoSpace()
     {
         var cut = Render();
-        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
-        Container mine = spaces.Named("my-memory");
-        mine.Audience.Should().Be(MemoryScope.Personal);
-        spaces.Stars.Should().Contain(mine.Id);
-        cut.Find(".space-card .star-toggle").GetAttribute("aria-pressed").Should().Be("true");
 
-        cut.Find(".space-card .star-toggle").Click();
-        cut.WaitForAssertion(() => spaces.Stars.Should().BeEmpty());
-        var again = ctx.Render<MemoryPage>();
-        again.WaitForAssertion(() => again.FindAll(".space-card").Should().ContainSingle());
-
-        again.Find(".space-card .star-toggle").GetAttribute("aria-pressed").Should().Be("false",
-            "a star the person removed stays removed on the next visit");
-        spaces.Personal.Should().Be(1);
+        cut.WaitForAssertion(() => cut.FindAll("#memory-new-space").Should().ContainSingle());
+        cut.FindAll(".space-card").Should().BeEmpty();
+        spaces.Personal.Should().Be(0);
+        spaces.Stars.Should().BeEmpty();
     }
 
     [Fact]
@@ -139,6 +139,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void Paging_NextAndPrevious_WalkThePagesWithTheCursorInTheAddress()
     {
+        HaveMine();
         AddTeams(60);
         var cut = Render();
         cut.WaitForAssertion(() => cut.Find("#memory-spaces-range").TextContent.Should().Be("1–50 of 61 spaces"));
@@ -159,6 +160,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void Paging_NextClickedTwiceWhileLoading_MovesOnePage()
     {
+        HaveMine();
         AddTeams(60);
         var cut = Render();
         cut.WaitForAssertion(() => cut.Find("#memory-spaces-range").TextContent.Should().Be("1–50 of 61 spaces"));
@@ -177,6 +179,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void Find_NarrowsTheTableWithoutTurningItIntoCards()
     {
+        HaveMine();
         AddTeams(12);
         var cut = Render();
         cut.WaitForAssertion(() => cut.FindAll("tbody tr[data-space-id]").Should().HaveCount(13));
@@ -195,6 +198,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void KindPill_ListsThatKindAndKeepsItInTheAddress()
     {
+        HaveMine();
         AddTeams(10);
         var cut = Render();
         cut.WaitForAssertion(() => cut.FindAll("tbody tr[data-space-id]").Should().HaveCount(11));
@@ -214,6 +218,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void Sort_ByName_ReordersAndKeepsItInTheAddress()
     {
+        HaveMine();
         AddTeams(10);
         var cut = Render();
         cut.WaitForAssertion(() => Names(cut).Skip(1).First().Should().Be("team-009"));
@@ -227,6 +232,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void Star_ListsTheSpaceFirst()
     {
+        HaveMine();
         AddTeams(10);
         var cut = Render();
         cut.WaitForAssertion(() => Names(cut).Should().HaveCount(11));
@@ -263,6 +269,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void NewSpace_TeamWithOneAccount_SaysThePersonInTheSingular()
     {
+        HaveMine();
         accounts = 1;
         var cut = Render();
         cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
@@ -276,6 +283,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void NewSpace_Team_SaysWhoSeesItAndListsItWhenMade()
     {
+        HaveMine();
         var cut = Render();
         cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
 
@@ -297,6 +305,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void NewSpace_DuplicatePersonalName_MarksTheNameAndKeepsTheDialogOpen()
     {
+        HaveMine();
         var cut = Render();
         cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
 
@@ -312,6 +321,7 @@ public class MemoryPageTests : IDisposable
     [Fact]
     public void NewSpace_InvalidName_ShowsTheNameRule()
     {
+        HaveMine();
         var cut = Render();
         cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
 

@@ -13,7 +13,7 @@ namespace Connapse.Core.Tests.Application;
 
 /// <summary>
 /// CON-235: what a save tells the caller. Personal memory refused on a team space or document container names the
-/// caller's own spaces, or <c>my-memory</c> when they have none; a name that is both a team container and the caller's
+/// caller's own spaces, or says to create one when they have none (CON-291); a name that is both a team container and the caller's
 /// own space is refused rather than guessed; an old-style save without sources says which personal space it went to.
 /// </summary>
 [Trait("Category", "Unit")]
@@ -79,14 +79,14 @@ public class MemorySpaceSaveTests
     }
 
     [Fact]
-    public async Task Remember_PersonalOnTeamSpaceWithNoSpacesOfYourOwn_SuggestsMyMemory()
+    public async Task Remember_PersonalOnTeamSpaceWithNoSpacesOfYourOwn_SaysToCreateOne()
     {
         Have(Space("team-notes", MemoryScope.Team));
 
         var written = await _remember.RunAsync(Alice, MemoryTarget.Space("team-notes"), Fact(MemoryScope.Personal));
 
         written.Status.Should().Be(MemoryStatus.Invalid);
-        written.Detail.Should().Contain("a team space").And.Contain("\"my-memory\"");
+        written.Detail.Should().Contain("a team space").And.Contain("create one").And.NotContain("my-memory");
     }
 
     [Fact]
@@ -160,30 +160,25 @@ public class MemorySpaceSaveTests
     }
 
     [Fact]
-    public async Task Remember_MyMemoryWhenATeamSpaceHasThatName_GoesToYourOwnSpace()
+    public async Task Remember_MyMemoryThatNobodyMade_IsNotFoundAndMakesNothing()
+    {
+        var written = await _remember.RunAsync(Alice, MemoryTarget.Space("my-memory"), Fact());
+
+        written.Status.Should().Be(MemoryStatus.ContainerNotFound);
+        written.Detail.Should().Contain("pick one you have, or create one");
+        _memory.ReceivedCalls().Should().BeEmpty();
+        await _containers.DidNotReceiveWithAnyArgs().EnsurePersonalSpaceAsync(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task Remember_MyMemoryWhenATeamSpaceHasThatName_GoesToThatTeamSpace()
     {
         Container team = Space("my-memory", MemoryScope.Team);
         Have(team);
 
         var written = await _remember.RunAsync(Alice, MemoryTarget.Space("My-Memory"), Fact());
 
-        written.Succeeded.Should().BeTrue();
-        written.Result!.SavedTo!.Audience.Should().Be(MemoryScope.Personal);
-        await _memory.DidNotReceive().RememberAsync(Guid.Parse(team.Id), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
-        await _memory.Received(1).RememberAsync(Arg.Any<Guid>(),
-            Arg.Is<NewMemoryFact>(f => f.Scope == MemoryScope.Personal), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
-        (await _remember.RunAsync(Alice, MemoryTarget.Space(team.Id), Fact())).Result!.SavedTo!.Id.Should().Be(team.Id, "the id still reaches the team one");
-    }
-
-    [Fact]
-    public async Task Remember_MyMemoryForACallerWithNoId_IsForbiddenAndMakesNothing()
-    {
-        var anonymous = new OperationContext(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Mcp);
-
-        var written = await _remember.RunAsync(anonymous, MemoryTarget.Space("my-memory"), Fact());
-
-        written.Status.Should().Be(MemoryStatus.Forbidden);
-        await _containers.DidNotReceiveWithAnyArgs().EnsurePersonalSpaceAsync(default!, default!, default);
+        written.Result!.SavedTo!.Id.Should().Be(team.Id, "a name means the space that has it, with no special case");
     }
 
     [Fact]

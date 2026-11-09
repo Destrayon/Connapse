@@ -282,6 +282,32 @@ Fixes #[issue-number]
 
 **Be patient and respectful during the review process.**
 
+## 🚢 Version Branches
+
+Work for the next minor or major version can collect on a `release/x.y.z` branch, so it merges as it is finished while `main` keeps taking fixes for the current release. CI runs on every PR into `release/**` exactly as it does for `main`, so a new version branch needs no workflow edits.
+
+**Start one** from the current `main` and push it:
+
+```bash
+git fetch upstream
+git push upstream upstream/main:refs/heads/release/0.5.0
+```
+
+Then open (or retarget) that version's PRs against it: `gh pr edit <number> --base release/0.5.0`, and rebase each PR's branch onto `upstream/release/0.5.0`.
+
+**Carry fixes from `main` into it** by merging `main` into the version branch through a PR, not by pushing. Do it at least weekly, and whenever a fix lands on `main` that the version's work touches:
+
+```bash
+git checkout -b chore/merge-main-into-0.5.0 upstream/release/0.5.0
+git merge upstream/main          # resolve conflicts here, on your branch
+git push origin chore/merge-main-into-0.5.0
+gh pr create --base release/0.5.0 --title "chore: merge main into release/0.5.0"
+```
+
+Merge that PR with a merge commit, not a squash, so the next merge from `main` starts from where this one stopped.
+
+**Merge it back at release time.** Merge `main` into the version branch one last time (above) so the final PR has no conflicts, then open `gh pr create --base main --head release/0.5.0` and merge it with a merge commit once CI is green. Tag the release from `main` as usual, then delete the version branch.
+
 ## 🎨 Code Conventions
 
 ### C# / .NET 10

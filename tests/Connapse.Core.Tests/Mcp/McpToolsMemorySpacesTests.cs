@@ -60,6 +60,65 @@ public class McpToolsMemorySpacesTests
         new(Guid.NewGuid(), Guid.NewGuid(), space, "Halcyon", "database", "PostgreSQL 15", null, null,
             DateTimeOffset.UnixEpoch.AddMinutes(minute), null, null, null, new MemoryCaller(null, null, "agent"), [], scope);
 
+    // ── memory_space_create ───────────────────────────────────────────────────────────────────────
+
+    private CreateMemorySpace Create(IOperationAuthorizer? authorizer = null) =>
+        new(_containers, _spaces, Substitute.For<IAuditLogger>(), authorizer ?? McpCaller.Allowed);
+
+    [Fact]
+    public async Task MemorySpaceCreate_Personal_MakesItForTheCallerAndSaysOnlyTheySeeIt()
+    {
+        Container made = Space("halcyon-notes", MemorySpaceKind.Personal);
+        _spaces.CreatePersonalAsync(Arg.Any<MemoryCaller>(), "halcyon-notes", "Halcyon facts", Arg.Any<CancellationToken>()).Returns(made);
+
+        JsonElement created = JsonDocument.Parse(
+            await McpTools.MemorySpaceCreate(Create(), List(), Signed, "halcyon-notes", "Personal", "Halcyon facts")).RootElement.GetProperty("created");
+
+        created.GetProperty("id").GetString().Should().Be(made.Id);
+        created.GetProperty("kind").GetString().Should().Be("personal");
+        created.GetProperty("whoSees").GetString().Should().Be("only you");
+        await _containers.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task MemorySpaceCreate_Team_MakesAMemoryContainerEveryoneSees()
+    {
+        Container made = Space("on-call", MemorySpaceKind.Team);
+        _containers.CreateAsync(Arg.Is<CreateContainerRequest>(r => r.Name == "on-call" && r.Kind == ContainerKind.Memory), Arg.Any<CancellationToken>())
+            .Returns(made);
+
+        JsonElement created = JsonDocument.Parse(
+            await McpTools.MemorySpaceCreate(Create(), List(), Signed, "on-call", "team")).RootElement.GetProperty("created");
+
+        created.GetProperty("kind").GetString().Should().Be("team");
+        created.GetProperty("whoSees").GetString().Should().StartWith("everyone in this Connapse");
+    }
+
+    [Fact]
+    public async Task MemorySpaceCreate_WithoutWriteAccess_IsRefusedAndMakesNothing()
+    {
+        IOperationAuthorizer readOnly = Substitute.For<IOperationAuthorizer>();
+        readOnly.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.KnowledgeRead).Returns(true);
+
+        string result = await McpTools.MemorySpaceCreate(Create(readOnly), List(readOnly), Signed, "on-call", "team");
+
+        result.Should().StartWith("Error:").And.Contain("write access");
+        await _containers.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+        await _spaces.DidNotReceiveWithAnyArgs().CreatePersonalAsync(default!, default!, default, default);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("shared")]
+    [InlineData("1")]
+    public async Task MemorySpaceCreate_UnknownKind_SaysTheTwoKinds(string kind)
+    {
+        string result = await McpTools.MemorySpaceCreate(Create(), List(), Signed, "on-call", kind);
+
+        result.Should().Be("Error: kind must be \"personal\" or \"team\".");
+        await _containers.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+    }
+
     // ── memory_spaces ─────────────────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -171,17 +230,17 @@ public class McpToolsMemorySpacesTests
 
         result.Split('\n').Count(l => l.StartsWith("- ", StringComparison.Ordinal)).Should().Be(McpTools.SpacesNamedInError);
         result.Should().Contain("\n...and 5 more (memory_spaces lists them).");
-        result.Should().EndWith("\nYou have no personal space yet; save to \"my-memory\" to make one.");
+        result.Should().EndWith("\nYou have no personal space yet; make one with memory_space_create (kind \"personal\").");
     }
 
     [Fact]
-    public async Task MemoryRemember_NoSpaceAndNoSpacesAtAll_SaysToSaveToMyMemory()
+    public async Task MemoryRemember_NoSpaceAndNoSpacesAtAll_SaysToCreateOne()
     {
         Lists();
 
         string result = await McpTools.MemoryRemember(Remember(), List(), Signed, "Halcyon", "database", "x");
 
-        result.Should().EndWith(" You have no spaces yet; save to \"my-memory\" to make your personal one.");
+        result.Should().EndWith(" You have no spaces yet: make one with memory_space_create (kind \"personal\" or \"team\"), then save to it.");
     }
 
     [Fact]
@@ -195,7 +254,7 @@ public class McpToolsMemorySpacesTests
         string result = await McpTools.MemoryRemember(Remember(), List(), Signed, "Halcyon", "database", "x");
 
         result.Should().Be("Error: name the `space` to save to. " + McpTools.SaveTest
-            + " Call memory_spaces to see your spaces, or save to \"my-memory\", your personal space.");
+            + " Call memory_spaces to see your spaces, or make one with memory_space_create.");
     }
 
     [Fact]

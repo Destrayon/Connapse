@@ -21,13 +21,15 @@ A browser request to `/mcp` must come from a loopback origin or one listed in `C
 
 A personal access token or agent key created with **Ask before it deletes anything over MCP** (the default) has every Destructive or Credential call held for a person. The first call returns a message naming the request; its owner approves it on **Approvals** (`/approvals`), and the same call with the same arguments then runs once. A request waits a day for a decision, and an approval must be used within 15 minutes. Read and Write calls are never held.
 
+The agent learns the decision by itself with `approval_status`, or `GET /api/approvals/{id}` over REST: either answers at once, or waits up to 50 seconds for a decision. The answer's state is `pending`, `approved` (repeat the exact call now), `denied` (with the reason the person typed, if any), `expired` (no one decided in time, or the approval lapsed unused) or `used`. Only the token that made a request can see it. Connapse never runs the call itself: the agent repeats it with its own arguments, which Connapse keeps only sealed, for matching.
+
 ## Named tools
 
 Every tool that takes `containerId` accepts a container's id or its name. `search_knowledge`, `container_describe` and the `code_*` tools also accept a source.
 
 | Tool | Scope | Risk | What it does |
 |------|-------|------|--------------|
-| `container_list` | `knowledge:read` | Read | Lists every container and source with its description and document count. Each entry is `managed` (a container, browsable with `list_files`) or `source` (searchable, with no file listing). |
+| `container_list` | `knowledge:read` | Read | Lists every container and source with its description and document count. Each entry is `managed` (a container, browsable with `list_files`) or `source` (searchable, with no file listing). Memory spaces are not listed: `memory_spaces` lists them. |
 | `container_describe` | `knowledge:read` | Read | Describes one container or source: its description and document statistics. |
 | `container_stats` | `knowledge:read` | Read | A container's document, chunk and storage counts and its embedding model. |
 | `container_create` | `knowledge:write` | Write | Creates a container. |
@@ -45,7 +47,9 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `code_references` | `knowledge:read` | Read | Lists the files that use a symbol, best evidence first: calls, base types and imports with their lines, then files whose text names it. |
 | `code_impact` | `knowledge:read` | Read | Lists what a change to a symbol could affect, up to three hops through callers and subtypes, with the tests among them. |
 | `code_repo_map` | `knowledge:read` | Read | Maps indexed code: the files the rest of the code refers to most, with their main definitions. |
+| `approval_status` | any | Read | Says whether a person approved, denied or let expire a call of yours held for approval, with their reason, optionally waiting for the decision. See [Approvals](#approvals). |
 | `memory_spaces` | `knowledge:read` | Read | Lists the memory spaces the caller can use, with who sees each one. See [Agent memory](#agent-memory). |
+| `memory_space_create` | `knowledge:write` | Write | Makes a personal or team memory space, with the same permission as the Memory page's New space. |
 | `memory_remember` | `knowledge:write` | Write | Stores a dated fact in a space, with the documents it was learned from. |
 | `memory_correct` | `knowledge:write` | Write | Replaces a fact and keeps the old one in history. |
 | `memory_forget` | `knowledge:write` | Destructive | Deletes a fact and every version of it. |
@@ -107,8 +111,13 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `code_repo_map` | `containerId` | string | Yes | Container or source id or name |
 | | `path` | string | No | Only files under this folder, such as `src/billing` |
 | | `maxFiles` | integer | No | Most files, 1 to 200; default 30 |
+| `approval_status` | `requestId` | string | Yes | The request id the held call returned |
+| | `waitSeconds` | integer | No | Seconds to wait for a decision while pending, 0 to 50; default 0 |
 | `memory_spaces` | `name` | string | No | Only spaces whose name or description contains this text |
 | | `kind` | string | No | `personal` or `team` |
+| `memory_space_create` | `name` | string | Yes | 2 to 128 lowercase letters, digits and hyphens |
+| | `kind` | string | Yes | `personal` (only you see it) or `team` (everyone in this Connapse sees it) |
+| | `description` | string | No | What belongs in the space |
 | `memory_remember` | `space` | string | Yes | Space id or name, from `memory_spaces`; memory can't be written to a document container or a source |
 | | `containerId` | string | No | Older name for the space to save to, used only when `space` is left out. A fact citing no sources saved this way goes to the caller's `<space>-personal` space |
 | | `subject`, `attribute`, `value` | string | Yes | The fact, such as `Halcyon`, `database`, `PostgreSQL 15` |
@@ -141,7 +150,7 @@ The file types an upload accepts are in [File types](file-types.md).
 
 The `memory_*` tools keep facts an agent learns, so the next session can use them. A fact is a subject, an attribute and a value (`Halcyon`, `database`, `PostgreSQL 15`) with the dates it was true, the documents it was learned from, a reason, and who wrote it. [About agent memory](../concepts/memory.md) explains the model.
 
-- **Spaces.** Every fact lives in a space: a **personal** space only its owner sees (everyone who can save has one called `my-memory`) or a **team** space everyone in this Connapse sees. A document container holds no memory, so a save or read that names one is refused. `memory_spaces` returns at most 100, each with `id`, `name`, `kind` (`personal` or `team`), `description`, `canAdd`, `whoSees` in words and its fact count; when there are more, a `note` says to pass `name`. A memory container made with `container_create(kind="memory")` is a team space.
+- **Spaces.** Every fact lives in a space: a **personal** space only its owner sees or a **team** space everyone in this Connapse sees. No space is made for you: make one with `memory_space_create` or on the Memory page, and a save naming a space that doesn't exist says so. A document container holds no memory, so a save or read that names one is refused. `memory_spaces` returns at most 100, each with `id`, `name`, `kind` (`personal` or `team`), `description`, `canAdd`, `whoSees` in words and its fact count; when there are more, a `note` says to pass `name`. A memory container made with `container_create(kind="memory")` is a team space.
 - **Saving.** `memory_remember` refuses a call that names no `space`, and the error lists the caller's spaces. The answer's `savedTo.note` says in words who will see the fact. Writing needs `knowledge:write`, and a source id is refused like any other write.
 - **Reading.** Without `space`, `memory_recall` and `memory_timeline` read the 100 most recently changed spaces that have facts, and a `note` says how many more were skipped. Each fact carries its `space` (`id`, `name`, `kind`) and `scope` (`personal` or `team`). A read of one named space returns a `nextCursor` when there are more facts than `limit`; pass it back as `cursor`.
 - **Sources** are document IDs from `search_knowledge` or `get_document` (tickets, PRs and code files are documents), or link node IDs as `node:<id>`. The writer must be able to read every source it cites.

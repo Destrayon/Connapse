@@ -65,7 +65,7 @@ public class McpToolsContainerKindTests
     }
 
     [Fact]
-    public async Task ContainerList_MemoryContainer_IsKindMemoryAndPointsAtRecall()
+    public async Task ContainerList_MemorySpace_IsNotListed()
     {
         _containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(
         [
@@ -79,6 +79,6 @@ public class McpToolsContainerKindTests
             new ListSources(sources, McpCaller.SeesEverySource, McpCaller.Allowed), McpCaller.Http);
 
         result.Should().Contain("- docs [managed] (3 files)");
-        result.Should().Contain("- agent-notes [memory] (agent memory: use memory_recall) — General facts");
+        result.Should().NotContain("agent-notes", "memory spaces are listed by memory_spaces, not among containers (CON-291)");
     }
 }

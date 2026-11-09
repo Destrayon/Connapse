@@ -1103,10 +1103,9 @@
       "id": "memory.recall",
       "capability": "List a subject's facts in date order",
       "routes": [
-        "GET /api/containers/{containerId:guid}/memory/timeline"
+        "GET /api/memory/timeline"
       ],
-      "mcp": "memory_timeline",
-      "note": "MCP only: no REST route yet."
+      "mcp": "memory_timeline"
     },
     {
       "id": "memorySpaces.list",
@@ -1122,8 +1121,7 @@
       "routes": [
         "POST /api/memory/spaces/"
       ],
-      "mcp": null,
-      "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+      "mcp": "memory_space_create"
     },
     {
       "id": "memorySpaces.update",
@@ -1200,6 +1198,15 @@
         "POST /api/memory/facts/{id}/copy"
       ],
       "mcpOff": "Agents share a fact by saving it again with memory_remember and a team space; the copy button is for people on the Memory page."
+    },
+    {
+      "id": "approvals.status",
+      "capability": "Check or wait for the decision on my held call",
+      "routes": [
+        "GET /api/approvals/{id:guid}"
+      ],
+      "mcp": "approval_status",
+      "note": "A token sees only the requests it made; anyone else's reads as not found. Deciding stays in the UI."
     }
   ],
   "plumbing": {

@@ -17,7 +17,8 @@
         </h1>
         <p class="text-muted mb-0">
             Calls from your tokens that delete data wait here until you approve them.
-            Once approved, the agent repeats the same call within 15 minutes and it runs once.
+            The agent that asked learns your decision, and the reason you give, by itself.
+            Once approved, it repeats the same call within 15 minutes and it runs once.
             @if (isAdmin)
             {
                 <span class="ms-1">As an administrator you see everyone's requests.</span>
@@ -53,6 +54,7 @@
                             <th>Arguments</th>
                             <th>Token</th>
                             <th>Requested</th>
+                            <th>Reason for the agent</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -64,6 +66,13 @@
                                 <td class="align-middle font-monospace small text-break">@request.ArgumentsSummary</td>
                                 <td class="align-middle text-muted small">@request.TokenKey</td>
                                 <td class="align-middle text-muted small">@request.CreatedAt.ToString("MMM dd, HH:mm") UTC</td>
+                                <td class="align-middle">
+                                    <input type="text" class="form-control form-control-sm" maxlength="500"
+                                           placeholder="Optional, e.g. why you denied it"
+                                           aria-label="Reason for the agent"
+                                           value="@reasons.GetValueOrDefault(request.Id)"
+                                           @onchange="e => reasons[request.Id] = e.Value?.ToString()" />
+                                </td>
                                 <td class="align-middle text-end text-nowrap">
                                     <button class="btn btn-sm btn-danger me-1" disabled="@isProcessing"
                                             @onclick="() => DecideAsync(request.Id, approve: true)">
@@ -85,6 +94,7 @@
 
 @code {
     private IReadOnlyList<McpApprovalItem> pending = [];
+    private readonly Dictionary<Guid, string?> reasons = [];
     private OperationContext caller = null!;
     private bool isAdmin;
     private bool isProcessing;
@@ -108,11 +118,12 @@
         statusMessage = null;
         try
         {
-            var outcome = await DecideApproval.ExecuteAsync(caller, id, approve);
+            var outcome = await DecideApproval.ExecuteAsync(caller, id, approve, reasons.GetValueOrDefault(id));
+            reasons.Remove(id);
             (statusSuccess, statusMessage) = outcome.Status switch
             {
                 McpApprovalOutcome.Success when approve => (true, "Approved. The agent can now repeat the call once, within 15 minutes."),
-                McpApprovalOutcome.Success => (true, "Denied. The call will not run."),
+                McpApprovalOutcome.Success => (true, "Denied. The call will not run, and the agent is told why."),
                 McpApprovalOutcome.NotPending => (false, "That request was already decided or has expired."),
                 _ => (false, "That request was not found."),
             };

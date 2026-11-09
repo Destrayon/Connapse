@@ -54,7 +54,9 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
             created.Should().StartWith($"Agent memory container '{name}' created.");
             id = created[(created.LastIndexOf("ID: ", StringComparison.Ordinal) + 4)..].Trim();
 
-            (await CallAsync(agent, "container_list", new())).Should().Contain($"- {name} [memory]");
+            // A memory space is not a file container (CON-291): memory_spaces lists it, container_list does not.
+            (await CallAsync(agent, "container_list", new())).Should().NotContain(name);
+            (await CallAsync(agent, "memory_spaces", new())).Should().Contain(name);
 
             foreach (var (subject, attribute, value, _) in Facts)
             {

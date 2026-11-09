@@ -105,10 +105,10 @@
     "IsEmpty": false
   },
   "Pages/Approvals.razor": {
-    "CodeLines": 39,
+    "CodeLines": 43,
     "Injects": 3,
     "Complexity": 9,
-    "MarkupLogic": 8,
+    "MarkupLogic": 9,
     "IsEmpty": false
   },
   "Pages/Auth/Login.razor": {
@@ -171,13 +171,13 @@
     "CodeLines": 138,
     "Injects": 3,
     "Complexity": 18,
-    "MarkupLogic": 24,
+    "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Pages/MemoryPage.razor": {
-    "CodeLines": 220,
+    "CodeLines": 204,
     "Injects": 3,
-    "Complexity": 81,
+    "Complexity": 77,
     "MarkupLogic": 36,
     "IsEmpty": false
   },

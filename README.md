@@ -52,7 +52,7 @@ claude mcp add --transport http connapse http://localhost:5001/mcp --header "X-A
 
 ## What your agent gets
 
-22 named MCP tools, plus 3 generic tools that reach the rest of the REST API. Each key only gets the tools its scopes allow, and deletes over MCP can wait for your approval.
+23 named MCP tools, plus 3 generic tools that reach the rest of the REST API. Each key only gets the tools its scopes allow, and deletes over MCP can wait for your approval.
 
 | Group | Tools | What they do |
 |---|---|---|
@@ -60,6 +60,7 @@ claude mcp add --transport http connapse http://localhost:5001/mcp --header "X-A
 | Memory | `memory_spaces`, `memory_remember`, `memory_recall`, `memory_correct`, `memory_timeline`, `memory_forget` | Pick a personal or team memory space, keep dated facts there with their sources, recall them in a later session, and correct them without losing history |
 | Code | `code_find_symbol`, `code_references`, `code_impact`, `code_repo_map` | Find definitions and callers in indexed C#, TypeScript and Python, and see what a change could affect |
 | Containers | `container_list`, `container_describe`, `container_stats`, `container_create`, `container_delete` | List, inspect, create and delete containers |
+| Approvals | `approval_status` | Learn whether you approved or denied a held call, and why, so the agent carries on by itself |
 
 <p align="center">
   <img src="docs/demos/code-tools.gif" alt="Code tools: an agent finds a C# method with code_find_symbol, then lists what changing it would affect with code_impact" width="100%" />
