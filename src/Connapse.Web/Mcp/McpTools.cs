@@ -124,7 +124,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again.")]
+     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. Scores are comparable across searches: near 1 is a strong match, below 0.5 a weak one, and the result says 'No good match' when nothing matches well. If the first query returns thin results, refine the query and call again.")]
     public static async Task<string> SearchKnowledge(
         Connapse.Application.Search.SearchKnowledge search,
         IHttpContextAccessor httpContextAccessor,
@@ -169,6 +169,9 @@ public partial class McpTools
             ? $"Showing {result.Hits.Count} of {result.TotalMatches} matching chunk(s)"
             : $"Found {result.TotalMatches} result(s)";
         var resultText = $"{countSummary} in {result.Duration.TotalMilliseconds:F0}ms (mode: {parsedMode}):{pendingNote}\n\n";
+        if (result.NoGoodMatch)
+            resultText += "No good match: nothing here matches the query well. These are the closest passages, "
+                + "but they probably do not answer it.\n\n";
         for (var i = 0; i < result.Hits.Count; i++)
         {
             var hit = result.Hits[i];

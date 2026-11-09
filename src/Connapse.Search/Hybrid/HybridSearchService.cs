@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Globalization;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Search.Keyword;
@@ -79,7 +80,7 @@ public class HybridSearchService : IKnowledgeSearch
         if (string.IsNullOrWhiteSpace(query))
         {
             _logger.LogWarning("Empty query provided to search");
-            return new SearchResult([], 0, stopwatch.Elapsed);
+            return new SearchResult([], 0, stopwatch.Elapsed, NoGoodMatch: true);
         }
 
         List<SearchHit> hits;
@@ -199,6 +200,12 @@ public class HybridSearchService : IKnowledgeSearch
             }
         }
 
+        // How well the best candidates match, on a scale that means the same from one query to the next.
+        // Hybrid scores are rescaled by it, which keeps their order; semantic scores are cosines already.
+        float? confidence = ConfidenceOf(hits, mode);
+        if (mode == SearchMode.Hybrid && confidence is float scale)
+            hits = ScaleScores(hits, scale);
+
         // Apply reranking if configured
         bool verifiedBeforeRerank = false;
         var rerankerName = searchSettings.Reranker;
@@ -268,8 +275,36 @@ public class HybridSearchService : IKnowledgeSearch
         return new SearchResult(
             finalHits,
             finalHits.Count,
-            stopwatch.Elapsed);
+            stopwatch.Elapsed,
+            NoGoodMatch: finalHits.Count == 0 || confidence < ScoreConfidence.NoMatchThreshold);
     }
+
+    /// <summary>
+    /// <see cref="ScoreConfidence"/> of the first-stage hits: from the cosines fusion recorded for a hybrid
+    /// search, from the scores themselves for a semantic one, and null for keyword search, which has none.
+    /// </summary>
+    internal static float? ConfidenceOf(List<SearchHit> hits, SearchMode mode)
+    {
+        List<SearchHit> ranked = hits.OrderByDescending(h => h.Score).ToList();
+        return mode switch
+        {
+            SearchMode.Hybrid => ScoreConfidence.Of(ranked, ScoreConfidence.FusedCosine),
+            SearchMode.Semantic => ScoreConfidence.Of(ranked, h => h.Score),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Every score multiplied by <paramref name="confidence"/>, so the order is unchanged. Floored above zero
+    /// so that scores stay apart and ties are not created.
+    /// </summary>
+    internal static List<SearchHit> ScaleScores(List<SearchHit> hits, float confidence)
+    {
+        float factor = Math.Clamp(confidence, MinimumScale, 1f);
+        return hits.Select(h => h with { Score = h.Score * factor }).ToList();
+    }
+
+    private const float MinimumScale = 1e-3f;
 
     /// <summary>
     /// The <paramref name="count"/> best hits by first-stage score. A reranker scores against a
@@ -561,17 +596,17 @@ public class HybridSearchService : IKnowledgeSearch
         var normKeyword = MinMaxNormalize(keywordResults);
 
         // Build lookup: ChunkId -> (Hit, vectorScore, keywordScore, source flags)
-        var fused = new Dictionary<string, (SearchHit Hit, float VectorScore, float KeywordScore, bool InVector, bool InKeyword)>();
+        var fused = new Dictionary<string, (SearchHit Hit, float VectorScore, float KeywordScore, bool InVector, bool InKeyword, float? RawKeyword)>();
 
         foreach (var (hit, score) in normVector)
-            fused[hit.ChunkId] = (hit, score, 0f, true, false);
+            fused[hit.ChunkId] = (hit, score, 0f, true, false, null);
 
         foreach (var (hit, score) in normKeyword)
         {
             if (fused.TryGetValue(hit.ChunkId, out var existing))
-                fused[hit.ChunkId] = (existing.Hit, existing.VectorScore, score, true, true);
+                fused[hit.ChunkId] = (existing.Hit, existing.VectorScore, score, true, true, hit.Score);
             else
-                fused[hit.ChunkId] = (hit, 0f, score, false, true);
+                fused[hit.ChunkId] = (hit, 0f, score, false, true, hit.Score);
         }
 
         // Convex combination: alpha * vector + (1 - alpha) * keyword
@@ -594,6 +629,7 @@ public class HybridSearchService : IKnowledgeSearch
                     ["vectorScore"] = entry.VectorScore.ToString("F4"),
                     ["keywordScore"] = entry.KeywordScore.ToString("F4")
                 };
+                AddRawScores(metadata, entry.InVector ? entry.Hit.Score : null, entry.RawKeyword);
 
                 return entry.Hit with { Score = fusedScore, Metadata = metadata };
             })
@@ -617,17 +653,17 @@ public class HybridSearchService : IKnowledgeSearch
         var normVector = DbsfNormalize(vectorResults);
         var normKeyword = DbsfNormalize(keywordResults);
 
-        var fused = new Dictionary<string, (SearchHit Hit, float VectorScore, float KeywordScore, bool InVector, bool InKeyword)>();
+        var fused = new Dictionary<string, (SearchHit Hit, float VectorScore, float KeywordScore, bool InVector, bool InKeyword, float? RawKeyword)>();
 
         foreach (var (hit, score) in normVector)
-            fused[hit.ChunkId] = (hit, score, 0f, true, false);
+            fused[hit.ChunkId] = (hit, score, 0f, true, false, null);
 
         foreach (var (hit, score) in normKeyword)
         {
             if (fused.TryGetValue(hit.ChunkId, out var existing))
-                fused[hit.ChunkId] = (existing.Hit, existing.VectorScore, score, true, true);
+                fused[hit.ChunkId] = (existing.Hit, existing.VectorScore, score, true, true, hit.Score);
             else
-                fused[hit.ChunkId] = (hit, 0f, score, false, true);
+                fused[hit.ChunkId] = (hit, 0f, score, false, true, hit.Score);
         }
 
         var clampedAlpha = Math.Clamp(alpha, 0f, 1f);
@@ -649,11 +685,24 @@ public class HybridSearchService : IKnowledgeSearch
                     ["vectorScore"] = entry.VectorScore.ToString("F4"),
                     ["keywordScore"] = entry.KeywordScore.ToString("F4")
                 };
+                AddRawScores(metadata, entry.InVector ? entry.Hit.Score : null, entry.RawKeyword);
 
                 return entry.Hit with { Score = fusedScore, Metadata = metadata };
             })
             .OrderByDescending(h => h.Score)
             .ToList();
+    }
+
+    /// <summary>
+    /// The scores each search gave the hit before fusion rescaled them per query: cosine similarity and
+    /// keyword rank. Unlike the normalised ones, these mean the same thing from one query to the next.
+    /// </summary>
+    private static void AddRawScores(Dictionary<string, string> metadata, float? vector, float? keyword)
+    {
+        if (vector is float v)
+            metadata[ScoreConfidence.RawVectorKey] = v.ToString("F4", CultureInfo.InvariantCulture);
+        if (keyword is float k)
+            metadata[ScoreConfidence.RawKeywordKey] = k.ToString("F4", CultureInfo.InvariantCulture);
     }
 
     /// <summary>

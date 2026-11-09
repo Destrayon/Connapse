@@ -68,6 +68,7 @@ public sealed class CliArgs
             ["code"] = ["config", "split", "out"],
             ["datasets"] = ["suite", "datasets"],
             ["vector-index"] = ["suite", "datasets", "limit-queries", "scale", "strategy", "insert-bench"],
+            ["scores"] = ["suite", "config", "datasets", "limit-queries", "split", "index-key", "out"],
         };
 
     /// <summary>Throws when an option is not accepted by the command. Unknown commands are left to the caller.</summary>

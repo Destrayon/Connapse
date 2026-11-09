@@ -64,6 +64,13 @@ public record EmbeddingSettings
     public int MaxConcurrentQueryRequests { get; set; } = 8;
 
     /// <summary>
+    /// How long Ollama keeps the embedding model loaded after a request, in Ollama's duration format
+    /// ("30m", "2h", "-1" for always). Ollama's own default unloads it after 5 minutes idle, and the next
+    /// search then waits seconds for it to load again. Empty leaves it to the Ollama server's setting.
+    /// </summary>
+    public string? OllamaKeepAlive { get; set; } = "30m";
+
+    /// <summary>
     /// API key — legacy shared field, kept for backward compatibility.
     /// Prefer the provider-specific key properties below.
     /// </summary>
@@ -290,6 +297,8 @@ public record SearchSettings
     /// Minimum similarity score floor (0.0-1.0, default: 0).
     /// Set to 0 by default — TopK is the primary result limiter.
     /// Raise to filter low-relevance results (e.g., 0.2 to drop noise).
+    /// Hybrid scores are scaled by how well the search matched as a whole, so this floor means the same for every
+    /// query: a search whose best hit is unrelated scores well below 0.5 and a floor of 0.5 drops all of it.
     /// </summary>
     public double MinimumScore { get; set; } = 0;
 
