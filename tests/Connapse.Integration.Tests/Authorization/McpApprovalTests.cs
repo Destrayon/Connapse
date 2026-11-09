@@ -166,7 +166,7 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         stored.ArgumentsSummary.Should().Contain(McpCallArguments.Hidden);
         stored.ArgumentsProtected.Should().NotBeNull();
 
-        (await store.DecideAsync(request.Id, AdminUserId(), isAdmin: true, approve: true)).Should().Be(McpApprovalDecision.Decided);
+        (await store.DecideAsync(request.Id, AdminUserId(), approve: true)).Should().Be(McpApprovalDecision.Decided);
         (await store.TryConsumeAsync(tokenKey, "connapse_api_write", other.Canonical, other.Redacted)).Should().BeFalse("the approval is for the real secret only");
         (await store.TryConsumeAsync(tokenKey, "connapse_api_write", call.Canonical, call.Redacted)).Should().BeTrue();
         var used = await RowAsync(request.Id);
@@ -184,7 +184,7 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         var store = scope.ServiceProvider.GetRequiredService<IMcpApprovalStore>();
 
         var request = await store.RequestAsync($"pat:{Guid.NewGuid()}", AdminUserId(), "connapse_api_write", call.Canonical, call.Redacted);
-        (await store.DecideAsync(request.Id, AdminUserId(), isAdmin: true, approve: false)).Should().Be(McpApprovalDecision.Decided);
+        (await store.DecideAsync(request.Id, AdminUserId(), approve: false)).Should().Be(McpApprovalDecision.Decided);
 
         var denied = await RowAsync(request.Id);
         denied.ArgumentsProtected.Should().BeNull();
@@ -373,10 +373,14 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
     private static Dictionary<string, JsonElement> Arguments(object value) =>
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(value))!;
 
-    /// <summary>An administrator signed in to the UI in a browser, who may decide anyone's request.</summary>
-    private static OperationContext Admin(OperationSurface surface, string authenticationType = "Identity.Application") => new(
+    /// <summary>The administrator who owns the test tokens and agents, signed in to the UI in a browser.</summary>
+    private OperationContext Admin(OperationSurface surface, string authenticationType = "Identity.Application") =>
+        AdminSignedIn(AdminUserId(), surface, authenticationType);
+
+    /// <summary>An administrator signed in to the UI in a browser as <paramref name="userId"/>.</summary>
+    private static OperationContext AdminSignedIn(Guid userId, OperationSurface surface = OperationSurface.Ui, string authenticationType = "Identity.Application") => new(
         new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin")], authenticationType)),
+            [new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, "Admin")], authenticationType)),
         surface);
 
     private async Task<McpApprovalItem> PendingForAsync(string tool, string containerId)
@@ -390,6 +394,37 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>().ExecuteAsync(Admin(surface, authenticationType), id, approve: true);
+    }
+
+    [Fact]
+    public async Task Decide_AnotherAdministrator_SeesTheRequestButCannotDecideIt()
+    {
+        await using var agent = await AgentAsync(requiresApproval: true);
+        string target = await CreateContainerAsync(fixture.AdminClient, "approval-not-yours");
+        var otherAdmin = AdminSignedIn(Guid.NewGuid());
+        try
+        {
+            var call = new Dictionary<string, object?> { ["containerId"] = target };
+            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
+
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var listed = await scope.ServiceProvider.GetRequiredService<ListMcpApprovals>().ExecuteAsync(otherAdmin);
+            var seen = listed.Result!.Should().ContainSingle(a => a.ToolName == "container_delete" && a.ArgumentsSummary.Contains(target)).Subject;
+            seen.IsYours.Should().BeFalse("an administrator still sees everyone's requests, but this one belongs to the agent's owner");
+
+            var decide = scope.ServiceProvider.GetRequiredService<DecideMcpApproval>();
+            (await decide.ExecuteAsync(otherAdmin, seen.Id, approve: true)).Status.Should().Be(McpApprovalOutcome.NotFound);
+            (await decide.ExecuteAsync(otherAdmin, seen.Id, approve: false)).Status.Should().Be(McpApprovalOutcome.NotFound);
+            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("pending approval", "an administrator's approval didn't land");
+            (await RowAsync(seen.Id)).Status.Should().Be(McpApprovalStatus.Pending, "an administrator's denial didn't land either");
+
+            (await PendingForAsync("container_delete", target)).IsYours.Should().BeTrue();
+            (await DecideAsync(seen.Id, OperationSurface.Ui)).Succeeded.Should().BeTrue("the agent's owner still decides");
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{target}");
+        }
     }
 
     [Fact]

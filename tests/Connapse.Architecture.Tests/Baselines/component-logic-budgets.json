@@ -108,7 +108,7 @@
     "CodeLines": 43,
     "Injects": 3,
     "Complexity": 9,
-    "MarkupLogic": 9,
+    "MarkupLogic": 10,
     "IsEmpty": false
   },
   "Pages/Auth/Login.razor": {

@@ -21,7 +21,7 @@
             Once approved, it repeats the same call within 15 minutes and it runs once.
             @if (isAdmin)
             {
-                <span class="ms-1">As an administrator you see everyone's requests.</span>
+                <span class="ms-1">As an administrator you see everyone's requests, but only the person whose token asked can approve or deny it.</span>
             }
         </p>
     </div>
@@ -66,23 +66,30 @@
                                 <td class="align-middle font-monospace small text-break">@request.ArgumentsSummary</td>
                                 <td class="align-middle text-muted small">@request.TokenKey</td>
                                 <td class="align-middle text-muted small">@request.CreatedAt.ToString("MMM dd, HH:mm") UTC</td>
-                                <td class="align-middle">
-                                    <input type="text" class="form-control form-control-sm" maxlength="500"
-                                           placeholder="Optional, e.g. why you denied it"
-                                           aria-label="Reason for the agent"
-                                           value="@reasons.GetValueOrDefault(request.Id)"
-                                           @onchange="e => reasons[request.Id] = e.Value?.ToString()" />
-                                </td>
-                                <td class="align-middle text-end text-nowrap">
-                                    <button class="btn btn-sm btn-danger me-1" disabled="@isProcessing"
-                                            @onclick="() => DecideAsync(request.Id, approve: true)">
-                                        Approve
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-secondary" disabled="@isProcessing"
-                                            @onclick="() => DecideAsync(request.Id, approve: false)">
-                                        Deny
-                                    </button>
-                                </td>
+                                @if (request.IsYours)
+                                {
+                                    <td class="align-middle">
+                                        <input type="text" class="form-control form-control-sm" maxlength="500"
+                                               placeholder="Optional, e.g. why you denied it"
+                                               aria-label="Reason for the agent"
+                                               value="@reasons.GetValueOrDefault(request.Id)"
+                                               @onchange="e => reasons[request.Id] = e.Value?.ToString()" />
+                                    </td>
+                                    <td class="align-middle text-end text-nowrap">
+                                        <button class="btn btn-sm btn-danger me-1" disabled="@isProcessing"
+                                                @onclick="() => DecideAsync(request.Id, approve: true)">
+                                            Approve
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" disabled="@isProcessing"
+                                                @onclick="() => DecideAsync(request.Id, approve: false)">
+                                            Deny
+                                        </button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td colspan="2" class="align-middle text-end text-muted small">Waiting for its owner to decide</td>
+                                }
                             </tr>
                         }
                     </tbody>
