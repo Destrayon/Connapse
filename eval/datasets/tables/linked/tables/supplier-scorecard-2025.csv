@@ -1,0 +1,17 @@
+supplier,region,orders,on_time_pct,defects
+Northwind Components,Europe,159,79.2,2
+Contoso Supply,Europe,700,91.8,12
+Fabrikam Parts,Europe,668,82.4,18
+Tailspin Goods,Europe,366,99.2,10
+Wingtip Distribution,Europe,773,78.6,9
+Litware Media,Americas,97,92.2,1
+Adventure Works,Europe,366,90.9,12
+Proseware,Europe,517,96.4,17
+Lucerne Metals,Asia,247,86.3,2
+Margie Freight,Europe,487,98.8,9
+Alpine Plastics,Asia,125,81.7,3
+Coho Textiles,Europe,769,85.3,25
+Fourth Coffee,Asia,875,98.9,16
+Humongous Packaging,Asia,108,89.5,3
+Trey Electronics,Americas,715,97.3,26
+VanArsdel Tools,Asia,327,82.0,8

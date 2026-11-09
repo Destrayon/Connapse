@@ -1,0 +1,21 @@
+clinic,role,headcount,weekly_hours,hourly_rate
+Northside,Pharmacist,7,40,32.73
+Northside,Nurse,4,24,134.81
+Northside,Receptionist,11,40,26.9
+Northside,Physician,8,40,127.75
+Northside,Lab Technician,3,36,120.16
+Lakeview,Nurse,1,40,62.6
+Lakeview,Physician,6,32,77.22
+Lakeview,Receptionist,14,40,69.71
+Lakeview,Lab Technician,7,24,113.06
+Lakeview,Pharmacist,5,40,29.34
+Riverbend,Lab Technician,1,32,82.13
+Riverbend,Receptionist,12,24,81.86
+Riverbend,Nurse,5,32,55.81
+Riverbend,Physician,2,36,134.97
+Riverbend,Pharmacist,8,36,128.61
+Oak Hill,Nurse,11,20,20.79
+Oak Hill,Receptionist,8,36,110.83
+Oak Hill,Pharmacist,6,20,108.61
+Oak Hill,Physician,13,36,116.46
+Oak Hill,Lab Technician,3,20,92.69
