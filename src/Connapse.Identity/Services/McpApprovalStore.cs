@@ -33,10 +33,10 @@ public interface IMcpApprovalStore
     Task<IReadOnlyList<McpApprovalEntity>> ListPendingAsync(Guid userId, bool isAdmin, CancellationToken ct = default);
 
     /// <summary>
-    /// Approves or denies a waiting request; only its owner or an administrator may. <paramref name="reason"/> is what
-    /// the person says about it, which the agent that asked reads (CON-292).
+    /// Approves or denies a waiting request; only its owner may, not an administrator (CON-295). <paramref name="reason"/>
+    /// is what the person says about it, which the agent that asked reads (CON-292).
     /// </summary>
-    Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, string? reason = null, CancellationToken ct = default);
+    Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool approve, string? reason = null, CancellationToken ct = default);
 
     /// <summary>One request, only if <paramref name="tokenKey"/> made it: a token sees its own requests and no one else's (CON-292).</summary>
     Task<McpApprovalEntity?> GetForTokenAsync(Guid id, string tokenKey, CancellationToken ct = default);
@@ -224,7 +224,7 @@ public sealed class McpApprovalStore(
         return await db.McpApprovals.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id && a.TokenKey == tokenKey, ct);
     }
 
-    public async Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool isAdmin, bool approve, string? reason = null, CancellationToken ct = default)
+    public async Task<McpApprovalDecision> DecideAsync(Guid id, Guid userId, bool approve, string? reason = null, CancellationToken ct = default)
     {
         reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         if (reason?.Length > McpApprovalEntity.DecisionReasonMaxLength)
@@ -232,7 +232,7 @@ public sealed class McpApprovalStore(
         await using var db = await contexts.CreateDbContextAsync(ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var request = await db.McpApprovals.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id, ct);
-        if (request is null || (!isAdmin && request.OwnerUserId != userId))
+        if (request is null || request.OwnerUserId != userId)
             return request is null ? McpApprovalDecision.NotFound : McpApprovalDecision.Forbidden;
 
         // Conditional on still being Pending, so an approve and a deny racing can't both land and the

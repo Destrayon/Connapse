@@ -667,6 +667,8 @@ public class OperationRandomInputTests
                 var pending = Enumerable.Range(0, count).Select(i => new McpApprovalEntity
                 {
                     Id = Guid.NewGuid(),
+                    // Some the caller's own, some someone else's: only the caller's own may be decided (CON-295).
+                    OwnerUserId = i % 2 == 0 && approver.Decider is var (own, _) ? own : Guid.NewGuid(),
                     ToolName = $"tool{i}",
                     ArgumentsSummary = "args",
                     TokenKey = "pat:1",
@@ -685,7 +687,7 @@ public class OperationRandomInputTests
                 }
                 listed.Status.Should().Be(McpApprovalOutcome.Success);
                 await world.Approvals.Received(1).ListPendingAsync(userId, isAdmin, Arg.Any<CancellationToken>());
-                listed.Result.Should().Equal(pending.Select(a => new McpApprovalItem(a.Id, a.ToolName, a.ArgumentsSummary, a.TokenKey, a.CreatedAt, a.ExpiresAt)));
+                listed.Result.Should().Equal(pending.Select(a => new McpApprovalItem(a.Id, a.ToolName, a.ArgumentsSummary, a.TokenKey, a.CreatedAt, a.ExpiresAt, a.OwnerUserId == userId)));
             }, iter: 2000);
 
     [Fact]
@@ -696,17 +698,18 @@ public class OperationRandomInputTests
             {
                 var (approver, id, approve, decision, reason) = t;
                 var world = new World(viewer: true, admin: true);
-                world.Approvals.DecideAsync(Arg.Is(id), Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Is(approve), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(decision);
+                world.Approvals.DecideAsync(Arg.Is(id), Arg.Any<Guid>(), Arg.Is(approve), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(decision);
 
                 var decided = await new DecideMcpApproval(world.Approvals).ExecuteAsync(approver.Context, id, approve, reason);
 
-                if (approver.Decider is not var (userId, isAdmin))
+                if (approver.Decider is not var (userId, _))
                 {
                     decided.Status.Should().Be(Refusal(approver));
                     world.Approvals.ReceivedCalls().Should().BeEmpty();
                     return;
                 }
-                await world.Approvals.Received(1).DecideAsync(id, userId, isAdmin, approve, reason, Arg.Any<CancellationToken>());
+                // Being an administrator never reaches the store: only the owner decides (CON-295).
+                await world.Approvals.Received(1).DecideAsync(id, userId, approve, reason, Arg.Any<CancellationToken>());
                 // Someone else's request (Forbidden in the store) reads as not found.
                 decided.Status.Should().Be(decision switch
                 {
