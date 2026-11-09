@@ -1,0 +1,19 @@
+area,region,responses,avg_score,nps
+Onboarding,North America,224,4.39,-19
+Onboarding,EMEA,264,4.78,21
+Onboarding,APAC,470,4.13,35
+Billing,North America,265,2.87,-11
+Billing,EMEA,420,4.31,18
+Billing,APAC,381,4.7,52
+Support,North America,549,3.16,15
+Support,EMEA,269,4.06,54
+Support,APAC,451,4.41,-6
+Product quality,North America,589,2.79,1
+Product quality,EMEA,389,3.31,34
+Product quality,APAC,122,4.39,25
+Delivery,North America,501,2.79,51
+Delivery,EMEA,539,3.9,-3
+Delivery,APAC,224,3.42,54
+Documentation,North America,285,2.75,32
+Documentation,EMEA,284,4.52,44
+Documentation,APAC,321,3.99,-10

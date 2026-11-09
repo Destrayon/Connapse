@@ -32,6 +32,9 @@ before any of these features or their results existed. A change merges only when
 | **AI link extraction** (opt-in) | `links-v1` test MRR@10 at least +0.05 over links-only | All suites | Reported: tokens per passage, index time; no default-on without a new bar |
 | **Container memory for search** (suite `memory-search-v1`, CON-244; see below) | Correct-document score on the memory tasks at least +0.15 over the same agent without memory | Control and stale tasks non-inferior within 0.10 | Reported: search calls, tool calls and tokens per task |
 | **Learned container memory** (suite `memory-learned-v1`, CON-244; see below) | Same rule, session-2 memory tasks, memory written by session-1 agents | Same rule, session-2 control and stale tasks | Reported: session-1 scores and facts written |
+| **Tables container** (suite `tables-v1`, CON-E6; see below) | On the 180 held-out questions: +25 points over rag, exact McNemar p < 0.01, at least 70% correct, no family lower than rag; "both" no worse than rag on the 30 mixed questions | All suites; the leak suite and the table leak tests | 0 server AI tokens, `table_aggregate` p95 under 500 ms on 100k rows, agent cost at most 1.5x rag's |
+| **Passage links to tables** (CON-E6 ticket 15, the `tables-v1` linked set; see below) | 80% of the 20 table questions follow a link; both-linked at least as many of 30 right as both-unlinked and 4 more of the 20 | 10 prose questions: at most 2 make a table call, none fewer right; the hidden-table leak test | Agent cost at most 1.2x both-unlinked's |
+| **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
 
 ## Container memory for search (CON-244)
 
@@ -97,6 +100,86 @@ keep-or-drop decision for container memory rests on it.**
   how many cite documents).
 - **Budget:** one full run (228 session-1 and 624 session-2 runs) must use at most about 5% of the seven-day
   subscription window, on the subscription only.
+
+## Tables container (CON-E6)
+
+Written on 2026-11-08, copied from `docs/plans/con-e6-tables-container.md` before any table code, tool or scored run
+existed. The test set is `tables-v1` (`eval/datasets/tables/card.md`). These bars may not change once results exist.
+
+- **How it runs.** Claude Sonnet 5.5 through `claude -p`, the same base prompt for every setup, at most 25 turns,
+  one attempt per question. The setups:
+  - **rag:** the same CSV files in a documents container, parsed as text by today's TextParser and searched with
+    `search_knowledge` and `get_document` on default hybrid search;
+  - **tables:** the four table tools over a tables container;
+  - **both:** all six tools, on the mixed set;
+  - **both-linked** and **both-unlinked:** all six tools on the linked set, with passage links shown and hidden.
+- **Grading.** Answers come back as typed JSON and are graded by `TableAnswerGrader` (the DataBench rules): numbers
+  within 1% relative, or exactly when the gold answer is an integer; lists as sets; categories and booleans exactly
+  after normalizing case and spaces. No judge model.
+- **Questions asked as the restricted user** are correct only with the trimmed answer.
+
+### Pass bar for the tables container
+
+The tables container ships only if all of these hold on the 180 held-out `test` questions:
+
+1. **Accuracy:** tables answers at least **25 points** more questions correctly than rag, with an exact McNemar test
+   p < 0.01.
+2. **Absolute accuracy:** tables answers at least **70%** correctly.
+3. **Every family:** no family scores lower with tables than with rag.
+4. **The mixed set:** "both" answers no fewer of the 30 mixed questions than rag does.
+5. **No harm to text search:** v1, enterprise-v1, pdfqa-v1 and links-v1 show no Holm-significant drop and nDCG@10
+   falls by at most 0.01 on each, because table containers are kept out of search.
+6. **Leaks:** the CON-31 leak suite and the new table leak tests (CON-E6 ticket 7) pass with zero failures.
+7. **Cost and speed:** 0 server AI tokens. `table_aggregate` p95 under 500 ms on a 100k-row table. Average agent
+   cost per question at most 1.5x rag's.
+
+### Bar for passage links
+
+CON-E6 ticket 15's links ship only if, on the linked set:
+
+1. **Agents follow the link when it helps.** On the 20 table questions with both-linked, at least **80%** have a
+   followed link: a successful `table_read` or `table_aggregate` on a table id that first appeared in that run in a
+   `search_knowledge` or `get_document` answer, with no `table_list` call before it. The qualifying tool trace is
+   saved with each answer.
+2. **It helps.** both-linked answers at least as many of the 30 questions correctly as both-unlinked, and at least
+   **4 more** of the 20 table questions.
+3. **It doesn't distract.** On the 10 prose questions, both-linked makes a table call in at most 2, and answers no
+   fewer correctly than both-unlinked.
+4. **No leak.** A planted-leak test where the caller can read the document but the admin hid its table shows no
+   reference, no table name and no change in the passage's output, in `search_knowledge`, REST search,
+   `get_document` and `table_list`. The same holds after the document is re-ingested, including with its tables
+   reordered and after a failed ingest is retried.
+5. **Cost.** Average agent cost per question with both-linked is at most 1.2x both-unlinked's.
+
+Thirty questions are too few for a significance test, so these bars are counts. They gate ticket 15 only, not the
+tables container. A failed bar follows the same re-test rule as the main bar, with the one sealed reserve linked set
+of 30 questions.
+
+### Gate for moving memory
+
+Memory moves onto the table layer (CON-E6 ticket 12) only if:
+
+- memory-v1 shows no Holm-significant drop in Recall@5 against `memory-v1-heldout-2026-10-27`;
+- the memory p95 latency stays within the **Agent memory** row above;
+- the memory permission and time integration tests pass unchanged with the real restricted login.
+
+This gate is measured in ticket 12's own PR. v0.5.0 needs both the tables pass bar and this gate.
+
+### What each outcome means
+
+- **All pass:** ship in v0.5.0.
+- **Any result-informed change.** A change made after seeing held-out results is re-tested on the next sealed
+  reserve set, with every bar re-run, and never by changing a bar. This covers a redesign after bar 1 or 2 fails and
+  a fix for one family after bar 3 fails. There are two reserve sets, so at most two re-tests. If bar 1 or 2 still
+  fails after them, CON-E6 stops at the eval and the build tickets after the proof are dropped.
+- **Bar 5 or 6 fails, or the memory gate fails:** that work is blocked until it is fixed. A fix that touches table
+  tools also counts as a result-informed change.
+- **Sealed sets stay sealed.** The reserve files are committed compressed and pinned by SHA-256 in
+  `eval/MANIFEST.json`. Nobody opens, prints or scores them until a re-test is due, and each is used once.
+
+The size of the bar comes from the literature. TAG and TableRAG show gaps of 30–55 points, so a +10 bar would let a
+weak tool path pass. A 25-point gain on 180 paired questions is well above the McNemar power floor, which is about
+35 pairs for a 30-point gain.
 
 ## Baselines
 

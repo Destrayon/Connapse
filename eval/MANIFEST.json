@@ -70,6 +70,9 @@
     ],
     "links-company": [
       "links-company"
+    ],
+    "tables-v1": [
+      "tables"
     ]
   },
   "datasets": {
@@ -1246,6 +1249,247 @@
           "name": "questions.jsonl",
           "url": "repo:links-company/questions.jsonl",
           "sha256": "727669c47b5d408e6314f02f62484b5753c4971c5f831477b33f7051e41b8d36"
+        }
+      ]
+    },
+    "tables": {
+      "adapter": "tables-questions",
+      "version": "v1",
+      "tags": [
+        "shape:table",
+        "source:databench",
+        "source:generated"
+      ],
+      "files": [
+        {
+          "name": "bank.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "c1a431b84f9fd4dac805a9c09745bd07614f46153192396dfa5c7bf63444228d"
+        },
+        {
+          "name": "customers.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "ade60804fe27aadbdfa248e0eadce1816721259db258a6bfbe2651ab1637ccd1"
+        },
+        {
+          "name": "employees.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "6be303b8e325284477cbc3d4bb00546b83a89cacca678430c1a4e4b0b83c81a1"
+        },
+        {
+          "name": "forbes.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "8c2dec4ad855f5cf33ea25f51f1ba41f35a093491272b7c9892b5dee0f219ae3"
+        },
+        {
+          "name": "inventory.load1.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "c9e1e667eff4cceb7e31d53162b129cbf05654d11a81851503f0c7e6ef94b321"
+        },
+        {
+          "name": "inventory.load2.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "cd38368f5cf4ab042ee53f31b86626e22259dc4004c83e2ff47140351f02f67b"
+        },
+        {
+          "name": "invoices.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "b7a4fffa336031e0f4606a767a77991a658964d4debade554c33d5a6428f1108"
+        },
+        {
+          "name": "nba.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "01ce37798e24a85f15756d99aa737cf7372084f83e2770a2f28cf6281f219455"
+        },
+        {
+          "name": "orders.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "e73db8e3984bd3ba4c147499c833d4c3466061308ec7259f500954d30a32e5be"
+        },
+        {
+          "name": "products.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "4e6d319aa51975ec726b763b73adf17f45f6949f7c9c42c699d9ebfc844a718a"
+        },
+        {
+          "name": "supermarket.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "7711b616df8f47844f8a8805b8129b558da3a7c42abf17fbde666d5f89a9ebf7"
+        },
+        {
+          "name": "tickets-billing.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "a64e9950c389e6e1c625a16ea7ed2233a85822dc1d97844ff18aafae1fe49b35"
+        },
+        {
+          "name": "tickets-security.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "95f274fcf81c77724a07780cf5f54d3aaf13accd48e79f8b8ecc7b727102a3f8"
+        },
+        {
+          "name": "tickets-support.csv",
+          "url": "build:eval/tools/tables/build_tables.py",
+          "sha256": "c405fa9911226cfa73af67025c6ffe51a0f2e31a50d802b7b1047fd614a5ffda"
+        },
+        {
+          "name": "questions.jsonl",
+          "url": "repo:tables/questions.jsonl",
+          "sha256": "7aabc14e764da7c7ea2e6464aaf094d88519ee7ec6577f8715d6df5870cc3690"
+        },
+        {
+          "name": "reserve-1.jsonl.gz",
+          "url": "repo:tables/reserve-1.jsonl.gz",
+          "sha256": "e04ccbf8bb2a21681a6ab32731eafe8abd90d8ace5e662eb2be333c0dcd1763c"
+        },
+        {
+          "name": "reserve-2.jsonl.gz",
+          "url": "repo:tables/reserve-2.jsonl.gz",
+          "sha256": "da6d320f2797120ffe6158664de2ab8f96aab3e96a2f395018577ab492115188"
+        },
+        {
+          "name": "mixed.jsonl",
+          "url": "repo:tables/mixed.jsonl",
+          "sha256": "670552c18b1d5bc3633ecd86721b743d72a083b73a6e9b667b6bb7034d2c0b10"
+        },
+        {
+          "name": "policy-commission-plan.md",
+          "url": "repo:tables/docs/commission-plan.md",
+          "sha256": "a6a7c80e0ad456bc249c3714e89b830e86139bfc48350a79a5e32ccd7b6ea461"
+        },
+        {
+          "name": "policy-discount-approval-policy.md",
+          "url": "repo:tables/docs/discount-approval-policy.md",
+          "sha256": "266adc1f10f9d79a14ed06d92dc802d4f871e1cada0922b39f359bdef65b1059"
+        },
+        {
+          "name": "policy-late-payment-fees.md",
+          "url": "repo:tables/docs/late-payment-fees.md",
+          "sha256": "7e0138bf0a0b461fbaa812808e4f3fb91203edeae7b03b0bc1eab391a7cd7efa"
+        },
+        {
+          "name": "policy-safety-stock.md",
+          "url": "repo:tables/docs/safety-stock.md",
+          "sha256": "d4ebb0214bfd38a718ba5b4ba57978f0cc5048450229c86c1827e70eac5f0f74"
+        },
+        {
+          "name": "policy-strategic-accounts.md",
+          "url": "repo:tables/docs/strategic-accounts.md",
+          "sha256": "0512f81fda339c19388774eda6980c18c29c87376b3a8e50dd5602fbf3a480d0"
+        },
+        {
+          "name": "policy-support-sla.md",
+          "url": "repo:tables/docs/support-sla.md",
+          "sha256": "ac64c63d394babe56407b6924ecb0ce1b921990821c3f8e2609f2ed9386f8f7b"
+        },
+        {
+          "name": "linked-clinic-staffing-plan.pdf",
+          "url": "repo:tables/linked/docs/clinic-staffing-plan.pdf",
+          "sha256": "6988c36feb8973936113d4d09fa4c6505a67458d38ea472e27d29382dd68ed24"
+        },
+        {
+          "name": "linked-customer-survey-2025.pdf",
+          "url": "repo:tables/linked/docs/customer-survey-2025.pdf",
+          "sha256": "34e424997a5ecbf2f32f5ae1f0a2d793790a4bc620577c3fa737a1f5af61e1cb"
+        },
+        {
+          "name": "linked-energy-usage-2025.docx",
+          "url": "repo:tables/linked/docs/energy-usage-2025.docx",
+          "sha256": "89cd15abf4be1e78486c3542b1098d765028563eaa49de57181224aae38c2ed9"
+        },
+        {
+          "name": "linked-fleet-maintenance-2025.docx",
+          "url": "repo:tables/linked/docs/fleet-maintenance-2025.docx",
+          "sha256": "47a4a49a32d679a3c150d0c302df88a01828d72817e9f3b7a6555640be0fd3d9"
+        },
+        {
+          "name": "linked-it-asset-register.docx",
+          "url": "repo:tables/linked/docs/it-asset-register.docx",
+          "sha256": "b83ef58b99d9bb0f3739de8d79c5ebedb46f049ca3eb3f3eb569186b5eda7adc"
+        },
+        {
+          "name": "linked-marketing-campaigns-2025.docx",
+          "url": "repo:tables/linked/docs/marketing-campaigns-2025.docx",
+          "sha256": "3c372779fc1ce4a21aba4c3b12d11fa06f7bcd7325d5d7475f2ca5623df7fc59"
+        },
+        {
+          "name": "linked-project-portfolio-q4.docx",
+          "url": "repo:tables/linked/docs/project-portfolio-q4.docx",
+          "sha256": "73a185cbb340deb64b111c5671da92ea29cbcf2bf2a2c947ae907dd55a8e65ea"
+        },
+        {
+          "name": "linked-supplier-scorecard-2025.pdf",
+          "url": "repo:tables/linked/docs/supplier-scorecard-2025.pdf",
+          "sha256": "d9d48215bbfc970db990e16e50c82c662b63ba196e61ed6a88030cedf177f277"
+        },
+        {
+          "name": "linked-training-completion-2025.pdf",
+          "url": "repo:tables/linked/docs/training-completion-2025.pdf",
+          "sha256": "e03cbfebc7f19315a7f156f718500a00534bab7b80e688e9d09f2586207ba285"
+        },
+        {
+          "name": "linked-warehouse-audit-q3.pdf",
+          "url": "repo:tables/linked/docs/warehouse-audit-q3.pdf",
+          "sha256": "b518ef4a382e007da840fd9fa5e6a47035ad3285e8c5a9791bd284a400f3b979"
+        },
+        {
+          "name": "linked-table-clinic-staffing-plan.csv",
+          "url": "repo:tables/linked/tables/clinic-staffing-plan.csv",
+          "sha256": "b765abfc04030737c171030f70e1fe358eb9e7339ec2e2b1e14052eb01e010af"
+        },
+        {
+          "name": "linked-table-customer-survey-2025.csv",
+          "url": "repo:tables/linked/tables/customer-survey-2025.csv",
+          "sha256": "45d874f88e48a6ad1437ef35ad38f5fcd72723e70fd21f150b765b36801585d5"
+        },
+        {
+          "name": "linked-table-energy-usage-2025.csv",
+          "url": "repo:tables/linked/tables/energy-usage-2025.csv",
+          "sha256": "4f7d8424ee5ff7fc4d75204dca7832a9b01fa47d987582e9dd9b11f8490b6b70"
+        },
+        {
+          "name": "linked-table-fleet-maintenance-2025.csv",
+          "url": "repo:tables/linked/tables/fleet-maintenance-2025.csv",
+          "sha256": "5779c670746c40d49a23177b20b31c7b59d5d59e8efce43a4e5a66c8b6d0b114"
+        },
+        {
+          "name": "linked-table-it-asset-register.csv",
+          "url": "repo:tables/linked/tables/it-asset-register.csv",
+          "sha256": "26fef35104805a2c3efaeb628b91eac85299b13cdb7565424e9fa7afa9dfdb44"
+        },
+        {
+          "name": "linked-table-marketing-campaigns-2025.csv",
+          "url": "repo:tables/linked/tables/marketing-campaigns-2025.csv",
+          "sha256": "68e764bf606adfdd7bc7765c31650b1fbcdbf27d5f63694d60d8866c32b4ed58"
+        },
+        {
+          "name": "linked-table-project-portfolio-q4.csv",
+          "url": "repo:tables/linked/tables/project-portfolio-q4.csv",
+          "sha256": "d50d238aeaf9f7dc3db435ee39ca1dd4b3a924fc60bd9838f3924878eb889c82"
+        },
+        {
+          "name": "linked-table-supplier-scorecard-2025.csv",
+          "url": "repo:tables/linked/tables/supplier-scorecard-2025.csv",
+          "sha256": "11f68ab21b1f855856d0e3b51e9fa5c3cf83c3628ef70abba0f30a0fdc7cdf14"
+        },
+        {
+          "name": "linked-table-training-completion-2025.csv",
+          "url": "repo:tables/linked/tables/training-completion-2025.csv",
+          "sha256": "2f3b21a8367fb3ed34cdf75405761e8b067da79a4d256b8874729840bafc74ce"
+        },
+        {
+          "name": "linked-table-warehouse-audit-q3.csv",
+          "url": "repo:tables/linked/tables/warehouse-audit-q3.csv",
+          "sha256": "5a332fcb609efecaec85eb6121ec83821b20ab92cf8a15dda884d57adb5c48fe"
+        },
+        {
+          "name": "linked-questions.jsonl",
+          "url": "repo:tables/linked/questions.jsonl",
+          "sha256": "b46919f4fe55f687b01b806c59fa3af1b337716dfcc7326f2942462b86cd33c1"
+        },
+        {
+          "name": "linked-reserve.jsonl.gz",
+          "url": "repo:tables/linked/reserve-linked.jsonl.gz",
+          "sha256": "682ac14660f89f6937161e8666ecbb8f9d3da82bbc9b45da7533d08438dd92be"
         }
       ]
     }

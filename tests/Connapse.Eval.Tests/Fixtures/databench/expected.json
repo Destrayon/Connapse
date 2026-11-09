@@ -1,0 +1,3086 @@
+{
+ "databench_commit": "65f92cfad4f986f5496170f6bbcee48323f56c2f",
+ "cases": [
+  {
+   "type": "boolean",
+   "value": true,
+   "truth": "True",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": true,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "[True]",
+   "truth": "True",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "False",
+   "truth": "False",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": " True ",
+   "truth": "True",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "false",
+   "truth": "False",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "yes",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "False",
+   "truth": "no",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "no",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "False",
+   "truth": "yes",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "true",
+   "truth": "yes",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "false",
+   "truth": "no",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "yes",
+   "truth": "yes",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "no",
+   "truth": "no",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": null,
+   "truth": "True",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "Y",
+   "truth": "true",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "maybe",
+   "truth": "maybe",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": false,
+   "truth": "n",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "Barack Obama",
+   "truth": "Barack Obama",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": " Barack Obama ",
+   "truth": "Barack Obama",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "T-rex",
+   "truth": "T-rex",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "",
+   "truth": "",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": " ",
+   "truth": "",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "Different",
+   "truth": "Strings",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": null,
+   "truth": "String",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-12-22 00:00:00+00:00",
+   "truth": "2016-12-22",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-12-22T00:00:00Z",
+   "truth": "2016-12-22",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "22/12/2016",
+   "truth": "2016-12-22",
+   "reference": true,
+   "connapse": false,
+   "deviation": "ISO dates only"
+  },
+  {
+   "type": "category",
+   "value": "Dec 22, 2016",
+   "truth": "2016-12-22",
+   "reference": true,
+   "connapse": false,
+   "deviation": "ISO dates only"
+  },
+  {
+   "type": "category",
+   "value": "2016-12-22",
+   "truth": "2016-12-23",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "Invalid Date",
+   "truth": "2016-12-22",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-13-45",
+   "truth": "2016-12-22",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": null,
+   "truth": null,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": " category ",
+   "value": 123,
+   "truth": "123",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "barack obama",
+   "truth": "Barack Obama",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "Barack   Obama",
+   "truth": "Barack Obama",
+   "reference": false,
+   "connapse": true,
+   "deviation": "collapsed whitespace"
+  },
+  {
+   "type": "category",
+   "value": "Barack\tObama",
+   "truth": "barack obama",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "2016-12-22T25:00:00",
+   "truth": "2016-12-22",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-12-22T10:61",
+   "truth": "2016-12-22",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-12-22T10:30:61",
+   "truth": "2016-12-22",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-12-22T10:30:15.123+0530",
+   "truth": "2016-12-22",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-02-30",
+   "truth": "2016-02-30",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2016-02-30",
+   "truth": "2016-03-01",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "123.45",
+   "truth": 123.45,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$123.45",
+   "truth": "123.45",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "-123.45",
+   "truth": "-123.45",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "1.234",
+   "truth": "1.23",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$1,234.56",
+   "truth": "1234.56",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "invalid",
+   "truth": "123.45",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": null,
+   "truth": "123.45",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 123.45,
+   "truth": "123.45",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 100,
+   "truth": 100,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 101,
+   "truth": 100,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 100.001,
+   "truth": 100,
+   "reference": true,
+   "connapse": false,
+   "deviation": "exact integers"
+  },
+  {
+   "type": "number",
+   "value": "100.0",
+   "truth": 100,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 100.5,
+   "truth": 100.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 100.999,
+   "truth": 100.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 101.01,
+   "truth": 100.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 99.0,
+   "truth": 100.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 98.99,
+   "truth": 100.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 0,
+   "truth": 0,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 0.001,
+   "truth": 0.0,
+   "reference": true,
+   "connapse": false,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": "-5",
+   "truth": -5,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "5-",
+   "truth": "5",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "1.2.3",
+   "truth": "1.2",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": ".5",
+   "truth": 0.5,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "5.",
+   "truth": 5.0,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": true,
+   "truth": 1,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "1,000",
+   "truth": 1000,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "1e3",
+   "truth": 1000,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 1000.0,
+   "truth": 1000,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 0.3333,
+   "truth": 0.33,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 12.344,
+   "truth": 12.34,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "['a', 'b', 'c']",
+   "truth": "['c', 'b', 'a']",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "a,b,c",
+   "truth": "c,b,a",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "[a, b, c]",
+   "truth": "[c, b, a]",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "['a', 'b']",
+   "truth": "['a', 'b', 'c']",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "invalid",
+   "truth": "['a', 'b']",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": null,
+   "truth": "['a', 'b']",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "[nan]",
+   "truth": "['']",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "['2023-01-01', '2023-01-02']",
+   "truth": "['2023-01-02', '2023-01-01']",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "['2023-01-01T00:00:00Z', '2023-01-02 00:00:00+00:00']",
+   "truth": "['2023-01-02', '2023-01-01']",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "['2023-01-01']",
+   "truth": "['2023-01-02']",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "[]",
+   "truth": "[]",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "a",
+    "b"
+   ],
+   "truth": [
+    "b",
+    "a"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "A",
+    "b"
+   ],
+   "truth": "['a', 'B']",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Smith, John",
+    "Lee"
+   ],
+   "truth": [
+    "Lee",
+    "Smith, John"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Smith, John",
+    "Lee"
+   ],
+   "truth": "['Lee', 'Smith, John']",
+   "reference": true,
+   "connapse": false,
+   "deviation": "JSON arrays are not split on commas"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "a",
+    "a",
+    "b"
+   ],
+   "truth": [
+    "a",
+    "b",
+    "b"
+   ],
+   "reference": true,
+   "connapse": false,
+   "deviation": "lists are multisets"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "a",
+    null
+   ],
+   "truth": [
+    "a",
+    ""
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "x",
+    "y"
+   ],
+   "truth": [
+    "x",
+    "z"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": "['01/01/2023', '2023-01-02']",
+   "truth": "['2023-01-02', '2023-01-01']",
+   "reference": true,
+   "connapse": false,
+   "deviation": "ISO dates only"
+  },
+  {
+   "type": "list[number]",
+   "value": "[1, 2, 3]",
+   "truth": "[3, 2, 1]",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "1,2,3",
+   "truth": "3,2,1",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "[1, 2]",
+   "truth": "[1, 2, 3]",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "invalid",
+   "truth": "[1, 2]",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": null,
+   "truth": "[1, 2]",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "[1.1, 2.2]",
+   "truth": "[2.2, 1.1]",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "[1.0, 2.0]",
+   "truth": "[2.0, 1.0]",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "[1.0]",
+   "truth": "[2.0]",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "[0.995, 0.4924, 0.3099, 0.281]",
+   "truth": "[0.99, 0.49, 0.30, 0.28]",
+   "reference": true,
+   "connapse": false,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    1,
+    2,
+    3
+   ],
+   "truth": [
+    3,
+    1,
+    2
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    1,
+    1,
+    2
+   ],
+   "truth": [
+    1,
+    2,
+    2
+   ],
+   "reference": true,
+   "connapse": false,
+   "deviation": "lists are multisets"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    10.05,
+    20
+   ],
+   "truth": [
+    20,
+    10.0
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    10.2,
+    20
+   ],
+   "truth": [
+    20,
+    10.0
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    21,
+    10
+   ],
+   "truth": [
+    20,
+    10
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "[$1,000]",
+   "truth": "[1000]",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": "[1, , 2]",
+   "truth": "[1, 2]",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    "x",
+    2
+   ],
+   "truth": [
+    1,
+    2
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    1,
+    2
+   ],
+   "truth": [
+    "x",
+    2
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 4871.068,
+   "truth": 4871.068,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-4,982.761",
+   "truth": -4852,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-2,027.931",
+   "truth": -2027.931,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-1,258.7848",
+   "truth": -1253.847,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": -1079,
+   "truth": -1079,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$2,783.3573",
+   "truth": 2748.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 577.6431,
+   "truth": 592.356,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$1,373",
+   "truth": 1373,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-4,876.6016",
+   "truth": -4905.622,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 4573.38,
+   "truth": 4573.38,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -72.9257,
+   "truth": -73.1,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 846.9154,
+   "truth": 830.7,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -349.1836,
+   "truth": -350.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 796,
+   "truth": 796,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 2169.2831,
+   "truth": 2116,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -1075.6266,
+   "truth": -1095,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 2299.3453,
+   "truth": 2282.1,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": "$3,771.6536",
+   "truth": 3665,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-1,804.7136",
+   "truth": -1821.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": "$-2,115.4879",
+   "truth": -2119.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 230,
+   "truth": 230,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 291.4534,
+   "truth": 295.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-4,636.3076",
+   "truth": -4530.99,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 1947.3168,
+   "truth": 1930.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 4348.2462,
+   "truth": 4306.404,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 3122.6201,
+   "truth": 3096.429,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": "$-3,335.0171",
+   "truth": -3418,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -2494.2894,
+   "truth": -2559.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 263,
+   "truth": 263,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-3,919.0381",
+   "truth": -3827.78,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-824.0851",
+   "truth": -845.078,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$1,062.3375",
+   "truth": 1091,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 2114,
+   "truth": 2114,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-1,115.6064",
+   "truth": -1129.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -2492.1029,
+   "truth": -2542,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -1664,
+   "truth": -1664,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 2805.446,
+   "truth": 2805.446,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -2317.4123,
+   "truth": -2382.827,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$2,985.6611",
+   "truth": 2926.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 4479.3449,
+   "truth": 4363.212,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -1266.8,
+   "truth": -1266.8,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -439.3729,
+   "truth": -443,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-3,678.0561",
+   "truth": -3586,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 3081.0139,
+   "truth": 3165.96,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-638.0204",
+   "truth": -650.3,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$-3,435.5847",
+   "truth": -3491.15,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 1316.2356,
+   "truth": 1329,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 548.8263,
+   "truth": 543,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 2277.6434,
+   "truth": 2244.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": "$137.22",
+   "truth": 137.22,
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 971.7215,
+   "truth": 952.131,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -851.1237,
+   "truth": -844.0,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": 229.2996,
+   "truth": 229,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 3158.8748,
+   "truth": 3124,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -2406.4799,
+   "truth": -2343.65,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 4574.9084,
+   "truth": 4650.15,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -4476.3893,
+   "truth": -4456.24,
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "number",
+   "value": -4122.8917,
+   "truth": -4013.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": -272.032,
+   "truth": -276.0,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "number",
+   "value": 4738.3787,
+   "truth": 4881,
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "ALPHA",
+   "truth": "Alpha",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "  ACME Ltd ",
+   "truth": "ACME Ltd",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "  Orbit Labs ",
+   "truth": "Orbit Labs",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "beta Co",
+   "truth": "Orbit Labs",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "  san jose ",
+   "truth": "san jose",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "delta",
+   "truth": "Delta",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "  Delta ",
+   "truth": "Delta",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "ACME  Ltd",
+   "truth": "ACME Ltd",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "beta Co",
+   "truth": "beta Co",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "san jose",
+   "truth": "Delta",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "Delta",
+   "truth": "Delta",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "san jose",
+   "truth": "san jose",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "ACME LTD",
+   "truth": "ACME Ltd",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "alpha",
+   "truth": "Alpha",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "North East",
+   "truth": "North East",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "beta  Co",
+   "truth": "beta Co",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "  q3 ",
+   "truth": "q3",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "DELTA",
+   "truth": "Delta",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "Delta",
+   "truth": "Delta",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "beta Co",
+   "truth": "beta Co",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "Alpha",
+   "truth": "Alpha",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "  North East ",
+   "truth": "North East",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "Delta",
+   "truth": "Delta",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "san jose",
+   "truth": "san jose",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "ACME Ltd",
+   "truth": "q3",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "q3",
+   "truth": "q3",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "DELTA",
+   "truth": "Delta",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "orbit labs",
+   "truth": "Orbit Labs",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "q3",
+   "truth": "q3",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "  q3 ",
+   "truth": "q3",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "Q3",
+   "truth": "q3",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "Orbit Labs",
+   "truth": "Orbit Labs",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "beta Co",
+   "truth": "beta Co",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "beta  Co",
+   "truth": "beta Co",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "beta co",
+   "truth": "beta Co",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "  Orbit Labs ",
+   "truth": "Orbit Labs",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "  Orbit Labs ",
+   "truth": "Orbit Labs",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "san jose",
+   "truth": "q3",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "beta Co",
+   "truth": "beta Co",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "DELTA",
+   "truth": "Delta",
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "category",
+   "value": "2023-03-09T08:15",
+   "truth": "2023-03-08",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2023-02-17T00:00:00Z",
+   "truth": "2023-02-16",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2020-08-04 12:30:00+02:00",
+   "truth": "2020-08-04",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2022-04-21T00:00:00Z",
+   "truth": "2022-04-20",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2022-06-22T00:00:00Z",
+   "truth": "2022-06-22",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2023-06-20",
+   "truth": "2023-06-20",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2022-07-04",
+   "truth": "2022-07-04",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2022-06-08T08:15",
+   "truth": "2022-06-08",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2023-09-28",
+   "truth": "2023-09-28",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2021-09-11",
+   "truth": "2021-09-10",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2024-01-03",
+   "truth": "2024-01-02",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2023-05-06T08:15",
+   "truth": "2023-05-05",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2022-01-08 12:30:00+02:00",
+   "truth": "2022-01-07",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2023-12-08T00:00:00Z",
+   "truth": "2023-12-08",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2021-12-03T08:15",
+   "truth": "2021-12-03",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2021-01-31 12:30:00+02:00",
+   "truth": "2021-01-30",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2020-10-20T00:00:00Z",
+   "truth": "2020-10-20",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2023-09-25T00:00:00Z",
+   "truth": "2023-09-25",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2021-09-08T08:15",
+   "truth": "2021-09-08",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2022-01-01",
+   "truth": "2022-01-01",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2024-01-04 12:30:00+02:00",
+   "truth": "2024-01-04",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2021-09-06 12:30:00+02:00",
+   "truth": "2021-09-06",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2020-11-08",
+   "truth": "2020-11-07",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2022-10-05T00:00:00Z",
+   "truth": "2022-10-04",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "category",
+   "value": "2021-06-06 12:30:00+02:00",
+   "truth": "2021-06-06",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "n",
+   "truth": "no",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "yes",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "false",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "Y",
+   "truth": "false",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "True",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "Y",
+   "truth": "no",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "maybe",
+   "truth": "false",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "maybe",
+   "truth": "True",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "no",
+   "truth": "yes",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "no",
+   "truth": "false",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "yes",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "maybe",
+   "truth": "yes",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "Y",
+   "truth": "True",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "True",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "no",
+   "truth": "yes",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "false",
+   "truth": "false",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "yes",
+   "truth": "True",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "True",
+   "truth": "false",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "false",
+   "truth": "false",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "no",
+   "truth": "no",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "no",
+   "truth": "no",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "maybe",
+   "truth": "false",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "n",
+   "truth": "false",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "no",
+   "truth": "True",
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "boolean",
+   "value": "n",
+   "truth": "false",
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Delta",
+    "extra"
+   ],
+   "truth": [
+    "Delta"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Q3",
+    "ACME Ltd",
+    "beta Co"
+   ],
+   "truth": [
+    "q3",
+    "ACME Ltd",
+    "beta Co"
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "san jose",
+    "extra"
+   ],
+   "truth": [
+    "san jose"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Alpha",
+    "q3",
+    "san jose",
+    "Delta"
+   ],
+   "truth": [
+    "Alpha",
+    "q3",
+    "san jose",
+    "Delta"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Q3",
+    "beta Co",
+    "Alpha"
+   ],
+   "truth": [
+    "q3",
+    "beta Co",
+    "Alpha"
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "san jose",
+    "Orbit Labs",
+    "q3",
+    "Delta"
+   ],
+   "truth": [
+    "Delta",
+    "Orbit Labs",
+    "san jose",
+    "q3"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "ORBIT LABS",
+    "Delta",
+    "ACME Ltd",
+    "q3"
+   ],
+   "truth": [
+    "Orbit Labs",
+    "ACME Ltd",
+    "q3",
+    "Delta"
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "beta Co",
+    "Alpha"
+   ],
+   "truth": [
+    "beta Co",
+    "Alpha"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "DELTA",
+    "Orbit Labs",
+    "North East"
+   ],
+   "truth": [
+    "Delta",
+    "North East",
+    "Orbit Labs"
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "BETA CO",
+    "extra"
+   ],
+   "truth": [
+    "beta Co"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "san jose"
+   ],
+   "truth": [
+    "san jose"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Orbit Labs",
+    "North East",
+    "san jose"
+   ],
+   "truth": [
+    "Alpha",
+    "Orbit Labs",
+    "san jose",
+    "North East"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Delta",
+    "san jose"
+   ],
+   "truth": [
+    "North East",
+    "Delta",
+    "san jose"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "BETA CO",
+    "san jose"
+   ],
+   "truth": [
+    "san jose",
+    "beta Co"
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "BETA CO",
+    "san jose"
+   ],
+   "truth": [
+    "beta Co",
+    "san jose"
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "q3",
+    "Orbit Labs"
+   ],
+   "truth": [
+    "q3",
+    "Orbit Labs"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Q3",
+    "beta Co",
+    "Orbit Labs"
+   ],
+   "truth": [
+    "beta Co",
+    "Orbit Labs",
+    "q3"
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "case-insensitive categories"
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "beta Co"
+   ],
+   "truth": [
+    "beta Co",
+    "Alpha"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Delta",
+    "extra"
+   ],
+   "truth": [
+    "Delta"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "ALPHA"
+   ],
+   "truth": [
+    "Alpha",
+    "ACME Ltd"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Delta",
+    "beta Co"
+   ],
+   "truth": [
+    "beta Co",
+    "Delta"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "BETA CO"
+   ],
+   "truth": [
+    "Orbit Labs",
+    "beta Co"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Alpha",
+    "q3",
+    "Delta"
+   ],
+   "truth": [
+    "q3",
+    "Delta",
+    "Alpha"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Orbit Labs",
+    "North East",
+    "Alpha"
+   ],
+   "truth": [
+    "Orbit Labs",
+    "North East",
+    "Alpha"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "q3",
+    "beta Co",
+    "san jose",
+    "Orbit Labs"
+   ],
+   "truth": [
+    "beta Co",
+    "san jose",
+    "q3",
+    "Orbit Labs"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Alpha",
+    "san jose",
+    "Orbit Labs"
+   ],
+   "truth": [
+    "Orbit Labs",
+    "san jose",
+    "Alpha"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "ORBIT LABS"
+   ],
+   "truth": [
+    "North East",
+    "Orbit Labs"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "q3",
+    "Delta",
+    "North East",
+    "Orbit Labs"
+   ],
+   "truth": [
+    "Delta",
+    "q3",
+    "North East",
+    "Orbit Labs"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "ORBIT LABS"
+   ],
+   "truth": [
+    "Orbit Labs",
+    "ACME Ltd"
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[category]",
+   "value": [
+    "Alpha",
+    "san jose",
+    "Orbit Labs",
+    "beta Co"
+   ],
+   "truth": [
+    "beta Co",
+    "san jose",
+    "Orbit Labs",
+    "Alpha"
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    693.599,
+    64.0,
+    511.8
+   ],
+   "truth": [
+    511.8,
+    691.0,
+    64.0
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    310.518,
+    344.0,
+    594.56,
+    736.131,
+    557.01
+   ],
+   "truth": [
+    733.1,
+    557.01,
+    305.0,
+    344.0,
+    594.56
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    509.56,
+    109.0
+   ],
+   "truth": [
+    109.0,
+    509.56
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    747.896,
+    83.07,
+    923
+   ],
+   "truth": [
+    755,
+    83.07,
+    923
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    49,
+    299.429,
+    824.0
+   ],
+   "truth": [
+    824.0,
+    49,
+    299.0
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    312.62
+   ],
+   "truth": [
+    312.62
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    348.761,
+    948
+   ],
+   "truth": [
+    948,
+    351.17
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    214.983,
+    726.202,
+    793.421
+   ],
+   "truth": [
+    214.0,
+    724,
+    809
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    198,
+    822.434,
+    54.0,
+    482.0
+   ],
+   "truth": [
+    54.0,
+    836.3,
+    482.0,
+    198
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    992.0
+   ],
+   "truth": [
+    992.0
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    272.28,
+    318.719
+   ],
+   "truth": [
+    318,
+    272.28
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    734.16,
+    624.43,
+    811.097,
+    796.344,
+    622.954
+   ],
+   "truth": [
+    807.28,
+    787.83,
+    633,
+    734.16,
+    621.39
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    174,
+    435.184
+   ],
+   "truth": [
+    174,
+    433.07
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    693.0,
+    18.0,
+    19.167,
+    268.62
+   ],
+   "truth": [
+    18.0,
+    693.0,
+    19.01,
+    268.62
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    377.461
+   ],
+   "truth": [
+    375.22
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    455.84,
+    883.11,
+    346.0,
+    444.958
+   ],
+   "truth": [
+    346.0,
+    449.57,
+    449.73,
+    883.11
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    730.481,
+    200.933,
+    577.578,
+    340
+   ],
+   "truth": [
+    579,
+    197.06,
+    340,
+    725.0
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    833.547,
+    54.238,
+    986
+   ],
+   "truth": [
+    986,
+    55,
+    849.34
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    993.0
+   ],
+   "truth": [
+    993.0
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    39
+   ],
+   "truth": [
+    39
+   ],
+   "reference": true,
+   "connapse": true,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    793.0,
+    612.966
+   ],
+   "truth": [
+    793.0,
+    609
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    981.0,
+    206.0,
+    490,
+    537.788,
+    284.377
+   ],
+   "truth": [
+    284,
+    981.0,
+    545.0,
+    490,
+    206.0
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    774.435,
+    492.017,
+    262.318,
+    400.525
+   ],
+   "truth": [
+    779.31,
+    395.76,
+    496.59,
+    265.0
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    410.059,
+    879.843,
+    954.1,
+    413.825
+   ],
+   "truth": [
+    890.43,
+    412.75,
+    954.1,
+    413.99
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    828.264
+   ],
+   "truth": [
+    828.0
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    871.431,
+    253.873,
+    295,
+    583.985
+   ],
+   "truth": [
+    584.0,
+    873,
+    253.06,
+    295
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    66.803,
+    74,
+    937,
+    266.099
+   ],
+   "truth": [
+    74,
+    268,
+    66.05,
+    937
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    280.178,
+    213.989
+   ],
+   "truth": [
+    214.35,
+    279.0
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    815.646,
+    333.6
+   ],
+   "truth": [
+    333.6,
+    825.0
+   ],
+   "reference": false,
+   "connapse": false,
+   "deviation": null
+  },
+  {
+   "type": "list[number]",
+   "value": [
+    511.326
+   ],
+   "truth": [
+    513.0
+   ],
+   "reference": false,
+   "connapse": true,
+   "deviation": "1% tolerance"
+  }
+ ]
+}
