@@ -7,9 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.1] - 2026-11-09
+
+v0.4.1 makes v0.4.0 easier to run and to use from agents: the one-command install survives a reboot, agents can wait for a person's approval and carry on, make their own memory spaces, and read and append to files in fewer calls, and every MCP action now has a matching REST route.
+
+### Upgrading from v0.4.0
+
+1. Take the new `docker-compose.yml` from the release package. It restarts every service after a reboot, pins the MinIO and Ollama images, and has MinIO read the same credential files as `web`. An install still on the v0.4.0 file keeps working but stays down after a reboot.
+2. Set `CONNAPSE_VERSION=v0.4.1`, then pull and start as in [Upgrade Connapse](docs/self-host/upgrade.md). One migration adds a column for approval reasons; it runs when the app starts.
+3. If an agent or script saves facts to `my-memory` without creating it first, create that space once (Memory page, `POST /api/memory/spaces`, or the new `memory_space_create` tool). An existing `my-memory` space is kept. See the first change below.
+
+### Changed
+
+- **No `my-memory` space is made by default** (CON-291, #1172). Saving a fact to a space that doesn't exist is refused, and the refusal says to pick a space you have or create one. The Memory page no longer makes and stars `my-memory` on a first visit. An existing `my-memory` is now an ordinary space.
+- **Memory spaces are no longer listed as file containers** (#1172). They are gone from the Files page, `container_list` and `GET /api/containers`. Where a memory space shares its name with a container or source, search and the file tools now pick the container or source.
+- **Only the owner of a held call can approve or deny it** (CON-295, #1180). An administrator still sees every request on **Approvals**, but only the owner's row has Approve and Deny buttons; anyone else gets `approval-not-found`.
+
+### Added
+
+- **Agents find out when a held call is decided** (CON-292, #1174). The new MCP tool `approval_status`, and `GET /api/approvals/{id}?wait=N` on the web API, return `pending`, `approved`, `denied`, `expired` or `used`, waiting up to 50 seconds for a decision. Once approved, the agent repeats the exact call and it runs once. The Approvals page has an optional "Reason for the agent" box, and only the token that made a request can check its status.
+- **Agents create their own memory spaces** with the new MCP tool `memory_space_create`, which runs the same operation as the Memory page's **New space** (#1172).
+- **Newest-first listing, multi-file reads and append** (CON-279, #1167). `list_files` with `sort: "newest"` and `GET /api/containers/{id}/files?sort=newest&take=N` list the newest files first, and each file carries `lastModified` and `updatedAt`. `get_documents` and `POST /api/containers/{id}/files/contents` read up to 50 files in one call. `append_to_file` and `POST /api/containers/{id}/files/{fileId}/append` add text to the end of a text file.
+- **Every MCP action has a web route.** Fact memory gets `GET /api/memory/facts`, `POST /api/memory/spaces/{id}/facts`, `POST /api/memory/facts/{id}/correct` and `DELETE /api/memory/facts/{id}` (CON-282, #1164); the memory timeline gets `GET /api/memory/timeline` (CON-285, #1170); and the code tools get `GET /api/code/symbols`, `/references`, `/impact` and `/map` (CON-284, #1168). Each route runs the same operation, with the same permissions, as its MCP tool, and a test now fails if an operation has no route.
+
 ### Fixed
 
-- On a server reached over plain http, such as one on a home network, `connapse auth login` and apps that sign in through the browser with a `localhost` callback no longer fail. An app that registers without saying what kind it is, and whose callbacks are all on `localhost`, `127.0.0.1` or `[::1]`, is now registered as an app on the user's computer instead of being refused for not using https. [Add https to a home server](docs/self-host/home-network-https.md) says which sign-ins still need https and how to get it without opening the server to the internet.
+- **The one-command install comes back after a reboot** (CON-276, #1161). Every long-running service in `docker-compose.yml` has `restart: unless-stopped`, and the production guide's override sets it for Ollama and the reranker too. Ollama is pinned to `ollama/ollama:0.40.15` and MinIO to a fixed digest instead of `latest`.
+- **Searches recover on their own when the database is slow to come up**, as after a reboot (CON-283, #1166). Searches were refused until Connapse was restarted; it now retries in the background, at least once a minute, and searches work again with no restart.
+- On a server reached over plain http, such as one on a home network, `connapse auth login` and apps that sign in through the browser with a `localhost` callback no longer fail. An app that registers without saying what kind it is, and whose callbacks are all on `localhost`, `127.0.0.1` or `[::1]`, is now registered as an app on the user's computer instead of being refused for not using https. [Add https to a home server](docs/self-host/home-network-https.md) says which sign-ins still need https and how to get it without opening the server to the internet. (CON-280, #1162)
+- **A just-uploaded text file can be read before indexing finishes** (CON-277, #1163). `get_document` and `GET /api/containers/{id}/files/{docId}/content` return its text and say it is still waiting for indexing (`awaitingIndex`). Search still waits for indexing, and now says how many documents it can't see yet. PDFs and other files that need parsing still answer `document_not_ready`.
+- **A fact saved with a date-only start can be corrected the same day** (CON-290, #1173). The correction takes effect at the time it is made, ending the old value then.
+
+### Security
+
+- `POST /oauth/register` refuses an `application_type` other than `native` or `web` (#1162). Before, an unknown type skipped redirect checks, so any http redirect could be registered.
+
+### Development
+
+These change only CI and tests, not the server.
+
+- CI installs Ollama from a cache, with fallbacks, so an ollama.com outage no longer fails setup (CON-286, #1165).
+- PRs into `release/**` branches get the same checks as `main`, and CONTRIBUTING.md explains version branches (CON-289, #1169).
+- `main`'s mutation-testing baseline refreshes on every merge, so most PRs re-test only their own mutants (CON-293, #1175).
+- The fast-test time limit no longer fails PRs by chance on GitHub's slower runners (CON-294, #1176).
+- The memory timeline parity test creates the space it saves into (CON-296, #1178).
 
 ## [v0.4.0] - 2026-11-07
 
@@ -338,7 +379,8 @@ These change what a search returns rather than making a call fail.
 - Ollama integration for local embeddings
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.1...HEAD
+[v0.4.1]: https://github.com/Destrayon/Connapse/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/Destrayon/Connapse/compare/v0.3.2...v0.4.0
 [v0.3.2]: https://github.com/Destrayon/Connapse/compare/v0.3.1...v0.3.2
 [v0.3.1]: https://github.com/Destrayon/Connapse/compare/v0.2.2...v0.3.1
