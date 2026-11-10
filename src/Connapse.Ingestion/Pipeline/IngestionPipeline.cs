@@ -228,8 +228,9 @@ public class IngestionPipeline : IKnowledgeIngester
     /// nothing was written.
     /// </para>
     /// <para>
-    /// A container's CSV file loads into a table instead (CON-302) and completes with a ChunkCount of 0 too: the
-    /// document is Ready, and has no chunks because it isn't text.
+    /// A container's CSV file also loads into a table (CON-302). In a documents container it is indexed as text first,
+    /// so search still finds it; in a tables container it loads only as a table and completes with a ChunkCount of 0
+    /// too: the document is Ready, and has no chunks because it isn't indexed as text there.
     /// </para>
     /// </remarks>
     public async Task<IngestionResult> IngestAsync(
@@ -282,9 +283,17 @@ public class IngestionPipeline : IKnowledgeIngester
             var contentHash = await ComputeContentHashAsync(workingStream, ct);
             var virtualPath = options.Path ?? options.FileName ?? $"upload-{documentId}";
 
-            // A container's CSV becomes a table rather than text; TableUploads decides which files do.
+            // A container's CSV becomes a table: in place of text in a tables container, and as well as text in a
+            // documents container, loaded just before its text commits. TableUploads decides which files do.
+            Guid? alsoTableIn = null;
             if (_tableStore is not null && owner.ContainerId is Guid tableContainerId && TableUploads.LoadsAsTable(options.FileName))
-                return await LoadTableAsync(workingStream, options, owner, tableContainerId, documentId, contentHash, virtualPath, stopwatch, ct);
+            {
+                ContainerKind kind = await _context.Containers.AsNoTracking()
+                    .Where(c => c.Id == tableContainerId).Select(c => c.Kind).FirstOrDefaultAsync(ct);
+                if (!TableUploads.KeepsText(kind))
+                    return await LoadTableAsync(workingStream, options, owner, tableContainerId, documentId, contentHash, virtualPath, stopwatch, ct);
+                alsoTableIn = tableContainerId;
+            }
 
             // Parsing and chunking first: they need nothing from the database, and a file that
             // cannot be read is known to be a permanent failure before any row is touched.
@@ -380,6 +389,11 @@ public class IngestionPipeline : IKnowledgeIngester
                 metadata[MetadataKeyReadWithoutLayout] = withoutLayoutMb;
             else
                 metadata.Remove(MetadataKeyReadWithoutLayout);
+
+            if (alsoTableIn is Guid alsoContainerId)
+                await AddTableAsync(workingStream, options.FileName ?? virtualPath, alsoContainerId, documentId, metadata, warnings, ct);
+            else
+                metadata.Remove(MetadataKeyTableId);
 
             if (warnings.Count > 0)
                 metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
@@ -610,30 +624,21 @@ public class IngestionPipeline : IKnowledgeIngester
         TableInfo table;
         try
         {
-            file.Position = 0;
-            TableLoad load = await CsvTableReader.ReadAsync(file, fileName, documentId, ct);
-            TableInfo? current = (await _tableStore!.ListAsync(containerId, ct)).FirstOrDefault(t => t.DocumentId == documentId);
-            table = current is not null && await _tableStore.ReloadAsync(containerId, current.Id, load, ct) is { } reloaded
-                ? reloaded
-                : await _tableStore.CreateAsync(containerId, load, ct);
+            table = await StoreTableAsync(file, fileName, containerId, documentId, ct);
         }
-        catch (Exception ex) when (ex is InvalidDataException or CsvFormatException or ArgumentException)
+        catch (Exception ex) when (IsUnreadableTable(ex))
         {
             throw new PermanentIngestionException($"Could not load {fileName} as a table: {StorableText.Clean(ex.Message)}", ex);
         }
-        catch (Exception ex) when (ex is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation }
-                                   || ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+        catch (Exception ex) when (IsDocumentGone(ex))
         {
             // The table names its document, so a document deleted during the load refuses it.
             return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
         }
 
         List<string> warnings = [];
-        if (table.Rejects.Count > 0)
-        {
-            long rows = table.Rejects.Select(r => r.Row).Distinct().LongCount();
-            warnings.Add($"{rows} row(s) didn't fit their columns and were left out of the table; its rejects list them");
-        }
+        if (RejectsWarning(table) is { } rejects)
+            warnings.Add(rejects);
 
         var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>())
         {
@@ -676,6 +681,62 @@ public class IngestionPipeline : IKnowledgeIngester
             documentId, table.Id, table.RowCount, table.Rejects.Count, stopwatch.ElapsedMilliseconds);
         return new IngestionResult(DocumentId: documentId.ToString(), ChunkCount: 0, Duration: stopwatch.Elapsed, Warnings: warnings);
     }
+
+    /// <summary>
+    /// Loads a documents container's CSV into a table beside its text (CON-302), before the text commits, so the
+    /// document is Ready with its table id already on it. A file that won't load as a table keeps its text and says
+    /// why in its warnings; a document deleted meanwhile is left to the text commit, which finds it gone. The table
+    /// load runs outside the text's transaction, so a superseded job can reload the table before the newer job does.
+    /// </summary>
+    private async Task AddTableAsync(
+        Stream file, string fileName, Guid containerId, Guid documentId, Dictionary<string, string> metadata,
+        List<string> warnings, CancellationToken ct)
+    {
+        string name = Path.GetFileName(fileName);
+        metadata.Remove(MetadataKeyTableId);
+        TableInfo table;
+        try
+        {
+            table = await StoreTableAsync(file, name, containerId, documentId, ct);
+        }
+        catch (Exception ex) when (IsUnreadableTable(ex))
+        {
+            warnings.Add($"Could not load {name} as a table: {StorableText.Clean(ex.Message)}");
+            return;
+        }
+        catch (Exception ex) when (IsDocumentGone(ex))
+        {
+            return;
+        }
+
+        metadata[MetadataKeyTableId] = table.Id.ToString();
+        if (RejectsWarning(table) is { } rejects)
+            warnings.Add(rejects);
+        _logger.LogInformation("Loaded document {DocumentId} as table {TableId} too: {Rows} rows, {Rejects} rejects",
+            documentId, table.Id, table.RowCount, table.Rejects.Count);
+    }
+
+    /// <summary>Reads a CSV into the document's own table: a new one on the first load, a reload after that.</summary>
+    private async Task<TableInfo> StoreTableAsync(Stream file, string fileName, Guid containerId, Guid documentId, CancellationToken ct)
+    {
+        file.Position = 0;
+        TableLoad load = await CsvTableReader.ReadAsync(file, fileName, documentId, ct);
+        TableInfo? current = (await _tableStore!.ListAsync(containerId, ct)).FirstOrDefault(t => t.DocumentId == documentId);
+        return current is not null && await _tableStore.ReloadAsync(containerId, current.Id, load, ct) is { } reloaded
+            ? reloaded
+            : await _tableStore.CreateAsync(containerId, load, ct);
+    }
+
+    private static bool IsUnreadableTable(Exception ex) => ex is InvalidDataException or CsvFormatException or ArgumentException;
+
+    private static bool IsDocumentGone(Exception ex) =>
+        ex is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation }
+        || ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation };
+
+    private static string? RejectsWarning(TableInfo table) =>
+        table.Rejects.Count == 0
+            ? null
+            : $"{table.Rejects.Select(r => r.Row).Distinct().LongCount()} row(s) didn't fit their columns and were left out of the table; its rejects list them";
 
     private Task<DocumentEntity?> LoadExistingAsync(Guid documentId, CancellationToken ct) =>
         _context.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.Id == documentId, ct);

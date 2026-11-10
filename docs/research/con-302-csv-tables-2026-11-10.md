@@ -18,8 +18,9 @@ CON-302 copies DuckDB's CSV sniffer rather than inventing one. It picks the deli
 - **The sample is spread across the file, not just its head.** A column that is numeric for 20,000 rows and then holds `n/a` should still be typed as numeric, with that one cell listed as a reject. If more than 1,000 cells fail, the reader takes this as a wrong guess and re-guesses from every row, which usually makes the column text.
 - **Leading-zero numbers stay text** (`007`, ZIP codes), as in DuckDB, because a whole-number type would lose the zeros.
 - **Date formats are tried in DuckDB's order**: ISO, then year-first, day-first, month-first. When both day-first and month-first fit a column, day-first wins.
+- **A CSV in a documents container stays searchable text too.** The plan's rule is no harm to text search, so the table is added beside the text passages, loaded just before the text commits; a file that won't load as a table keeps its text and says why in its warnings. `TableUploads.KeepsText` decides by container kind.
 - **Every CSV is its own table in whatever container it lands in.** Deleting the file retires its table through a trigger on `documents`, so a delete from any code path cleans it up. The one rule for which uploads become tables is `TableUploads.LoadsAsTable` (`.csv` only for now: `.tsv` isn't an accepted upload type yet).
 
 ## Known limits
-- A CSV in a documents container no longer gets text chunks, so text search can't find it. The tables RAG eval baseline, which searched CSV text, measures something else from now on.
+- A CSV in a documents container is both: its text passages are indexed as before, so text search and the tables RAG eval baseline still find it, and it also loads as a table. A CSV in a tables container loads as a table only.
 - The table load and the document's completion run in separate transactions. A superseded ingestion job can briefly reload over a newer one, and the newer job then reloads again.

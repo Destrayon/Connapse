@@ -59,9 +59,37 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Upload_BadCellPastTheSample_IsListedAndItsRowLeftOut()
+    public async Task Upload_CsvToADocumentsContainer_IsFoundByTextSearchAndLoadsAsATable()
     {
         Guid containerId = await NewContainerAsync(ContainerKind.Documents);
+        try
+        {
+            string fruit = await UploadAsync(containerId, "fruit.csv", "name,origin,kilos\npersimmon,Okayama,12\nquince,Isfahan,7\n");
+            await WaitForReadyAsync(containerId, fruit);
+
+            using HttpResponseMessage response = await fixture.AdminClient.GetAsync(
+                $"/api/containers/{containerId}/search?q=persimmon+Okayama&mode=Keyword&topK=5");
+            response.EnsureSuccessStatusCode();
+            using JsonDocument found = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            found.RootElement.GetProperty("hits").EnumerateArray().Select(h => h.GetProperty("documentId").GetString())
+                .Should().Contain(fruit, "a CSV in a documents container keeps its text passages");
+
+            var table = (await TablesAsync(containerId)).Single();
+            table.DocumentId.Should().Be(Guid.Parse(fruit));
+            table.RowCount.Should().Be(2);
+            (await DocumentAsync(fruit)).Metadata["TableId"].Should().Be(table.Id.ToString());
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Upload_BadCellPastTheSample_IsListedAndItsRowLeftOut()
+    {
+        // A tables container, so the 60,000 rows aren't embedded as text too; the table load is the same either way.
+        Guid containerId = await NewContainerAsync(ContainerKind.Tables);
         try
         {
             const int bad = 52_051;

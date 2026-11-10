@@ -84,6 +84,7 @@ public static class DocumentsEndpoints
         .Produces<UploadResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
         .WithName("UploadFiles")
         .WithDescription("Upload one or more files to a container. Send `paths`, one folder per file in the order of `files`, to put each file in its own folder; `path` then goes unused.")
