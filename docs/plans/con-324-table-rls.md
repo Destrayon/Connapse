@@ -37,3 +37,5 @@ Ticket 1 of [con-320-raw-sql-rls.md](con-320-raw-sql-rls.md). Research: [con-324
 - Phase 4 done: leak tests (no, forged, other caller's and expired token, planted app-side leak, cross-container
   query, login after `RESET ROLE`, forging from the container role, token deleted, owner forced, role dropped) pass.
   CSV upload tests time out locally without host Ollama; the load gate passes alone. Next: Release build and PR.
+- Phase 5 done: Release build with CI flags, format check and all unit tests clean. PR #1206 into
+  `epic/con-e6-tables`. Next: wait for the PM's CI result.
