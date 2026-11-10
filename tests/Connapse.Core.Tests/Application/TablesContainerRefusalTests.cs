@@ -146,6 +146,27 @@ public class TablesContainerRefusalTests
     }
 
     [Fact]
+    public async Task BulkUploadFiles_TablesContainerGivenACsvAndADocument_UploadsTheCsvAndListsTheDocumentAsRefused()
+    {
+        var uploads = Substitute.For<IUploadService>();
+        uploads.BulkUploadAsync(Arg.Any<BulkUploadRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new BulkUploadResult(1, 0, "batch", [new UploadResult(true, "doc", "job")]));
+        var storage = Substitute.For<IManagedStorageProvider>();
+        storage.CreateConnector(Tables.Id).Returns(Substitute.For<IWritableConnector>());
+        var types = Substitute.For<IFileTypeValidator>();
+        types.IsSupported(Arg.Any<string>()).Returns(true);
+        var csv = new FileUpload("sales.csv", new MemoryStream(Encoding.UTF8.GetBytes("a,b\n1,2\n")));
+
+        var uploaded = await new BulkUploadFiles(_containers, storage, types, uploads, new PolicyAuthorizer(_ => true), UploadLimit())
+            .RunAsync(Caller, TablesId, [File(), csv]);
+
+        uploaded.Status.Should().Be(FileStatus.Success);
+        uploaded.Result!.Items.Select(i => (i.FileName, i.DocumentId, i.Error)).Should().Equal(("a.md", null, Message), ("sales.csv", "doc", null));
+        await uploads.Received(1).BulkUploadAsync(
+            Arg.Is<BulkUploadRequest>(r => r.Files.Single().FileName == "sales.csv"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task AppendToFile_TablesContainer_IsRefusedAndWritesNothing()
     {
         var uploads = Substitute.For<IUploadService>();

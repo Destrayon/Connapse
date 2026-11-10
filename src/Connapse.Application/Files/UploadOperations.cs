@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Connapse.Application.Containers;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -88,7 +89,7 @@ public sealed class UploadFile(
             return FileRules.Fail<UploadedFile>(status, detail, field);
         if (await containers.GetAsync(containerId, ct) is not { } container)
             return FileRules.ContainerNotFound<UploadedFile>(containerId);
-        if (FileRules.RefuseText<UploadedFile>(container) is { } refused)
+        if (FileRules.RefuseUpload<UploadedFile>(container, upload.FileName) is { } refused)
             return refused;
         if (!UploadRules.Writable(storage, container.Id))
             return FileRules.Fail<UploadedFile>(FileStatus.NotWritable, "This container is not writable.");
@@ -122,14 +123,18 @@ public sealed class BulkUploadFiles(
             return FileRules.Fail<BulkUpload>(FileStatus.Invalid, $"A bulk upload must name at most {MaxFiles} files", "files");
         if (await containers.GetAsync(containerId, ct) is not { } container)
             return FileRules.ContainerNotFound<BulkUpload>(containerId);
-        if (FileRules.RefuseText<BulkUpload>(container) is { } refused)
+        // A tables container takes the files that load as tables and lists the rest as refused, one by one; a batch
+        // with none it can take is refused whole.
+        bool tables = container.Kind == ContainerKind.Tables;
+        if ((!tables || !files.Any(f => TableUploads.LoadsAsTable(f.FileName))) && FileRules.RefuseText<BulkUpload>(container) is { } refused)
             return refused;
         if (!UploadRules.Writable(storage, container.Id))
             return FileRules.Fail<BulkUpload>(FileStatus.NotWritable, "This container is not writable.");
 
         // Each file is checked first; only the ones that pass go to storage, as one batch.
         long maxFileBytes = settings.CurrentValue.MaxFileBytes;
-        var problems = files.Select(f => UploadRules.Problem(f, types, maxFileBytes)?.Detail).ToList();
+        var problems = files.Select(f => UploadRules.Problem(f, types, maxFileBytes)?.Detail
+            ?? (tables && !TableUploads.LoadsAsTable(f.FileName) ? ContainerRules.TablesOnly(container) : null)).ToList();
         var passing = files.Where((_, i) => problems[i] is null).ToList();
         var batch = passing.Count == 0
             ? new BulkUploadResult(0, 0, null, [])

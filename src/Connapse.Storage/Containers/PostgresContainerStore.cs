@@ -185,10 +185,10 @@ public class PostgresContainerStore(
             throw new InvalidOperationException(
                 $"Container '{entity.Name}' is not empty ({entity.Documents.Count} documents). Delete all files first.");
 
-        // A tables container's tables go with it in one transaction: its schema is dropped, and its catalog entries
+        // A container's tables go with it in one transaction: its schema is dropped, and its catalog entries
         // cascade from the row.
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        if (entity.Kind == ContainerKind.Tables)
+        if (entity.Kind is ContainerKind.Tables or ContainerKind.Documents)
             await TableDdl.DropSchemaAsync(context.Database.GetDbConnection(), id, ct);
         context.Containers.Remove(entity);
         await context.SaveChangesAsync(ct);

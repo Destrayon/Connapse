@@ -250,22 +250,43 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Create_InADocumentsContainer_IsRefused()
+    public async Task Create_InAMemoryContainer_IsRefused()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
+        var tables = scope.ServiceProvider.GetRequiredService<ITableStore>();
+        var memory = await containers.CreateAsync(new CreateContainerRequest(UniqueName("memory"), null, ContainerKind.Memory));
+        try
+        {
+            var create = () => tables.CreateAsync(Guid.Parse(memory.Id), Load("Nope", 1, batch: 1));
+            await create.Should().ThrowAsync<InvalidOperationException>();
+            (await SchemaExistsAsync(scope, Guid.Parse(memory.Id))).Should().BeFalse();
+        }
+        finally
+        {
+            await containers.DeleteAsync(Guid.Parse(memory.Id));
+        }
+    }
+
+    [Fact]
+    public async Task Create_InADocumentsContainer_MakesItsSchemaAndDeletingTheContainerDropsIt()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
         var tables = scope.ServiceProvider.GetRequiredService<ITableStore>();
         var documents = await containers.CreateAsync(new CreateContainerRequest(UniqueName("docs"), null, ContainerKind.Documents));
-        try
-        {
-            var create = () => tables.CreateAsync(Guid.Parse(documents.Id), Load("Nope", 1, batch: 1));
-            await create.Should().ThrowAsync<InvalidOperationException>();
-            (await SchemaExistsAsync(scope, Guid.Parse(documents.Id))).Should().BeFalse();
-        }
-        finally
-        {
-            await containers.DeleteAsync(Guid.Parse(documents.Id));
-        }
+        Guid id = Guid.Parse(documents.Id);
+
+        var first = await tables.CreateAsync(id, Load("First", 3, batch: 1));
+        var second = await tables.CreateAsync(id, Load("Second", 2, batch: 1));
+
+        (await tables.ListAsync(id)).Select(t => t.Name).Should().BeEquivalentTo("First", "Second");
+        (await TableExistsAsync(scope, id, first.StorageName)).Should().BeTrue();
+        (await TableExistsAsync(scope, id, second.StorageName)).Should().BeTrue();
+
+        await containers.DeleteAsync(id);
+
+        (await SchemaExistsAsync(scope, id)).Should().BeFalse();
     }
 
     [Fact]
