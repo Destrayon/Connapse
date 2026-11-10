@@ -55,15 +55,7 @@
             }
             else
             {
-                <li class="nav-item">
-                    <button id="files-tab" class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
-                </li>
-                <li class="nav-item">
-                    <button id="tables-tab" class="nav-link @(activeTab == "tables" ? "active" : "")" @onclick='() => activeTab = "tables"'>Tables</button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
-                </li>
+                <ContainerTabs @bind-Tab="activeTab" OnSettings="ShowSettingsTab" />
             }
         </ul>
         @if (canEdit && activeTab == "files" && failedCount > 0)

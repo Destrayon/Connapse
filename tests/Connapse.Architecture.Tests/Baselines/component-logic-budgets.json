@@ -161,10 +161,10 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 742,
+    "CodeLines": 741,
     "Injects": 8,
     "Complexity": 169,
-    "MarkupLogic": 85,
+    "MarkupLogic": 84,
     "IsEmpty": false
   },
   "Pages/Home.razor": {
@@ -398,6 +398,13 @@
     "MarkupLogic": 2,
     "IsEmpty": false
   },
+  "Shared/ContainerTabs.razor": {
+    "CodeLines": 7,
+    "Injects": 0,
+    "Complexity": 3,
+    "MarkupLogic": 2,
+    "IsEmpty": false
+  },
   "Shared/CustomProviderLinkCard.razor": {
     "CodeLines": 87,
     "Injects": 3,
@@ -487,6 +494,13 @@
     "Injects": 3,
     "Complexity": 31,
     "MarkupLogic": 18,
+    "IsEmpty": false
+  },
+  "Tables/ContainerTables.razor": {
+    "CodeLines": 40,
+    "Injects": 2,
+    "Complexity": 16,
+    "MarkupLogic": 12,
     "IsEmpty": false
   }
 }

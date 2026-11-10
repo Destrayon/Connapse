@@ -132,7 +132,7 @@ public class MemoryContainerPagesTests : IDisposable
         var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, docs.Id));
 
         cut.WaitForAssertion(() => cut.Find("#fileDropZone"));
-        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Settings");
+        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Tables", "Settings");
         cut.FindAll("#memory-tab").Should().BeEmpty();
         cut.Find("#fileUploadInput");
         cut.FindAll("#memory-container-note").Should().BeEmpty();
