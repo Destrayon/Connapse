@@ -4,8 +4,11 @@ using Connapse.Identity.Services;
 
 namespace Connapse.Application.Approvals;
 
-/// <summary>A high-impact MCP call waiting for a person, as the approvals page shows it.</summary>
-public sealed record McpApprovalItem(Guid Id, string ToolName, string ArgumentsSummary, string TokenKey, DateTime CreatedAt, DateTime ExpiresAt);
+/// <summary>
+/// A high-impact MCP call waiting for a person, as the approvals page shows it. <paramref name="IsYours"/> is whether the
+/// viewer owns it and so may decide it; an administrator sees everyone's but decides only their own (CON-295).
+/// </summary>
+public sealed record McpApprovalItem(Guid Id, string ToolName, string ArgumentsSummary, string TokenKey, DateTime CreatedAt, DateTime ExpiresAt, bool IsYours);
 
 public enum McpApprovalOutcome
 {
@@ -49,13 +52,13 @@ public sealed class ListMcpApprovals(IMcpApprovalStore store)
 
         var pending = await store.ListPendingAsync(userId, isAdmin, ct);
         return Attempt<IReadOnlyList<McpApprovalItem>, McpApprovalOutcome>.Succeed(
-            pending.Select(a => new McpApprovalItem(a.Id, a.ToolName, a.ArgumentsSummary, a.TokenKey, a.CreatedAt, a.ExpiresAt)).ToList());
+            pending.Select(a => new McpApprovalItem(a.Id, a.ToolName, a.ArgumentsSummary, a.TokenKey, a.CreatedAt, a.ExpiresAt, a.OwnerUserId == userId)).ToList());
     }
 }
 
 /// <summary>
 /// Approves or denies one waiting MCP call (#782). Approving lets that exact call from that token run
-/// once within 15 minutes. Only its owner or an administrator may decide, and only in the UI.
+/// once within 15 minutes. Only its owner may decide, not an administrator (CON-295), and only in the UI.
 /// </summary>
 [Operation("approvals.decide", Scope = "approvals:decide", Risk = RiskTier.Write)]
 public sealed class DecideMcpApproval(IMcpApprovalStore store)
@@ -65,11 +68,11 @@ public sealed class DecideMcpApproval(IMcpApprovalStore store)
     {
         if (context.Surface != OperationSurface.Ui)
             return Attempt<bool, McpApprovalOutcome>.Fail(McpApprovalOutcome.NotFromUi);
-        if (Approver.From(context) is not var (userId, isAdmin))
+        if (Approver.From(context) is not var (userId, _))
             return Attempt<bool, McpApprovalOutcome>.Fail(McpApprovalOutcome.NotSignedIn);
 
         // Someone else's request reads as not found, so its existence isn't revealed.
-        return await store.DecideAsync(id, userId, isAdmin, approve, reason, ct) switch
+        return await store.DecideAsync(id, userId, approve, reason, ct) switch
         {
             McpApprovalDecision.Decided => Attempt<bool, McpApprovalOutcome>.Succeed(approve),
             McpApprovalDecision.NotPending => Attempt<bool, McpApprovalOutcome>.Fail(McpApprovalOutcome.NotPending),

@@ -10,8 +10,18 @@ RUN dotnet restore src/Connapse.Web/Connapse.Web.csproj
 
 # Copy remaining files and publish
 COPY . .
+# The version the server reports (/api/v1/info, MCP server info). MinVer normally reads it from git tags, but
+# .git/ is not in the build context, so without this every image says 0.0.0-alpha.0 (CON-316). The release
+# workflow passes the tag without its "v" (v0.4.1-alpha.2 -> 0.4.1-alpha.2). A local build may leave it empty.
+ARG VERSION=""
 # The OpenAPI document is committed at docs/api/openapi.json (#857); the image doesn't need it.
-RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore -p:OpenApiGenerateDocuments=false
+RUN dotnet publish src/Connapse.Web/Connapse.Web.csproj -c Release -o /app/publish --no-restore -p:OpenApiGenerateDocuments=false \
+    ${VERSION:+-p:MinVerVersionOverride=$VERSION}
+# A release build that doesn't carry its tag's version must not ship. deps.json records the version the
+# assembly was stamped with, the same one the server reports.
+RUN if [ -n "$VERSION" ] && ! grep -q "\"Connapse.Web/$VERSION\"" /app/publish/Connapse.Web.deps.json; then \
+      echo "Built version is not $VERSION:" >&2; grep -o '"Connapse.Web/[^"]*"' /app/publish/Connapse.Web.deps.json >&2; exit 1; \
+    fi
 
 # The publish is portable, so it carries native libraries for every platform its packages ship
 # (ONNX Runtime, SkiaSharp, PDFium, libgit2): Windows, macOS, Android and iOS among them, ~700 MB.

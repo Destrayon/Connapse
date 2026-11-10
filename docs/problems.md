@@ -239,7 +239,7 @@ A token must never approve the call it is waiting on, so REST and MCP callers ar
 ## approval-not-found
 
 No waiting approval request has this id, or it belongs to someone else. Only the person a token
-acts for, or an administrator, can see and decide its requests. When an agent checks a request's
+acts for can decide its requests; an administrator can see everyone's but decide only their own. When an agent checks a request's
 status, only the token that made it can see it; any other caller, an administrator included, gets
 this answer.
 

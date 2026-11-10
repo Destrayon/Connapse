@@ -77,7 +77,17 @@ public static class OAuthEndpoints
             [FromServices] ConnapseIdentityDbContext dbContext,
             CancellationToken ct) =>
         {
-            var form = await ctx.Request.ReadFormAsync(ct);
+            // A body over the form reader's limits, or one it can't parse, is the client's error, not the server's.
+            IFormCollection form;
+            try
+            {
+                form = await ctx.Request.ReadFormAsync(ct);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or BadHttpRequestException
+                                       || (ex is IOException && !ct.IsCancellationRequested))
+            {
+                return Results.Json(new OAuthError("invalid_request", "The body must be a readable form."), statusCode: 400);
+            }
             var grantType = form["grant_type"].ToString();
 
             return grantType switch
@@ -376,7 +386,10 @@ public static class OAuthEndpoints
     private static async ValueTask<object?> RequireFormContentType(
         EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
-        if (!context.HttpContext.Request.HasFormContentType)
+        // HasFormContentType also takes multipart, but RFC 6749 (§4.1.3, §6) sends token requests urlencoded only.
+        if (!Microsoft.Net.Http.Headers.MediaTypeHeaderValue.TryParse(
+                context.HttpContext.Request.ContentType, out Microsoft.Net.Http.Headers.MediaTypeHeaderValue? type)
+            || !type.MediaType.Equals("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase))
         {
             return Results.Json(
                 new OAuthError("invalid_request", "Content-Type must be application/x-www-form-urlencoded"), statusCode: 400);
