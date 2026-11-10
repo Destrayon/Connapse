@@ -207,7 +207,7 @@ public sealed class RequestDeletions(
         if (context.User.Identity?.IsAuthenticated != true || McpApprovalClaims.OwnerUserId(context.User) is not Guid owner)
             return Fail(DeletionBatchOutcome.NotSignedIn, "Sign in, or call with a token, to ask for deletions.");
         if (items is null || items.Count == 0)
-            return Fail(DeletionBatchOutcome.Invalid, "Name at least one file, folder or memory space to delete.", "items");
+            return Fail(DeletionBatchOutcome.Invalid, "Name at least one file, folder, container, memory space or fact to delete.", "items");
         if (items.Count > DeletionBatchEntity.MaxItems)
             return Fail(DeletionBatchOutcome.Invalid, $"A batch holds at most {DeletionBatchEntity.MaxItems} items; split the request.", "items");
 
@@ -239,7 +239,7 @@ public sealed class RequestDeletions(
     private async Task<(NewDeletionItem? Item, string? Problem)> ResolveAsync(OperationContext context, Guid owner, DeletionRequestItem request, CancellationToken ct)
     {
         if (DeletionTargets.ParseKind(request.Kind) is not DeletionItemKind kind)
-            return (null, $"kind must be file, folder or memory_space, not '{request.Kind}'");
+            return (null, $"kind must be file, folder, container, memory_space or fact, not '{request.Kind}'");
         string reason = request.Reason?.Trim() ?? "";
         if (reason.Length == 0)
             return (null, "give a reason, which the owner reads before deciding");
