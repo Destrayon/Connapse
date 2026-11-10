@@ -125,6 +125,7 @@ builder.Services.AddHostedService<CloudEnforcementLatch>();
 // Folds BM25 keyword-statistics deltas written by the chunks triggers (#548).
 builder.Services.AddHostedService<Bm25StatsFoldService>();
 builder.Services.AddHostedService<VectorIndexMaintenanceService>();
+builder.Services.AddHostedService<TableMaintenanceService>();
 builder.Services.AddHostedService<McpApprovalPurgeService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalModelDownloadService>());
 
