@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -242,10 +243,14 @@ public class GenericApiToolsTests(SharedWebAppFixture fixture)
         return arguments;
     }
 
-    private static OperationContext Admin() => new(
+    private OperationContext Admin() => new(
         new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin")], "Identity.Application")),
+            [new Claim(ClaimTypes.NameIdentifier, AdminUserId()), new Claim(ClaimTypes.Role, "Admin")], "Identity.Application")),
         OperationSurface.Ui);
+
+    /// <summary>The administrator's user id: only the owner of the token that asked may approve its call (CON-295).</summary>
+    private string AdminUserId() => new JwtSecurityTokenHandler().ReadJwtToken(fixture.AdminToken).Claims.First(c =>
+        c.Type is "sub" or "nameid" or "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier").Value;
 
     /// <summary>The administrator's own token, issued requiring approval: the folder routes admit editors, which an agent isn't.</summary>
     private Task<McpClient> ApprovalTokenAsync() => AdminTokenAsync(["knowledge:read", "knowledge:write"], requiresApproval: true);
