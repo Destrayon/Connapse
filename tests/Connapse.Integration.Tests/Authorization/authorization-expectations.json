@@ -980,6 +980,11 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "PUT /api/containers/{containerId:guid}/tables/{tableId:guid}/hidden-columns": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:settings"
+    },
     "PATCH /api/containers/{containerId:guid}": {
       "requires": "editor",
       "risk": "write",

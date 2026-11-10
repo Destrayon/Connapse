@@ -201,7 +201,7 @@ public static class ContainersEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .WithName("tables.hideColumns")
         .WithDescription("Hide a table's columns, by header name, from every caller; replaces the ones hidden before, and an empty list shows them all. A hidden column can't be selected, filtered, grouped, ordered or joined on. Admins only.")
-        .RequireAuthorization("RequireAdmin");
+        .RequireAuthorization("RequireSettingsAdmin");
 
         // GET /api/containers/{containerId}/settings - Get container settings overrides
         group.MapGet("/{containerId:guid}/settings", async (
