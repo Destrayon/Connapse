@@ -152,16 +152,20 @@ public class MemoryAgentTests
         MemoryAgentEval.Percentile([1, 2, 3, 4], 0.5).Should().Be(2);
     }
 
-    [Fact]
-    public void Dataset_HasTheRegisteredTasksAndEveryKeyResolves()
+    [Theory]
+    [InlineData(MemoryAgentEval.DefaultDataset, "")]
+    [InlineData(MemoryAgentEval.SealedDataset, ".gz")]
+    public void Dataset_HasTheRegisteredTasksAndEveryKeyResolves(string dataset, string suffix)
     {
-        string root = Path.Combine(RepoRoot(), "eval", "datasets", "memory-agent");
-        List<MemoryAgentEval.SeedFact> facts = MemoryAgentEval.ReadFacts(Path.Combine(root, "facts.jsonl"));
-        List<MemoryAgentEval.AgentTask> tasks = MemoryAgentEval.ReadTasks(Path.Combine(root, "tasks.jsonl"));
+        string root = Path.Combine(RepoRoot(), "eval", "datasets", dataset);
+        List<MemoryAgentEval.SeedFact> facts = MemoryAgentEval.ReadFacts(Path.Combine(root, "facts.jsonl" + suffix));
+        List<MemoryAgentEval.AgentTask> tasks = MemoryAgentEval.ReadTasks(Path.Combine(root, "tasks.jsonl" + suffix));
         HashSet<string> keys = [.. facts.Select(f => f.Key)];
+        MemoryAgentEval.DatasetProfile profile = MemoryAgentEval.Profiles[dataset];
 
-        tasks.Count(t => t.Split == "test" && t.Type == "find").Should().Be(MemoryAgentEval.RegisteredFindTasks);
-        tasks.Count(t => t.Split == "test" && t.Type == "save").Should().Be(MemoryAgentEval.RegisteredSaveTasks);
+        tasks.Count(t => t.Split == "test" && t.Type == "find").Should().Be(profile.FindTasks);
+        tasks.Count(t => t.Split == "test" && t.Type == "save").Should().Be(profile.SaveTasks);
+        tasks.Select(t => t.Kind).Distinct().Should().HaveCount(8, "every find and save kind is present");
         facts.Select(f => f.Key).Should().OnlyHaveUniqueItems();
         tasks.SelectMany(t => t.Gold).Should().OnlyContain(k => keys.Contains(k));
         tasks.Where(t => t.Target is not null).Should().OnlyContain(t => keys.Contains(t.Target!));
