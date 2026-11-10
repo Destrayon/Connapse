@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.4.1] - 2026-11-09
+## [v0.4.1] - 2026-11-10
 
 v0.4.1 makes v0.4.0 easier to run and to use from agents: the one-command install survives a reboot, agents can wait for a person's approval and carry on, make their own memory spaces, and read and append to files in fewer calls, and every MCP action now has a matching REST route.
 
