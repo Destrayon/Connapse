@@ -236,8 +236,12 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
     public static EvalDocument TableDocument(string root, string file)
     {
         string name = Loads.Contains(file) ? InventoryFile : file;
-        return new EvalDocument(file, DocumentKind.Text, name, File.ReadAllText(Path.Combine(root, file)), null,
-            new Dictionary<string, string>()) { FileName = name, Folder = "/" };
+        string text = File.ReadAllText(Path.Combine(root, file));
+        return new EvalDocument(file, DocumentKind.Text, name, text, null, new Dictionary<string, string>())
+        {
+            FileName = name,
+            Folder = "/",
+        };
     }
 
     private async Task<List<QuestionResult>> AnswerAsync(ClaudeCliAgent agent, McpToolbox tools, Func<TableQuestion, string> prompt,
