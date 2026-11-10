@@ -200,11 +200,13 @@ public class HybridSearchService : IKnowledgeSearch
             }
         }
 
-        // How well the best candidates match, on a scale that means the same from one query to the next.
-        // Hybrid scores are rescaled by it, which keeps their order; semantic scores are cosines already.
-        float? confidence = ConfidenceOf(hits, mode);
-        if (mode == SearchMode.Hybrid && confidence is float scale)
-            hits = ScaleScores(hits, scale);
+        // Whether the best candidate matches at all, by its cosine against the embedding model's cutoff. A search
+        // that falls short has every score scaled by one factor, which keeps their order.
+        NoMatchCutoff? cutoff = ScoreConfidence.CutoffFor(
+            scope.ServiceProvider.GetRequiredService<IOptionsMonitor<EmbeddingSettings>>().CurrentValue, effective);
+        float factor = NoMatchFactor(hits, mode, cutoff);
+        if (factor < 1f)
+            hits = ScaleScores(hits, factor);
 
         // Apply reranking if configured
         bool verifiedBeforeRerank = false;
@@ -276,35 +278,30 @@ public class HybridSearchService : IKnowledgeSearch
             finalHits,
             finalHits.Count,
             stopwatch.Elapsed,
-            NoGoodMatch: finalHits.Count == 0 || confidence < ScoreConfidence.NoMatchThreshold);
+            NoGoodMatch: finalHits.Count == 0 || factor < 1f);
     }
 
     /// <summary>
-    /// <see cref="ScoreConfidence"/> of the first-stage hits: from the cosines fusion recorded for a hybrid
-    /// search, from the scores themselves for a semantic one, and null for keyword search, which has none.
+    /// The <see cref="ScoreConfidence.Factor"/> for the first-stage hits' best cosine: the cosine fusion recorded for
+    /// a hybrid search, the score itself for a semantic one. 1 for keyword search, which has no cosine, and when the
+    /// embedding model has no cutoff.
     /// </summary>
-    internal static float? ConfidenceOf(List<SearchHit> hits, SearchMode mode)
+    internal static float NoMatchFactor(List<SearchHit> hits, SearchMode mode, NoMatchCutoff? cutoff)
     {
-        List<SearchHit> ranked = hits.OrderByDescending(h => h.Score).ToList();
-        return mode switch
+        if (cutoff is null)
+            return 1f;
+        float? best = mode switch
         {
-            SearchMode.Hybrid => ScoreConfidence.Of(ranked, ScoreConfidence.FusedCosine),
-            SearchMode.Semantic => ScoreConfidence.Of(ranked, h => h.Score),
+            SearchMode.Hybrid => ScoreConfidence.BestCosine(hits, ScoreConfidence.FusedCosine),
+            SearchMode.Semantic => ScoreConfidence.BestCosine(hits, h => h.Score),
             _ => null,
         };
+        return best is float cosine ? ScoreConfidence.Factor(cosine, cutoff) : 1f;
     }
 
-    /// <summary>
-    /// Every score multiplied by <paramref name="confidence"/>, so the order is unchanged. Floored above zero
-    /// so that scores stay apart and ties are not created.
-    /// </summary>
-    internal static List<SearchHit> ScaleScores(List<SearchHit> hits, float confidence)
-    {
-        float factor = Math.Clamp(confidence, MinimumScale, 1f);
-        return hits.Select(h => h with { Score = h.Score * factor }).ToList();
-    }
-
-    private const float MinimumScale = 1e-3f;
+    /// <summary>Every score multiplied by <paramref name="factor"/>, which is positive, so the order is unchanged.</summary>
+    internal static List<SearchHit> ScaleScores(List<SearchHit> hits, float factor) =>
+        hits.Select(h => h with { Score = h.Score * factor }).ToList();
 
     /// <summary>
     /// The <paramref name="count"/> best hits by first-stage score. A reranker scores against a
@@ -369,9 +366,7 @@ public class HybridSearchService : IKnowledgeSearch
             var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
             QueryEmbedding queryEmbedding = await vectorSearch.EmbedQueryAsync(query, poolOptions, ct);
             var results = await vectorSearch.SearchAsync(query, queryEmbedding, poolOptions, scopes, ct);
-            float[] background = await vectorSearch.BackgroundAsync(
-                queryEmbedding, options.ContainerId, scope.ServiceProvider.GetRequiredService<IMemoryCache>(), ct);
-            return (queryEmbedding, results, background);
+            return (queryEmbedding, results);
         }, ct);
 
         var keywordTask = Task.Run(async () =>
@@ -384,7 +379,7 @@ public class HybridSearchService : IKnowledgeSearch
 
         await Task.WhenAll(vectorTask, keywordTask);
 
-        var (queryEmbedding, vectorResults, background) = await vectorTask;
+        var (queryEmbedding, vectorResults) = await vectorTask;
         var keywordResults = await keywordTask;
 
         _logger.LogDebug(
@@ -440,35 +435,7 @@ public class HybridSearchService : IKnowledgeSearch
             return scores;
         };
 
-        return (WithBackground(TagRetrievalSource(fused, vectorResults, keywordResults), background), scoreChunks);
-    }
-
-    // EXPERIMENT (CON-278): background statistics on every hit, for offline analysis.
-    private static List<SearchHit> WithBackground(List<SearchHit> hits, float[] background)
-    {
-        if (background.Length == 0)
-            return hits;
-        float[] sorted = [.. background.OrderBy(x => x)];
-        double mean = sorted.Average();
-        double std = Math.Sqrt(sorted.Average(x => (x - mean) * (x - mean)));
-        float Q(double p) => sorted[(int)(p * (sorted.Length - 1))];
-        Dictionary<string, string> stats = new()
-        {
-            ["bgN"] = sorted.Length.ToString(CultureInfo.InvariantCulture),
-            ["bgMean"] = mean.ToString("F4", CultureInfo.InvariantCulture),
-            ["bgStd"] = std.ToString("F4", CultureInfo.InvariantCulture),
-            ["bgP50"] = Q(0.5).ToString("F4", CultureInfo.InvariantCulture),
-            ["bgP90"] = Q(0.9).ToString("F4", CultureInfo.InvariantCulture),
-            ["bgP99"] = Q(0.99).ToString("F4", CultureInfo.InvariantCulture),
-            ["bgMax"] = sorted[^1].ToString("F4", CultureInfo.InvariantCulture),
-        };
-        return hits.Select(h =>
-        {
-            Dictionary<string, string> metadata = new(h.Metadata);
-            foreach (var (k, v) in stats)
-                metadata[k] = v;
-            return h with { Metadata = metadata };
-        }).ToList();
+        return (TagRetrievalSource(fused, vectorResults, keywordResults), scoreChunks);
     }
 
     /// <summary>

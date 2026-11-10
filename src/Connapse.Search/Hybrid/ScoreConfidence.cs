@@ -4,52 +4,78 @@ using Connapse.Core;
 namespace Connapse.Search.Hybrid;
 
 /// <summary>
-/// How well a search's best results match the query, from the raw cosine similarities that hybrid fusion
-/// rescales away (CON-278). Fusion normalises each query's candidates to [0, 1], so its best hit scores
-/// about 1 whether it answers the query or not; this puts back what the normalisation removed.
+/// Whether a search found anything that matches the query, from the raw cosine similarity of its best
+/// vector match (CON-278). Hybrid fusion normalises each query's candidates to [0, 1], so its best hit
+/// scores about 1 whether it answers the query or not; the raw cosine is what that normalisation removed.
 /// </summary>
 /// <remarks>
-/// Two signals, both from the query's ten best hits. How similar the best one is: an unrelated corpus has
-/// nothing close to the query. And how far it stands above the rest: when nothing answers a query, every
-/// candidate is about as (dis)similar as the others, while a real answer stands out ("Magnitude Mirage",
-/// arXiv 2510.16012, found the top-1 minus top-k gap a better no-answer signal than the top score alone).
-/// The weights were fitted on the eval's dev split with nomic-embed-text, the default embedding model; see
-/// eval/pass-bars.md.
+/// A query whose best cosine falls below the embedding model's cutoff is flagged as having no good match, and
+/// every score it returns is multiplied by one factor (<see cref="Factor"/>), so its order is unchanged. Queries
+/// at or above the cutoff keep their scores. A cutoff is only meaningful for the model it was measured with, so
+/// each model has its own (<see cref="CutoffFor"/>); a model without one is never flagged and keeps its scores.
+/// The rule that sets a cutoff, and the numbers behind the built-in ones, are in eval/pass-bars.md.
 /// </remarks>
 internal static class ScoreConfidence
 {
     public const string RawVectorKey = "rawVectorScore";
     public const string RawKeywordKey = "rawKeywordScore";
 
-    /// <summary>Hits the signals are read from, however many the caller asked for.</summary>
-    public const int Window = 10;
+    /// <summary>Factor for a query whose best cosine is just under the cutoff.</summary>
+    internal const float FactorAtCutoff = 0.79f;
 
-    /// <summary>Below this confidence the search reports that nothing matched well.</summary>
-    public const float NoMatchThreshold = 0.5f;
-
-    // Logistic weights over (best cosine, best cosine minus the window's mean cosine), fitted by Newton's method
-    // with an L2 penalty of 1 on the slopes and balanced classes: 448 dev queries whose best hit is relevant
-    // against 767 asked of an unrelated container. Confidence crosses 0.5 near a best cosine of 0.72.
-    internal const double Bias = -10.3273;
-    internal const double TopWeight = 14.1187;
-    internal const double GapWeight = 2.0139;
+    /// <summary>Factor for a query whose best cosine is at or below the floor point, the least it falls to.</summary>
+    internal const float LowestFactor = 0.3f;
 
     /// <summary>
-    /// Confidence in [0, 1] that the best of <paramref name="ranked"/> answers the query, or null when no hit
-    /// carries a cosine similarity (a keyword-only search, or a container without vectors for the model).
+    /// Built-in cutoffs, by model name, for the models' published recipes (<see cref="EmbeddingSettings.UseModelPrefixes"/>).
+    /// Cutoff: the 5th percentile of the best cosine over eval questions whose best hit is relevant. Floor point:
+    /// the median best cosine over questions asked of an unrelated corpus.
     /// </summary>
-    /// <param name="ranked">Hits in rank order.</param>
-    /// <param name="cosine">A hit's raw cosine similarity, or null when it has none.</param>
-    public static float? Of(IReadOnlyList<SearchHit> ranked, Func<SearchHit, float?> cosine)
+    internal static readonly IReadOnlyDictionary<string, NoMatchCutoff> BuiltIn =
+        new Dictionary<string, NoMatchCutoff>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["nomic-embed-text"] = new(0.69f, 0.61f),
+        };
+
+    /// <summary>
+    /// The cutoff for the configured embedding model: the search settings' own when set (a cutoff of zero or less
+    /// turns the flag off), otherwise the built-in one for the model's published recipe, otherwise none.
+    /// </summary>
+    public static NoMatchCutoff? CutoffFor(EmbeddingSettings embedding, SearchSettings search)
     {
-        List<float> sims = ranked.Take(Window).Select(cosine).OfType<float>().ToList();
-        if (sims.Count == 0)
+        if (search.NoMatchCutoff is double cutoff)
+        {
+            if (cutoff <= 0)
+                return null;
+            double floor = search.NoMatchFloor ?? cutoff - DefaultFloorDistance;
+            return new NoMatchCutoff((float)cutoff, (float)Math.Min(floor, cutoff));
+        }
+
+        // Custom prefixes move every vector, so a cutoff measured with the published recipe no longer applies.
+        if (!embedding.UseModelPrefixes)
             return null;
-        double top = sims.Max();
-        double gap = top - sims.Average();
-        double z = Bias + TopWeight * top + GapWeight * gap;
-        return (float)(1 / (1 + Math.Exp(-z)));
+        return BuiltIn.TryGetValue(ModelName(embedding.Model), out NoMatchCutoff? builtIn) ? builtIn : null;
     }
+
+    /// <summary>Floor point below a configured cutoff when none is given: nomic-embed-text's distance.</summary>
+    private const double DefaultFloorDistance = 0.08;
+
+    /// <summary>
+    /// The factor every score of a query is multiplied by: 1 at or above the cutoff, <see cref="FactorAtCutoff"/>
+    /// just under it, falling linearly to <see cref="LowestFactor"/> at the floor point and staying there.
+    /// </summary>
+    public static float Factor(float bestCosine, NoMatchCutoff cutoff)
+    {
+        if (bestCosine >= cutoff.Cutoff)
+            return 1f;
+        float span = cutoff.Cutoff - cutoff.Floor;
+        float t = span <= 0 ? 1f : Math.Clamp((cutoff.Cutoff - bestCosine) / span, 0f, 1f);
+        return FactorAtCutoff - t * (FactorAtCutoff - LowestFactor);
+    }
+
+    /// <summary>The best cosine among <paramref name="hits"/>, or null when none carries one.</summary>
+    public static float? BestCosine(IEnumerable<SearchHit> hits, Func<SearchHit, float?> cosine) =>
+        hits.Select(cosine).Max();
 
     /// <summary>The raw cosine a fused hit carries in its metadata.</summary>
     public static float? FusedCosine(SearchHit hit) =>
@@ -57,4 +83,16 @@ internal static class ScoreConfidence
         && float.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out float value)
             ? value
             : null;
+
+    /// <summary>The model name without Ollama's default <c>:latest</c> tag.</summary>
+    internal static string ModelName(string model)
+    {
+        string name = model.Trim();
+        return name.EndsWith(":latest", StringComparison.OrdinalIgnoreCase) ? name[..^":latest".Length] : name;
+    }
 }
+
+/// <summary>
+/// An embedding model's no-match cutoff on the best cosine, and the floor point where the score factor stops falling.
+/// </summary>
+internal sealed record NoMatchCutoff(float Cutoff, float Floor);

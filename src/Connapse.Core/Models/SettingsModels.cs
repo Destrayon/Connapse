@@ -297,10 +297,23 @@ public record SearchSettings
     /// Minimum similarity score floor (0.0-1.0, default: 0).
     /// Set to 0 by default — TopK is the primary result limiter.
     /// Raise to filter low-relevance results (e.g., 0.2 to drop noise).
-    /// Hybrid scores are scaled by how well the search matched as a whole, so this floor means the same for every
-    /// query: a search whose best hit is unrelated scores well below 0.5 and a floor of 0.5 drops all of it.
+    /// A search flagged as having no good match (see <see cref="NoMatchCutoff"/>) has every score multiplied by 0.79
+    /// or less, so a floor of 0.8 drops all of it while keeping every result of a search that matched.
     /// </summary>
     public double MinimumScore { get; set; } = 0;
+
+    /// <summary>
+    /// Best-match cosine similarity below which a semantic or hybrid search reports that nothing matched well and
+    /// scales its scores down. Empty uses the built-in cutoff for the embedding model, when it has one (models
+    /// without one are never flagged); zero turns the flag off. Each embedding model needs its own value.
+    /// </summary>
+    public double? NoMatchCutoff { get; set; }
+
+    /// <summary>
+    /// Best-match cosine at or below which a flagged search's scores are scaled down the most (by 0.3). Only read
+    /// with <see cref="NoMatchCutoff"/>; empty puts it 0.08 below the cutoff.
+    /// </summary>
+    public double? NoMatchFloor { get; set; }
 
     /// <summary>
     /// When enabled, automatically trims results after the largest score gap.

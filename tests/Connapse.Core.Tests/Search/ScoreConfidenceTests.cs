@@ -37,61 +37,106 @@ public class ScoreConfidenceTests
         fused.Single(h => h.ChunkId == "c1").Metadata[ScoreConfidence.RawVectorKey].Should().Be("0.6400");
     }
 
+    private static readonly NoMatchCutoff Nomic = new(0.69f, 0.61f);
+
     [Theory]
-    [InlineData(0.9f)]
-    [InlineData(0.2f)]
-    [InlineData(0f)]
-    public void ScaleScores_AnyConfidence_KeepsTheOrderAndAddsNoTies(float confidence)
+    [InlineData(0.79f)]
+    [InlineData(0.3f)]
+    public void ScaleScores_AnyFactor_KeepsTheOrderAndAddsNoTies(float factor)
     {
         List<SearchHit> hits = [Hit("a", 1f), Hit("b", 0.97f), Hit("c", 0.5f), Hit("d", 0.01f)];
 
-        List<SearchHit> scaled = HybridSearchService.ScaleScores(hits, confidence);
+        List<SearchHit> scaled = HybridSearchService.ScaleScores(hits, factor);
 
         scaled.OrderByDescending(h => h.Score).Select(h => h.ChunkId).Should().Equal("a", "b", "c", "d");
         scaled.Select(h => h.Score).Should().OnlyHaveUniqueItems();
         scaled.Should().OnlyContain(h => h.Score <= 1f);
     }
 
-    [Fact]
-    public void ConfidenceOf_KeywordSearch_IsUnknown()
+    [Theory]
+    [InlineData(0.95f, 1f)]
+    [InlineData(0.69f, 1f)]
+    [InlineData(0.6899f, 0.79f)]
+    [InlineData(0.65f, 0.545f)]
+    [InlineData(0.61f, 0.3f)]
+    [InlineData(0.2f, 0.3f)]
+    public void Factor_BestCosine_OneAtTheCutoffThenFallsToTheFloor(float best, float expected)
     {
-        HybridSearchService.ConfidenceOf([Hit("a", 12f)], SearchMode.Keyword).Should().BeNull();
+        ScoreConfidence.Factor(best, Nomic).Should().BeApproximately(expected, 0.002f);
     }
 
     [Fact]
-    public void ConfidenceOf_HybridHitsWithoutCosines_IsUnknown()
+    public void NoMatchFactor_KeywordSearch_LeavesScoresAlone()
     {
-        HybridSearchService.ConfidenceOf([Hit("a", 1f)], SearchMode.Hybrid).Should().BeNull();
+        HybridSearchService.NoMatchFactor([Hit("a", 0.1f)], SearchMode.Keyword, Nomic).Should().Be(1f);
     }
 
     [Fact]
-    public void ConfidenceOf_HybridSearch_ReadsTheRecordedCosinesNotTheFusedScores()
+    public void NoMatchFactor_HybridHitsWithoutCosines_LeavesScoresAlone()
+    {
+        HybridSearchService.NoMatchFactor([Hit("a", 1f)], SearchMode.Hybrid, Nomic).Should().Be(1f);
+    }
+
+    [Fact]
+    public void NoMatchFactor_ModelWithoutACutoff_LeavesScoresAlone()
+    {
+        HybridSearchService.NoMatchFactor([Hit("a", 0.1f)], SearchMode.Semantic, null).Should().Be(1f);
+    }
+
+    [Fact]
+    public void NoMatchFactor_HybridSearch_ReadsTheBestRecordedCosineNotTheFusedScores()
     {
         List<SearchHit> fused = HybridSearchService.FuseResults(
-            [Hit("a", 0.8f), Hit("b", 0.4f), Hit("c", 0.38f)], [], 0.65f);
+            [Hit("a", 0.65f), Hit("b", 0.4f)], [Hit("b", 9f)], 0.65f);
 
-        HybridSearchService.ConfidenceOf(fused, SearchMode.Hybrid)
-            .Should().Be(HybridSearchService.ConfidenceOf([Hit("a", 0.8f), Hit("b", 0.4f), Hit("c", 0.38f)], SearchMode.Semantic));
+        HybridSearchService.NoMatchFactor(fused, SearchMode.Hybrid, Nomic)
+            .Should().Be(ScoreConfidence.Factor(0.65f, Nomic));
     }
 
     [Fact]
-    public void Of_StandoutCloseHit_IsMoreConfidentThanAFlatDistantField()
+    public void NoMatchFactor_SemanticSearchAboveTheCutoff_LeavesScoresAlone()
     {
-        float? answered = ScoreConfidence.Of([Hit("a", 0.82f), Hit("b", 0.55f), Hit("c", 0.52f)], h => h.Score);
-        float? unanswered = ScoreConfidence.Of([Hit("a", 0.48f), Hit("b", 0.47f), Hit("c", 0.47f)], h => h.Score);
+        HybridSearchService.NoMatchFactor([Hit("a", 0.4f), Hit("b", 0.72f)], SearchMode.Semantic, Nomic).Should().Be(1f);
+    }
 
-        answered.Should().BeGreaterThan(unanswered!.Value);
-        answered.Should().BeGreaterThanOrEqualTo(ScoreConfidence.NoMatchThreshold);
-        unanswered.Should().BeLessThan(ScoreConfidence.NoMatchThreshold);
+    [Theory]
+    [InlineData("nomic-embed-text")]
+    [InlineData("nomic-embed-text:latest")]
+    [InlineData("NOMIC-EMBED-TEXT")]
+    public void CutoffFor_BuiltInModel_UsesItsCutoff(string model)
+    {
+        ScoreConfidence.CutoffFor(new EmbeddingSettings { Model = model }, new SearchSettings()).Should().Be(Nomic);
     }
 
     [Fact]
-    public void Of_OnlyTheTopWindowCounts()
+    public void CutoffFor_UnknownModel_HasNone()
     {
-        List<SearchHit> top = Enumerable.Range(0, ScoreConfidence.Window).Select(i => Hit($"t{i}", 0.7f - i * 0.01f)).ToList();
-        List<SearchHit> withTail = [.. top, .. Enumerable.Range(0, 20).Select(i => Hit($"x{i}", 0.1f))];
+        ScoreConfidence.CutoffFor(new EmbeddingSettings { Model = "text-embedding-3-small" }, new SearchSettings())
+            .Should().BeNull();
+    }
 
-        ScoreConfidence.Of(withTail, h => h.Score).Should().Be(ScoreConfidence.Of(top, h => h.Score));
+    [Fact]
+    public void CutoffFor_CustomPrefixes_HasNone()
+    {
+        EmbeddingSettings embedding = new() { Model = "nomic-embed-text", UseModelPrefixes = false };
+
+        ScoreConfidence.CutoffFor(embedding, new SearchSettings()).Should().BeNull();
+    }
+
+    [Fact]
+    public void CutoffFor_ConfiguredCutoff_OverridesAndDefaultsTheFloor()
+    {
+        ScoreConfidence.CutoffFor(new EmbeddingSettings { Model = "text-embedding-3-small" }, new SearchSettings { NoMatchCutoff = 0.4 })
+            .Should().Be(new NoMatchCutoff(0.4f, 0.32f));
+        ScoreConfidence.CutoffFor(new EmbeddingSettings(), new SearchSettings { NoMatchCutoff = 0.4, NoMatchFloor = 0.2 })
+            .Should().Be(new NoMatchCutoff(0.4f, 0.2f));
+    }
+
+    [Fact]
+    public void CutoffFor_ZeroCutoff_TurnsTheFlagOff()
+    {
+        ScoreConfidence.CutoffFor(new EmbeddingSettings { Model = "nomic-embed-text" }, new SearchSettings { NoMatchCutoff = 0 })
+            .Should().BeNull();
     }
 
     [Fact]

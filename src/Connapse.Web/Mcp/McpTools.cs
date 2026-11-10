@@ -124,7 +124,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. Scores are comparable across searches: near 1 is a strong match, below 0.5 a weak one, and the result says 'No good match' when nothing matches well. If the first query returns thin results, refine the query and call again.")]
+     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. The result says 'No good match' when nothing in the container matches the query well; those results' scores are scaled down to 0.79 or less. If the first query returns thin results, refine the query and call again.")]
     public static async Task<string> SearchKnowledge(
         Connapse.Application.Search.SearchKnowledge search,
         IHttpContextAccessor httpContextAccessor,

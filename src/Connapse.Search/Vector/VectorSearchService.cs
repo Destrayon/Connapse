@@ -1,6 +1,5 @@
 using Connapse.Core;
 using Connapse.Core.Interfaces;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Connapse.Storage.Vectors;
@@ -211,38 +210,6 @@ public class VectorSearchService
             .ThenBy(r => r.Metadata.GetValueOrDefault("path", ""), StringComparer.Ordinal)
             .ThenBy(r => int.TryParse(r.Metadata.GetValueOrDefault("chunkIndex"), out int index) ? index : int.MaxValue)
             .ThenBy(r => r.Id, StringComparer.Ordinal);
-
-    /// <summary>
-    /// Similarity of the query to a fixed sample of the container's chunks (all chunks when no container is
-    /// given), in the configured model's space: how close the query sits to this corpus in general, which a
-    /// best match must stand out from. The sample's ids are cached per container and model. Empty when the
-    /// query was not embedded or the container holds no vectors.
-    /// </summary>
-    public async Task<float[]> BackgroundAsync(
-        QueryEmbedding queryEmbedding,
-        string? containerId,
-        IMemoryCache cache,
-        CancellationToken ct = default)
-    {
-        if (queryEmbedding.Spaces.Count == 0)
-            return [];
-
-        QuerySpace space = queryEmbedding.Spaces[0];
-        string key = $"search-background:{space.ModelId}:{containerId}";
-        IReadOnlyList<string>? ids = await cache.GetOrCreateAsync(key, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = BackgroundSampleLifetime;
-            return _vectorStore.SampleChunkIdsAsync(space.ModelId, containerId, BackgroundSampleSize, ct);
-        });
-        if (ids is null || ids.Count == 0)
-            return [];
-
-        IReadOnlyDictionary<string, float> scores = await _vectorStore.ScoreChunksAsync(space.Vector, ids, space.ModelId, ct);
-        return [.. scores.Values];
-    }
-
-    internal const int BackgroundSampleSize = 256;
-    private static readonly TimeSpan BackgroundSampleLifetime = TimeSpan.FromMinutes(10);
 
     /// <summary>
     /// Similarity of the named chunks to the query, in the vector space the query was embedded for,
