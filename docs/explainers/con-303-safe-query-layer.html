@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safe Table Queries</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef1f5;
+    --text: #1b2330;
+    --muted: #5a6677;
+    --border: #d5dbe4;
+    --accent: #0b6e99;
+    --accent-soft: #dcefF7;
+    --db: #6a4bb3;
+    --db-soft: #ebe5f8;
+    --ok: #1d7a4a;
+    --ok-soft: #dff3e7;
+    --stop: #b3322b;
+    --stop-soft: #fbe6e4;
+    --warn: #8a5a00;
+    --warn-soft: #fbf0d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c;
+      --surface: #1a2028;
+      --surface-2: #232b36;
+      --text: #e7ecf2;
+      --muted: #9daaba;
+      --border: #344050;
+      --accent: #5cc0ea;
+      --accent-soft: #143546;
+      --db: #b49cf0;
+      --db-soft: #2b2446;
+      --ok: #62cf93;
+      --ok-soft: #153524;
+      --stop: #f0857e;
+      --stop-soft: #43201e;
+      --warn: #e6bb5c;
+      --warn-soft: #3b2f12;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    overflow-wrap: break-word;
+  }
+  main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 28px 16px 56px;
+  }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 1.35rem; line-height: 1.25; margin: 48px 0 10px; }
+  h3 { font-size: 1.02rem; margin: 0 0 4px; }
+  p { margin: 0 0 14px; }
+  .kicker { color: var(--muted); font-size: 0.9rem; margin: 0 0 20px; }
+  .lead {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 0;
+  }
+  .muted { color: var(--muted); }
+  code {
+    font-family: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+    font-size: 0.88em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* Flow: diagram + captions */
+  .flow {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .flow svg, .walls svg { display: block; width: 100%; height: auto; max-width: 440px; margin: 0 auto; }
+  @media (min-width: 780px) {
+    .flow { grid-template-columns: 380px 1fr; gap: 32px; }
+    .flow svg { position: sticky; top: 16px; }
+  }
+  ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+  ol.steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 18px 44px;
+  }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent); color: var(--surface);
+    font-weight: 700; font-size: 0.95rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ol.steps li.db::before { background: var(--db); }
+  ol.steps p { margin: 0 0 6px; font-size: 0.97rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
+  .chips li {
+    padding: 3px 10px; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    font-size: 0.84rem; counter-increment: none;
+  }
+  .chips li::before { content: none; }
+
+  /* SVG text and shapes */
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .s-box { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+  .s-box-db { fill: var(--db-soft); stroke: var(--db); stroke-width: 1.5; }
+  .s-box-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.5; }
+  .s-title { fill: var(--text); font-size: 16px; font-weight: 650; }
+  .s-sub { fill: var(--muted); font-size: 13px; }
+  .s-tag { fill: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; }
+  .s-num-bg { fill: var(--accent); }
+  .s-num-bg-db { fill: var(--db); }
+  .s-num { fill: var(--surface); font-size: 15px; font-weight: 700; }
+  .s-arrow { stroke: var(--muted); stroke-width: 2; fill: none; }
+  .s-arrow-head { fill: var(--muted); }
+  .s-arrow-label { fill: var(--muted); font-size: 12.5px; font-style: italic; }
+  .s-item { fill: var(--text); font-size: 13px; }
+  .s-x { stroke: var(--stop); stroke-width: 2.4; stroke-linecap: round; }
+  .s-bar { fill: var(--accent); }
+  .s-bar-db { fill: var(--db); }
+  .s-ok-text { fill: var(--ok); font-size: 14px; font-weight: 650; }
+
+  /* Example */
+  .example {
+    display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 8px;
+  }
+  @media (min-width: 700px) { .example { grid-template-columns: 1fr 1fr; } }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-width: 0;
+  }
+  .card .label {
+    font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 8px;
+  }
+  pre {
+    margin: 0;
+    font-family: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+    font-size: 0.8rem; line-height: 1.5;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.num { text-align: right; }
+  .note-ok {
+    margin: 10px 0 0; padding: 8px 10px; border-radius: 8px;
+    background: var(--ok-soft); color: var(--ok); font-size: 0.86rem;
+  }
+  .note-cut {
+    margin: 8px 0 0; padding: 8px 10px; border-radius: 8px;
+    background: var(--warn-soft); color: var(--warn); font-size: 0.86rem;
+  }
+
+  /* Walls */
+  .walls { display: grid; grid-template-columns: 1fr; gap: 20px; align-items: start; }
+  @media (min-width: 780px) { .walls { grid-template-columns: 380px 1fr; gap: 32px; } }
+  .proof td:first-child { font-weight: 600; width: 46%; }
+  .proof tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    background: var(--stop-soft); color: var(--stop);
+    font-size: 0.78rem; font-weight: 700; white-space: nowrap;
+  }
+
+  ul.plain { margin: 0 0 14px; padding-left: 20px; }
+  ul.plain li { margin-bottom: 8px; }
+  .azure {
+    background: var(--warn-soft);
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--warn);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-top: 18px;
+  }
+  .azure h3 { color: var(--warn); }
+  .azure p:last-child { margin-bottom: 0; }
+  footer { margin-top: 44px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.84rem; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Safe Table Queries</h1>
+  <p class="kicker">How agents ask questions of tables without ever touching the database directly. Ticket CON-303. About a 4-minute read.</p>
+
+  <p class="lead">
+    Connapse can now hold spreadsheet-like tables, and agents can ask questions of them: show me these rows, or total this column by that one.
+    The agent never writes a database command itself. It fills in a small structured request, and Connapse turns that into one read-only query.
+    The query then runs as a database user that can only read table data, inside limits on time, memory and answer size.
+    So an agent can't change data, and each request reads exactly one table in the container it is working in. Nothing else in the database is reachable.
+  </p>
+
+  <h2>How one question travels</h2>
+  <p class="muted">Five steps, top to bottom. Purple steps happen inside the database.</p>
+
+  <div class="flow">
+    <svg viewBox="0 0 360 608" role="img" aria-labelledby="flowTitle flowDesc">
+      <title id="flowTitle">The path of one table question</title>
+      <desc id="flowDesc">An agent's request goes to the compiler, then to the reader login, then runs in a read-only transaction with limits, and comes back as a capped answer.</desc>
+
+      <!-- 1 -->
+      <rect class="s-box" x="8" y="8" width="344" height="80" rx="12"/>
+      <circle class="s-num-bg" cx="40" cy="48" r="16"/>
+      <text class="s-num" x="40" y="53" text-anchor="middle">1</text>
+      <text class="s-tag" x="340" y="26" text-anchor="end">AGENT</text>
+      <text class="s-title" x="68" y="46">The agent's request</text>
+      <text class="s-sub" x="68" y="67">A filled-in form, not a command</text>
+
+      <line class="s-arrow" x1="40" y1="88" x2="40" y2="126"/>
+      <polygon class="s-arrow-head" points="34,124 46,124 40,135"/>
+      <text class="s-arrow-label" x="58" y="116">a structured request</text>
+
+      <!-- 2 -->
+      <rect class="s-box" x="8" y="136" width="344" height="80" rx="12"/>
+      <circle class="s-num-bg" cx="40" cy="176" r="16"/>
+      <text class="s-num" x="40" y="181" text-anchor="middle">2</text>
+      <text class="s-tag" x="340" y="154" text-anchor="end">CONNAPSE</text>
+      <text class="s-title" x="68" y="174">The compiler</text>
+      <text class="s-sub" x="68" y="195">Checks names, writes one query</text>
+
+      <line class="s-arrow" x1="40" y1="216" x2="40" y2="254"/>
+      <polygon class="s-arrow-head" points="34,252 46,252 40,263"/>
+      <text class="s-arrow-label" x="58" y="244">one query, values sent separately</text>
+
+      <!-- 3 -->
+      <rect class="s-box-db" x="8" y="264" width="344" height="80" rx="12"/>
+      <circle class="s-num-bg-db" cx="40" cy="304" r="16"/>
+      <text class="s-num" x="40" y="309" text-anchor="middle">3</text>
+      <text class="s-tag" x="340" y="282" text-anchor="end">DATABASE</text>
+      <text class="s-title" x="68" y="302">The reader login</text>
+      <text class="s-sub" x="68" y="323">A user that can only read tables</text>
+
+      <line class="s-arrow" x1="40" y1="344" x2="40" y2="382"/>
+      <polygon class="s-arrow-head" points="34,380 46,380 40,391"/>
+      <text class="s-arrow-label" x="58" y="372">runs as that read-only user</text>
+
+      <!-- 4 -->
+      <rect class="s-box-db" x="8" y="392" width="344" height="80" rx="12"/>
+      <circle class="s-num-bg-db" cx="40" cy="432" r="16"/>
+      <text class="s-num" x="40" y="437" text-anchor="middle">4</text>
+      <text class="s-tag" x="340" y="410" text-anchor="end">DATABASE</text>
+      <text class="s-title" x="68" y="430">Read-only transaction</text>
+      <text class="s-sub" x="68" y="451">Time, memory and disk limits</text>
+
+      <line class="s-arrow" x1="40" y1="472" x2="40" y2="510"/>
+      <polygon class="s-arrow-head" points="34,508 46,508 40,519"/>
+      <text class="s-arrow-label" x="58" y="500">rows come back; nothing is saved</text>
+
+      <!-- 5 -->
+      <rect class="s-box-ok" x="8" y="520" width="344" height="80" rx="12"/>
+      <circle class="s-num-bg" cx="40" cy="560" r="16"/>
+      <text class="s-num" x="40" y="565" text-anchor="middle">5</text>
+      <text class="s-tag" x="340" y="538" text-anchor="end">CONNAPSE</text>
+      <text class="s-title" x="68" y="558">The capped answer</text>
+      <text class="s-sub" x="68" y="579">Trimmed to size; says if it was cut</text>
+    </svg>
+
+    <ol class="steps">
+      <li>
+        <h3>The agent's request</h3>
+        <p>The agent sends a small form written in JSON, a plain-text format for structured data. It names a table, some columns, and choices from fixed lists: eleven comparisons (equals, greater than, contains, and so on) and six summaries (count, count distinct, sum, average, minimum, maximum).</p>
+        <p>The form is strict. A misspelt or unknown field is an error that says what was wrong. There is no place in it to put SQL, the language of database commands.</p>
+      </li>
+      <li>
+        <h3>The compiler</h3>
+        <p>The compiler is the part of Connapse that turns the form into a query. It looks up every column name in the table's catalog, which is Connapse's own record of each table and its columns. A name that isn't there is refused, with a list of the real columns so the agent can try again.</p>
+        <p>The values the agent supplied, such as "north" or 100, travel separately as parameters: labelled slots the database fills in as data only. So a value can never become a command, whatever it contains.</p>
+        <p>The result is always one <code>SELECT</code>, the database command that reads rows. One table per query; no joins across tables.</p>
+      </li>
+      <li class="db">
+        <h3>The reader login</h3>
+        <p>The query does not run as Connapse's normal database user. It runs as a separate login that Connapse creates for this job. That login has been granted one thing: reading the tables in table containers.</p>
+        <p>It is not an administrator, belongs to no group, and can't create anything. If a login with the same name already exists with extra rights, Connapse refuses to use it. Its connections are wiped clean before they are reused.</p>
+      </li>
+      <li class="db">
+        <h3>The read-only transaction and its limits</h3>
+        <p>Each query runs inside a read-only transaction, a sealed unit of work in which the database refuses to save anything. When the query finishes, the transaction is always rolled back, meaning thrown away.</p>
+        <ul class="chips">
+          <li>5 seconds to finish</li>
+          <li>1 second waiting on a locked table</li>
+          <li>16 MB memory per sort or grouping step</li>
+          <li>256 MB temporary disk</li>
+          <li>Always rolled back</li>
+        </ul>
+        <p style="margin-top:8px">The time and memory limits are set twice: as the login's defaults, and again on every query. The disk cap lives on the login.</p>
+      </li>
+      <li>
+        <h3>The capped answer</h3>
+        <p>Answers are kept small enough for an agent to read.</p>
+        <ul class="chips">
+          <li>100 rows by default, 1,024 at most</li>
+          <li>2,000 characters per text cell</li>
+          <li>About 50,000 characters overall</li>
+        </ul>
+        <p style="margin-top:8px">If anything was cut, the answer carries a note saying so and how to see more. Database errors come back as plain sentences, such as "The query took longer than 5s and was stopped."</p>
+      </li>
+    </ol>
+  </div>
+
+  <h2>An example: total sales by region</h2>
+  <p class="muted">The numbers are made up for illustration. The request format is the real one.</p>
+  <div class="example">
+    <div class="card">
+      <p class="label">What the agent sends</p>
+<pre>{
+  "table": "&lt;id of the Sales table&gt;",
+  "aggregates": [
+    { "aggregate": "sum",
+      "column": "Amount" }
+  ],
+  "group_by": ["Region"]
+}</pre>
+      <p class="muted" style="font-size:0.88rem;margin:10px 0 0">In words: from the Sales table, add up Amount for each Region.</p>
+    </div>
+    <div class="card">
+      <p class="label">What comes back</p>
+      <table>
+        <thead><tr><th>Region</th><th class="num">sum(Amount)</th></tr></thead>
+        <tbody>
+          <tr><td>east</td><td class="num">40</td></tr>
+          <tr><td>north</td><td class="num">30.5</td></tr>
+          <tr><td>south</td><td class="num">5</td></tr>
+        </tbody>
+      </table>
+      <p class="note-ok">Complete answer. Nothing was cut.</p>
+      <p class="note-cut">Had it been cut, the note would read: "More rows match; only the first 100 are shown. Use offset or a narrower filter to see more."</p>
+    </div>
+  </div>
+
+  <h2>What's blocked, and why</h2>
+  <p>There are four layers. An attack has to get past all of them to do harm. The last one, the login's grants (the list of things a database user is allowed to do), is the real wall. It holds even if the others are switched off.</p>
+
+  <div class="walls">
+    <svg viewBox="0 0 360 596" role="img" aria-labelledby="wallTitle wallDesc">
+      <title id="wallTitle">Four layers of protection and the attacks each one stops</title>
+      <desc id="wallDesc">Layer one: no commands from the agent. Layer two: one statement per call. Layer three: read-only transaction with limits. Layer four: the login's grants. Below them, the data is unchanged.</desc>
+
+      <!-- Layer 1 -->
+      <rect class="s-box" x="8" y="8" width="344" height="112" rx="10"/>
+      <rect class="s-bar" x="8" y="8" width="6" height="112" rx="3"/>
+      <text class="s-title" x="26" y="34">1 · No commands from the agent</text>
+      <text class="s-sub" x="26" y="54">It fills in a form. Connapse writes the query.</text>
+      <g class="s-x"><line x1="28" y1="72" x2="36" y2="80"/><line x1="36" y1="72" x2="28" y2="80"/></g>
+      <text class="s-item" x="46" y="81">Commands hidden in a value or a header</text>
+      <g class="s-x"><line x1="28" y1="94" x2="36" y2="102"/><line x1="36" y1="94" x2="28" y2="102"/></g>
+      <text class="s-item" x="46" y="103">Heavy tricks: joins, sleeping, nesting</text>
+
+      <!-- Layer 2 -->
+      <rect class="s-box" x="8" y="130" width="344" height="90" rx="10"/>
+      <rect class="s-bar" x="8" y="130" width="6" height="90" rx="3"/>
+      <text class="s-title" x="26" y="156">2 · One statement per call</text>
+      <text class="s-sub" x="26" y="176">The database refuses anything tacked on.</text>
+      <g class="s-x"><line x1="28" y1="194" x2="36" y2="202"/><line x1="36" y1="194" x2="28" y2="202"/></g>
+      <text class="s-item" x="46" y="203">Adding a second command</text>
+
+      <!-- Layer 3 -->
+      <rect class="s-box-db" x="8" y="230" width="344" height="112" rx="10"/>
+      <rect class="s-bar-db" x="8" y="230" width="6" height="112" rx="3"/>
+      <text class="s-title" x="26" y="256">3 · Read-only transaction + limits</text>
+      <text class="s-sub" x="26" y="276">Nothing can be saved. Slow work is cut off.</text>
+      <g class="s-x"><line x1="28" y1="294" x2="36" y2="302"/><line x1="36" y1="294" x2="28" y2="302"/></g>
+      <text class="s-item" x="46" y="303">Changing or deleting data</text>
+      <g class="s-x"><line x1="28" y1="316" x2="36" y2="324"/><line x1="36" y1="316" x2="28" y2="324"/></g>
+      <text class="s-item" x="46" y="325">Runaway queries (stopped at 5 seconds)</text>
+
+      <!-- Layer 4 -->
+      <rect class="s-box-db" x="8" y="352" width="344" height="178" rx="10"/>
+      <rect class="s-bar-db" x="8" y="352" width="6" height="178" rx="3"/>
+      <text class="s-title" x="26" y="378">4 · The login's grants</text>
+      <text class="s-sub" x="26" y="398">The real wall. It may read tables, nothing more.</text>
+      <g class="s-x"><line x1="28" y1="416" x2="36" y2="424"/><line x1="36" y1="416" x2="28" y2="424"/></g>
+      <text class="s-item" x="46" y="425">Changing or deleting data</text>
+      <g class="s-x"><line x1="28" y1="438" x2="36" y2="446"/><line x1="36" y1="438" x2="28" y2="446"/></g>
+      <text class="s-item" x="46" y="447">Reading Connapse's own tables</text>
+      <g class="s-x"><line x1="28" y1="460" x2="36" y2="468"/><line x1="36" y1="460" x2="28" y2="468"/></g>
+      <text class="s-item" x="46" y="469">Reading server files or running programs</text>
+      <g class="s-x"><line x1="28" y1="482" x2="36" y2="490"/><line x1="36" y1="482" x2="28" y2="490"/></g>
+      <text class="s-item" x="46" y="491">Switching to a more powerful user</text>
+      <g class="s-x"><line x1="28" y1="504" x2="36" y2="512"/><line x1="36" y1="504" x2="28" y2="512"/></g>
+      <text class="s-item" x="46" y="513">Creating tables or risky add-ons</text>
+
+      <!-- Data -->
+      <rect class="s-box-ok" x="8" y="544" width="344" height="44" rx="22"/>
+      <text class="s-ok-text" x="180" y="571" text-anchor="middle">The data: read, never changed</text>
+    </svg>
+
+    <div>
+      <h3>Tests try each attack and prove it fails</h3>
+      <p style="font-size:0.95rem">The tests are harsher than real life. They log in as the reader and send raw database commands, which an agent can never do. Most of them first switch read-only mode off, to show the grants alone are enough.</p>
+      <div class="card" style="padding:4px 6px">
+        <table class="proof">
+          <thead><tr><th>Attack tried</th><th>What happened</th></tr></thead>
+          <tbody>
+            <tr><td>Add, change or delete rows; empty, alter or drop the table</td><td><span class="badge">Denied</span> No permission, even with read-only mode off. With it on, refused as read-only too.</td></tr>
+            <tr><td>Read Connapse's own tables</td><td><span class="badge">Denied</span> No permission.</td></tr>
+            <tr><td>Read server files, list folders, write a file, run a program</td><td><span class="badge">Denied</span> No permission.</td></tr>
+            <tr><td>Switch to a more powerful user</td><td><span class="badge">Denied</span> No permission.</td></tr>
+            <tr><td>Create tables, or install an add-on that reaches other servers</td><td><span class="badge">Denied</span> No permission.</td></tr>
+            <tr><td>Runaway query (a 30-second sleep)</td><td><span class="badge">Stopped</span> Cut off by the time limit.</td></tr>
+            <tr><td>Add a second command after the query</td><td><span class="badge">Rejected</span> The database refuses the whole thing.</td></tr>
+            <tr><td>Put commands in a column header or a value</td><td><span class="badge">Harmless</span> Treated as plain text. Nothing was dropped.</td></tr>
+            <tr><td>Raise its own temporary-disk cap</td><td><span class="badge">Denied</span> No permission.</td></tr>
+            <tr><td>Ask for a table in another container</td><td><span class="badge">Not found</span> "There is no table with id…"</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h2>What's left, and the limits</h2>
+  <p>A few small gaps remain. Every one of them needs raw database commands, which agents can't send. They would matter only if a future bug let commands through.</p>
+  <ul class="plain">
+    <li><strong>Read-only mode is a seat belt, not the wall.</strong> Someone with raw commands could switch it off. That is why the grants carry the weight, and why the tests switch it off first.</li>
+    <li><strong>Temporary tables and large objects.</strong> By default, any database user may create short-lived scratch tables, and probably large objects (the database's store for big files). Both are blocked inside a read-only transaction. Connapse leaves the default alone because changing it affects the whole database; an operator can remove it.</li>
+    <li><strong>The database's own listings.</strong> Every database user can read the system catalog: the database's lists of user names and who is connected. That is not Connapse data, but it is visible.</li>
+    <li><strong>The reader can change its own default limits.</strong> For example, its default time limit. Connapse sets the limits again on every query and restores the defaults on every start. The temporary-disk cap is out of the reader's reach.</li>
+    <li><strong>Memory is capped per step, not per query.</strong> A query with several sorting or grouping steps can use the cap several times over. The total on the smallest Azure tier has not been measured.</li>
+    <li><strong>Older databases.</strong> A database upgraded from PostgreSQL 14 or earlier may still let any user create tables in the shared "public" area. The test for this ran on a fresh PostgreSQL 17 only.</li>
+    <li><strong>Not in this ticket.</strong> The tools agents will call to reach this layer, joins across tables, hidden columns and per-document permissions are later tickets.</li>
+  </ul>
+
+  <div class="azure">
+    <h3>Azure note</h3>
+    <p>On Azure's managed PostgreSQL (Flexible Server), the administrator account can create the reader login and set its time, lock and memory limits. That part is documented.</p>
+    <p>Whether Azure allows the 256 MB temporary-disk cap to be set on one login is not documented. Connapse tries. If Azure refuses, Connapse logs a warning asking the operator to set the server-wide setting <code>temp_file_limit</code> instead. Everything else still works.</p>
+    <p>Two more things for an Azure operator: don't enable the add-ons that reach other servers (<code>dblink</code>, <code>postgres_fdw</code>), and never add the reader to Azure's admin group. None of this has been run against a live Azure server yet.</p>
+  </div>
+
+  <footer>
+    Sources: the CON-303 pull request, the research report <code>docs/research/con-303-safe-query-layer-2026-11-09.md</code>, the code in <code>src/Connapse.Storage/Tables/</code>, and the tests in <code>tests/Connapse.Integration.Tests/TableQueryTests.cs</code>.
+  </footer>
+
+</main>
+</body>
+</html>
