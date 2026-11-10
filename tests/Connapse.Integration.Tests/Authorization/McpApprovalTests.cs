@@ -12,6 +12,7 @@ using Connapse.Identity.Authentication;
 using Connapse.Identity.Data;
 using Connapse.Identity.Data.Entities;
 using Connapse.Identity.Services;
+using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -25,15 +26,16 @@ using ModelContextProtocol.Protocol;
 namespace Connapse.Integration.Tests.Authorization;
 
 /// <summary>
-/// The approval round trip for #782: a destructive MCP call waits, a person approves it in the UI, the
+/// The approval round trip for #782: a held MCP call waits, a person approves it in the UI, the
 /// same call then runs exactly once, and a token created with approval off runs without waiting.
+/// Held deletes take the deletion batch instead (CON-330), covered in <see cref="DeletionBatchTests"/>.
 /// </summary>
 [Trait("Category", "Integration")]
 [Collection("Integration Tests")]
 public class McpApprovalTests(SharedWebAppFixture fixture)
 {
     [Fact]
-    public async Task ContainerDelete_ApprovedInUi_RunsOnceThenWaitsAgain()
+    public async Task HeldCall_ApprovedInUi_RunsOnceThenWaitsAgain()
     {
         var http = fixture.AdminClient;
         await using var agent = await AgentAsync(requiresApproval: true);
@@ -41,27 +43,22 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         string other = await CreateContainerAsync(http, "approval-other");
         try
         {
-            var call = new Dictionary<string, object?> { ["containerId"] = target };
-            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
-            var pending = await PendingForAsync("container_delete", target);
+            var call = HeldCall(target);
+            Text(await agent.CallToolAsync(Held, call)).Should().Contain("pending approval");
+            var pending = await PendingForAsync(Held, target);
 
             // A request isn't approved from another surface, or by a bearer token that reached the page.
             (await DecideAsync(pending.Id, OperationSurface.Rest)).Status.Should().Be(McpApprovalOutcome.NotFromUi);
             (await DecideAsync(pending.Id, OperationSurface.Ui, "AuthenticationTypes.Federation")).Status.Should().Be(McpApprovalOutcome.NotSignedIn);
             (await DecideAsync(pending.Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
 
-            // The approval is bound to its arguments: another container stays put.
-            Text(await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = other }))
-                .Should().Contain("pending approval");
-            (await http.GetAsync($"/api/containers/{other}")).IsSuccessStatusCode.Should().BeTrue();
+            // The approval is bound to its arguments: the same call on another container still waits.
+            Text(await agent.CallToolAsync(Held, HeldCall(other))).Should().Contain("pending approval");
 
-            var ran = await agent.CallToolAsync("container_delete", call);
-            ran.IsError.Should().NotBe(true, Text(ran));
-            Text(ran).Should().NotContain("pending approval");
-            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeFalse("the approved call ran");
+            ShouldHaveRun(await agent.CallToolAsync(Held, call));
 
             (await DecideAsync(pending.Id, OperationSurface.Ui)).Status.Should().Be(McpApprovalOutcome.NotPending, "an approval is used once");
-            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
+            Text(await agent.CallToolAsync(Held, call)).Should().Contain("pending approval");
         }
         finally
         {
@@ -90,7 +87,7 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task ContainerDelete_ApprovedForOneOAuthClient_AnotherClientOfTheSameUserStillWaits()
+    public async Task HeldCall_ApprovedForOneOAuthClient_AnotherClientOfTheSameUserStillWaits()
     {
         var http = fixture.AdminClient;
         await using var asker = await OAuthClientAsync();
@@ -98,17 +95,14 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         string target = await CreateContainerAsync(http, "approval-client");
         try
         {
-            var call = new Dictionary<string, object?> { ["containerId"] = target };
-            Text(await asker.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
-            (await DecideAsync((await PendingForAsync("container_delete", target)).Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
+            var call = HeldCall(target);
+            Text(await asker.CallToolAsync(Held, call)).Should().Contain("pending approval");
+            (await DecideAsync((await PendingForAsync(Held, target)).Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
 
-            Text(await other.CallToolAsync("container_delete", call)).Should().Contain("pending approval",
+            Text(await other.CallToolAsync(Held, call)).Should().Contain("pending approval",
                 "the approval belongs to the client that asked for it, not to every client of its user");
-            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeTrue();
 
-            var ran = await asker.CallToolAsync("container_delete", call);
-            Text(ran).Should().NotContain("pending approval");
-            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeFalse("the asking client's approval still works");
+            ShouldHaveRun(await asker.CallToolAsync(Held, call), "the asking client's approval still works");
         }
         finally
         {
@@ -117,7 +111,7 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task ContainerDelete_ApprovedForABrowserSession_TheSameUsersSignInTokenStillWaits()
+    public async Task HeldCall_ApprovedForABrowserSession_TheSameUsersSignInTokenStillWaits()
     {
         var http = fixture.AdminClient;
         await using var session = await BrowserSessionAsync();
@@ -125,17 +119,14 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         string target = await CreateContainerAsync(http, "approval-session");
         try
         {
-            var call = new Dictionary<string, object?> { ["containerId"] = target };
-            Text(await session.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
-            (await DecideAsync((await PendingForAsync("container_delete", target)).Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
+            var call = HeldCall(target);
+            Text(await session.CallToolAsync(Held, call)).Should().Contain("pending approval");
+            (await DecideAsync((await PendingForAsync(Held, target)).Id, OperationSurface.Ui)).Succeeded.Should().BeTrue();
 
-            Text(await signIn.CallToolAsync("container_delete", call)).Should().Contain("pending approval",
+            Text(await signIn.CallToolAsync(Held, call)).Should().Contain("pending approval",
                 "the approval belongs to the browser session that asked for it, not to the same user's sign-in token");
-            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeTrue();
 
-            var ran = await session.CallToolAsync("container_delete", call);
-            Text(ran).Should().NotContain("pending approval");
-            (await http.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeFalse("the session's approval still works");
+            ShouldHaveRun(await session.CallToolAsync(Held, call), "the session's approval still works");
         }
         finally
         {
@@ -404,21 +395,21 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         var otherAdmin = AdminSignedIn(Guid.NewGuid());
         try
         {
-            var call = new Dictionary<string, object?> { ["containerId"] = target };
-            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("pending approval");
+            var call = HeldCall(target);
+            Text(await agent.CallToolAsync(Held, call)).Should().Contain("pending approval");
 
             await using var scope = fixture.Factory.Services.CreateAsyncScope();
             var listed = await scope.ServiceProvider.GetRequiredService<ListMcpApprovals>().ExecuteAsync(otherAdmin);
-            var seen = listed.Result!.Should().ContainSingle(a => a.ToolName == "container_delete" && a.ArgumentsSummary.Contains(target)).Subject;
+            var seen = listed.Result!.Should().ContainSingle(a => a.ToolName == Held && a.ArgumentsSummary.Contains(target)).Subject;
             seen.IsYours.Should().BeFalse("an administrator still sees everyone's requests, but this one belongs to the agent's owner");
 
             var decide = scope.ServiceProvider.GetRequiredService<DecideMcpApproval>();
             (await decide.ExecuteAsync(otherAdmin, seen.Id, approve: true)).Status.Should().Be(McpApprovalOutcome.NotFound);
             (await decide.ExecuteAsync(otherAdmin, seen.Id, approve: false)).Status.Should().Be(McpApprovalOutcome.NotFound);
-            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("pending approval", "an administrator's approval didn't land");
+            Text(await agent.CallToolAsync(Held, call)).Should().Contain("pending approval", "an administrator's approval didn't land");
             (await RowAsync(seen.Id)).Status.Should().Be(McpApprovalStatus.Pending, "an administrator's denial didn't land either");
 
-            (await PendingForAsync("container_delete", target)).IsYours.Should().BeTrue();
+            (await PendingForAsync(Held, target)).IsYours.Should().BeTrue();
             (await DecideAsync(seen.Id, OperationSurface.Ui)).Succeeded.Should().BeTrue("the agent's owner still decides");
         }
         finally
@@ -434,8 +425,8 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         string target = await CreateContainerAsync(fixture.AdminClient, "approval-race");
         try
         {
-            await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = target });
-            var pending = await PendingForAsync("container_delete", target);
+            await agent.CallToolAsync(Held, HeldCall(target));
+            var pending = await PendingForAsync(Held, target);
 
             var decisions = await Task.WhenAll(Enumerable.Range(0, 8).Select(async i =>
             {
@@ -460,9 +451,9 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         string target = await CreateContainerAsync(fixture.AdminClient, "approval-status");
         try
         {
-            var call = new Dictionary<string, object?> { ["containerId"] = target };
-            Text(await agent.CallToolAsync("container_delete", call)).Should().Contain("approval_status");
-            var pending = await PendingForAsync("container_delete", target);
+            var call = HeldCall(target);
+            Text(await agent.CallToolAsync(Held, call)).Should().Contain("approval_status");
+            var pending = await PendingForAsync(Held, target);
             (await StatusAsync(agent, pending.Id, waitSeconds: 1)).GetProperty("state").GetString().Should().Be("pending", "a wait that runs out says so");
 
             var waiting = StatusAsync(agent, pending.Id, waitSeconds: 30);
@@ -470,9 +461,7 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
             var decided = await waiting.WaitAsync(TimeSpan.FromSeconds(15));
             decided.GetProperty("state").GetString().Should().Be("approved", "the wait ends once a person decides");
 
-            var ran = await agent.CallToolAsync("container_delete", call);
-            Text(ran).Should().NotContain("pending approval");
-            (await fixture.AdminClient.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeFalse("the repeated call ran");
+            ShouldHaveRun(await agent.CallToolAsync(Held, call), "the repeated call ran");
             (await StatusAsync(agent, pending.Id)).GetProperty("state").GetString().Should().Be("used");
 
             // The web API answers the same token the same way, and no one else.
@@ -497,8 +486,8 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         string target = await CreateContainerAsync(fixture.AdminClient, "approval-deny");
         try
         {
-            await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = target });
-            var pending = await PendingForAsync("container_delete", target);
+            await agent.CallToolAsync(Held, HeldCall(target));
+            var pending = await PendingForAsync(Held, target);
             await using (var scope = fixture.Factory.Services.CreateAsyncScope())
                 (await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>()
                     .ExecuteAsync(Admin(OperationSurface.Ui), pending.Id, approve: false, reason: "That container holds the audit records."))
@@ -511,7 +500,6 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
 
             var other = await stranger.CallToolAsync("approval_status", new Dictionary<string, object?> { ["requestId"] = pending.Id.ToString() });
             Text(other).Should().Contain("not found", "another token can't see the request").And.NotContain("audit records");
-            (await fixture.AdminClient.GetAsync($"/api/containers/{target}")).IsSuccessStatusCode.Should().BeTrue();
         }
         finally
         {
@@ -526,8 +514,8 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         string target = await CreateContainerAsync(fixture.AdminClient, "approval-expired");
         try
         {
-            await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = target });
-            var pending = await PendingForAsync("container_delete", target);
+            await agent.CallToolAsync(Held, HeldCall(target));
+            var pending = await PendingForAsync(Held, target);
             await using (var scope = fixture.Factory.Services.CreateAsyncScope())
             await using (var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<ConnapseIdentityDbContext>>().CreateDbContextAsync())
                 await db.McpApprovals.Where(a => a.Id == pending.Id)
@@ -541,6 +529,30 @@ public class McpApprovalTests(SharedWebAppFixture fixture)
         {
             await fixture.AdminClient.DeleteAsync($"/api/containers/{target}");
         }
+    }
+
+    /// <summary>
+    /// A held call that isn't a delete: since CON-330 a held delete becomes a deletion batch, so the repeat-the-call
+    /// approval is exercised with a container settings update, which a token that asks first also holds.
+    /// </summary>
+    private const string Held = McpApiTools.WriteName;
+
+    private static Dictionary<string, object?> HeldCall(string containerId) => new()
+    {
+        ["operation"] = "containers.settings.update",
+        ["parameters"] = new Dictionary<string, object?> { ["containerId"] = containerId },
+        ["body"] = new Dictionary<string, object?>(),
+    };
+
+    /// <summary>
+    /// The call passed the approval and reached its route, which answers with its status line. An agent key may get
+    /// 403 from the route itself (container settings take a person), which still shows the approval let it through.
+    /// </summary>
+    private static void ShouldHaveRun(CallToolResult result, string because = "the approved call ran")
+    {
+        string text = Text(result);
+        result.IsError.Should().NotBe(true, text);
+        text.Should().NotContain("pending approval", because).And.MatchRegex(@"^(200|403) ", because);
     }
 
     private static async Task<JsonElement> StatusAsync(McpClient agent, Guid id, int waitSeconds = 0)

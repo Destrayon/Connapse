@@ -1,8 +1,10 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Connapse.Application;
 using Connapse.Application.Approvals;
 using Connapse.Core;
 using Connapse.Identity.Data.Entities;
+using Connapse.Web.Mcp;
 using FluentAssertions;
 
 namespace Connapse.Web.Tests.Approvals;
@@ -21,13 +23,16 @@ public class DeletionBatchUnitTests
     [InlineData(" Folder ", DeletionItemKind.Folder)]
     [InlineData("memory_space", DeletionItemKind.MemorySpace)]
     [InlineData("memory-space", DeletionItemKind.MemorySpace)]
+    [InlineData("container", DeletionItemKind.Container)]
+    [InlineData("fact", DeletionItemKind.Fact)]
+    [InlineData("memory_fact", DeletionItemKind.Fact)]
     public void ParseKind_KnownNames_ParseToKind(string name, DeletionItemKind expected)
     {
         DeletionTargets.ParseKind(name).Should().Be(expected);
     }
 
     [Theory]
-    [InlineData("container")]
+    [InlineData("document")]
     [InlineData("")]
     [InlineData(null)]
     public void ParseKind_OtherNames_AreRejected(string? name)
@@ -119,7 +124,7 @@ public class DeletionBatchUnitTests
     [Fact]
     public async Task Request_Anonymous_IsRefused()
     {
-        RequestDeletions request = new(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, TimeProvider.System);
+        RequestDeletions request = new(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, TimeProvider.System, null!);
 
         var result = await request.ExecuteAsync(new OperationContext(new ClaimsPrincipal(new ClaimsIdentity()), OperationSurface.Mcp),
             [new DeletionRequestItem("file", "c", "/a.md", "old")]);
@@ -132,11 +137,46 @@ public class DeletionBatchUnitTests
     [InlineData(OperationSurface.Rest)]
     public async Task Decide_OutsideUi_IsRefused(OperationSurface surface)
     {
-        DecideDeletionBatch decide = new(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, TimeProvider.System, null!);
+        DecideDeletionBatch decide = new(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, TimeProvider.System, null!, null!, null!, null!);
         ClaimsPrincipal owner = new(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())], "test"));
 
         var result = await decide.ExecuteAsync(new OperationContext(owner, surface), Guid.NewGuid(), approve: true);
 
         result.Status.Should().Be(DeletionBatchOutcome.NotFromUi);
+    }
+
+    private static Dictionary<string, JsonElement> Args(object value) =>
+        JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(JsonSerializer.Serialize(value))!;
+
+    [Fact]
+    public void HeldDelete_EachDeleteTool_BecomesItsItems()
+    {
+        McpApprovalGate.DeletionItems("delete_file", null, Args(new { containerId = "c", fileId = "f" }))!.Value.Items
+            .Should().ContainSingle().Which.Should().BeEquivalentTo(new { Kind = "file", Container = "c", Target = "f" });
+        McpApprovalGate.DeletionItems("bulk_delete", null, Args(new { containerId = "c", fileIds = "[\"a\",\"b\"]" }))!.Value.Items!
+            .Select(i => i.Target).Should().Equal("a", "b");
+        McpApprovalGate.DeletionItems("container_delete", null, Args(new { containerId = "c" }))!.Value.Items
+            .Should().ContainSingle().Which.Kind.Should().Be("container");
+        McpApprovalGate.DeletionItems("memory_forget", null, Args(new { containerId = "s", factId = "x" }))!.Value.Items
+            .Should().ContainSingle().Which.Should().BeEquivalentTo(new { Kind = "fact", Target = "x" });
+        McpApprovalGate.DeletionItems(McpApiTools.WriteName, "folders.delete",
+                Args(new { operation = "folders.delete", parameters = new { containerId = "c", path = "/old/" } }))!.Value.Items
+            .Should().ContainSingle().Which.Should().BeEquivalentTo(new { Kind = "folder", Container = "c", Target = "/old/" });
+    }
+
+    [Fact]
+    public void HeldDelete_BulkDeleteWithoutAnArray_NamesTheProblem()
+    {
+        McpApprovalGate.DeletionItems("bulk_delete", null, Args(new { containerId = "c", fileIds = "a,b" }))!.Value.Problem
+            .Should().Contain("JSON array");
+    }
+
+    [Theory]
+    [InlineData(McpApiTools.WriteName, "connections.create")]
+    [InlineData(McpApiTools.WriteName, "containers.settings.update")]
+    [InlineData("upload_file", null)]
+    public void HeldDelete_ACallThatIsNotAKnowledgeDeletion_KeepsTheRepeatApproval(string tool, string? operation)
+    {
+        McpApprovalGate.DeletionItems(tool, operation, Args(new { containerId = "c" })).Should().BeNull();
     }
 }

@@ -19,9 +19,11 @@ A browser request to `/mcp` must come from a loopback origin or one listed in `C
 
 ## Approvals
 
-A personal access token or agent key created with **Ask before it deletes anything over MCP** (the default) has every Destructive or Credential call held for a person. The first call returns a message naming the request; its owner approves it on **Approvals** (`/approvals`), and the same call with the same arguments then runs once. A request waits a day for a decision, and an approval must be used within 15 minutes. Read and Write calls are never held.
+A personal access token or agent key created with **Ask before it deletes anything over MCP** (the default) has every Destructive or Credential call held for a person. Read and Write calls are never held.
 
-The agent learns the decision by itself with `approval_status`, or `GET /api/approvals/{id}` over REST: either answers at once, or waits up to 50 seconds for a decision. The answer's state is `pending`, `approved` (repeat the exact call now), `denied` (with the reason the person typed, if any), `expired` (no one decided in time, or the approval lapsed unused) or `used`. Only the token that made a request can see it. Connapse never runs the call itself: the agent repeats it with its own arguments, which Connapse keeps only sealed, for matching.
+A held delete of knowledge (`delete_file`, `bulk_delete`, `container_delete`, `memory_forget`, or `folders.delete` through `connapse_api_write`) becomes a batch of deletions, the same kind `request_deletions` makes. The call returns the batch instead of deleting. The token's owner approves all, some or none of its items on **Approvals** (`/approvals`), and Connapse then deletes the approved items itself; the agent never repeats the call. It reads each item's outcome with `deletion_status`: `deleted`, `skipped` (the item was gone or had changed since the call), `failed`, `not_approved` or `denied`. A container must be empty when the call is made, and a batch holds at most 50 items.
+
+Any other held call, such as one that sets a credential or removes a user, keeps the per-call approval: the first call returns a message naming the request, its owner approves it on **Approvals**, and the same call with the same arguments then runs once. A request waits a day for a decision, and an approval must be used within 15 minutes. The agent learns the decision with `approval_status`, or `GET /api/approvals/{id}` over REST: either answers at once, or waits up to 50 seconds for a decision. The answer's state is `pending`, `approved` (repeat the exact call now), `denied` (with the reason the person typed, if any), `expired` (no one decided in time, or the approval lapsed unused) or `used`. Only the token that made a request can see it. Connapse can't run these calls itself, because it keeps their arguments only sealed, for matching, so that secrets are never stored readable.
 
 ## Named tools
 
@@ -47,7 +49,9 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `code_references` | `knowledge:read` | Read | Lists the files that use a symbol, best evidence first: calls, base types and imports with their lines, then files whose text names it. |
 | `code_impact` | `knowledge:read` | Read | Lists what a change to a symbol could affect, up to three hops through callers and subtypes, with the tests among them. |
 | `code_repo_map` | `knowledge:read` | Read | Maps indexed code: the files the rest of the code refers to most, with their main definitions. |
-| `approval_status` | any | Read | Says whether a person approved, denied or let expire a call of yours held for approval, with their reason, optionally waiting for the decision. See [Approvals](#approvals). |
+| `approval_status` | any | Read | Says whether a person approved, denied or let expire a held call that is not a delete, with their reason, optionally waiting for the decision. See [Approvals](#approvals). |
+| `request_deletions` | `knowledge:write` | Write | Asks the owner to approve up to 50 deletions at once (files, folders, empty containers, memory spaces, facts), each with a reason. Connapse deletes the approved ones itself. See [Approvals](#approvals). |
+| `deletion_status` | `knowledge:write` | Read | Says what became of a batch of deletions, item by item, optionally waiting for the decision. |
 | `memory_spaces` | `knowledge:read` | Read | Lists the memory spaces the caller can use, with who sees each one. See [Agent memory](#agent-memory). |
 | `memory_space_create` | `knowledge:write` | Write | Makes a personal or team memory space, with the same permission as the Memory page's New space. |
 | `memory_remember` | `knowledge:write` | Write | Stores a dated fact in a space, with the documents it was learned from. |
@@ -113,6 +117,9 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `maxFiles` | integer | No | Most files, 1 to 200; default 30 |
 | `approval_status` | `requestId` | string | Yes | The request id the held call returned |
 | | `waitSeconds` | integer | No | Seconds to wait for a decision while pending, 0 to 50; default 0 |
+| `request_deletions` | `items` | array | Yes | Up to 50 `{kind, container, target, reason}` objects; `kind` is `file`, `folder`, `container`, `memory_space` or `fact` |
+| `deletion_status` | `batchId` | string | Yes | The batch id the request or the held delete returned |
+| | `waitSeconds` | integer | No | Seconds to wait while pending or running, 0 to 50; default 0 |
 | `memory_spaces` | `name` | string | No | Only spaces whose name or description contains this text |
 | | `kind` | string | No | `personal` or `team` |
 | `memory_space_create` | `name` | string | Yes | 2 to 128 lowercase letters, digits and hyphens |

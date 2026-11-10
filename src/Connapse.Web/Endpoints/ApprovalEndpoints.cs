@@ -51,8 +51,8 @@ public static class ApprovalEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .WithName("approvals.batches.request")
         .WithDescription("Ask your token's owner to approve up to 50 deletions in one request: each item is a file (kind file, container, target "
-            + "= file id or path), a folder (kind folder, container, target = folder path) or a memory space (kind memory_space, container = the "
-            + "space), with a reason the owner reads. Every item is checked now; if any can't be deleted, nothing is asked and the detail names "
+            + "= file id or path), a folder (kind folder, container, target = folder path), an empty container (kind container, container = its "
+            + "id or name), a memory space (kind memory_space, container = the space) or a memory fact (kind fact, target = the fact id), with a reason the owner reads. Every item is checked now; if any can't be deleted, nothing is asked and the detail names "
             + "each bad item. The owner approves all, some or none on the Approvals page, and Connapse deletes the approved items itself, skipping "
             + "any that are gone or changed since the request. Read each item's outcome with GET /api/approvals/deletions/{id}.")
         // The scope too, so an Editor's knowledge:read token can't ask for deletions.

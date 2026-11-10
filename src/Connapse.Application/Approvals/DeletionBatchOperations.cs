@@ -15,9 +15,10 @@ using IDocumentAccess = Connapse.Application.Ports.IDocumentAccess;
 namespace Connapse.Application.Approvals;
 
 /// <summary>
-/// One deletion an agent asks for. <paramref name="Kind"/> is file, folder or memory_space. <paramref name="Container"/>
-/// is the container's id or name, or for a memory space the space's own. <paramref name="Target"/> is the file's id or
-/// path, or the folder's path; a memory space has none.
+/// One deletion an agent asks for. <paramref name="Kind"/> is file, folder, memory_space, container or fact.
+/// <paramref name="Container"/> is the container's id or name, or for a memory space or container its own; a fact
+/// is found by its id alone, so its container is ignored. <paramref name="Target"/> is the file's id or path, the
+/// folder's path, or the fact's id; a memory space or container has none.
 /// </summary>
 public sealed record DeletionRequestItem(string Kind, string Container, string? Target, string Reason);
 
@@ -66,6 +67,8 @@ public static class DeletionTargets
     {
         DeletionItemKind.File => "file",
         DeletionItemKind.Folder => "folder",
+        DeletionItemKind.Container => "container",
+        DeletionItemKind.Fact => "fact",
         _ => "memory_space",
     };
 
@@ -74,6 +77,8 @@ public static class DeletionTargets
         "file" => DeletionItemKind.File,
         "folder" => DeletionItemKind.Folder,
         "memory_space" or "memoryspace" or "space" => DeletionItemKind.MemorySpace,
+        "container" => DeletionItemKind.Container,
+        "fact" or "memory_fact" => DeletionItemKind.Fact,
         _ => null,
     };
 
@@ -99,6 +104,43 @@ public static class DeletionTargets
 
     public static string SpaceFingerprint(Container space, MemorySpaceImpact impact) =>
         Hash($"space\n{space.Id}\n{space.Name}\n{space.UpdatedAt.Ticks}\n{impact.Facts}\n{impact.Versions}");
+
+    /// <summary>A container may only be deleted empty, so its files are part of what the owner approved.</summary>
+    public static string ContainerFingerprint(Container container, IEnumerable<Document> inside)
+    {
+        StringBuilder text = new($"container\n{container.Id}\n{container.Name}\n{container.UpdatedAt.Ticks}\n");
+        foreach (Document document in inside.OrderBy(d => d.Id, StringComparer.Ordinal))
+            text.Append(document.Id).Append('\n');
+        return Hash(text.ToString());
+    }
+
+    /// <summary>Every version of the fact the owner can see: a correction or a new version changes what would be deleted.</summary>
+    public static string FactFingerprint(Guid factId, MemoryHistoryPage history)
+    {
+        StringBuilder text = new($"fact\n{factId}\n{history.Total}\n");
+        foreach (RecalledFact version in history.Versions.OrderBy(v => v.Fact.Id))
+            text.Append(version.Fact.Id).Append('|').Append(version.Fact.ContainerId).Append('|').Append(version.Fact.Subject).Append('|')
+                .Append(version.Fact.Attribute).Append('|').Append(version.Fact.Value).Append('|').Append(version.Fact.SupersededAt?.UtcTicks).Append('\n');
+        return Hash(text.ToString());
+    }
+
+    /// <summary>How many versions of one fact are read to fingerprint it; a chain longer than this can't be batched.</summary>
+    public const int MaxFactVersions = 100;
+
+    /// <summary>The fact's versions as <paramref name="viewer"/> sees them, or null when it is missing, hidden, or too long a chain.</summary>
+    public static async Task<(Guid SpaceId, MemoryHistoryPage History)?> FactAsync(IMemoryService memory, Guid factId, MemoryCaller viewer, CancellationToken ct)
+    {
+        if (await memory.SpaceOfAsync(factId, ct) is not Guid space)
+            return null;
+        var history = await memory.HistoryAsync(space, factId, null, MaxFactVersions, viewer, ct);
+        return history.NotFound || history.Denied || history.Versions.Count == 0 || history.Next is not null ? null : (space, history);
+    }
+
+    public static string FactLabel(string spaceName, MemoryFact fact)
+    {
+        string label = $"{spaceName}: {fact.Subject} · {fact.Attribute} = {fact.Value}";
+        return label.Length <= DeletionBatchItemEntity.LabelMaxLength ? label : label[..(DeletionBatchItemEntity.LabelMaxLength - 3)] + "...";
+    }
 
     internal static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
 
@@ -156,7 +198,8 @@ public sealed class RequestDeletions(
     DeleteMemorySpace deleteSpace,
     IOperationAuthorizer authorizer,
     IAuditLogger audit,
-    TimeProvider clock)
+    TimeProvider clock,
+    IMemoryService memory)
 {
     public async Task<Attempt<DeletionBatchView, DeletionBatchOutcome>> ExecuteAsync(
         OperationContext context, IReadOnlyList<DeletionRequestItem>? items, CancellationToken ct = default)
@@ -164,7 +207,7 @@ public sealed class RequestDeletions(
         if (context.User.Identity?.IsAuthenticated != true || McpApprovalClaims.OwnerUserId(context.User) is not Guid owner)
             return Fail(DeletionBatchOutcome.NotSignedIn, "Sign in, or call with a token, to ask for deletions.");
         if (items is null || items.Count == 0)
-            return Fail(DeletionBatchOutcome.Invalid, "Name at least one file, folder or memory space to delete.", "items");
+            return Fail(DeletionBatchOutcome.Invalid, "Name at least one file, folder, container, memory space or fact to delete.", "items");
         if (items.Count > DeletionBatchEntity.MaxItems)
             return Fail(DeletionBatchOutcome.Invalid, $"A batch holds at most {DeletionBatchEntity.MaxItems} items; split the request.", "items");
 
@@ -196,12 +239,14 @@ public sealed class RequestDeletions(
     private async Task<(NewDeletionItem? Item, string? Problem)> ResolveAsync(OperationContext context, Guid owner, DeletionRequestItem request, CancellationToken ct)
     {
         if (DeletionTargets.ParseKind(request.Kind) is not DeletionItemKind kind)
-            return (null, $"kind must be file, folder or memory_space, not '{request.Kind}'");
+            return (null, $"kind must be file, folder, container, memory_space or fact, not '{request.Kind}'");
         string reason = request.Reason?.Trim() ?? "";
         if (reason.Length == 0)
             return (null, "give a reason, which the owner reads before deciding");
         if (reason.Length > DeletionBatchItemEntity.ReasonMaxLength)
             return (null, $"the reason is longer than {DeletionBatchItemEntity.ReasonMaxLength} characters");
+        if (kind == DeletionItemKind.Fact)
+            return await ResolveFactAsync(context, owner, request.Target, reason, ct);
         if (string.IsNullOrWhiteSpace(request.Container))
             return (null, "name the container (or memory space) by id or name");
 
@@ -209,8 +254,23 @@ public sealed class RequestDeletions(
         if (!found.Succeeded || found.Result is not { } container || !Guid.TryParse(container.Id, out Guid containerId))
             return (null, $"container '{request.Container}' was not found");
 
+        // A memory space deleted as a container is a memory space: the owner sees how many facts go with it.
+        if (kind == DeletionItemKind.Container && container.Kind == ContainerKind.Memory)
+            kind = DeletionItemKind.MemorySpace;
+
         switch (kind)
         {
+            case DeletionItemKind.Container:
+                {
+                    var inside = await documents.ListAsync(containerId, take: int.MaxValue, ct: ct);
+                    if (inside.Count > 0)
+                        return (null, $"container '{container.Name}' still holds {DeletionTargets.Count(inside.Count, "file")}; delete them first");
+                    if (await containers.GetAsync(containerId, DeletionTargets.OwnerViewer(owner), ct) is not { } mine)
+                        return (null, $"your owner can't see container '{container.Name}', so they can't approve deleting it");
+                    return (new NewDeletionItem(kind, containerId, "", $"{mine.Name} (empty container)", reason,
+                        DeletionTargets.ContainerFingerprint(mine, inside)), null);
+                }
+
             case DeletionItemKind.MemorySpace:
                 {
                     if (container.Kind != ContainerKind.Memory)
@@ -252,6 +312,22 @@ public sealed class RequestDeletions(
                         DeletionTargets.FolderFingerprint(containerId, path, recorded, inside)), null);
                 }
         }
+    }
+
+    private async Task<(NewDeletionItem? Item, string? Problem)> ResolveFactAsync(
+        OperationContext context, Guid owner, string? target, string reason, CancellationToken ct)
+    {
+        if (!Guid.TryParse(target?.Trim(), out Guid factId))
+            return (null, "name the fact by its id in target");
+        // Found as the caller first, so a fact the caller can't see reads as missing whoever owns it.
+        if (await DeletionTargets.FactAsync(memory, factId, MemoryRules.Caller(context.User), ct) is null)
+            return (null, $"fact '{target}' was not found");
+        if (await DeletionTargets.FactAsync(memory, factId, DeletionTargets.OwnerViewer(owner), ct) is not var (spaceId, history))
+            return (null, $"your owner can't see every version of fact '{target}', so they can't approve deleting it");
+        string spaceName = (await containers.GetAsync(spaceId, DeletionTargets.OwnerViewer(owner), ct))?.Name ?? spaceId.ToString();
+        return (new NewDeletionItem(DeletionItemKind.Fact, spaceId, factId.ToString(), DeletionTargets.FactLabel(spaceName,
+            (history.Versions.FirstOrDefault(v => v.Fact.SupersededAt is null) ?? history.Versions[0]).Fact), reason,
+            DeletionTargets.FactFingerprint(factId, history)), null);
     }
 
     private static Attempt<DeletionBatchView, DeletionBatchOutcome> Fail(DeletionBatchOutcome outcome, string detail, string? field = null) =>
@@ -331,7 +407,10 @@ public sealed class DecideDeletionBatch(
     DeleteMemorySpace deleteSpace,
     IAuditLogger audit,
     TimeProvider clock,
-    ILogger<DecideDeletionBatch> logger)
+    ILogger<DecideDeletionBatch> logger,
+    IMemoryService memory,
+    DeleteContainer deleteContainer,
+    ForgetFact forgetFact)
 {
     /// <param name="approvedItemIds">The items to delete when approving; null approves every item.</param>
     /// <param name="reason">What the owner says about the decision; the agent reads it.</param>
@@ -407,6 +486,28 @@ public sealed class DecideDeletionBatch(
                         return deleted.Succeeded
                             ? (DeletionItemState.Deleted, $"Deleted, with the {DeletionTargets.Count(deleted.Result!.DocumentsDeleted, "file")} in it.")
                             : Failed(deleted.Detail);
+                    }
+
+                case DeletionItemKind.Container:
+                    {
+                        if (await containers.GetAsync(item.ContainerId, DeletionTargets.OwnerViewer(ownerUserId), ct) is not { } container)
+                            return Gone("container");
+                        var inside = await documents.ListAsync(item.ContainerId, take: int.MaxValue, ct: ct);
+                        if (DeletionTargets.ContainerFingerprint(container, inside) != item.Fingerprint)
+                            return Changed("container");
+                        var deleted = await deleteContainer.RunAsync(owner, ContainerKey.ById(item.ContainerId), ct);
+                        return deleted.Succeeded ? (DeletionItemState.Deleted, "Deleted.") : Failed(deleted.Detail);
+                    }
+
+                case DeletionItemKind.Fact:
+                    {
+                        Guid factId = Guid.Parse(item.Target);
+                        if (await DeletionTargets.FactAsync(memory, factId, DeletionTargets.OwnerViewer(ownerUserId), ct) is not var (_, history))
+                            return Gone("fact");
+                        if (DeletionTargets.FactFingerprint(factId, history) != item.Fingerprint)
+                            return Changed("fact");
+                        var deleted = await forgetFact.RunAsync(owner, null, item.Target, ct);
+                        return deleted.Succeeded ? (DeletionItemState.Deleted, "Deleted, with every version.") : Failed(deleted.Detail);
                     }
 
                 default:

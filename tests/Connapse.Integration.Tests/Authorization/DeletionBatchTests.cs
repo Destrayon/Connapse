@@ -7,6 +7,7 @@ using System.Text.Json;
 using Connapse.Application;
 using Connapse.Application.Approvals;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Identity.Authentication;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -223,6 +224,160 @@ public class DeletionBatchTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task HeldDeleteFile_Approved_ConnapseDeletesItAndTheAgentReadsTheOutcome()
+    {
+        var http = fixture.AdminClient;
+        await using var agent = await AgentAsync(requiresApproval: true);
+        string container = await CreateContainerAsync(http, "held-file", kind: null);
+        try
+        {
+            string file = await UploadAsync(http, container, "old.txt");
+
+            var held = HeldBatch(await agent.CallToolAsync("delete_file",
+                new Dictionary<string, object?> { ["containerId"] = container, ["fileId"] = file }));
+            held.GetProperty("items").EnumerateArray().Should().ContainSingle()
+                .Which.GetProperty("kind").GetString().Should().Be("file");
+            Guid batchId = held.GetProperty("id").GetGuid();
+            (await http.GetAsync($"/api/containers/{container}/files/{file}")).IsSuccessStatusCode.Should().BeTrue("nothing is deleted before approval");
+
+            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+                (await scope.ServiceProvider.GetRequiredService<ListMcpApprovals>().ExecuteAsync(Owner())).Result!
+                    .Should().NotContain(a => a.ArgumentsSummary.Contains(file), "a held delete waits as a batch, not for a repeated call");
+
+            var waiting = agent.CallToolAsync("deletion_status",
+                new Dictionary<string, object?> { ["batchId"] = batchId.ToString(), ["waitSeconds"] = 30 }).AsTask();
+            (await DecideAsync(Owner(), batchId, approve: true)).Succeeded.Should().BeTrue();
+            var status = Json(await waiting.WaitAsync(TimeSpan.FromSeconds(40)));
+
+            status.GetProperty("state").GetString().Should().Be("done");
+            status.GetProperty("items")[0].GetProperty("state").GetString().Should().Be("deleted");
+            (await http.GetAsync($"/api/containers/{container}/files/{file}")).StatusCode.Should().Be(HttpStatusCode.NotFound,
+                "Connapse deleted the file without the agent calling again");
+        }
+        finally
+        {
+            await http.DeleteAsync($"/api/containers/{container}");
+        }
+    }
+
+    [Fact]
+    public async Task HeldBulkDelete_Denied_IsOneItemPerFileAndTheAgentReadsWhy()
+    {
+        var http = fixture.AdminClient;
+        await using var agent = await AgentAsync(requiresApproval: true);
+        string container = await CreateContainerAsync(http, "held-bulk", kind: null);
+        try
+        {
+            string[] files = [await UploadAsync(http, container, "a.txt"), await UploadAsync(http, container, "b.txt"), await UploadAsync(http, container, "c.txt")];
+
+            var held = HeldBatch(await agent.CallToolAsync("bulk_delete", new Dictionary<string, object?>
+            {
+                ["containerId"] = container,
+                ["fileIds"] = JsonSerializer.Serialize(files),
+            }));
+            held.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("target").GetString()).Should().BeEquivalentTo(files);
+            Guid batchId = held.GetProperty("id").GetGuid();
+
+            (await DecideAsync(Owner(), batchId, approve: false, reason: "Those are this quarter's reports.")).Succeeded.Should().BeTrue();
+
+            var status = Json(await agent.CallToolAsync("deletion_status", new Dictionary<string, object?> { ["batchId"] = batchId.ToString() }));
+            status.GetProperty("state").GetString().Should().Be("denied");
+            status.GetProperty("reason").GetString().Should().Be("Those are this quarter's reports.");
+            foreach (string file in files)
+                (await http.GetAsync($"/api/containers/{container}/files/{file}")).IsSuccessStatusCode.Should().BeTrue();
+        }
+        finally
+        {
+            await http.DeleteAsync($"/api/containers/{container}");
+        }
+    }
+
+    [Fact]
+    public async Task HeldContainerDelete_EmptyIsDeletedAndOneThatGainedAFileIsSkipped()
+    {
+        var http = fixture.AdminClient;
+        await using var agent = await AgentAsync(requiresApproval: true);
+        string empty = await CreateContainerAsync(http, "held-empty", kind: null);
+        string filled = await CreateContainerAsync(http, "held-filled", kind: null);
+        try
+        {
+            Guid emptyBatch = HeldBatch(await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = empty }))
+                .GetProperty("id").GetGuid();
+            Guid filledBatch = HeldBatch(await agent.CallToolAsync("container_delete", new Dictionary<string, object?> { ["containerId"] = filled }))
+                .GetProperty("id").GetGuid();
+
+            // While the batch waits, someone adds a file to the second container.
+            await UploadAsync(http, filled, "new-work.txt");
+
+            var deleted = await DecideAsync(Owner(), emptyBatch, approve: true);
+            deleted.Succeeded.Should().BeTrue(deleted.Detail);
+            deleted.Result!.Items.Single().State.Should().Be("deleted");
+            (await http.GetAsync($"/api/containers/{empty}")).IsSuccessStatusCode.Should().BeFalse();
+
+            var skipped = await DecideAsync(Owner(), filledBatch, approve: true);
+            skipped.Succeeded.Should().BeTrue(skipped.Detail);
+            skipped.Result!.Items.Single().State.Should().Be("skipped", "the container changed after the agent asked");
+            (await http.GetAsync($"/api/containers/{filled}")).IsSuccessStatusCode.Should().BeTrue();
+        }
+        finally
+        {
+            foreach (string container in new[] { empty, filled })
+            {
+                using var listed = await http.GetAsync($"/api/containers/{container}/files");
+                if (listed.IsSuccessStatusCode && await listed.Content.ReadFromJsonAsync<JsonElement>() is { ValueKind: JsonValueKind.Array } files)
+                    foreach (var file in files.EnumerateArray())
+                        await http.DeleteAsync($"/api/containers/{container}/files/{file.GetProperty("id").GetString()}");
+                await http.DeleteAsync($"/api/containers/{container}");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task HeldMemoryForget_Approved_ForgetsTheFact()
+    {
+        await using var agent = await AgentAsync(requiresApproval: true);
+        string name = $"held-notes-{Guid.NewGuid():N}"[..24];
+        string space = Json(await agent.CallToolAsync("memory_space_create",
+            new Dictionary<string, object?> { ["name"] = name, ["kind"] = "personal" })).GetProperty("created").GetProperty("id").GetString()!;
+        try
+        {
+            var saved = Json(await agent.CallToolAsync("memory_remember",
+                new Dictionary<string, object?> { ["space"] = name, ["subject"] = "deploy", ["attribute"] = "window", ["value"] = "Fridays" }));
+            string fact = saved.GetProperty("remembered").GetProperty("id").GetString()!;
+            space = saved.GetProperty("savedTo").GetProperty("id").GetString()!;
+
+            var held = HeldBatch(await agent.CallToolAsync("memory_forget",
+                new Dictionary<string, object?> { ["containerId"] = space, ["factId"] = fact }));
+            var item = held.GetProperty("items")[0];
+            item.GetProperty("kind").GetString().Should().Be("fact");
+            item.GetProperty("label").GetString().Should().Contain("Fridays", "the owner sees which fact would go");
+
+            var decided = await DecideAsync(Owner(), held.GetProperty("id").GetGuid(), approve: true);
+            decided.Succeeded.Should().BeTrue(decided.Detail);
+            decided.Result!.Items.Single().State.Should().Be("deleted", decided.Result.Items.Single().Outcome);
+            Text(await agent.CallToolAsync("memory_recall", new Dictionary<string, object?> { ["containerId"] = space, ["subject"] = "deploy" }))
+                .Should().NotContain("Fridays");
+        }
+        finally
+        {
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IContainerStore>().DeleteAsync(Guid.Parse(space));
+        }
+    }
+
+    /// <summary>The batch a held delete returned: a successful answer saying it waits, followed by the batch as JSON.</summary>
+    private static JsonElement HeldBatch(CallToolResult result)
+    {
+        string text = Text(result);
+        result.IsError.Should().NotBe(true, text);
+        text.Should().Contain("pending approval").And.Contain("deletion batch").And.Contain("deletion_status");
+        string json = result.Content.OfType<TextContentBlock>().Select(b => b.Text).Single(t => t.StartsWith('{'));
+        var batch = JsonDocument.Parse(json).RootElement.Clone();
+        batch.GetProperty("state").GetString().Should().Be("pending");
+        return batch;
+    }
+
     private OperationContext Owner(OperationSurface surface = OperationSurface.Ui, string authenticationType = "Identity.Application") =>
         SignedIn(AdminUserId(), surface, authenticationType);
 
@@ -253,14 +408,15 @@ public class DeletionBatchTests(SharedWebAppFixture fixture)
         return http;
     }
 
-    private async Task<McpClient> AgentAsync() => await McpTestClient.ConnectAsync(KeyClient(await AgentKeyAsync()));
+    private async Task<McpClient> AgentAsync(bool requiresApproval = false) =>
+        await McpTestClient.ConnectAsync(KeyClient(await AgentKeyAsync(requiresApproval)));
 
-    private async Task<string> AgentKeyAsync()
+    private async Task<string> AgentKeyAsync(bool requiresApproval = false)
     {
         var created = await fixture.AdminClient.PostAsJsonAsync("/api/v1/agents/", new CreateAgentRequest($"batch-{Guid.NewGuid():N}"));
         var agent = (await created.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<AgentDto>())!;
         var issued = await fixture.AdminClient.PostAsJsonAsync($"/api/v1/agents/{agent.Id}/keys",
-            new CreateAgentKeyRequest("batch", ["knowledge:read", "knowledge:write"], RequiresApproval: false));
+            new CreateAgentKeyRequest("batch", ["knowledge:read", "knowledge:write"], RequiresApproval: requiresApproval));
         return (await issued.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<CreateAgentKeyResponse>())!.Token;
     }
 

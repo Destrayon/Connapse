@@ -58,7 +58,7 @@ The `admin:` scopes do something only on a token of an Owner or Admin. The full 
 
 ### Approve a held delete
 
-When a key has **Ask before it deletes anything over MCP**, a delete it asks for over MCP is held rather than run. It appears on **Approvals** (`/approvals`), where you choose **Approve** or **Deny** and can type a reason for the agent. The agent finds out your decision, and your reason, by itself with the `approval_status` tool. Once approved, it repeats the same call within 15 minutes and it runs once. You see requests from your own tokens; an administrator sees everyone's, but only the person a key acts for can approve or deny its requests.
+When a key has **Ask before it deletes anything over MCP**, a delete it asks for over MCP is held rather than run. It appears on **Approvals** (`/approvals`) as a batch, one item for each file, folder, container, memory space or fact the call would delete. You choose **Approve** or **Deny**, untick any items to keep, and can type a reason for the agent. When you approve, Connapse deletes the approved items itself, skipping any that changed since the agent asked. The agent finds out what happened, and your reason, with the `deletion_status` tool; it never repeats the call. Other held calls, such as one that sets a credential, are approved one call at a time: the agent checks with `approval_status` and, once approved, repeats the same call within 15 minutes. You see requests from your own tokens; an administrator sees everyone's, but only the person a key acts for can approve or deny its requests.
 
 ## Do it with the API
 
