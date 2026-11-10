@@ -237,7 +237,7 @@
     {
         try
         {
-            containers = (await ContainerStore.ListAsync(take: int.MaxValue)).ToList();
+            containers = (await ContainerStore.ListAsync(0, int.MaxValue, null, [ContainerKind.Documents])).ToList();
             // A private GitHub source names a private repository: sources.list lists it only to those who may read it.
             sources = (await ListSourcesOperation.RunAsync(await AuthStateProvider.OperationContextAsync(), new ListSourcesQuery()))
                 .Result?.Items.ToList() ?? [];

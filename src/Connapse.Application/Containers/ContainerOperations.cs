@@ -94,9 +94,17 @@ internal static class ContainerRules
 
     public static Attempt<T, ContainerStatus> MemoryOnly<T>(Container container) =>
         Attempt<T, ContainerStatus>.Fail(ContainerStatus.MemoryContainer, MemoryOnly(container));
+
+    /// <summary>
+    /// What text search and text ingestion answer for a tables container (CON-300): it holds tables, which are never
+    /// chunked or embedded, so there are no passages to search and no document to add.
+    /// </summary>
+    public static string TablesOnly(Container container) =>
+        $"'{container.Name}' is a tables container: it holds tables, not documents, so text search doesn't search it "
+        + "and documents can't be added to it.";
 }
 
-/// <summary>Lists document containers; memory spaces are not among them. Open to viewers; a container has no per-item visibility.</summary>
+/// <summary>Lists documents and tables containers; memory spaces are not among them. Open to viewers; a container has no per-item visibility.</summary>
 [Operation("containers.list", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class ListContainers(IContainerStore containers, IOperationAuthorizer authorizer)
 {
@@ -116,7 +124,7 @@ public sealed class ListContainers(IContainerStore containers, IOperationAuthori
         // One more than the page, to know whether another follows.
         // Memory spaces are not file containers: they are listed by memorySpaces.list, never here (CON-291).
         var listed = await containers.ListAsync(
-            query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ContainerRules.Viewer(context), ContainerKind.Documents, ct);
+            query.Skip, query.Take is int take ? take + 1 : int.MaxValue, ContainerRules.Viewer(context), ContainerKinds.FileKinds, ct);
         bool hasMore = query.Take is int size && listed.Count > size;
         return Attempt<ContainerList, ContainerStatus>.Succeed(new ContainerList(hasMore ? listed.Take(query.Take!.Value).ToList() : listed, hasMore));
     }
@@ -154,7 +162,7 @@ public sealed class CreateContainer(IContainerStore containers, IAuditLogger aud
         if (!PathUtilities.IsValidContainerName(name))
             return Fail(ContainerStatus.Invalid, ContainerRules.NameRule, "name");
         if (!Enum.IsDefined(request.Kind))
-            return Fail(ContainerStatus.Invalid, "kind must be documents or memory", "kind");
+            return Fail(ContainerStatus.Invalid, "kind must be documents, tables or memory", "kind");
         if (await containers.GetByNameAsync(name, ct) is not null)
             return Fail(ContainerStatus.Conflict, $"Container '{name}' already exists", "name");
 
@@ -169,7 +177,7 @@ public sealed class CreateContainer(IContainerStore containers, IAuditLogger aud
             return Fail(ContainerStatus.Conflict, ex.Message, "name");
         }
 
-        await audit.LogAsync("container.created", "container", created.Id, new { created.Name, Kind = created.Kind.ToString().ToLowerInvariant() }, ct);
+        await audit.LogAsync("container.created", "container", created.Id, new { created.Name, Kind = ContainerKinds.ToText(created.Kind) }, ct);
         return Attempt<Container, ContainerStatus>.Succeed(created);
     }
 }

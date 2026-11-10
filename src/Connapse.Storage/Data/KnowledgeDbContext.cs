@@ -201,8 +201,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("kind")
                 .HasMaxLength(16)
                 .HasConversion(
-                    kind => kind == ContainerKind.Memory ? "memory" : "documents",
-                    text => text == "memory" ? ContainerKind.Memory : ContainerKind.Documents)
+                    kind => ContainerKinds.ToText(kind),
+                    text => ContainerKinds.FromText(text))
                 .IsRequired();
 
             entity.Property(e => e.SettingsOverridesJson)
@@ -233,6 +233,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.ToTable(t => t.HasCheckConstraint("ck_containers_audience_owner",
                 "(audience = 'team' AND owner_user_id IS NULL AND owner_agent_id IS NULL) OR "
                 + "(audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))"));
+
+            // Only the kinds this build knows (CON-300), so no row can carry a kind that reads back as something else.
+            entity.ToTable(t => t.HasCheckConstraint("ck_containers_kind", "kind IN ('documents', 'memory', 'tables')"));
 
             // Team names are unique among team containers; a personal space's name only among its owner's spaces, so
             // a name taken by someone's personal space never blocks, or reveals itself to, anyone else.

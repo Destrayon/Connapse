@@ -85,6 +85,10 @@ else
                     <p class="container-card-desc">@container.Description</p>
                 }
                 <div class="container-card-meta">
+                    @if (container.Kind == ContainerKind.Tables)
+                    {
+                        <span class="container-kind-badge"><span class="bi-table me-1" aria-hidden="true"></span>Tables</span>
+                    }
                     <span>@container.DocumentCount @(container.DocumentCount == 1 ? "file" : "files")</span>
                     <span>@container.CreatedAt.ToString("MMM d, yyyy")</span>
                 </div>
@@ -127,6 +131,24 @@ else
                     <input type="text" class="form-control" placeholder="What is this container for?"
                            @bind="newContainerDescription" />
                 </div>
+                <fieldset class="mb-3">
+                    <legend class="form-label">What will it hold?</legend>
+                    <div class="kind-options">
+                        <label class="kind-option @(newContainerKind == ContainerKind.Documents ? "chosen" : "")">
+                            <input id="new-container-documents" type="radio" class="visually-hidden" name="new-container-kind"
+                                   checked="@(newContainerKind == ContainerKind.Documents)" @onchange="() => newContainerKind = ContainerKind.Documents" />
+                            <span class="kind-title"><span class="bi-file-earmark-text me-1" aria-hidden="true"></span>Documents</span>
+                            <span class="kind-text">Files to search by meaning and keywords.</span>
+                        </label>
+                        <label class="kind-option @(newContainerKind == ContainerKind.Tables ? "chosen" : "")">
+                            <input id="new-container-tables" type="radio" class="visually-hidden" name="new-container-kind"
+                                   checked="@(newContainerKind == ContainerKind.Tables)" @onchange="() => newContainerKind = ContainerKind.Tables" />
+                            <span class="kind-title"><span class="bi-table me-1" aria-hidden="true"></span>Tables</span>
+                            <span class="kind-text">Rows and columns to ask questions of. Text search doesn't search it.</span>
+                        </label>
+                    </div>
+                    <small class="text-muted d-block mt-1">You can't change this after the container is created.</small>
+                </fieldset>
                 @* Connector picker gone (#352). Creating a container has meant managed storage
                    since the API began rejecting every other ConnectorType, so the form was
                    offering choices the server refuses. External systems are configured as a
@@ -207,6 +229,7 @@ else
     private bool showCreateModal;
     private string newContainerName = "";
     private string? newContainerDescription;
+    private ContainerKind newContainerKind = ContainerKind.Documents;
     private string? createError;
     private bool isCreating;
 
@@ -272,6 +295,7 @@ else
         showCreateModal = true;
         newContainerName = "";
         newContainerDescription = null;
+        newContainerKind = ContainerKind.Documents;
         createError = null;
     }
 
@@ -288,7 +312,7 @@ else
         try
         {
             var created = await Operations.Create.RunAsync(await AuthStateProvider.OperationContextAsync(),
-                new CreateContainerRequest(newContainerName, newContainerDescription, ContainerKind.Documents));
+                new CreateContainerRequest(newContainerName, newContainerDescription, newContainerKind));
             if (!created.Succeeded)
             {
                 createError = created.Detail;
