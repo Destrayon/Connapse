@@ -12,4 +12,7 @@ public interface ITableQueryService
     Task<TableQueryResult> ReadAsync(Guid containerId, TableAccess access, TableReadRequest request, CancellationToken ct = default);
 
     Task<TableQueryResult> AggregateAsync(Guid containerId, TableAccess access, TableAggregateRequest request, CancellationToken ct = default);
+
+    /// <summary>What changed in a table with history between two times (CON-306); see <see cref="TableChangesRequest"/>.</summary>
+    Task<TableQueryResult> ChangesAsync(Guid containerId, TableAccess access, TableChangesRequest request, CancellationToken ct = default);
 }

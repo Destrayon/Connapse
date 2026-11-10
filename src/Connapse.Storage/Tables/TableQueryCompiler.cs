@@ -59,9 +59,7 @@ internal static class TableQueryCompiler
         var sql = new StringBuilder("SELECT ");
         sql.AppendJoin(", ", columns.Select(i => Output(query.Column(i), table.Columns[i].Type)));
         sql.Append(" FROM ").Append(query.Table);
-
-        if (request.Where is not null)
-            sql.Append(" WHERE ").Append(query.Filter(request.Where, aggregates: false));
+        Where(sql, query.Seen(request.SeenAsOf), request.Where is null ? null : query.Filter(request.Where, aggregates: false));
 
         if (request.OrderBy is { Count: > 0 } orderBy)
         {
@@ -115,8 +113,7 @@ internal static class TableQueryCompiler
         }
 
         var sql = new StringBuilder("SELECT ").AppendJoin(", ", outputs).Append(" FROM ").Append(query.Table);
-        if (request.Where is not null)
-            sql.Append(" WHERE ").Append(query.Filter(request.Where, aggregates: false));
+        Where(sql, query.Seen(request.SeenAsOf), request.Where is null ? null : query.Filter(request.Where, aggregates: false));
         if (groupBy.Count > 0)
             sql.Append(" GROUP BY ").AppendJoin(", ", groupBy.Select(query.Column));
         if (request.Having is not null)
@@ -141,6 +138,71 @@ internal static class TableQueryCompiler
         sql.Append(" LIMIT ").Append(query.Parameter((long)limit + 1, NpgsqlDbType.Bigint));
 
         return new CompiledTableQuery(sql.ToString(), query.Parameters, labels, limit);
+    }
+
+    /// <summary>
+    /// The net change between two times in a table with history (CON-306): the versions current at
+    /// <see cref="TableChangesRequest.Since"/> and at <see cref="TableChangesRequest.Until"/> (or now) joined on the key,
+    /// keeping the keys that went away, came in, or differ in a chosen column. Each output row says its
+    /// <c>change</c> (added, removed or changed) and <c>version</c> (old or new).
+    /// </summary>
+    internal static CompiledTableQuery CompileChanges(TableInfo table, TableChangesRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(request);
+        var query = new QueryBuilder(table);
+        int key = query.HistoryKey("ask what changed");
+        if (request.Until is DateTimeOffset until && until < request.Since)
+            throw new TableQueryException("until can't be earlier than since.");
+
+        List<int> columns = request.Columns is null || request.Columns.Count == 0
+            ? Enumerable.Range(0, table.Columns.Count).ToList()
+            : request.Columns.Count <= TableDdl.MaxColumns
+                ? request.Columns.Select(query.Resolve).Distinct().ToList()
+                : throw new TableQueryException($"A changes request can return at most {TableDdl.MaxColumns} columns.");
+        if (!columns.Contains(key))
+            columns.Insert(0, key);
+
+        string old = query.Seen(request.Since)!;
+        string @new = query.Seen(request.Until) ?? query.Current();
+        string selected = string.Join(", ", columns.Select(query.Column));
+        string k = query.Column(key);
+        string differs = $"ROW({string.Join(", ", columns.Select(i => "o." + query.Column(i)))}) IS DISTINCT FROM "
+            + $"ROW({string.Join(", ", columns.Select(i => "n." + query.Column(i)))})";
+
+        string Side(string alias, string other, string version, string gone, int side) =>
+            $"SELECT CASE WHEN {other}.{k} IS NULL THEN '{gone}' ELSE 'changed' END AS change, '{version}' AS version, "
+            + $"{side.ToString(CultureInfo.InvariantCulture)} AS side, {alias}.{k} AS sort_key, "
+            + string.Join(", ", columns.Select((c, n) => $"{alias}.{query.Column(c)} AS v_{n.ToString(CultureInfo.InvariantCulture)}"))
+            + $" FROM {(alias == "o" ? "old" : "new")} AS {alias} LEFT JOIN {(alias == "o" ? "new" : "old")} AS {other} ON {other}.{k} = {alias}.{k}"
+            + $" WHERE {other}.{k} IS NULL OR {differs}";
+
+        var sql = new StringBuilder("WITH old AS (SELECT ").Append(selected).Append(" FROM ").Append(query.Table)
+            .Append(" WHERE ").Append(old).Append("), new AS (SELECT ").Append(selected).Append(" FROM ").Append(query.Table)
+            .Append(" WHERE ").Append(@new).Append(") SELECT d.change, d.version, ")
+            .AppendJoin(", ", columns.Select((c, n) => Output("d.v_" + n.ToString(CultureInfo.InvariantCulture), table.Columns[c].Type)))
+            .Append(" FROM (").Append(Side("o", "n", "old", "removed", 0)).Append(" UNION ALL ")
+            .Append(Side("n", "o", "new", "added", 1)).Append(") AS d ORDER BY d.sort_key, d.side");
+
+        int limit = Limit(request.Limit);
+        int offset = request.Offset ?? 0;
+        if (offset < 0 || offset > MaxOffset)
+            throw new TableQueryException($"offset must be between 0 and {MaxOffset}.");
+        sql.Append(" LIMIT ").Append(query.Parameter((long)limit + 1, NpgsqlDbType.Bigint));
+        sql.Append(" OFFSET ").Append(query.Parameter((long)offset, NpgsqlDbType.Bigint));
+
+        var labels = new List<string> { "change", "version" };
+        labels.AddRange(columns.Select(i => table.Columns[i].Name));
+        return new CompiledTableQuery(sql.ToString(), query.Parameters, labels, limit);
+    }
+
+    /// <summary>Appends the WHERE clause: which versions to read, then the agent's filter.</summary>
+    private static void Where(StringBuilder sql, string? seen, string? filter)
+    {
+        if (seen is not null && filter is not null)
+            sql.Append(" WHERE ").Append(seen).Append(" AND (").Append(filter).Append(')');
+        else if (seen is not null || filter is not null)
+            sql.Append(" WHERE ").Append(seen ?? filter);
     }
 
     /// <summary>The answer column's name for an aggregate, such as <c>count</c> or <c>sum(amount)</c>.</summary>
@@ -221,6 +283,39 @@ internal static class TableQueryCompiler
                     $"Column \"{name}\" is ambiguous: it matches {string.Join(", ", loose.Select(i => Quoted(table.Columns[i].Name)))}. Use the exact header."),
             };
         }
+
+        /// <summary>
+        /// Which versions a read sees: for a table with history, those current at <paramref name="asOf"/>, or the
+        /// current ones when it is null. Null for a table without history, whose rows are all current.
+        /// </summary>
+        internal string? Seen(DateTimeOffset? asOf)
+        {
+            if (asOf is not DateTimeOffset at)
+                return table.HasHistory ? Current() : null;
+
+            HistoryKey("read it as seen at a time; leave out seen_as_of");
+            DateTime utc = at.UtcDateTime;
+            if (utc < table.HistoryFrom!.Value)
+                throw new TableQueryException(
+                    $"Table \"{table.Name}\" has history from {Time(table.HistoryFrom.Value)} on, when it last got a new key or new columns, so it can't be read as seen before then.");
+            string t = Parameter(utc, NpgsqlDbType.TimestampTz);
+            return $"{TableDdl.Quote(TableHistory.SeenFrom)} <= {t} AND {TableDdl.Quote(TableHistory.SeenUntil)} > {t}";
+        }
+
+        internal string Current() => $"{TableDdl.Quote(TableHistory.SeenUntil)} = 'infinity'";
+
+        /// <summary>The key column of a table with history, or an error saying the table keeps none.</summary>
+        internal int HistoryKey(string what)
+        {
+            if (!table.HasHistory)
+                throw new TableQueryException(
+                    $"Table \"{table.Name}\" has no key column, so each sync replaces its rows and it keeps no history. It can't {what}.");
+            int key = table.Columns.Select((c, i) => (c, i)).FirstOrDefault(x => string.Equals(x.c.Name, table.Key, StringComparison.Ordinal), (null!, -1)).i;
+            return key >= 0 ? key : throw new InvalidOperationException($"Table {table.Id}'s key column is missing.");
+        }
+
+        private static string Time(DateTime utc) =>
+            DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
 
         internal string Parameter(object value, NpgsqlDbType type)
         {

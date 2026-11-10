@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Connapse.Core;
 
@@ -16,11 +17,19 @@ namespace Connapse.Storage.Tables;
 /// Filters combine with <c>{"and": [...]}</c>, <c>{"or": [...]}</c> and <c>{"not": {...}}</c>. A condition has
 /// <c>op</c> one of <c>= != &lt; &lt;= &gt; &gt;= in between is_null contains starts_with</c>, a <c>value</c>, or
 /// <c>values</c> for <c>in</c> and <c>between</c>.
+/// <para>
+/// A read or an aggregate of a table with history (CON-306) can add <c>"seen_as_of": "2026-11-01T09:00:00Z"</c> to see
+/// the table as Connapse saw it then. What changed between two times looks like
+/// <code>{"table": "&lt;id&gt;", "since": "2026-11-01T00:00:00Z", "until": "2026-11-08T00:00:00Z", "columns": ["price"],
+///  "limit": 50, "offset": 0}</code>
+/// with <c>until</c> optional (now). Times are ISO 8601; one without an offset is UTC.
+/// </para>
 /// </summary>
 public static class TableRequestJson
 {
-    private static readonly string[] ReadKeys = ["table", "columns", "where", "order_by", "limit", "offset"];
-    private static readonly string[] AggregateKeys = ["table", "aggregates", "group_by", "where", "having", "order_by", "limit"];
+    private static readonly string[] ReadKeys = ["table", "columns", "where", "order_by", "limit", "offset", "seen_as_of"];
+    private static readonly string[] AggregateKeys = ["table", "aggregates", "group_by", "where", "having", "order_by", "limit", "seen_as_of"];
+    private static readonly string[] ChangesKeys = ["table", "since", "until", "columns", "limit", "offset"];
     private static readonly string[] FieldKeys = ["column", "aggregate"];
     private static readonly string[] OrderKeys = ["column", "aggregate", "direction"];
     private static readonly string[] ConditionKeys = ["column", "aggregate", "op", "value", "values"];
@@ -34,7 +43,8 @@ public static class TableRequestJson
             Optional(json, "where") is { } where ? Filter(where, 1) : null,
             Optional(json, "order_by") is { } order ? Orders(order) : null,
             Optional(json, "limit") is { } limit ? Int(limit, "limit") : null,
-            Optional(json, "offset") is { } offset ? Int(offset, "offset") : null);
+            Optional(json, "offset") is { } offset ? Int(offset, "offset") : null,
+            Optional(json, "seen_as_of") is { } seen ? Time(seen, "seen_as_of") : null);
     }
 
     public static TableAggregateRequest ParseAggregate(JsonElement json)
@@ -53,7 +63,22 @@ public static class TableRequestJson
             Optional(json, "where") is { } where ? Filter(where, 1) : null,
             Optional(json, "having") is { } having ? Filter(having, 1) : null,
             Optional(json, "order_by") is { } order ? Orders(order) : null,
-            Optional(json, "limit") is { } limit ? Int(limit, "limit") : null);
+            Optional(json, "limit") is { } limit ? Int(limit, "limit") : null,
+            Optional(json, "seen_as_of") is { } seen ? Time(seen, "seen_as_of") : null);
+    }
+
+    public static TableChangesRequest ParseChanges(JsonElement json)
+    {
+        RequireObject(json, "The request", ChangesKeys);
+        JsonElement since = Optional(json, "since")
+            ?? throw new TableQueryException("A changes request needs \"since\", a time such as \"2026-11-01T00:00:00Z\".");
+        return new TableChangesRequest(
+            TableId(json),
+            Time(since, "since"),
+            Optional(json, "until") is { } until ? Time(until, "until") : null,
+            Optional(json, "columns") is { } columns ? Strings(columns, "columns") : null,
+            Optional(json, "limit") is { } limit ? Int(limit, "limit") : null,
+            Optional(json, "offset") is { } offset ? Int(offset, "offset") : null);
     }
 
     private static Guid TableId(JsonElement json) =>
@@ -171,6 +196,12 @@ public static class TableRequestJson
         json.ValueKind == JsonValueKind.Number && json.TryGetInt32(out int value)
             ? value
             : throw new TableQueryException($"\"{name}\" must be a whole number.");
+
+    private static DateTimeOffset Time(JsonElement json, string name) =>
+        json.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(json.GetString(), CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal, out DateTimeOffset value)
+            ? value
+            : throw new TableQueryException($"\"{name}\" must be an ISO 8601 time, such as \"2026-11-01T09:00:00Z\".");
 
     private static IEnumerable<JsonElement> Array(JsonElement json, string name) =>
         json.ValueKind == JsonValueKind.Array
