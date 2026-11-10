@@ -1,6 +1,6 @@
 # Plan: making Connapse memories easier for agents to find and save (CON-313)
 **Date:** 2026-11-10
-**Status:** Proposed, awaiting the user's approval before any search code changes
+**Status:** Approved 2026-11-10, with a comparison against grep and today's memory use added (see "The bar")
 **Built on:** `memory-findability-2026-11-09.md` (research), `eval/baselines/memory-agent-test-2026-11-10.json`
 (baseline), the CON-313 section of `eval/pass-bars.md` (bar)
 
@@ -16,8 +16,9 @@ which average 2.04 recall calls, and one took 7.
 So the problem worth fixing is how much work the agent has to do, and how much callers that cannot reword their
 query (REST search, the UI, prompt-injected recall, weaker models) get back. The pick is **cheaper matching inside
 `memory_recall` first, with embeddings only if that falls short**. Text-to-Cypher is rejected, and save needs no
-change. The pass bar fixed before the run cannot be met, since it asks for +0.15 over 0.946. This plan proposes a
-replacement for the user to approve, judged on a fresh held-out task set.
+change. The pass bar fixed before the run cannot be met, since it asks for +0.15 over 0.946. The user approved a
+replacement, judged on a fresh held-out task set, under which the change must also beat or tie grep and today's
+memory tools on every task type.
 
 ## What the baseline shows
 
@@ -82,24 +83,28 @@ which A1 covers without a model.
 
 Bar 1 as registered asks hard find tasks to gain +0.15 over today's 0.946, which no change can do. The tasks have
 also now been seen, and A1 and A4 were shaped by their traces. So stage 1 cannot honestly be judged on them. The
-rules in `eval/pass-bars.md` say a bar is never changed after results, so this replacement needs the user's
-approval. It comes in as a new pass-bars section that names why, and the old section stays as written.
+rules in `eval/pass-bars.md` say a bar is never changed after results. The user approved this replacement on
+2026-11-10, adding that the change must also beat or tie grep over the same facts, and today's memory tools, on
+every task type. In the user's words: "if accuracy is good enough, we just need to make search easier and more cost
+effective, and hopefully make it better than grep or how you use memory currently in every case." The replacement
+is in `eval/pass-bars.md`, and the old section stays as written. In outline:
 
-**Proposed bar.** It is judged on a fresh held-out set: 60 or more new hard find tasks, 8 absent and 24 save tasks
-over a new made-up company, written by the same generator rules and committed sealed before any stage-1 code. The
-baseline is re-run on that set. The change passes only when all of these hold:
+- **Three arms, one agent.** These are **today** (the current memory tools), **grep** (the same facts as one line
+  each, searched with a regex `grep` tool and a `read` tool, plus the same write tools for save tasks), and the
+  **change**. All three use the same model, prompt shape, 12-call limit and answer tool.
+- **A fresh sealed set.** It holds a new made-up company and new tasks in the same kinds, written by the same
+  generator rules and committed before any stage-1 code. All three arms are scored on it once.
+- **Win or tie on every task type.** For each of the 8 kinds (exact, reworded, indirect, partial, absent, new,
+  update, duplicate), and against both today and grep:
+  - accuracy is no more than 0.05 lower;
+  - tool calls are no more than 0.1 higher;
+  - list-price cost is no more than 5% higher.
+- **A real win overall.** Pooled across find tasks, the change needs fewer tool calls and lower cost than both
+  comparators, with p < 0.05. Hard tasks also need the first recall to hit, retrieval with the question as typed to
+  improve, and calls to fall.
+- **No harm,** with speed and leaks as before.
 
-1. **Less agent work:** on hard find tasks, the first `memory_recall` shows gold for at least 0.90 of them and gains
-   at least +0.10 over today, and recall calls per task fall by at least 0.3. Both are tested with the paired
-   permutation test at p < 0.05.
-2. **Callers that cannot reword:** retrieval-only hit@10 on hard tasks is at least 0.80.
-3. **No harm:** hard, exact, absent and save scores are each non-inferior, meaning the lower end of the 90% BCa
-   interval of the difference is above −0.05. The margin is tighter than the old −0.10 because scores sit near 1.0.
-4. **Speed:** `memory_recall` p95 is under 300 ms.
-5. **Leaks:** the permission-leak suite passes with zero failures. A1 must expand only within the same space.
-
-If stage 1 fails bar 1 or 2, stage 2 (embeddings) is built and judged on a second sealed set. Bars 3–5 failing
-blocks the change until fixed.
+If stage 1 fails, stage 2 (embeddings) is built and judged on a second sealed set.
 
 ## What we do not know
 

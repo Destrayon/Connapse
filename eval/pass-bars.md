@@ -296,6 +296,40 @@ not by ranking alone.
   cannot be met as written, since +0.15 over 0.946 exceeds 1.0. The bar is not changed here; the plan doc proposes
   what to do about it.
 
+### Replacement bar, approved 2026-11-10
+
+The bar above cannot be met, and its test tasks have been seen and shaped the stage-1 design, so it is replaced. The
+user approved the replacement on 2026-11-10 and added that the change must beat or tie grep over the same facts and
+today's memory tools on every task type: "if accuracy is good enough, we just need to make search easier and more cost
+effective, and hopefully make it better than grep or how you use memory currently in every case." The section above
+stays as written. See `docs/research/memory-findability-plan-2026-11-10.md`.
+
+- **Sealed set.** A new made-up company, written by the same generator rules, with at least 60 hard find tasks, 8
+  exact, 8 absent and 24 save tasks (new, update and duplicate). It is committed before any stage-1 code and scored
+  once. Model, effort, 3 repetitions, 12-call limit and scoring are as in the section above.
+- **Three arms on the same tasks,** with the same model, prompt shape, call limit and answer tool:
+  - **today:** the current memory tools, run on the sealed set;
+  - **grep:** the space's live facts rendered one per line (`id | subject | attribute | value | valid from | status`),
+    with a `grep` tool (regex, case-insensitive option, at most 50 matching lines) and a `read` tool for a range of
+    lines; save tasks also get `memory_remember` and `memory_correct`, and the rendering is rebuilt after each write;
+  - **change:** the memory tools with the change.
+- **Win or tie on every task type.** For each kind (exact, reworded, indirect, partial, absent, new, update,
+  duplicate), against today and against grep, comparing means over the kind's tasks:
+  1. score is at most 0.05 below the comparator's;
+  2. mean tool calls are at most 0.1 above the comparator's;
+  3. mean list-price cost per run is at most 5% above the comparator's.
+- **A real win.** Pooled over find tasks, the change needs fewer tool calls and a lower list-price cost per run than
+  both today and grep, each by the paired permutation test at p < 0.05.
+- **Hard find tasks against today:** the first `memory_recall` shows gold for at least 0.90 of them and at least +0.10
+  over today, and recall calls per task fall by at least 0.3, both at p < 0.05. On the retrieval arm, hard hit@10 is at
+  least 0.80.
+- **No harm against today:** hard, exact, absent and save scores are each non-inferior, with the lower end of the 90%
+  BCa interval of the difference above −0.05.
+- **Speed and leaks:** `memory_recall` p95 under 300 ms, and the permission-leak suite passes with zero failures.
+
+All must hold. If stage 1 fails, stage 2 (embeddings) is built and judged the same way on a second sealed set. The grep
+arm is built and committed with the sealed set, before any stage-1 code.
+
 ## Baselines
 
 Recorded on 2026-10-24 with the `hybrid` config (nomic-embed-text through Ollama, reranker off) from the commit
