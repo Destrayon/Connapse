@@ -22,6 +22,12 @@ public enum DeletionItemKind
     File,
     Folder,
     MemorySpace,
+
+    /// <summary>A whole documents container, which must already be empty (CON-330).</summary>
+    Container,
+
+    /// <summary>One memory fact with every version of it (CON-330).</summary>
+    Fact,
 }
 
 /// <summary>What became of one item of a batch.</summary>
@@ -82,7 +88,7 @@ public class DeletionBatchEntity
     public const int MaxItems = 50;
 }
 
-/// <summary>One file, folder or memory space in a <see cref="DeletionBatchEntity"/>.</summary>
+/// <summary>One file, folder, memory space, container or memory fact in a <see cref="DeletionBatchEntity"/>.</summary>
 public class DeletionBatchItemEntity
 {
     public Guid Id { get; set; }
@@ -93,10 +99,10 @@ public class DeletionBatchItemEntity
 
     public DeletionItemKind Kind { get; set; }
 
-    /// <summary>The container that holds the file or folder, or the memory space itself.</summary>
+    /// <summary>The container that holds the file, folder or fact, or the memory space or container itself.</summary>
     public Guid ContainerId { get; set; }
 
-    /// <summary>The file's document id, the folder's path, or empty for a memory space.</summary>
+    /// <summary>The file's document id, the folder's path, the fact's id, or empty for a memory space or container.</summary>
     public string Target { get; set; } = string.Empty;
 
     /// <summary>What the approver sees: the file's path, the folder's path, or the space's name, with its container.</summary>

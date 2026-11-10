@@ -18,7 +18,8 @@
         <p class="text-muted mb-0">
             Calls from your tokens that delete data wait here until you approve them.
             The agent that asked learns your decision, and the reason you give, by itself.
-            Once approved, it repeats the same call within 15 minutes and it runs once.
+            When you approve a batch of deletions, Connapse deletes the approved items itself.
+            Any other held call runs once when the agent repeats it within 15 minutes of your approval.
             @if (isAdmin)
             {
                 <span class="ms-1">As an administrator you see everyone's requests, but only the person whose token asked can approve or deny it.</span>

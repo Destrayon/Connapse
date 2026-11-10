@@ -10,6 +10,7 @@ public static class DeletionBatchDisplay
     {
         "file" => $"containers/{item.ContainerId}?file={Uri.EscapeDataString(item.Target)}",
         "folder" => $"containers/{item.ContainerId}?path={Uri.EscapeDataString(item.Target)}",
+        "container" => $"containers/{item.ContainerId}",
         _ => $"memory/{item.ContainerId}",
     };
 
@@ -24,6 +25,8 @@ public static class DeletionBatchDisplay
     {
         "file" => "File",
         "folder" => "Folder",
+        "container" => "Container",
+        "fact" => "Memory fact",
         _ => "Memory space",
     };
 
@@ -31,6 +34,8 @@ public static class DeletionBatchDisplay
     {
         "file" => "bi-file-earmark",
         "folder" => "bi-folder",
+        "container" => "bi-box",
+        "fact" => "bi-lightbulb",
         _ => "bi-journal-text",
     };
 

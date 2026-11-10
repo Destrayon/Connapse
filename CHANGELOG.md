@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A held delete becomes a batch that Connapse carries out** (CON-330). When a token asks before deleting, `delete_file`, `bulk_delete`, `container_delete`, `memory_forget` and `folders.delete` through `connapse_api_write` no longer return a request for the agent to repeat. Each returns a batch of deletions, one item per file, folder, container or fact, which the owner approves on **Approvals** like one from `request_deletions`. Connapse deletes the approved items itself, skipping any that changed, and the agent reads each outcome with `deletion_status`. `request_deletions` also takes empty containers (`kind: "container"`) and memory facts (`kind: "fact"`). Held calls that aren't knowledge deletions, such as setting a credential or removing a user, still use `approval_status` and a repeated call, because Connapse keeps their arguments only sealed.
+
 ## [v0.4.1] - 2026-11-10
 
 v0.4.1 makes v0.4.0 easier to run and to use from agents: the one-command install survives a reboot, agents can wait for a person's approval and carry on, make their own memory spaces, and read and append to files in fewer calls, and every MCP action now has a matching REST route.

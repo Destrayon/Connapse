@@ -876,7 +876,7 @@ public class OperationRandomInputTests
                 });
                 var audit = Substitute.For<IAuditLogger>();
 
-                var asked = await new RequestDeletions(batches, null!, null!, null!, null!, null!, null!, null!, authorizer, audit, new FixedClock(Epoch))
+                var asked = await new RequestDeletions(batches, null!, null!, null!, null!, null!, null!, null!, authorizer, audit, new FixedClock(Epoch), null!)
                     .ExecuteAsync(caller, items);
 
                 // Every item here is unusable, so whoever asks and however many, nothing is stored or audited.
@@ -999,7 +999,7 @@ public class OperationRandomInputTests
                 batches.GetAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
 
                 var decided = await new DecideDeletionBatch(batches, null!, null!, null!, null!, null!, null!, null!, null!,
-                    Substitute.For<IAuditLogger>(), new FixedClock(Epoch), NullLogger<DecideDeletionBatch>.Instance)
+                    Substitute.For<IAuditLogger>(), new FixedClock(Epoch), NullLogger<DecideDeletionBatch>.Instance, null!, null!, null!)
                     .ExecuteAsync(approver.Context, batch.Id, approve, null, reason);
 
                 if (approver.Decider is not var (userId, _))

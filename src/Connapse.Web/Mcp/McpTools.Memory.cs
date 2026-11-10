@@ -255,7 +255,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_forget", Destructive = true),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
-     Description("Delete a fact for good, with every earlier and later version of it from corrections. Nothing of it is kept. To record that a value changed, use memory_correct instead.")]
+     Description("Delete a fact for good, with every earlier and later version of it from corrections. Nothing of it is kept. To record that a value changed, use memory_correct instead." + HeldDeleteNote)]
     public static async Task<string> MemoryForget(
         ForgetFact forget,
         IHttpContextAccessor http,
