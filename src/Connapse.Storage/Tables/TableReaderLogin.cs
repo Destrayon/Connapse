@@ -355,25 +355,14 @@ public sealed partial class TableReaderLogin : IAsyncDisposable
     }
 
     /// <summary>
-    /// Creates the token table and its lookup if they aren't there. The table is unlogged, since no token needs to
-    /// outlive a crash, and nobody but the main login may touch it. The lookup runs as the main login
-    /// (<c>SECURITY DEFINER</c>, with a fixed <c>search_path</c>) and returns the documents of the token bound to this
-    /// transaction, or none when the token is missing, unknown or expired.
+    /// Creates or refreshes the token table and its lookup (<see cref="TableDdl.TokenStoreSql"/>), under the same lock
+    /// table builds take when they create it first.
     /// </summary>
     private static async Task CreateTokenStoreAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken ct)
     {
-        string schema = TableDdl.Quote(TableDdl.AuthSchema);
-        await ExecuteAsync(connection, transaction, $"CREATE SCHEMA IF NOT EXISTS {schema}", ct);
-        await ExecuteAsync(connection, transaction, $"REVOKE ALL ON SCHEMA {schema} FROM PUBLIC", ct);
-        await ExecuteAsync(connection, transaction,
-            $"CREATE UNLOGGED TABLE IF NOT EXISTS {schema}.requests (token text PRIMARY KEY, documents uuid[] NOT NULL, expires_at timestamptz NOT NULL)", ct);
-        await ExecuteAsync(connection, transaction, $"REVOKE ALL ON {schema}.requests FROM PUBLIC", ct);
-        await ExecuteAsync(connection, transaction,
-            $"CREATE OR REPLACE FUNCTION {TableDdl.ReadableDocumentsFunction} RETURNS uuid[] LANGUAGE sql STABLE SECURITY DEFINER "
-            + "SET search_path = pg_catalog, pg_temp AS $$ SELECT coalesce((SELECT r.documents FROM tables_auth.requests r "
-            + "WHERE r.token = nullif(pg_catalog.current_setting('tables_auth.token', true), '') "
-            + "AND r.expires_at > pg_catalog.statement_timestamp()), '{}'::uuid[]) $$", ct);
-        await ExecuteAsync(connection, transaction, $"REVOKE ALL ON FUNCTION {TableDdl.ReadableDocumentsFunction} FROM PUBLIC", ct);
+        await TableDdl.LockTokenStoreAsync(connection, ct);
+        foreach (string sql in TableDdl.TokenStoreSql)
+            await ExecuteAsync(connection, transaction, sql, ct);
     }
 
     /// <summary>Revokes <c>TEMPORARY</c> on the database from <c>PUBLIC</c>, keeping it for the main login.</summary>

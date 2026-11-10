@@ -86,6 +86,55 @@ internal static partial class TableDdl
     /// <summary>The lookup the row policies call: the documents the current request's token may read.</summary>
     internal const string ReadableDocumentsFunction = AuthSchema + ".readable_documents()";
 
+    /// <summary>
+    /// The token table and its lookup (CON-324). The table is unlogged, since no token needs to outlive a crash, and
+    /// nobody but the main login may touch it. The lookup runs as the main login (<c>SECURITY DEFINER</c>, with a fixed
+    /// <c>search_path</c>) and returns the documents of the token bound to this transaction, or none when the token is
+    /// missing, unknown or expired.
+    /// </summary>
+    internal static IReadOnlyList<string> TokenStoreSql { get; } =
+    [
+        $"CREATE SCHEMA IF NOT EXISTS {AuthSchema}",
+        $"REVOKE ALL ON SCHEMA {AuthSchema} FROM PUBLIC",
+        $"CREATE UNLOGGED TABLE IF NOT EXISTS {AuthSchema}.requests (token text PRIMARY KEY, documents uuid[] NOT NULL, expires_at timestamptz NOT NULL)",
+        $"REVOKE ALL ON {AuthSchema}.requests FROM PUBLIC",
+        $"CREATE OR REPLACE FUNCTION {ReadableDocumentsFunction} RETURNS uuid[] LANGUAGE sql STABLE SECURITY DEFINER "
+            + "SET search_path = pg_catalog, pg_temp AS $$ SELECT coalesce((SELECT r.documents FROM tables_auth.requests r "
+            + "WHERE r.token = nullif(pg_catalog.current_setting('tables_auth.token', true), '') "
+            + "AND r.expires_at > pg_catalog.statement_timestamp()), '{}'::uuid[]) $$",
+        $"REVOKE ALL ON FUNCTION {ReadableDocumentsFunction} FROM PUBLIC",
+    ];
+
+    /// <summary>
+    /// Takes the transaction lock that serializes creating or replacing the token store, so two connections never
+    /// create the schema or the lookup at once.
+    /// </summary>
+    internal static Task LockTokenStoreAsync(DbConnection connection, CancellationToken ct) =>
+        ExecuteAsync(connection, $"SELECT pg_advisory_xact_lock({LockClass}, hashtext('{AuthSchema}'))", ct);
+
+    /// <summary>
+    /// Creates the token store if it's missing, inside the caller's transaction. A table's row policy calls the
+    /// lookup, so the store must exist before the first table is built, which can be before any query provisions the
+    /// reader login. The lock is only taken when the lookup is missing, so loads don't queue behind each other.
+    /// </summary>
+    internal static async Task EnsureTokenStoreAsync(DbConnection connection, CancellationToken ct)
+    {
+        if (await TokenStoreExistsAsync(connection, ct))
+            return;
+        await LockTokenStoreAsync(connection, ct);
+        if (await TokenStoreExistsAsync(connection, ct))
+            return;
+        foreach (string sql in TokenStoreSql)
+            await ExecuteAsync(connection, sql, ct);
+    }
+
+    private static async Task<bool> TokenStoreExistsAsync(DbConnection connection, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT pg_catalog.to_regprocedure('{ReadableDocumentsFunction}') IS NOT NULL";
+        return (bool)(await command.ExecuteScalarAsync(ct))!;
+    }
+
     internal const string ContainerRolePrefix = "connapse_tr_";
 
     /// <summary>

@@ -559,6 +559,43 @@ public class TableQueryTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Rls_TableBuiltBeforeAnyQuery_CreatesTheTokenStoreItself()
+    {
+        // Ingestion builds tables before any query provisions the reader, so a fresh database has no token store yet.
+        string database = "con324_fresh_" + Guid.NewGuid().ToString("N")[..12];
+        await using NpgsqlDataSource admin = AdminDataSource();
+        await using (NpgsqlCommand create = admin.CreateCommand($"CREATE DATABASE {database}"))
+            await create.ExecuteNonQueryAsync();
+        try
+        {
+            string main = fixture.Factory.Services.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")!;
+            NpgsqlConnectionStringBuilder fresh = new(main) { Database = database };
+            await using NpgsqlConnection connection = new(fresh.ConnectionString);
+            await connection.OpenAsync();
+            await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync();
+            Guid containerId = Guid.NewGuid();
+            await TableDdl.CreateSchemaAsync(connection, containerId, CancellationToken.None);
+            await TableDdl.ExecuteAsync(connection,
+                TableDdl.CreateTableSql(containerId, "t_1", [new TableColumn("a", TableColumnType.Text)]), CancellationToken.None);
+
+            await TableDdl.EnsureTokenStoreAsync(connection, CancellationToken.None);
+            foreach (string sql in TableDdl.ProtectSql(containerId, "t_1", Guid.NewGuid()))
+                await TableDdl.ExecuteAsync(connection, sql, CancellationToken.None);
+            await TableDdl.EnsureTokenStoreAsync(connection, CancellationToken.None);
+            await transaction.CommitAsync();
+
+            await using NpgsqlCommand policies = new("SELECT count(*) FROM pg_catalog.pg_policies WHERE policyname = 'readable'", connection);
+            ((long)(await policies.ExecuteScalarAsync())!).Should().Be(1);
+        }
+        finally
+        {
+            NpgsqlConnection.ClearAllPools();
+            await using NpgsqlCommand drop = admin.CreateCommand($"DROP DATABASE IF EXISTS {database} WITH (FORCE)");
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
     public async Task Rls_LoadedTable_ForcesRowSecurityOnItsOwnerToo()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
