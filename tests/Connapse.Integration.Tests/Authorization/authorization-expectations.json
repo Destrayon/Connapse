@@ -186,9 +186,9 @@
       "scope": "knowledge:read"
     },
     "GET /api/approvals/deletions/{id:guid}": {
-      "requires": "mcp",
+      "requires": "editor",
       "risk": "read",
-      "scope": "knowledge:read"
+      "scope": "knowledge:write"
     },
     "POST /api/approvals/deletions": {
       "requires": "editor",
@@ -1244,7 +1244,7 @@
     },
     "deletion_status": {
       "requires": "mcp",
-      "scope": "none",
+      "scope": "knowledge:write",
       "risk": "read"
     }
   }

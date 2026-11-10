@@ -675,22 +675,10 @@
     private async Task OpenStartAsync()
     {
         if (!string.IsNullOrWhiteSpace(StartFile))
-        {
             await LoadFileDetails(StartFile);
-            if (selectedFile is not null)
-            {
-                currentPath = FileLinksPanel.FolderOf(selectedFile.Path);
-                await LoadEntries();
-                selectedBrowseEntry = entries.FirstOrDefault(e => e.Id == selectedFile.Id);
-                return;
-            }
-        }
-        else if (!string.IsNullOrWhiteSpace(StartPath))
-        {
-            string path = "/" + StartPath.Trim().Trim('/');
-            currentPath = path == "/" ? "/" : path + "/";
-        }
+        currentPath = selectedFile is null ? DeletionBatchDisplay.StartFolder(StartPath) : FileLinksPanel.FolderOf(selectedFile.Path);
         await LoadEntries();
+        selectedBrowseEntry = entries.FirstOrDefault(e => e.Id == selectedFile?.Id);
     }
 
     private async Task RetryIngestion(BrowseEntryDto entry)

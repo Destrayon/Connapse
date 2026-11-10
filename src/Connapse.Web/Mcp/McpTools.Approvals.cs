@@ -37,7 +37,7 @@ public partial class McpTools
         return found.Succeeded ? JsonSerializer.Serialize(found.Result, MemoryJson) : Refused(found);
     }
 
-    [McpServerTool(Name = "request_deletions"),
+    [McpServerTool(Name = "request_deletions", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Ask your owner to approve several deletions at once instead of one held call each: up to 50 items, each a file "
         + "(kind \"file\", container, target = file id or path), a folder (kind \"folder\", container, target = folder path) or a memory space "
@@ -68,7 +68,7 @@ public partial class McpTools
     }
 
     [McpServerTool(Name = "deletion_status", ReadOnly = true, Idempotent = true),
-     Authorize, McpToolRisk(RiskTier.Read),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Read),
      Description("Check a batch of deletions you asked for with request_deletions, by its id. Pass `waitSeconds` (up to 50) to wait while "
         + "it is pending or running. `state` is pending, expired, denied, running or done; each item's `state` is deleted, skipped (gone or "
         + "changed since you asked), failed, not_approved or denied, and its `outcome` says why. `message` says what to do next.")]
