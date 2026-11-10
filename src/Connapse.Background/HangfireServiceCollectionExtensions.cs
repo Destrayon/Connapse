@@ -50,13 +50,7 @@ public static class HangfireServiceCollectionExtensions
             // hits ObjectDisposedException("LoggerFactory"). See NoOpHangfireLogProvider
             // for full rationale.
             .UseLogProvider(new NoOpHangfireLogProvider())
-            .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(hangfireConnectionString), new PostgreSqlStorageOptions
-            {
-                SchemaName = "hangfire",
-                PrepareSchemaIfNecessary = true,
-                QueuePollInterval = TimeSpan.FromSeconds(2),
-                InvisibilityTimeout = TimeSpan.FromMinutes(30)
-            }));
+            .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(hangfireConnectionString), CreateStorageOptions()));
 
         // BackgroundJobServer startup can be suppressed via Hangfire:DisableServer=true.
         // Used by integration-test derived factories (WebApplicationFactory.WithWebHostBuilder)
@@ -91,6 +85,24 @@ public static class HangfireServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Hangfire's PostgreSQL storage options. A fetched job is hidden from other workers for
+    /// <see cref="PostgreSqlStorageOptions.InvisibilityTimeout"/>; without the sliding timeout that
+    /// lease is fixed, so a job still running at minute 30 looks abandoned, another worker picks it up
+    /// and starts it again, and the first run is cancelled — indefinitely, for a large file (CON-317).
+    /// With <see cref="PostgreSqlStorageOptions.UseSlidingInvisibilityTimeout"/> the storage renews the
+    /// lease every InvisibilityTimeout / 5 while the job runs, so only a dead worker's job is retaken.
+    /// The renewal runs as a storage background process, which a lightweight server does not start.
+    /// </summary>
+    internal static PostgreSqlStorageOptions CreateStorageOptions() => new()
+    {
+        SchemaName = "hangfire",
+        PrepareSchemaIfNecessary = true,
+        QueuePollInterval = TimeSpan.FromSeconds(2),
+        InvisibilityTimeout = TimeSpan.FromMinutes(30),
+        UseSlidingInvisibilityTimeout = true
+    };
 
     private static int PositiveSetting(IConfiguration configuration, string key, int defaultValue)
     {
