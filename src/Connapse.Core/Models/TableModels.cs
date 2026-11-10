@@ -1,7 +1,7 @@
 namespace Connapse.Core;
 
 /// <summary>
-/// A column's type in a tables container (CON-E6), named as Frictionless Table Schema names it. Each maps to one
+/// A column's type in a container's table (CON-E6), named as Frictionless Table Schema names it. Each maps to one
 /// PostgreSQL type: text, bigint, numeric, boolean, date and timestamp.
 /// </summary>
 public enum TableColumnType
@@ -73,3 +73,6 @@ public sealed record TableInfo(
     int Version,
     DateTime CreatedAt,
     DateTime LoadedAt);
+
+/// <summary>One page of a container's tables and how many the container holds in all.</summary>
+public sealed record TablePage(IReadOnlyList<TableInfo> Items, int Total);

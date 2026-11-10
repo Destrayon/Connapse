@@ -1,0 +1,146 @@
+@using Connapse.Application.Tables
+@using Connapse.Core
+@inject ListTables List
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* A container's tables, a page at a time, through tables.list (CON-319): the files it loaded as tables, each opening to
+   its columns and their types. *@
+
+<div id="tables-view" class="browser-content">
+    @if (listing is null && errorMessage is null)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-accent" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (errorMessage is not null)
+    {
+        <div id="tables-error" class="alert alert-danger m-3">@errorMessage</div>
+    }
+    else if (listing!.TotalCount == 0)
+    {
+        <div id="tables-empty" class="tables-empty">
+            <span class="bi-table" aria-hidden="true"></span>
+            <p>No tables yet. CSV files uploaded to this container load as tables here.</p>
+        </div>
+    }
+    else
+    {
+        <table class="tables-table">
+            <thead>
+                <tr>
+                    <th class="col-name">Name</th>
+                    <th class="col-columns">Columns</th>
+                    <th class="col-rows">Rows</th>
+                    <th class="col-loaded">Loaded</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var table in listing.Items)
+                {
+                    bool open = expanded.Contains(table.Id);
+                    <tr class="table-row @(open ? "table-row-open" : "")" data-table="@table.Name"
+                        aria-expanded="@(open ? "true" : "false")" @onclick="() => Toggle(table.Id)">
+                        <td class="col-name">
+                            <span class="@(open ? "bi-chevron-down" : "bi-chevron-right") table-chevron" aria-hidden="true"></span>
+                            <span class="bi-table table-icon" aria-hidden="true"></span>
+                            <span class="entry-name">@table.Name</span>
+                            @if (table.NeedsReview)
+                            {
+                                <span class="badge bg-warning text-dark" title="Some rows didn't fit the column types and were left out">Needs review</span>
+                            }
+                        </td>
+                        <td class="col-columns">@table.Columns.Count</td>
+                        <td class="col-rows">@table.RowCount.ToString("N0")</td>
+                        <td class="col-loaded">@table.LoadedAt.ToString("MMM d, yyyy")</td>
+                    </tr>
+                    @if (open)
+                    {
+                        <tr class="table-schema-row">
+                            <td colspan="4">
+                                <table class="schema-table" aria-label="@($"Schema of {table.Name}")">
+                                    <thead>
+                                        <tr><th>Column</th><th>Type</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var column in table.Columns)
+                                        {
+                                            <tr class="schema-column">
+                                                <td class="schema-name">@column.Name</td>
+                                                <td class="schema-type">@TypeName(column)</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+        <div class="tables-count">
+            <span id="tables-range">@Range(skip, listing.Items.Count, listing.TotalCount)</span>
+            <span class="tables-pager">
+                <button id="tables-prev" class="btn btn-sm btn-outline-secondary" disabled="@(skip == 0)" @onclick="Previous">
+                    <span class="bi-chevron-left me-1" aria-hidden="true"></span>Previous
+                </button>
+                <button id="tables-next" class="btn btn-sm btn-outline-secondary" disabled="@(!listing.HasMore)" @onclick="Next">
+                    Next<span class="bi-chevron-right ms-1" aria-hidden="true"></span>
+                </button>
+            </span>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>How many tables one page shows.</summary>
+    public const int DefaultPageSize = 25;
+
+    [Parameter, EditorRequired] public Guid ContainerId { get; set; }
+
+    [Parameter] public int PageSize { get; set; } = DefaultPageSize;
+
+    private TableListing? listing;
+    private string? errorMessage;
+    private int skip;
+    private readonly HashSet<Guid> expanded = [];
+
+    protected override Task OnInitializedAsync() => LoadAsync(0);
+
+    private async Task LoadAsync(int from)
+    {
+        errorMessage = null;
+        var read = await List.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId, from, PageSize);
+        listing = read.ResultOr<TableListing, TableStatus>(failed => errorMessage = failed, null!);
+        skip = from;
+    }
+
+    private Task Previous() => LoadAsync(Math.Max(0, skip - PageSize));
+
+    private Task Next() => LoadAsync(skip + PageSize);
+
+    private void Toggle(Guid id)
+    {
+        if (!expanded.Remove(id))
+            expanded.Add(id);
+    }
+
+    /// <summary>Which tables a page shows, as "1–25 of 60".</summary>
+    public static string Range(int skip, int shown, int total) =>
+        shown == 0 ? $"0 of {total}" : $"{skip + 1}–{skip + shown} of {total} {(total == 1 ? "table" : "tables")}";
+
+    /// <summary>A column's type in words, with the date or time form the file wrote it in.</summary>
+    public static string TypeName(TableColumn column)
+    {
+        string name = column.Type switch
+        {
+            TableColumnType.WholeNumber => "Whole number",
+            TableColumnType.DateTime => "Date and time",
+            TableColumnType.Boolean => "True/false",
+            _ => column.Type.ToString(),
+        };
+        return column.Format?.Pattern is { Length: > 0 } pattern ? $"{name} ({pattern})" : name;
+    }
+}

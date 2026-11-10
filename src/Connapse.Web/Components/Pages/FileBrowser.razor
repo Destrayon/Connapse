@@ -55,12 +55,7 @@
             }
             else
             {
-                <li class="nav-item">
-                    <button class="nav-link @(activeTab == "files" ? "active" : "")" @onclick='() => activeTab = "files"'>Files</button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link @(activeTab == "settings" ? "active" : "")" @onclick="ShowSettingsTab">Settings</button>
-                </li>
+                <ContainerTabs @bind-Tab="activeTab" OnSettings="ShowSettingsTab" />
             }
         </ul>
         @if (canEdit && activeTab == "files" && failedCount > 0)
@@ -200,6 +195,11 @@
 @if (activeTab == "memory" && container is not null)
 {
     <Connapse.Web.Components.Memory.MemoryFactList Space="@ContainerId" CanEdit="canEdit" />
+}
+
+@if (activeTab == "tables" && container is not null)
+{
+    <Connapse.Web.Components.Tables.ContainerTables ContainerId="Guid.Parse(container.Id)" />
 }
 
 @* Upload Drop Zone — always rendered so JS event listeners survive navigation *@

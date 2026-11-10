@@ -26,7 +26,7 @@ public interface IContainerStore
 
     /// <summary>
     /// As <see cref="ListAsync(int, int, MemoryCaller?, CancellationToken)"/>, only containers of one of <paramref name="kinds"/>:
-    /// the container list asks for documents and tables containers, since memory spaces are listed on their own.
+    /// the container list asks for documents containers, since memory spaces are listed on their own.
     /// </summary>
     Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, IReadOnlyList<ContainerKind> kinds, CancellationToken ct = default);
 

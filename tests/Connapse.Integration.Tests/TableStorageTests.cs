@@ -14,7 +14,7 @@ using Xunit;
 namespace Connapse.Integration.Tests;
 
 /// <summary>
-/// CON-301: each tables container keeps its tables in a schema of its own with a catalog entry per table, a reload
+/// CON-301: each container keeps its tables in a schema of its own with a catalog entry per table, a reload
 /// swaps the new table in without a reader ever seeing part of it, and deleting the container drops its tables.
 /// Runs against the services the app registers, so the DI wiring is covered too.
 /// </summary>
@@ -31,34 +31,34 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     ];
 
     [Fact]
-    public async Task CreateContainer_Tables_GetsItsOwnSchema_AndOtherKindsDoNot()
+    public async Task CreateContainer_GetsNoSchemaUntilItsFirstTable_ThenOneOfItsOwn()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-
-        var first = await containers.CreateAsync(new CreateContainerRequest(UniqueName("tables-a"), null, ContainerKind.Tables));
-        var second = await containers.CreateAsync(new CreateContainerRequest(UniqueName("tables-b"), null, ContainerKind.Tables));
-        var documents = await containers.CreateAsync(new CreateContainerRequest(UniqueName("docs"), null, ContainerKind.Documents));
+        var (containers, tables, first) = await NewContainerAsync(scope);
+        var (_, _, second) = await NewContainerAsync(scope);
         try
         {
-            (await SchemaExistsAsync(scope, Guid.Parse(first.Id))).Should().BeTrue();
-            (await SchemaExistsAsync(scope, Guid.Parse(second.Id))).Should().BeTrue();
-            TableDdl.SchemaName(Guid.Parse(first.Id)).Should().NotBe(TableDdl.SchemaName(Guid.Parse(second.Id)));
-            (await SchemaExistsAsync(scope, Guid.Parse(documents.Id))).Should().BeFalse();
+            (await SchemaExistsAsync(scope, first)).Should().BeFalse();
+
+            await tables.CreateAsync(first, Load("One", 1, batch: 1));
+            await tables.CreateAsync(second, Load("One", 1, batch: 1));
+
+            (await SchemaExistsAsync(scope, first)).Should().BeTrue();
+            (await SchemaExistsAsync(scope, second)).Should().BeTrue();
+            TableDdl.SchemaName(first).Should().NotBe(TableDdl.SchemaName(second));
         }
         finally
         {
-            await containers.DeleteAsync(Guid.Parse(first.Id));
-            await containers.DeleteAsync(Guid.Parse(second.Id));
-            await containers.DeleteAsync(Guid.Parse(documents.Id));
+            await containers.DeleteAsync(first);
+            await containers.DeleteAsync(second);
         }
     }
 
     [Fact]
-    public async Task Create_TablesContainer_LoadsRowsIntoItsSchemaAndCatalogsThem()
+    public async Task Create_LoadsRowsIntoItsContainersSchemaAndCatalogsThem()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var (containers, tables, containerId) = await NewTablesContainerAsync(scope);
+        var (containers, tables, containerId) = await NewContainerAsync(scope);
         try
         {
             var table = await tables.CreateAsync(containerId, Load("Orders", 3, batch: 1) with { Description = "Q3 orders" });
@@ -85,7 +85,7 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     {
         const int OldRows = 2_000, NewRows = 3_000;
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var (containers, tables, containerId) = await NewTablesContainerAsync(scope);
+        var (containers, tables, containerId) = await NewContainerAsync(scope);
         try
         {
             var table = await tables.CreateAsync(containerId, Load("Stock", OldRows, batch: 1));
@@ -157,7 +157,7 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     public async Task Reload_ReaderHoldingTheOldTable_FinishesAndTheOldTableIsDroppedAfterIt()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var (containers, tables, containerId) = await NewTablesContainerAsync(scope);
+        var (containers, tables, containerId) = await NewContainerAsync(scope);
         var store = scope.ServiceProvider.GetRequiredService<PostgresTableStore>();
         try
         {
@@ -191,7 +191,7 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     public async Task DeleteContainer_WithTables_DropsItsSchemaTablesAndCatalog()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var (containers, tables, containerId) = await NewTablesContainerAsync(scope);
+        var (containers, tables, containerId) = await NewContainerAsync(scope);
         var first = await tables.CreateAsync(containerId, Load("One", 5, batch: 1));
         await tables.CreateAsync(containerId, Load("Two", 5, batch: 1));
         await tables.ReloadAsync(containerId, first.Id, Load("One", 6, batch: 2));
@@ -209,7 +209,7 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     public async Task Delete_Table_LeavesTheCatalogAtOnceAndIsDroppedLater()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var (containers, tables, containerId) = await NewTablesContainerAsync(scope);
+        var (containers, tables, containerId) = await NewContainerAsync(scope);
         var store = scope.ServiceProvider.GetRequiredService<PostgresTableStore>();
         try
         {
@@ -232,7 +232,7 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     public async Task Create_RowOfTheWrongWidth_LeavesNoTableAndNoCatalogEntry()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var (containers, tables, containerId) = await NewTablesContainerAsync(scope);
+        var (containers, tables, containerId) = await NewContainerAsync(scope);
         try
         {
             var load = new TableLoad("Broken", Columns, Rows([[1L, "ok", 1m, null], [1L, "short"]]));
@@ -290,36 +290,48 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Create_TablesContainerWithoutASchema_MakesTheSchemaOnFirstLoad()
+    public async Task ListPage_ManyTables_PagesThroughThemByNameWithTheTotal()
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
-        var (containers, tables, containerId) = await NewTablesContainerAsync(scope);
+        var (containers, tables, containerId) = await NewContainerAsync(scope);
+        var (_, _, otherId) = await NewContainerAsync(scope);
         try
         {
-            // A tables container made before CON-301 has no schema.
-            var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
-            string dropSchema = "DROP SCHEMA " + TableDdl.Quote(TableDdl.SchemaName(containerId));
-            await using (var context = await factory.CreateDbContextAsync())
-                await context.Database.ExecuteSqlRawAsync(dropSchema);
+            foreach (string name in new[] { "Eta", "Beta", "Delta", "Alpha", "Gamma" })
+                await tables.CreateAsync(containerId, Load(name, 1, batch: 1));
+            await tables.CreateAsync(otherId, Load("Other", 1, batch: 1));
 
-            var table = await tables.CreateAsync(containerId, Load("Late", 4, batch: 1));
+            List<string> seen = [];
+            for (int skip = 0; ; skip += 2)
+            {
+                TablePage page = await tables.ListAsync(containerId, skip, 2);
+                page.Total.Should().Be(5, "the total counts every table of the container, and no other container's");
+                page.Items.Should().OnlyContain(t => t.ContainerId == containerId);
+                seen.AddRange(page.Items.Select(t => t.Name));
+                if (skip + page.Items.Count >= page.Total)
+                    break;
+            }
 
-            (await SchemaExistsAsync(scope, containerId)).Should().BeTrue();
-            (await TableExistsAsync(scope, containerId, table.StorageName)).Should().BeTrue();
+            seen.Should().Equal("Alpha", "Beta", "Delta", "Eta", "Gamma");
+            TablePage past = await tables.ListAsync(containerId, 10, 2);
+            past.Items.Should().BeEmpty();
+            past.Total.Should().Be(5);
         }
         finally
         {
             await containers.DeleteAsync(containerId);
+            await containers.DeleteAsync(otherId);
         }
     }
 
+
     private static string UniqueName(string prefix) => $"{prefix}-{Guid.NewGuid():N}";
 
-    private static async Task<(IContainerStore Containers, ITableStore Tables, Guid ContainerId)> NewTablesContainerAsync(
+    private static async Task<(IContainerStore Containers, ITableStore Tables, Guid ContainerId)> NewContainerAsync(
         AsyncServiceScope scope)
     {
         var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-        var container = await containers.CreateAsync(new CreateContainerRequest(UniqueName("tables"), null, ContainerKind.Tables));
+        var container = await containers.CreateAsync(new CreateContainerRequest(UniqueName("tables"), null, ContainerKind.Documents));
         return (containers, scope.ServiceProvider.GetRequiredService<ITableStore>(), Guid.Parse(container.Id));
     }
 

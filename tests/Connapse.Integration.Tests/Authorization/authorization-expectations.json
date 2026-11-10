@@ -290,6 +290,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/containers/{containerId:guid}/tables": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/memory/facts": {
       "requires": "viewer",
       "risk": "read",

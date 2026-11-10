@@ -27,7 +27,7 @@ public class CsvTableLoadGateTests(SharedWebAppFixture fixture, ITestOutputHelpe
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
         var tables = scope.ServiceProvider.GetRequiredService<ITableStore>();
-        var created = await containers.CreateAsync(new CreateContainerRequest($"gate-{Guid.NewGuid():N}"[..20], null, ContainerKind.Tables));
+        var created = await containers.CreateAsync(new CreateContainerRequest($"gate-{Guid.NewGuid():N}"[..20], null, ContainerKind.Documents));
         Guid containerId = Guid.Parse(created.Id);
         try
         {

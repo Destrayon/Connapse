@@ -13,8 +13,9 @@ skipped: XLSX, CSV and JSON were kept out of RAG on 2026-09-27 because text sear
 many orders shipped late in March". Published results agree. On the TAG benchmark, passage retrieval answered 0% of
 table questions and querying the data answered 17–55%.
 
-CON-E6 adds a second container type: a **tables container**. Each file loaded into it becomes a real typed database
-table. Agents query these tables through four tools: list, describe, read and aggregate. Every answer is still trimmed
+CON-E6 lets a container hold **tables** beside its files. Each CSV or spreadsheet uploaded to it becomes a real typed
+database table, and a container can hold any number of them. (This first proposed a separate tables container type;
+CON-319 dropped it, see Container type.) Agents query these tables through four tools: list, describe, read and aggregate. Every answer is still trimmed
 to what the caller is allowed to see. Agent memory then moves onto the same layer, so one set of tools and one
 history model serve both.
 
@@ -43,13 +44,19 @@ Postgres MCP server let the model write raw SQL, and a `COMMIT;` broke out of it
 
 ## Design
 ### Container type
-`Container` gains a `Kind` of `documents` (today's containers, the default) or `tables`. A container's kind is set
-when it is created and never changes. A documents container keeps working exactly as now, including memory. A tables
-container holds tables, not passages: its files are not embedded or chunked, and `search_knowledge` doesn't search
-it.
+There is no separate tables container type (CON-319, 2026-11-10). CON-300 first added a `tables` kind; it was dropped
+before release because the user wants one container to hold files and tables together: "as long as a table container
+can hold multiple tables in and a way to go through them, they shouldn't hold only one table."
+
+- **Any documents container holds any number of tables** beside its files. A CSV uploaded to it becomes a table and
+  keeps its text passages, so `search_knowledge` finds it as before. Spreadsheets (ticket 11) and promoted PDF and
+  Office tables (ticket 15) land in the same container.
+- **Going through them.** `GET /api/containers/{id}/tables?skip&take` pages through a container's tables by name with
+  the total; the table tools (ticket 8) build on it.
+- **Agent memory containers** hold no tables.
 
 ### Storage
-- **One schema per tables container**, and per documents container once ticket 15 promotes one of its tables. Each
+- **One schema per container**, made when its first table loads. Each
   table in it is a real PostgreSQL table with generated names (`t_<id>`, columns `c_<n>`), so a file's headers never
   reach SQL text.
 - **A catalog in Connapse's own schema.** For each table it records the original name, description, source document,
@@ -169,7 +176,7 @@ and which layer stops it.
 binding (`pgsqlparser` or `Npgquery`), after its own research ticket. It is outside v0.5.0.
 
 ### Permissions
-- **The container.** Access to a tables container uses today's container access checks.
+- **The container.** Access to a container's tables uses today's container access checks.
 - **Tables built from a document** (a CSV uploaded to a container, or synced from S3 or Azure later) carry that
   document's id. The table is visible only when `IDocumentAccess.ReadableAsync` says the caller can read the
   document, the same check memory uses.
@@ -254,7 +261,7 @@ This follows CON-142 (`eval/agent-search/`).
 - **The setups:**
   - **rag:** the same CSV files in a documents container, parsed as text by today's TextParser and searched with
     `search_knowledge` and `get_document` on default hybrid search. This is the text-search baseline.
-  - **tables:** the four table tools over a tables container.
+  - **tables:** the four table tools over the same CSV files' tables.
   - **both:** all six tools, used on the mixed set.
   - **both-linked** and **both-unlinked:** all six tools on the linked set, with passage links shown and hidden.
 - **Answers** come back as typed JSON and are graded by the DataBench rules:
@@ -266,15 +273,15 @@ This follows CON-142 (`eval/agent-search/`).
 - **Load on the PC.** The agent runs in the cloud. Ollama runs CPU-only with containers capped, as the eval rules
   require.
 
-### Pass bar for the tables container
-The tables container ships only if all of these hold on the 180 held-out questions:
+### Pass bar for the tables
+The tables ship only if all of these hold on the 180 held-out questions:
 1. **Accuracy:** tables answers at least **25 points** more questions correctly than rag, with an exact McNemar test
    p < 0.01.
 2. **Absolute accuracy:** tables answers at least **70%** correctly.
 3. **Every family:** no family scores lower with tables than with rag.
 4. **The mixed set:** "both" answers no fewer of the 30 mixed questions than rag does.
 5. **No harm to text search:** v1, enterprise-v1, pdfqa-v1 and links-v1 show no Holm-significant drop and nDCG@10
-   falls by at most 0.01 on each, because table containers are kept out of search.
+   falls by at most 0.01 on each. A CSV keeps its text passages beside its table, so search sees what it saw before.
 6. **Leaks:** the CON-31 leak suite and the new table leak tests (ticket 7) pass with zero failures.
 7. **Cost and speed:** 0 server AI tokens. `table_aggregate` p95 under 500 ms on a 100k-row table. Average agent
    cost per question at most 1.5x rag's.
@@ -296,7 +303,7 @@ Ticket 15's links ship only if, on the linked set:
 5. **Cost.** Average agent cost per question with both-linked is at most 1.2x both-unlinked's.
 
 Thirty questions are too few for a significance test, so these bars are counts. They gate ticket 15 only, not the
-tables container. A failed bar follows the same re-test rule as the main bar, with one sealed reserve linked set of
+tables. A failed bar follows the same re-test rule as the main bar, with one sealed reserve linked set of
 30 questions.
 
 ### Gate for moving memory
@@ -328,11 +335,12 @@ weak tool path pass. A 25-point gain on 180 paired questions is well above the M
 2. **Run the text-search baseline.** Add the agent runner for the rag setup, reusing CON-142's harness. Run rag on
    tables-v1 and commit the report.
 3. **Add the tables container type.** Add `Kind` to containers, a migration, a choice on the create page, the API
-   field, and keeping tables containers out of search.
+   field, and keeping tables containers out of search. *Reversed by CON-319: the kind is gone, and any documents
+   container holds tables beside its files.*
 4. **Add the table catalog and storage.** Add a schema per container, the catalog tables, a DDL manager modelled on
    `VectorColumnManager`, the swap on reload, and dropping the schema on container delete.
 5. **Load CSV files into tables.** Use Sylvan.Data.Csv, DuckDB-style type inference, a Frictionless schema, the
-   reject list, and binary COPY. Uploads to a tables container go here instead of to the text parser.
+   reject list, and binary COPY. A CSV uploaded to a container loads as one of its tables and stays searchable as text.
 6. **Build the safe query compiler and runner.** Compile the JSON request into parameterized SQL. Add the read-only
    login role and pool, the per-query limits and the output caps. Add tests for every bypass in the research doc,
    each of which must fail to run.

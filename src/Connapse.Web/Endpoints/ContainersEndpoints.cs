@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Connapse.Application;
 using Connapse.Application.Containers;
+using Connapse.Application.Tables;
 using Connapse.Background.Jobs;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -152,6 +153,30 @@ public static class ContainersEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .WithName("GetContainerStats")
         .WithDescription("Get statistics for a container: document counts by status, chunk count, storage size, embedding models, last indexed time")
+        .RequireAuthorization("RequireViewer");
+
+        // GET /api/containers/{containerId}/tables - Page through the tables a container holds beside its files
+        group.MapGet("/{containerId:guid}/tables", async (
+            Guid containerId,
+            [FromQuery] int? skip,
+            [FromQuery] int? take,
+            [FromServices] ListTables list,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var listed = await list.RunAsync(Rest(http), containerId, skip ?? 0, take ?? 50, ct);
+            if (!listed.Succeeded)
+                return OperationProblems.Result(listed);
+            var page = listed.Result!;
+            return Results.Ok(new PagedResponse<TableResponse>(
+                page.Items.Select(TableResponse.From).ToList(), page.TotalCount, page.HasMore));
+        })
+        .Produces<PagedResponse<TableResponse>>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .WithName("tables.list")
+        .WithDescription("List the tables a container holds, by name, a page at a time (?skip=0&take=50, take at most 200). totalCount is how many it holds in all.")
         .RequireAuthorization("RequireViewer");
 
         // GET /api/containers/{containerId}/settings - Get container settings overrides
@@ -393,6 +418,26 @@ public record ContainerStatsResponse(
 }
 
 public record ContainerDocumentCounts(int Total, int Ready, int Processing, int Failed);
+
+/// <summary>A table a container holds: where it came from, its columns, and how its load went.</summary>
+public record TableResponse(
+    Guid Id,
+    Guid ContainerId,
+    string Name,
+    string? Description,
+    Guid? DocumentId,
+    IReadOnlyList<TableColumn> Columns,
+    long RowCount,
+    bool NeedsReview,
+    int RejectCount,
+    int Version,
+    DateTime CreatedAt,
+    DateTime LoadedAt)
+{
+    public static TableResponse From(TableInfo table) => new(
+        table.Id, table.ContainerId, table.Name, table.Description, table.DocumentId, table.Columns,
+        table.RowCount, table.NeedsReview, table.Rejects.Count, table.Version, table.CreatedAt, table.LoadedAt);
+}
 
 public record ContainerReindexResponse(
     string BatchId,

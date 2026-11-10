@@ -28,9 +28,6 @@ public enum SearchStatus
     [Failure(409, "memory-container", "Agent memory container")]
     MemoryContainer,
 
-    [Failure(409, "tables-container", "Tables container")]
-    TablesContainer,
-
     [Failure(503, "model-not-ready", "Search isn't ready yet")]
     ModelNotReady,
 }
@@ -97,10 +94,8 @@ public sealed class SearchKnowledge(
             return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.Invalid, detail, field);
 
         var owner = await ResolveAsync(context, scope, ct);
-        if (owner?.Refused is { } refused)
-            return refused.Kind == ContainerKind.Tables
-                ? Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.TablesContainer, ContainerRules.TablesOnly(refused))
-                : Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.MemoryContainer, ContainerRules.MemoryOnly(refused));
+        if (owner?.Memory is { } memory)
+            return Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.MemoryContainer, ContainerRules.MemoryOnly(memory));
         var (ownerId, discoverable, _) = owner ?? (Nowhere, false, null);
 
         var filters = request.Filters is null ? [] : new Dictionary<string, string>(request.Filters);
@@ -181,10 +176,10 @@ public sealed class SearchKnowledge(
     /// <summary>
     /// The id to search and whether the caller may know it exists, or null when it reads as missing.
     /// Containers are checked first, so an id both kinds somehow share resolves to the more restricted kind.
-    /// <c>Refused</c> is the container when it holds no documents to search: an agent memory container, or a tables
-    /// container (CON-300).
+    /// <c>Memory</c> is the container when it is an agent memory container, which holds no documents to search. A
+    /// documents container is searched whether or not it also holds tables (CON-319).
     /// </summary>
-    internal async Task<(Guid Id, bool Discoverable, Container? Refused)?> ResolveAsync(OperationContext context, SearchScope scope, CancellationToken ct)
+    internal async Task<(Guid Id, bool Discoverable, Container? Memory)?> ResolveAsync(OperationContext context, SearchScope scope, CancellationToken ct)
     {
         bool containersAllowed = scope.Kind != SearchScopeKind.Source;
         bool sourcesAllowed = scope.Kind != SearchScopeKind.Container;
@@ -192,7 +187,7 @@ public sealed class SearchKnowledge(
         if (Guid.TryParse(scope.IdOrName, out var id))
         {
             if (containersAllowed && await containers.GetAsync(id, ContainerRules.Viewer(context), ct) is { } byId)
-                return (id, true, RefusedOf(byId));
+                return (id, true, MemoryOf(byId));
             if (!sourcesAllowed)
                 return null;
             var source = await sources.FindAsync(id, ct);
@@ -210,7 +205,7 @@ public sealed class SearchKnowledge(
         string name = scope.IdOrName.ToLowerInvariant();
         IReadOnlyList<Container> byName = containersAllowed ? await containers.FindByNameAsync(name, ContainerRules.Viewer(context), ct) : [];
         // A memory space is not a file container (CON-291), so one never hides a document container or source of the same name.
-        if (byName.FirstOrDefault(c => c.Kind == ContainerKind.Documents) is { } container)
+        if (byName.FirstOrDefault(c => c.Kind != ContainerKind.Memory) is { } container)
             return Guid.TryParse(container.Id, out var containerId) ? (containerId, true, null) : null;
         if (sourcesAllowed)
         {
@@ -219,12 +214,10 @@ public sealed class SearchKnowledge(
             if (named is not null && canSeeNamed(named))
                 return (named.Id, true, null);
         }
-        // Nothing searchable has the name, so a tables container (before a memory space) answers why it can't be searched.
-        return byName.OrderBy(c => c.Kind == ContainerKind.Tables ? 0 : 1).FirstOrDefault() is { } refused
-            && Guid.TryParse(refused.Id, out var refusedId) ? (refusedId, true, refused) : null;
+        return byName.FirstOrDefault() is { } memory && Guid.TryParse(memory.Id, out var memoryId) ? (memoryId, true, memory) : null;
     }
 
-    private static Container? RefusedOf(Container container) => container.Kind == ContainerKind.Documents ? null : container;
+    private static Container? MemoryOf(Container container) => container.Kind == ContainerKind.Memory ? container : null;
 
     private static Attempt<SearchResult, SearchStatus> NotFound(SearchScope scope) =>
         Attempt<SearchResult, SearchStatus>.Fail(SearchStatus.NotFound, scope.Kind switch

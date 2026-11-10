@@ -133,12 +133,6 @@ The container is an agent memory container: it holds memory facts, not documents
 folders, search, reindexing, syncing and document settings don't apply to it. Use the memory tools
 (`memory_remember`, `memory_recall`) on it instead, or pick a documents container.
 
-## tables-container
-
-The container is a tables container: it holds tables, not documents. Tables are never chunked or embedded, so
-text search and the code tools don't search it, and uploads and appends can't add a document to it. Search a
-documents container or a source instead.
-
 ## memory-fact-not-found
 
 No fact in any space the caller can see has that id, or the caller can't see it. A fact is visible only

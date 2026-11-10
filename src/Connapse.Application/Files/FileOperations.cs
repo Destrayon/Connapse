@@ -56,9 +56,6 @@ public enum FileStatus
 
     [Failure(409, "memory-container", "Agent memory container")]
     MemoryContainer,
-
-    [Failure(409, "tables-container", "Tables container")]
-    TablesContainer,
 }
 
 /// <summary>
@@ -135,17 +132,12 @@ internal static class FileRules
     public static Attempt<T, FileStatus> MemoryOnly<T>(Container container) =>
         Fail<T>(FileStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
 
-    /// <summary>A memory or tables container refuses text ingestion; null for a documents container.</summary>
-    public static Attempt<T, FileStatus>? RefuseText<T>(Container container) => container.Kind switch
-    {
-        ContainerKind.Memory => MemoryOnly<T>(container),
-        ContainerKind.Tables => Fail<T>(FileStatus.TablesContainer, ContainerRules.TablesOnly(container)),
-        _ => null,
-    };
-
-    /// <summary>As <see cref="RefuseText{T}"/>, except that a tables container takes a file that loads as a table.</summary>
-    public static Attempt<T, FileStatus>? RefuseUpload<T>(Container container, string? fileName) =>
-        container.Kind == ContainerKind.Tables && TableUploads.LoadsAsTable(fileName) ? null : RefuseText<T>(container);
+    /// <summary>
+    /// A memory container refuses files; null for a documents container, which takes every file, including the ones
+    /// that also load as tables beside it (CON-319).
+    /// </summary>
+    public static Attempt<T, FileStatus>? RefuseText<T>(Container container) =>
+        container.Kind == ContainerKind.Memory ? MemoryOnly<T>(container) : null;
 
     public static Attempt<T, FileStatus> FileNotFound<T>(Guid containerId, string fileRef) =>
         Fail<T>(FileStatus.NotFound, $"File {fileRef} not found in container {containerId}");

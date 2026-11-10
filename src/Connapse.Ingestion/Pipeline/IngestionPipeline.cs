@@ -228,9 +228,8 @@ public class IngestionPipeline : IKnowledgeIngester
     /// nothing was written.
     /// </para>
     /// <para>
-    /// A container's CSV file also loads into a table (CON-302). In a documents container it is indexed as text first,
-    /// so search still finds it; in a tables container it loads only as a table and completes with a ChunkCount of 0
-    /// too: the document is Ready, and has no chunks because it isn't indexed as text there.
+    /// A container's CSV file also loads into a table of that container (CON-302, CON-319). It is indexed as text
+    /// too, so search still finds it.
     /// </para>
     /// </remarks>
     public async Task<IngestionResult> IngestAsync(
@@ -283,17 +282,11 @@ public class IngestionPipeline : IKnowledgeIngester
             var contentHash = await ComputeContentHashAsync(workingStream, ct);
             var virtualPath = options.Path ?? options.FileName ?? $"upload-{documentId}";
 
-            // A container's CSV becomes a table: in place of text in a tables container, and as well as text in a
-            // documents container, loaded just before its text commits. TableUploads decides which files do.
-            Guid? alsoTableIn = null;
-            if (_tableStore is not null && owner.ContainerId is Guid tableContainerId && TableUploads.LoadsAsTable(options.FileName))
-            {
-                ContainerKind kind = await _context.Containers.AsNoTracking()
-                    .Where(c => c.Id == tableContainerId).Select(c => c.Kind).FirstOrDefaultAsync(ct);
-                if (!TableUploads.KeepsText(kind))
-                    return await LoadTableAsync(workingStream, options, owner, tableContainerId, documentId, contentHash, virtualPath, stopwatch, ct);
-                alsoTableIn = tableContainerId;
-            }
+            // A container's CSV becomes a table as well as text, in the same container as its other files (CON-319),
+            // loaded just before its text commits. TableUploads decides which files do.
+            Guid? alsoTableIn = _tableStore is not null && owner.ContainerId is Guid tableContainerId && TableUploads.LoadsAsTable(options.FileName)
+                ? tableContainerId
+                : null;
 
             // Parsing and chunking first: they need nothing from the database, and a file that
             // cannot be read is known to be a permanent failure before any row is touched.
@@ -590,99 +583,6 @@ public class IngestionPipeline : IKnowledgeIngester
     }
 
     /// <summary>
-    /// Loads a container's CSV file into a table of its container (CON-302) in place of chunking it: a new table on
-    /// the first load, the document's own table reloaded after that. The document completes with no chunks and the
-    /// table's id in its metadata. A file that can't be read as a table is a permanent failure.
-    /// </summary>
-    private async Task<IngestionResult> LoadTableAsync(
-        Stream file, IngestionOptions options, OwnerRef owner, Guid containerId, Guid documentId, string contentHash,
-        string virtualPath, Stopwatch stopwatch, CancellationToken ct)
-    {
-        string fileName = Path.GetFileName(options.FileName ?? virtualPath);
-        DocumentEntity? existing = await LoadExistingAsync(documentId, ct);
-        var (generation, superseded) = await TakeDocumentAsync(documentId, owner, existing, options.Generation, ct);
-        if (superseded is not null)
-            return Superseded(documentId, stopwatch, superseded);
-
-        if (existing is null)
-        {
-            // A direct caller's new document. The table names its document, so the row comes first; it stays
-            // Processing until the table is in, and a load that fails leaves it to the stuck-job sweep.
-            _context.Documents.Add(new DocumentEntity
-            {
-                Id = documentId,
-                ContainerId = owner.ContainerId,
-                FileName = options.FileName ?? "unknown",
-                Path = virtualPath,
-                CreatedAt = DateTime.UtcNow,
-                IngestionStatus = DocumentStatus.Processing,
-                StatusChangedAt = DateTime.UtcNow,
-            });
-            await _context.SaveChangesAsync(ct);
-        }
-
-        TableInfo table;
-        try
-        {
-            table = await StoreTableAsync(file, fileName, containerId, documentId, ct);
-        }
-        catch (Exception ex) when (IsUnreadableTable(ex))
-        {
-            throw new PermanentIngestionException($"Could not load {fileName} as a table: {StorableText.Clean(ex.Message)}", ex);
-        }
-        catch (Exception ex) when (IsDocumentGone(ex))
-        {
-            // The table names its document, so a document deleted during the load refuses it.
-            return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
-        }
-
-        List<string> warnings = [];
-        if (RejectsWarning(table) is { } rejects)
-            warnings.Add(rejects);
-
-        var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>())
-        {
-            [MetadataKeyParser] = nameof(CsvTableReader),
-            [MetadataKeyTableId] = table.Id.ToString(),
-        };
-        if (warnings.Count > 0)
-            metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
-
-        // A file indexed as text before tables existed loses its chunks, as a reindex replaces them.
-        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
-        var documentEntity = await _context.Documents.FirstOrDefaultAsync(d => d.Id == documentId, ct);
-        if (documentEntity is null)
-        {
-            await transaction.RollbackAsync(CancellationToken.None);
-            return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
-        }
-        await _context.Chunks.Where(c => c.DocumentId == documentId).ExecuteDeleteAsync(ct);
-        documentEntity.FileName = options.FileName ?? "unknown";
-        documentEntity.ContentType = options.ContentType;
-        documentEntity.Path = virtualPath;
-        documentEntity.ContentHash = contentHash;
-        documentEntity.SizeBytes = file.Length;
-        documentEntity.ChunkCount = 0;
-        documentEntity.Metadata = metadata;
-        await _context.SaveChangesAsync(ct);
-
-        if ((await DocumentLifecycle.CompleteAsync(_context, documentId, generation, ct)).Count == 0)
-        {
-            // A newer job owns the document and loads the table again from the newer file.
-            await transaction.RollbackAsync(CancellationToken.None);
-            return Superseded(documentId, stopwatch, "Document was re-uploaded during ingestion");
-        }
-        await transaction.CommitAsync(CancellationToken.None);
-        await _lifecycle.NotifyAsync(documentId, CancellationToken.None);
-
-        stopwatch.Stop();
-        _logger.LogInformation(
-            "Loaded document {DocumentId} as table {TableId}: {Rows} rows, {Rejects} rejects in {Duration}ms",
-            documentId, table.Id, table.RowCount, table.Rejects.Count, stopwatch.ElapsedMilliseconds);
-        return new IngestionResult(DocumentId: documentId.ToString(), ChunkCount: 0, Duration: stopwatch.Elapsed, Warnings: warnings);
-    }
-
-    /// <summary>
     /// Loads a documents container's CSV into a table beside its text (CON-302), before the text commits, so the
     /// document is Ready with its table id already on it. A file that won't load as a table keeps its text and says
     /// why in its warnings; a document deleted meanwhile is left to the text commit, which finds it gone. The table
@@ -721,7 +621,7 @@ public class IngestionPipeline : IKnowledgeIngester
     {
         file.Position = 0;
         TableLoad load = await CsvTableReader.ReadAsync(file, fileName, documentId, ct);
-        TableInfo? current = (await _tableStore!.ListAsync(containerId, ct)).FirstOrDefault(t => t.DocumentId == documentId);
+        TableInfo? current = await _tableStore!.FindByDocumentAsync(containerId, documentId, ct);
         return current is not null && await _tableStore.ReloadAsync(containerId, current.Id, load, ct) is { } reloaded
             ? reloaded
             : await _tableStore.CreateAsync(containerId, load, ct);

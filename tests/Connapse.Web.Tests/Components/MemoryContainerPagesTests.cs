@@ -74,7 +74,7 @@ public class MemoryContainerPagesTests : IDisposable
     }
 
     [Fact]
-    public void CreateDialog_Created_MakesADocumentContainerWithNoMemoryChoice()
+    public void CreateDialog_Created_MakesADocumentContainerWithNoTypeChoice()
     {
         containers.ListAsync(default, default, default).ReturnsForAnyArgs([]);
         containers.CreateAsync(default!, default).ReturnsForAnyArgs(c => new Container(Guid.NewGuid().ToString(),
@@ -90,32 +90,6 @@ public class MemoryContainerPagesTests : IDisposable
 
         cut.WaitForAssertion(() => containers.Received(1).CreateAsync(
             new CreateContainerRequest("project-docs", null, ContainerKind.Documents), Arg.Any<CancellationToken>()));
-    }
-
-    /// <summary>CON-300: the create dialog can make a tables container, and its card says so.</summary>
-    [Fact]
-    public void CreateDialog_TablesChosen_MakesATablesContainerShownWithATablesBadge()
-    {
-        List<Container> created = [];
-        containers.ListAsync(default, default, default).ReturnsForAnyArgs(_ => created.ToList());
-        containers.CreateAsync(default!, default).ReturnsForAnyArgs(c =>
-        {
-            var container = new Container(Guid.NewGuid().ToString(), c.Arg<CreateContainerRequest>().Name, null, Epoch, Epoch,
-                Kind: c.Arg<CreateContainerRequest>().Kind);
-            created.Add(container);
-            return container;
-        });
-        var cut = ctx.Render<Home>();
-        cut.Find(".container-list-header button").Click();
-
-        cut.Find("#new-container-documents").HasAttribute("checked").Should().BeTrue("documents is the default");
-        cut.Find("input[placeholder='my-project']").Input("sales");
-        cut.Find("#new-container-tables").Change(true);
-        cut.Find(".modal-footer-custom .btn-primary").Click();
-
-        cut.WaitForAssertion(() => containers.Received(1).CreateAsync(
-            new CreateContainerRequest("sales", null, ContainerKind.Tables), Arg.Any<CancellationToken>()));
-        cut.WaitForAssertion(() => cut.Find(".container-kind-badge").TextContent.Should().Contain("Tables"));
     }
 
     [Fact]
@@ -158,7 +132,7 @@ public class MemoryContainerPagesTests : IDisposable
         var cut = ctx.Render<FileBrowser>(p => p.Add(b => b.ContainerId, docs.Id));
 
         cut.WaitForAssertion(() => cut.Find("#fileDropZone"));
-        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Settings");
+        cut.FindAll(".nav-tabs .nav-link").Select(t => t.TextContent.Trim()).Should().Equal("Files", "Tables", "Settings");
         cut.FindAll("#memory-tab").Should().BeEmpty();
         cut.Find("#fileUploadInput");
         cut.FindAll("#memory-container-note").Should().BeEmpty();

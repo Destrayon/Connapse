@@ -102,31 +102,4 @@ public class ContainerKindMigrationTests : IAsyncLifetime
         (await store.GetByNameAsync("agent-notes"))!.Kind.Should().Be(ContainerKind.Memory);
         (await store.ListAsync()).Single().Kind.Should().Be(ContainerKind.Memory);
     }
-
-    /// <summary>CON-300: a tables container keeps its kind, is listed with document containers, and no unknown kind can be stored.</summary>
-    [Fact]
-    public async Task Migrate_ThenCreateTablesContainer_RoundTripsItsKindAndRefusesUnknownKinds()
-    {
-        await using (var context = new KnowledgeDbContext(Options()))
-        {
-            await context.GetService<IMigrator>().MigrateAsync();
-        }
-
-        var store = new PostgresContainerStore(new PooledDbContextFactory<KnowledgeDbContext>(Options()), NullLogger<PostgresContainerStore>.Instance);
-        var tables = await store.CreateAsync(new CreateContainerRequest("sales", null, ContainerKind.Tables));
-        await store.CreateAsync(new CreateContainerRequest("docs"));
-        await store.CreateAsync(new CreateContainerRequest("agent-notes", null, ContainerKind.Memory));
-
-        tables.Kind.Should().Be(ContainerKind.Tables);
-        (await store.GetAsync(Guid.Parse(tables.Id)))!.Kind.Should().Be(ContainerKind.Tables);
-        (await store.ListAsync(0, 10, viewer: null, ContainerKinds.FileKinds)).Select(c => (c.Name, c.Kind))
-            .Should().Equal(("docs", ContainerKind.Documents), ("sales", ContainerKind.Tables));
-
-        await using var check = new KnowledgeDbContext(Options());
-        (await check.Database.SqlQueryRaw<string>("SELECT kind AS \"Value\" FROM containers WHERE id = {0}", Guid.Parse(tables.Id)).SingleAsync())
-            .Should().Be("tables");
-        var unknown = () => check.Database.ExecuteSqlRawAsync(
-            "INSERT INTO containers (id, name, kind, created_at, updated_at) VALUES ({0}, 'odd', 'spreadsheets', now(), now())", Guid.NewGuid());
-        (await unknown.Should().ThrowAsync<Npgsql.PostgresException>()).Which.ConstraintName.Should().Be("ck_containers_kind");
-    }
 }

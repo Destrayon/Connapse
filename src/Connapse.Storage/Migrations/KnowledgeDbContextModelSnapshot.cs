@@ -329,7 +329,7 @@ namespace Connapse.Storage.Migrations
                         {
                             t.HasCheckConstraint("ck_containers_audience_owner", "(audience = 'team' AND owner_user_id IS NULL AND owner_agent_id IS NULL) OR (audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))");
 
-                            t.HasCheckConstraint("ck_containers_kind", "kind IN ('documents', 'memory', 'tables')");
+                            t.HasCheckConstraint("ck_containers_kind", "kind IN ('documents', 'memory')");
                         });
                 });
 

@@ -1,0 +1,20 @@
+@* The Files | Tables | Settings tabs on a documents container's page (CON-319). *@
+<li class="nav-item">
+    <button id="files-tab" class="nav-link @Active("files")" @onclick='() => Select("files")'>Files</button>
+</li>
+<li class="nav-item">
+    <button id="tables-tab" class="nav-link @Active("tables")" @onclick='() => Select("tables")'>Tables</button>
+</li>
+<li class="nav-item">
+    <button class="nav-link @Active("settings")" @onclick="OnSettings">Settings</button>
+</li>
+
+@code {
+    [Parameter] public string Tab { get; set; } = "files";
+    [Parameter] public EventCallback<string> TabChanged { get; set; }
+    [Parameter] public EventCallback OnSettings { get; set; }
+
+    private string Active(string tab) => tab == Tab ? "active" : "";
+
+    private Task Select(string tab) => TabChanged.InvokeAsync(tab);
+}

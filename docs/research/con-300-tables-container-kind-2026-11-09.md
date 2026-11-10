@@ -1,6 +1,7 @@
 # Where a tables container kind touches Connapse (CON-300)
 **Date:** 2026-11-09
 **Status:** Reviewed
+**Superseded (2026-11-10, CON-319):** the `tables` container kind this note maps was dropped before release. Any documents container now holds any number of tables beside its files, and the migration `DropTablesContainerKind` turns any tables container into a documents one.
 **Built on:** [con-e6-tables-container.md](../plans/con-e6-tables-container.md) ("Container type"), [tables-container-2026-11-02.md](tables-container-2026-11-02.md)
 
 ## Executive summary
