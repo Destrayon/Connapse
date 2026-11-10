@@ -4,6 +4,8 @@
 @using Connapse.Application.Approvals
 @inject ListMcpApprovals ListApprovals
 @inject DecideMcpApproval DecideApproval
+@inject ListDeletionBatches ListBatches
+@inject DecideDeletionBatch DecideBatch
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @rendermode InteractiveServer
 
@@ -34,7 +36,109 @@
         </div>
     }
 
-    @if (pending.Count == 0)
+    @foreach (var batch in batches)
+    {
+        var picked = PickedFor(batch);
+        <div class="card mb-3 deletion-batch" data-batch-id="@batch.Id">
+            <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                <span class="bi-trash3 text-danger"></span>
+                <span class="fw-medium">Delete @batch.Items.Count @(batch.Items.Count == 1 ? "item" : "items")</span>
+                <span class="text-muted small">from @batch.TokenKey, @batch.CreatedAt.ToString("MMM dd, HH:mm") UTC</span>
+                <span class="text-muted small ms-auto">Expires @batch.ExpiresAt.ToString("MMM dd, HH:mm") UTC</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            @if (batch.IsYours)
+                            {
+                                <th class="text-center" style="width:2.5rem">
+                                    <input type="checkbox" class="form-check-input" aria-label="Select all items"
+                                           checked="@(picked.Count == batch.Items.Count)"
+                                           @onchange="e => PickAll(batch, e.Value is true)" />
+                                </th>
+                            }
+                            <th>Kind</th>
+                            <th>Item</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in batch.Items)
+                        {
+                            <tr>
+                                @if (batch.IsYours)
+                                {
+                                    <td class="text-center align-middle">
+                                        <input type="checkbox" class="form-check-input" aria-label="Select @item.Label"
+                                               checked="@picked.Contains(item.Id)"
+                                               @onchange="e => Pick(batch, item.Id, e.Value is true)" />
+                                    </td>
+                                }
+                                <td class="align-middle text-nowrap small"><span class="@KindIcon(item.Kind) me-1"></span>@KindLabel(item.Kind)</td>
+                                <td class="align-middle text-break"><a href="@ItemLink(item)" target="_blank" rel="noopener">@item.Label</a></td>
+                                <td class="align-middle small">@item.Reason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer d-flex flex-wrap align-items-center gap-2">
+                @if (batch.IsYours)
+                {
+                    <input type="text" class="form-control form-control-sm flex-grow-1" style="max-width:28rem" maxlength="500"
+                           placeholder="Optional reason for the agent"
+                           aria-label="Reason for the agent"
+                           value="@reasons.GetValueOrDefault(batch.Id)"
+                           @onchange="e => reasons[batch.Id] = e.Value?.ToString()" />
+                    <div class="ms-auto text-nowrap">
+                        <button class="btn btn-sm btn-danger me-1" disabled="@isProcessing"
+                                @onclick="() => DecideBatchAsync(batch, approve: true, onlyPicked: false)">
+                            Approve all
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger me-1" disabled="@(isProcessing || picked.Count == 0 || picked.Count == batch.Items.Count)"
+                                @onclick="() => DecideBatchAsync(batch, approve: true, onlyPicked: true)">
+                            Approve selected (@picked.Count)
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@isProcessing"
+                                @onclick="() => DecideBatchAsync(batch, approve: false, onlyPicked: false)">
+                            Deny
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <span class="ms-auto text-muted small">Waiting for its owner to decide</span>
+                }
+            </div>
+        </div>
+    }
+
+    @if (lastBatch is not null)
+    {
+        <div class="card mb-3 deletion-batch-result" data-batch-id="@lastBatch.Id">
+            <div class="card-header d-flex align-items-center gap-2">
+                <span class="fw-medium">Result</span>
+                <span class="text-muted small">@lastBatch.Message</span>
+                <button type="button" class="btn-close ms-auto" aria-label="Close" @onclick="() => lastBatch = null"></button>
+            </div>
+            <ul class="list-group list-group-flush">
+                @foreach (var item in lastBatch.Items)
+                {
+                    <li class="list-group-item d-flex flex-wrap gap-2 small">
+                        <span class="badge @StateBadge(item.State)">@item.State.Replace('_', ' ')</span>
+                        <span class="text-break">@item.Label</span>
+                        @if (!string.IsNullOrEmpty(item.Outcome))
+                        {
+                            <span class="text-muted">@item.Outcome</span>
+                        }
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+
+    @if (pending.Count == 0 && batches.Count == 0)
     {
         <div class="card">
             <div class="card-body text-center py-5 text-muted">
@@ -43,7 +147,7 @@
             </div>
         </div>
     }
-    else
+    else if (pending.Count > 0)
     {
         <div class="card">
             <div class="table-responsive">
@@ -101,6 +205,9 @@
 
 @code {
     private IReadOnlyList<McpApprovalItem> pending = [];
+    private IReadOnlyList<DeletionBatchView> batches = [];
+    private readonly Dictionary<Guid, HashSet<Guid>> picks = [];
+    private DeletionBatchView? lastBatch;
     private readonly Dictionary<Guid, string?> reasons = [];
     private OperationContext caller = null!;
     private bool isAdmin;
@@ -116,8 +223,84 @@
         await LoadAsync();
     }
 
-    private async Task LoadAsync() =>
+    private async Task LoadAsync()
+    {
         pending = (await ListApprovals.ExecuteAsync(caller)).Result ?? [];
+        batches = (await ListBatches.ExecuteAsync(caller)).Result ?? [];
+    }
+
+    // Every item starts ticked, so "Approve all" and unticking a few is the common path.
+    private HashSet<Guid> PickedFor(DeletionBatchView batch)
+    {
+        if (!picks.TryGetValue(batch.Id, out var picked))
+            picks[batch.Id] = picked = [.. batch.Items.Select(i => i.Id)];
+        return picked;
+    }
+
+    private void Pick(DeletionBatchView batch, Guid itemId, bool on)
+    {
+        var picked = PickedFor(batch);
+        if (on) picked.Add(itemId); else picked.Remove(itemId);
+    }
+
+    private void PickAll(DeletionBatchView batch, bool on) =>
+        picks[batch.Id] = on ? [.. batch.Items.Select(i => i.Id)] : [];
+
+    private static string ItemLink(DeletionBatchItemView item) => item.Kind switch
+    {
+        "file" => $"containers/{item.ContainerId}?file={Uri.EscapeDataString(item.Target)}",
+        "folder" => $"containers/{item.ContainerId}?path={Uri.EscapeDataString(item.Target)}",
+        _ => $"memory/{item.ContainerId}",
+    };
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "file" => "File",
+        "folder" => "Folder",
+        _ => "Memory space",
+    };
+
+    private static string KindIcon(string kind) => kind switch
+    {
+        "file" => "bi-file-earmark",
+        "folder" => "bi-folder",
+        _ => "bi-journal-text",
+    };
+
+    private static string StateBadge(string state) => state switch
+    {
+        "deleted" => "text-bg-success",
+        "skipped" => "text-bg-warning",
+        "failed" => "text-bg-danger",
+        _ => "text-bg-secondary",
+    };
+
+    private async Task DecideBatchAsync(DeletionBatchView batch, bool approve, bool onlyPicked)
+    {
+        isProcessing = true;
+        statusMessage = null;
+        try
+        {
+            IReadOnlyCollection<Guid>? approved = approve && onlyPicked ? [.. PickedFor(batch)] : null;
+            var outcome = await DecideBatch.ExecuteAsync(caller, batch.Id, approve, approved, reasons.GetValueOrDefault(batch.Id));
+            reasons.Remove(batch.Id);
+            picks.Remove(batch.Id);
+            lastBatch = outcome.Result;
+            (statusSuccess, statusMessage) = outcome.Status switch
+            {
+                DeletionBatchOutcome.Success when approve => (true, "Approved. Connapse deleted the approved items; the agent can read each outcome."),
+                DeletionBatchOutcome.Success => (true, "Denied. Nothing was deleted, and the agent is told why."),
+                DeletionBatchOutcome.NotPending => (false, "That batch was already decided or has expired."),
+                DeletionBatchOutcome.NothingSelected => (false, "Select at least one item to approve, or deny the batch."),
+                _ => (false, "That batch was not found."),
+            };
+            await LoadAsync();
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
 
     private async Task DecideAsync(Guid id, bool approve)
     {
