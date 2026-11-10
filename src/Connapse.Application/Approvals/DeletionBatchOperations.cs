@@ -21,6 +21,9 @@ namespace Connapse.Application.Approvals;
 /// </summary>
 public sealed record DeletionRequestItem(string Kind, string Container, string? Target, string Reason);
 
+/// <summary>The body of POST /api/approvals/deletions.</summary>
+public sealed record RequestDeletionsBody(IReadOnlyList<DeletionRequestItem>? Items);
+
 /// <summary>One item of a batch, as the agent and the approvals page see it.</summary>
 public sealed record DeletionBatchItemView(
     Guid Id, int Position, string Kind, Guid ContainerId, string Target, string Label, string Reason, string State, string? Outcome);
@@ -153,7 +156,7 @@ public sealed class RequestDeletions(
     IAuditLogger audit,
     TimeProvider clock)
 {
-    public async Task<Attempt<DeletionBatchView, DeletionBatchOutcome>> RunAsync(
+    public async Task<Attempt<DeletionBatchView, DeletionBatchOutcome>> ExecuteAsync(
         OperationContext context, IReadOnlyList<DeletionRequestItem>? items, CancellationToken ct = default)
     {
         if (context.User.Identity?.IsAuthenticated != true || McpApprovalClaims.OwnerUserId(context.User) is not Guid owner)
@@ -207,45 +210,45 @@ public sealed class RequestDeletions(
         switch (kind)
         {
             case DeletionItemKind.MemorySpace:
-            {
-                if (container.Kind != ContainerKind.Memory)
-                    return (null, $"'{container.Name}' is a documents container, not a memory space");
-                var check = await deleteSpace.RunAsync(context, containerId, dryRun: true, ct);
-                if (!check.Succeeded)
-                    return (null, check.Detail ?? "you can't delete this memory space");
-                // The owner deletes it, so the owner must be able to; an agent's own personal space isn't theirs to.
-                if (await containers.GetAsync(containerId, DeletionTargets.OwnerViewer(owner), ct) is not { } space
-                    || await spaces.ImpactAsync(containerId, DeletionTargets.OwnerViewer(owner), ct) is not { } impact)
-                    return (null, $"your owner can't delete memory space '{container.Name}', so it can't be in a batch; delete it directly");
-                return (new NewDeletionItem(kind, containerId, "", space.Name, reason, DeletionTargets.SpaceFingerprint(space, impact)), null);
-            }
+                {
+                    if (container.Kind != ContainerKind.Memory)
+                        return (null, $"'{container.Name}' is a documents container, not a memory space");
+                    var check = await deleteSpace.RunAsync(context, containerId, dryRun: true, ct);
+                    if (!check.Succeeded)
+                        return (null, check.Detail ?? "you can't delete this memory space");
+                    // The owner deletes it, so the owner must be able to; an agent's own personal space isn't theirs to.
+                    if (await containers.GetAsync(containerId, DeletionTargets.OwnerViewer(owner), ct) is not { } space
+                        || await spaces.ImpactAsync(containerId, DeletionTargets.OwnerViewer(owner), ct) is not { } impact)
+                        return (null, $"your owner can't delete memory space '{container.Name}', so it can't be in a batch; delete it directly");
+                    return (new NewDeletionItem(kind, containerId, "", space.Name, reason, DeletionTargets.SpaceFingerprint(space, impact)), null);
+                }
 
             case DeletionItemKind.File:
-            {
-                if (container.Kind != ContainerKind.Documents)
-                    return (null, $"'{container.Name}' is a memory space, which holds facts, not files");
-                if (string.IsNullOrWhiteSpace(request.Target))
-                    return (null, "name the file by its id or path in target");
-                if (await FileRules.FindReadableAsync(documents, access, context, containerId, request.Target.Trim(), ct) is not { } document)
-                    return (null, $"file '{request.Target}' was not found in '{container.Name}'");
-                return (new NewDeletionItem(kind, containerId, document.Id, $"{container.Name}:{document.Path ?? document.FileName}", reason,
-                    DeletionTargets.FileFingerprint(document)), null);
-            }
+                {
+                    if (container.Kind != ContainerKind.Documents)
+                        return (null, $"'{container.Name}' is a memory space, which holds facts, not files");
+                    if (string.IsNullOrWhiteSpace(request.Target))
+                        return (null, "name the file by its id or path in target");
+                    if (await FileRules.FindReadableAsync(documents, access, context, containerId, request.Target.Trim(), ct) is not { } document)
+                        return (null, $"file '{request.Target}' was not found in '{container.Name}'");
+                    return (new NewDeletionItem(kind, containerId, document.Id, $"{container.Name}:{document.Path ?? document.FileName}", reason,
+                        DeletionTargets.FileFingerprint(document)), null);
+                }
 
             default:
-            {
-                if (container.Kind != ContainerKind.Documents)
-                    return (null, $"'{container.Name}' is a memory space, which has no folders");
-                var (path, error) = FolderRules.Normalize(request.Target);
-                if (path is null)
-                    return (null, error);
-                var inside = await documents.ListAsync(containerId, pathPrefix: path, take: int.MaxValue, ct: ct);
-                bool recorded = await folders.ExistsAsync(containerId, path, ct);
-                if (!recorded && inside.Count == 0)
-                    return (null, $"folder '{path}' was not found in '{container.Name}'");
-                return (new NewDeletionItem(kind, containerId, path, $"{container.Name}:{path} ({inside.Count} files)", reason,
-                    DeletionTargets.FolderFingerprint(containerId, path, recorded, inside)), null);
-            }
+                {
+                    if (container.Kind != ContainerKind.Documents)
+                        return (null, $"'{container.Name}' is a memory space, which has no folders");
+                    var (path, error) = FolderRules.Normalize(request.Target);
+                    if (path is null)
+                        return (null, error);
+                    var inside = await documents.ListAsync(containerId, pathPrefix: path, take: int.MaxValue, ct: ct);
+                    bool recorded = await folders.ExistsAsync(containerId, path, ct);
+                    if (!recorded && inside.Count == 0)
+                        return (null, $"folder '{path}' was not found in '{container.Name}'");
+                    return (new NewDeletionItem(kind, containerId, path, $"{container.Name}:{path} ({inside.Count} files)", reason,
+                        DeletionTargets.FolderFingerprint(containerId, path, recorded, inside)), null);
+                }
         }
     }
 
@@ -260,7 +263,7 @@ public sealed class RequestDeletions(
 [Operation("approvals.batches.status", Scope = "none", Risk = RiskTier.Read)]
 public sealed class GetDeletionBatchStatus(IDeletionBatchStore batches, TimeProvider clock)
 {
-    public async Task<Attempt<DeletionBatchView, DeletionBatchOutcome>> RunAsync(
+    public async Task<Attempt<DeletionBatchView, DeletionBatchOutcome>> ExecuteAsync(
         OperationContext context, Guid id, TimeSpan wait = default, CancellationToken ct = default)
     {
         if (context.User.Identity?.IsAuthenticated != true)
@@ -379,45 +382,45 @@ public sealed class DecideDeletionBatch(
             switch (item.Kind)
             {
                 case DeletionItemKind.File:
-                {
-                    if (await FileRules.FindReadableAsync(documents, access, owner, item.ContainerId, item.Target, ct) is not { } document)
-                        return Gone("file");
-                    if (DeletionTargets.FileFingerprint(document) != item.Fingerprint)
-                        return Changed("file");
-                    var deleted = await deleteFile.RunAsync(owner, item.ContainerId, item.Target, ct);
-                    return !deleted.Succeeded ? Failed(deleted.Detail)
-                        : deleted.Result!.StorageCleanupFailed ? (DeletionItemState.Deleted, "Deleted; its stored file will be removed on a retry.")
-                        : (DeletionItemState.Deleted, "Deleted.");
-                }
+                    {
+                        if (await FileRules.FindReadableAsync(documents, access, owner, item.ContainerId, item.Target, ct) is not { } document)
+                            return Gone("file");
+                        if (DeletionTargets.FileFingerprint(document) != item.Fingerprint)
+                            return Changed("file");
+                        var deleted = await deleteFile.RunAsync(owner, item.ContainerId, item.Target, ct);
+                        return !deleted.Succeeded ? Failed(deleted.Detail)
+                            : deleted.Result!.StorageCleanupFailed ? (DeletionItemState.Deleted, "Deleted; its stored file will be removed on a retry.")
+                            : (DeletionItemState.Deleted, "Deleted.");
+                    }
 
                 case DeletionItemKind.Folder:
-                {
-                    var inside = await documents.ListAsync(item.ContainerId, pathPrefix: item.Target, take: int.MaxValue, ct: ct);
-                    bool recorded = await folders.ExistsAsync(item.ContainerId, item.Target, ct);
-                    if (!recorded && inside.Count == 0)
-                        return Gone("folder");
-                    if (DeletionTargets.FolderFingerprint(item.ContainerId, item.Target, recorded, inside) != item.Fingerprint)
-                        return Changed("folder");
-                    var deleted = await deleteFolder.RunAsync(owner, item.ContainerId, item.Target, ct);
-                    return deleted.Succeeded
-                        ? (DeletionItemState.Deleted, $"Deleted, with the {deleted.Result!.DocumentsDeleted} files in it.")
-                        : Failed(deleted.Detail);
-                }
+                    {
+                        var inside = await documents.ListAsync(item.ContainerId, pathPrefix: item.Target, take: int.MaxValue, ct: ct);
+                        bool recorded = await folders.ExistsAsync(item.ContainerId, item.Target, ct);
+                        if (!recorded && inside.Count == 0)
+                            return Gone("folder");
+                        if (DeletionTargets.FolderFingerprint(item.ContainerId, item.Target, recorded, inside) != item.Fingerprint)
+                            return Changed("folder");
+                        var deleted = await deleteFolder.RunAsync(owner, item.ContainerId, item.Target, ct);
+                        return deleted.Succeeded
+                            ? (DeletionItemState.Deleted, $"Deleted, with the {deleted.Result!.DocumentsDeleted} files in it.")
+                            : Failed(deleted.Detail);
+                    }
 
                 default:
-                {
-                    MemoryCaller viewer = DeletionTargets.OwnerViewer(ownerUserId);
-                    if (await containers.GetAsync(item.ContainerId, viewer, ct) is not { } space)
-                        return Gone("memory space");
-                    if (await spaces.ImpactAsync(item.ContainerId, viewer, ct) is not { } impact)
-                        return Failed("access to the space's facts could not be checked, so it was left alone");
-                    if (DeletionTargets.SpaceFingerprint(space, impact) != item.Fingerprint)
-                        return Changed("memory space");
-                    var deleted = await deleteSpace.RunAsync(owner, item.ContainerId, dryRun: false, ct);
-                    return deleted.Succeeded
-                        ? (DeletionItemState.Deleted, $"Deleted, with its {deleted.Result!.Facts} facts.")
-                        : Failed(deleted.Detail);
-                }
+                    {
+                        MemoryCaller viewer = DeletionTargets.OwnerViewer(ownerUserId);
+                        if (await containers.GetAsync(item.ContainerId, viewer, ct) is not { } space)
+                            return Gone("memory space");
+                        if (await spaces.ImpactAsync(item.ContainerId, viewer, ct) is not { } impact)
+                            return Failed("access to the space's facts could not be checked, so it was left alone");
+                        if (DeletionTargets.SpaceFingerprint(space, impact) != item.Fingerprint)
+                            return Changed("memory space");
+                        var deleted = await deleteSpace.RunAsync(owner, item.ContainerId, dryRun: false, ct);
+                        return deleted.Succeeded
+                            ? (DeletionItemState.Deleted, $"Deleted, with its {deleted.Result!.Facts} facts.")
+                            : Failed(deleted.Detail);
+                    }
             }
         }
         catch (Exception ex)

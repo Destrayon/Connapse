@@ -121,7 +121,7 @@ public class DeletionBatchUnitTests
     {
         RequestDeletions request = new(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, TimeProvider.System);
 
-        var result = await request.RunAsync(new OperationContext(new ClaimsPrincipal(new ClaimsIdentity()), OperationSurface.Mcp),
+        var result = await request.ExecuteAsync(new OperationContext(new ClaimsPrincipal(new ClaimsIdentity()), OperationSurface.Mcp),
             [new DeletionRequestItem("file", "c", "/a.md", "old")]);
 
         result.Status.Should().Be(DeletionBatchOutcome.NotSignedIn);

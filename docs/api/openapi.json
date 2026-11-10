@@ -14054,6 +14054,173 @@
         }
       }
     },
+    "/api/approvals/deletions": {
+      "post": {
+        "tags": [
+          "Approvals"
+        ],
+        "description": "Ask your token's owner to approve up to 50 deletions in one request: each item is a file (kind file, container, target = file id or path), a folder (kind folder, container, target = folder path) or a memory space (kind memory_space, container = the space), with a reason the owner reads. Every item is checked now; if any can't be deleted, nothing is asked and the detail names each bad item. The owner approves all, some or none on the Approvals page, and Connapse deletes the approved items itself, skipping any that are gone or changed since the request. Read each item's outcome with GET /api/approvals/deletions/{id}.",
+        "operationId": "approvals.batches.request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestDeletionsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionBatchView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "approvals.batches.request",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Off"
+        }
+      }
+    },
+    "/api/approvals/deletions/{id}": {
+      "get": {
+        "tags": [
+          "Approvals"
+        ],
+        "description": "Where a batch of deletions your token asked for stands: pending, expired, denied (with the owner's reason), running or done, and each item's outcome: deleted, skipped (gone or changed since the request), failed, not_approved or denied. ?wait=N (0-50) waits up to N seconds while it is pending or running. Another token's batch reads as not found.",
+        "operationId": "approvals.batches.status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "wait",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionBatchView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "approvals.batches.status",
+          "scope": "none",
+          "risk": "Read",
+          "mcp": "Off"
+        }
+      }
+    },
     "/api/v1/identity/register": {
       "post": {
         "tags": [
@@ -18191,6 +18358,145 @@
           }
         }
       },
+      "DeletionBatchItemView": {
+        "required": [
+          "id",
+          "position",
+          "kind",
+          "containerId",
+          "target",
+          "label",
+          "reason",
+          "state",
+          "outcome"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "position": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "containerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "target": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "DeletionBatchView": {
+        "required": [
+          "id",
+          "state",
+          "createdAt",
+          "expiresAt",
+          "decidedAt",
+          "reason",
+          "items",
+          "message",
+          "isYours",
+          "tokenKey"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeletionBatchItemView"
+            }
+          },
+          "message": {
+            "type": "string"
+          },
+          "isYours": {
+            "type": "boolean"
+          },
+          "tokenKey": {
+            "type": "string"
+          }
+        }
+      },
+      "DeletionRequestItem": {
+        "required": [
+          "kind",
+          "container",
+          "target",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "container": {
+            "type": "string"
+          },
+          "target": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "DiscoveredCustomProvider": {
         "required": [
           "id",
@@ -21117,6 +21423,23 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "RequestDeletionsBody": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DeletionRequestItem"
+            }
           }
         }
       },
