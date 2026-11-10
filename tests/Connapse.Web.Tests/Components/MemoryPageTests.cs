@@ -41,6 +41,9 @@ public class MemoryPageTests : IDisposable
         containers.CreateAsync(Arg.Any<CreateContainerRequest>(), Arg.Any<CancellationToken>())
             .Returns(call => spaces.Add(call.ArgAt<CreateContainerRequest>(0).Name, MemorySpaceKind.Team, 0,
                 description: call.ArgAt<CreateContainerRequest>(0).Description));
+        containers.UpdateAsync(Arg.Any<Guid>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(call => spaces.Change(call.ArgAt<Guid>(0), call.ArgAt<string?>(1), call.ArgAt<string?>(2)));
+        containers.DeleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(call => spaces.Remove(call.ArgAt<Guid>(0)));
         IOperationAuthorizer authorizer = Substitute.For<IOperationAuthorizer>();
         authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>())
             .Returns(call => writer || call.ArgAt<string>(1) is not (Policies.Writer or Policies.KnowledgeWrite));
@@ -333,6 +336,132 @@ public class MemoryPageTests : IDisposable
         cut.Find("#new-space-error").TextContent.Should().NotBeEmpty();
     }
 
+    // ── CON-314: rename and delete ───────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Render_Writer_OffersRenameAndDeleteOnEveryCardAndRow()
+    {
+        HaveMine();
+        spaces.Add("on-call", MemorySpaceKind.Team, 4);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().HaveCount(2));
+
+        cut.FindAll(".space-card [aria-label='Rename my-memory'], .space-card [aria-label='Delete my-memory']").Should().HaveCount(2);
+        cut.FindAll(".space-card [aria-label='Rename on-call'], .space-card [aria-label='Delete on-call']").Should().HaveCount(2);
+
+        AddTeams(9);
+        var table = Render();
+        table.WaitForAssertion(() => table.FindAll("tbody tr[data-space-id]").Should().HaveCount(11));
+        table.FindAll("tbody tr .col-actions [aria-label^='Rename']").Should().HaveCount(11);
+        table.FindAll("tbody tr .col-actions [aria-label^='Delete']").Should().HaveCount(11);
+    }
+
+    [Fact]
+    public void Render_Viewer_OffersNoRenameOrDelete()
+    {
+        writer = false;
+        spaces.Add("on-call", MemorySpaceKind.Team, 4);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
+
+        cut.FindAll(".space-action").Should().BeEmpty("a viewer can't change team spaces");
+
+        AddTeams(9);
+        var table = Render();
+        table.WaitForAssertion(() => table.FindAll("tbody tr[data-space-id]").Should().HaveCount(10));
+        table.FindAll(".space-action").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Rename_NewNameAndDescription_SavesThemAndListsTheSpaceByItsNewName()
+    {
+        spaces.Add("on-call", MemorySpaceKind.Team, 4, description: "Who to page");
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
+
+        cut.Find("[aria-label='Rename on-call']").Click();
+        cut.Find("#rename-space-name").GetAttribute("value").Should().Be("on-call");
+        cut.Find("#rename-space-save").HasAttribute("disabled").Should().BeTrue("nothing has changed yet");
+        cut.Find("#rename-space-name").Input("pager");
+        cut.Find("#rename-space-description").Input("Who to page, and when");
+        cut.Find("#rename-space-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#memory-spaces-notice").TextContent.Should().Contain("Saved changes to pager"));
+        cut.FindAll("#rename-space-name").Should().BeEmpty("the dialog closes");
+        cut.Find(".space-card-name").TextContent.Should().Be("pager");
+        cut.Find(".space-card-desc").TextContent.Should().Be("Who to page, and when");
+    }
+
+    [Fact]
+    public void Rename_InvalidName_MarksTheNameAndChangesNothing()
+    {
+        spaces.Add("on-call", MemorySpaceKind.Team, 4);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
+
+        cut.Find("[aria-label='Rename on-call']").Click();
+        cut.Find("#rename-space-name").Input("Not Valid!");
+        cut.Find("#rename-space-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#rename-space-name").ClassList.Should().Contain("is-invalid"));
+        cut.Find("#rename-space-error").TextContent.Should().NotBeEmpty();
+        spaces.Named("on-call").Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Delete_SaysHowManyFactsGoAndDeletesOnlyOnConfirm()
+    {
+        HaveMine();
+        spaces.Add("on-call", MemorySpaceKind.Team, 4);
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().HaveCount(2));
+
+        cut.Find("[aria-label='Delete on-call']").Click();
+        cut.WaitForAssertion(() => cut.Find("#delete-space-impact").TextContent.Should().Contain("4 facts"));
+        cut.Find("#delete-space-confirm").TextContent.Should().Contain("Delete space and 4 facts");
+        cut.Find(".delete-note").TextContent.Should().Contain("everyone loses these facts");
+        cut.FindAll(".modal-backdrop").Single().Click();
+        cut.FindAll("#delete-space-confirm").Should().BeEmpty("closing the dialog cancels");
+        spaces.Find(Guid.Parse(spaces.Named("on-call").Id)).Should().NotBeNull("nothing is deleted before the confirm");
+
+        cut.Find("[aria-label='Delete on-call']").Click();
+        cut.WaitForAssertion(() => cut.Find("#delete-space-confirm").HasAttribute("disabled").Should().BeFalse());
+        cut.Find("#delete-space-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#memory-spaces-notice").TextContent.Should().Contain("Deleted on-call and 4 facts"));
+        cut.FindAll(".space-card").Should().ContainSingle().Which.TextContent.Should().Contain("my-memory");
+    }
+
+    [Fact]
+    public void Delete_EmptyPersonalSpace_SaysOnlyTheSpaceGoes()
+    {
+        HaveMine();
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
+
+        cut.Find("[aria-label='Delete my-memory']").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#delete-space-impact").TextContent.Should().Contain("removes only the space"));
+        cut.Find("#delete-space-confirm").TextContent.Trim().Should().Be("Delete space");
+        cut.Find(".delete-note").TextContent.Should().Contain("Only your own facts");
+    }
+
+    [Fact]
+    public void Delete_CountFails_ShowsWhyAndCannotConfirm()
+    {
+        spaces.Add("on-call", MemorySpaceKind.Team, 4);
+        spaces.ImpactUnchecked = true;
+        var cut = Render();
+        cut.WaitForAssertion(() => cut.FindAll(".space-card").Should().ContainSingle());
+
+        cut.Find("[aria-label='Delete on-call']").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#delete-space-error").TextContent.Should().Contain("nothing was deleted"));
+        cut.Find("#delete-space-confirm").HasAttribute("disabled").Should().BeTrue();
+        cut.FindAll("#delete-space-impact").Should().BeEmpty();
+        spaces.Named("on-call").Should().NotBeNull();
+    }
+
     [Theory]
     [InlineData("http://localhost/memory", null, null, false, MemorySpaceSort.Updated, null, 1)]
     [InlineData("http://localhost/memory?q=%20ops%20&kind=team&sort=facts", "ops", MemorySpaceKind.Team, false, MemorySpaceSort.Facts, null, 1)]
@@ -370,7 +499,34 @@ public class MemoryPageTests : IDisposable
 
         public Container Named(string name) => all.Single(s => s.Container.Name == name).Container;
 
-        public Container? Find(Guid id) => all.FirstOrDefault(s => s.Container.Id == id.ToString()).Container;
+        public Container? Find(Guid id)
+        {
+            lock (all)
+                return all.FirstOrDefault(s => s.Container.Id == id.ToString()).Container;
+        }
+
+        /// <summary>When set, the delete count fails as if a fact's source couldn't be checked.</summary>
+        public bool ImpactUnchecked { get; set; }
+
+        public Container? Change(Guid id, string? name, string? description)
+        {
+            lock (all)
+            {
+                int at = all.FindIndex(s => s.Container.Id == id.ToString());
+                if (at < 0)
+                    return null;
+                var space = all[at];
+                Container changed = space.Container with { Name = name ?? space.Container.Name, Description = description ?? space.Container.Description };
+                all[at] = space with { Container = changed };
+                return changed;
+            }
+        }
+
+        public bool Remove(Guid id)
+        {
+            lock (all)
+                return all.RemoveAll(s => s.Container.Id == id.ToString()) > 0;
+        }
 
         public Container Add(string name, MemorySpaceKind kind, int facts, int minutes = 0, string? description = null)
         {
@@ -425,7 +581,13 @@ public class MemoryPageTests : IDisposable
         public Task<IReadOnlyList<MemorySpaceSummary>?> ListAsync(MemoryCaller viewer, string? text, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
-        public Task<MemorySpaceImpact?> ImpactAsync(Guid containerId, MemoryCaller viewer, CancellationToken ct = default) =>
-            throw new NotSupportedException();
+        public Task<MemorySpaceImpact?> ImpactAsync(Guid containerId, MemoryCaller viewer, CancellationToken ct = default)
+        {
+            lock (all)
+            {
+                int facts = all.Single(s => s.Container.Id == containerId.ToString()).Facts;
+                return Task.FromResult(ImpactUnchecked ? null : new MemorySpaceImpact(facts, facts * 2, 1));
+            }
+        }
     }
 }

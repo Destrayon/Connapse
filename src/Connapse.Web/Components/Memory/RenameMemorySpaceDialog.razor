@@ -1,0 +1,76 @@
+@using Connapse.Application.Memory
+@inject MemorySpaceOperations Spaces
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* Renaming a memory space or changing what belongs in it, through memorySpaces.update. Only what changed is sent. *@
+<MemorySpaceModal TitleId="rename-space-title" Title="@($"Rename {Space.Name}")" OnClose="Close">
+    <Body>
+        <label for="rename-space-name" class="space-label space-label-first">Name</label>
+        <input id="rename-space-name" class="form-control @(errorField == "name" ? "is-invalid" : "")" maxlength="128" autocomplete="off"
+               @bind="name" @bind:event="oninput" />
+        <div class="space-hint">Lowercase letters, numbers, and hyphens only. Agents that use the old name will need the new one.</div>
+
+        <label for="rename-space-description" class="space-label">What belongs here</label>
+        <input id="rename-space-description" class="form-control" maxlength="1000" autocomplete="off"
+               @bind="description" @bind:event="oninput" />
+        <div class="space-hint">Agents read this to decide which space a fact goes in.</div>
+
+        @if (error is not null)
+        {
+            <div id="rename-space-error" class="alert alert-danger py-2 small mt-3 mb-0" role="alert">@error</div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Close" disabled="@isSaving">Cancel</button>
+        <button id="rename-space-save" type="button" class="btn btn-primary" @onclick="Save" disabled="@(isSaving || !Changed)">
+            @if (isSaving)
+            {
+                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+            }
+            Save
+        </button>
+    </Footer>
+</MemorySpaceModal>
+
+@code {
+    [Parameter, EditorRequired] public MemorySpaceView Space { get; set; } = null!;
+
+    [Parameter] public EventCallback<MemorySpaceView> OnRenamed { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string name = "";
+    private string description = "";
+    private string? error;
+    private string? errorField;
+    private bool isSaving;
+
+    private bool NameChanged => name.Trim() != Space.Name;
+
+    private bool DescriptionChanged => description.Trim() != (Space.Description ?? "");
+
+    private bool Changed => NameChanged || DescriptionChanged;
+
+    protected override void OnInitialized() => (name, description) = (Space.Name, Space.Description ?? "");
+
+    private async Task Close()
+    {
+        if (!isSaving)
+            await OnClose.InvokeAsync();
+    }
+
+    private async Task Save()
+    {
+        if (isSaving || !Changed || !Guid.TryParse(Space.Id, out Guid id)) return;
+        (isSaving, error, errorField) = (true, null, null);
+        MemorySpaceChanges changes = new(NameChanged ? name : null, DescriptionChanged ? description : null);
+        var renamed = await Spaces.Update.RunAsync(await AuthStateProvider.OperationContextAsync(), id, changes);
+        isSaving = false;
+        if (!renamed.Succeeded)
+        {
+            (error, errorField) = (renamed.Detail ?? "The space wasn't changed.", renamed.Field);
+            return;
+        }
+        await OnRenamed.InvokeAsync(renamed.Result!);
+    }
+}
