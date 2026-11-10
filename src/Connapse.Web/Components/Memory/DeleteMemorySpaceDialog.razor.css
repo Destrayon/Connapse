@@ -1,0 +1,11 @@
+.delete-impact {
+    margin: 0 0 0.75rem;
+    line-height: 1.5;
+}
+
+.delete-note {
+    font-size: 0.83rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0 0 0.75rem;
+}

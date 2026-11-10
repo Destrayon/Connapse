@@ -1,0 +1,95 @@
+@using Connapse.Application.Memory
+@inject MemorySpaceOperations Spaces
+@inject AuthenticationStateProvider AuthStateProvider
+
+@* Deleting a memory space. A dry run of memorySpaces.delete counts what goes with it first, so the person sees how many
+   facts they would lose; nothing is deleted until they confirm. *@
+<MemorySpaceModal TitleId="delete-space-title" Title="@($"Delete {Space.Name}?")" OnClose="Close">
+    <Body>
+        @if (impact is not null)
+        {
+            <p id="delete-space-impact" class="delete-impact">
+                @if (impact.Facts == 0)
+                {
+                    <text>This space has no facts, so deleting it removes only the space.</text>
+                }
+                else
+                {
+                    <text>This deletes the space and the <strong>@FactsLabel(impact.Facts)</strong> in it, with every earlier version of them.</text>
+                }
+            </p>
+            <p class="delete-note">
+                @(Space.Kind == MemorySpaceKind.Team
+                    ? "It's a team space, so everyone loses these facts."
+                    : "Only your own facts are in it.")
+                Facts that cite sources you can't open are deleted too, and aren't counted. This can't be undone.
+            </p>
+        }
+        else if (error is null)
+        {
+            <div class="text-center py-2">
+                <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Counting facts</span></div>
+            </div>
+        }
+        @if (error is not null)
+        {
+            <div id="delete-space-error" class="alert alert-danger py-2 small mb-0" role="alert">@error</div>
+        }
+    </Body>
+    <Footer>
+        <button type="button" class="btn btn-outline-secondary" @onclick="Close" disabled="@isDeleting">Cancel</button>
+        <button id="delete-space-confirm" type="button" class="btn btn-danger" @onclick="Delete" disabled="@(isDeleting || impact is null)">
+            @if (isDeleting)
+            {
+                <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+            }
+            @(impact is { Facts: > 0 } ? $"Delete space and {FactsLabel(impact.Facts)}" : "Delete space")
+        </button>
+    </Footer>
+</MemorySpaceModal>
+
+@code {
+    [Parameter, EditorRequired] public MemorySpaceView Space { get; set; } = null!;
+
+    [Parameter] public EventCallback<MemorySpaceDeletion> OnDeleted { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private MemorySpaceDeletion? impact;
+    private string? error;
+    private bool isDeleting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Guid.TryParse(Space.Id, out Guid id)) return;
+        var counted = await Spaces.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(), id, dryRun: true);
+        if (counted.Succeeded)
+            impact = counted.Result;
+        else
+            error = counted.Detail ?? "The space's facts couldn't be counted.";
+    }
+
+    private async Task Close()
+    {
+        if (!isDeleting)
+            await OnClose.InvokeAsync();
+    }
+
+    private async Task Delete()
+    {
+        if (isDeleting || impact is null || !Guid.TryParse(Space.Id, out Guid id)) return;
+        (isDeleting, error) = (true, null);
+        var deleted = await Spaces.Delete.RunAsync(await AuthStateProvider.OperationContextAsync(), id, dryRun: false);
+        isDeleting = false;
+        if (!deleted.Succeeded)
+        {
+            error = deleted.Detail ?? "The space wasn't deleted.";
+            return;
+        }
+        await OnDeleted.InvokeAsync(deleted.Result!);
+    }
+
+    /// <summary>"1 fact" or "1,204 facts".</summary>
+    public static string FactsLabel(int facts) =>
+        facts == 1 ? "1 fact" : $"{facts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} facts";
+}

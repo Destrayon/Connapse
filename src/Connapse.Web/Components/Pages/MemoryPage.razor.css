@@ -138,6 +138,35 @@
     color: #fbbf24;
 }
 
+.space-card-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+}
+
+/* Rename and delete sit above the card's stretched link too, and stay quiet until pointed at. */
+.space-action {
+    position: relative;
+    z-index: 2;
+    background: none;
+    border: none;
+    padding: 0.1rem 0.3rem;
+    color: var(--text-muted);
+    line-height: 1;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.space-action:hover,
+.space-action:focus-visible {
+    color: var(--bs-body-color);
+}
+
+.space-action-delete:hover,
+.space-action-delete:focus-visible {
+    color: #f87171;
+}
+
 /* ===== Table ===== */
 
 .spaces-panel {
@@ -248,6 +277,12 @@
 .spaces-table .col-star {
     width: 2.5rem;
     text-align: center;
+}
+
+.spaces-table .col-actions {
+    width: 4.5rem;
+    text-align: right;
+    white-space: nowrap;
 }
 
 .spaces-table .space-name a {
