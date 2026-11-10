@@ -93,6 +93,9 @@ public class TableStorageTests(SharedWebAppFixture fixture)
             bool reloadStarted = false;
             var seen = new ConcurrentBag<(long Count, long MinBatch, long MaxBatch, bool DuringLoad)>();
             var failures = new ConcurrentBag<Exception>();
+            using var readDuringLoad = new SemaphoreSlim(0);
+            var sawNewTable = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var deadline = TimeSpan.FromSeconds(30);
 
             // Each reader does what an agent's query will: resolve the table's name from the catalog, then read it.
             async Task ReadUntilAsync(CancellationToken stop)
@@ -110,7 +113,12 @@ public class TableStorageTests(SharedWebAppFixture fixture)
                         var row = (await QueryAsync(context,
                             $"SELECT count(*), coalesce(min(c_1), 0), coalesce(max(c_1), 0) FROM \"{table.StorageSchema}\".\"{name}\"",
                             r => (r.GetInt64(0), r.GetInt64(1), r.GetInt64(2)))).Single();
-                        seen.Add((row.Item1, row.Item2, row.Item3, startedDuringLoad && !loading.IsCancellationRequested));
+                        bool duringLoad = startedDuringLoad && !loading.IsCancellationRequested;
+                        seen.Add((row.Item1, row.Item2, row.Item3, duringLoad));
+                        if (duringLoad)
+                            readDuringLoad.Release();
+                        if (row.Item1 == NewRows)
+                            sawNewTable.TrySetResult();
                     }
                     catch (Exception ex)
                     {
@@ -122,11 +130,12 @@ public class TableStorageTests(SharedWebAppFixture fixture)
             using var stopReaders = new CancellationTokenSource();
             var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() => ReadUntilAsync(stopReaders.Token))).ToArray();
 
-            // The new rows trickle in, so the readers run many times while the load is half done.
+            // Every 250 rows the load waits for a reader to finish a read, so reads happen while the load is half done.
             Volatile.Write(ref reloadStarted, true);
-            var reloaded = await tables.ReloadAsync(containerId, table.Id, Load("Stock", NewRows, batch: 2, pauseEvery: 250));
+            var reloaded = await tables.ReloadAsync(containerId, table.Id, Load("Stock", NewRows, batch: 2, pauseEvery: 250,
+                pause: () => readDuringLoad.WaitAsync(deadline)));
             loading.Cancel();
-            await Task.Delay(200);
+            await sawNewTable.Task.WaitAsync(deadline);
             stopReaders.Cancel();
             await Task.WhenAll(readers);
 
@@ -294,16 +303,17 @@ public class TableStorageTests(SharedWebAppFixture fixture)
     }
 
     /// <summary><paramref name="rows"/> rows, every one carrying <paramref name="batch"/> so a reader can tell loads apart.</summary>
-    private static TableLoad Load(string name, int rows, long batch, int pauseEvery = 0) =>
-        new(name, Columns, Generate(rows, batch, pauseEvery));
+    private static TableLoad Load(string name, int rows, long batch, int pauseEvery = 0, Func<Task>? pause = null) =>
+        new(name, Columns, Generate(rows, batch, pauseEvery, pause));
 
     private static async IAsyncEnumerable<IReadOnlyList<object?>> Generate(
-        int rows, long batch, int pauseEvery, [EnumeratorCancellation] CancellationToken ct = default)
+        int rows, long batch, int pauseEvery, Func<Task>? pause, [EnumeratorCancellation] CancellationToken ct = default)
     {
         for (int i = 0; i < rows; i++)
         {
-            if (pauseEvery > 0 && i > 0 && i % pauseEvery == 0)
-                await Task.Delay(50, ct);
+            ct.ThrowIfCancellationRequested();
+            if (pause is not null && pauseEvery > 0 && i > 0 && i % pauseEvery == 0)
+                await pause();
             yield return [batch, $"row-{i}", i + 0.5m, i == 2 ? null : new DateOnly(2026, 1, 1).AddDays(i % 300)];
         }
     }
