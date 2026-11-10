@@ -27,12 +27,13 @@ public sealed class ScoresProbe(RepoPaths paths, TextWriter log, HttpClient http
 
     public async Task<int> RunAsync(Options options, CancellationToken ct)
     {
+        bool fresh = options.Split == "fresh";
         Split? split = options.Split switch
         {
             "test" => Model.Split.Test,
             "dev" => Model.Split.Dev,
-            "all" => null,
-            _ => throw new ArgumentException($"--split takes test, dev or all (got '{options.Split}')."),
+            "all" or "fresh" => null,
+            _ => throw new ArgumentException($"--split takes test, dev, all or fresh (got '{options.Split}')."),
         };
 
         EvalManifest manifest = EvalManifest.Load(paths.ManifestPath);
@@ -64,7 +65,7 @@ public sealed class ScoresProbe(RepoPaths paths, TextWriter log, HttpClient http
                 log.WriteLine($"[{name}] indexing {dataset.Corpus.Count} documents");
                 await system.IndexAsync(dataset, ct);
             }
-            datasets.Add(dataset);
+            datasets.Add(fresh ? await FreshAsync(dataset, cache.DirectoryFor(name, entry), ct) : dataset);
         }
         if (!system.Restored)
             await system.SaveIndexCacheAsync(names, ct);
@@ -117,7 +118,7 @@ public sealed class ScoresProbe(RepoPaths paths, TextWriter log, HttpClient http
                         Dataset = dataset.Name,
                         QueryDataset = source.Name,
                         QueryId = query.Id,
-                        Split = query.Split.ToString().ToLowerInvariant(),
+                        Split = fresh ? "fresh" : query.Split.ToString().ToLowerInvariant(),
                         Kind = kind,
                         DurationMs = ms,
                         result.NoGoodMatch,
@@ -139,5 +140,56 @@ public sealed class ScoresProbe(RepoPaths paths, TextWriter log, HttpClient http
 
         log.WriteLine(outPath);
         return 0;
+    }
+    /// <summary>Questions per dataset in the fresh split.</summary>
+    private const int FreshSize = 300;
+
+    /// <summary>
+    /// The fresh split (CON-278): RAGBench train questions, which no run has used as queries (the adapter loads train
+    /// rows only for their documents, which are indexed). Each dataset's distinct train questions, minus any whose ID or
+    /// text is also a dev or test question, are ordered by SHA-256 of "con-278-fresh:" + ID and the first
+    /// <see cref="FreshSize"/> kept. Relevance comes from the rows' sentence keys, read as the adapter reads them.
+    /// </summary>
+    private static async Task<EvalDataset> FreshAsync(EvalDataset dataset, string directory, CancellationToken ct)
+    {
+        IList<RagBenchRow> rows = (await Parquet.Serialization.ParquetSerializer.DeserializeAsync<RagBenchRow>(
+            Path.Combine(directory, "train.parquet"), cancellationToken: ct)).Data;
+        HashSet<string> used = new(StringComparer.Ordinal);
+        foreach (EvalQuery q in dataset.Queries)
+        {
+            used.Add(q.Id);
+            used.Add(q.Text);
+        }
+
+        Dictionary<string, RagBenchRow> byId = new(StringComparer.Ordinal);
+        foreach (RagBenchRow row in rows)
+            if (!used.Contains(row.Id) && !used.Contains(row.Question))
+                byId.TryAdd(row.Id, row);
+
+        List<RagBenchRow> picked = byId.Values
+            .OrderBy(r => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes("con-278-fresh:" + r.Id))), StringComparer.Ordinal)
+            .Take(FreshSize)
+            .ToList();
+
+        Qrels qrels = new();
+        foreach (RagBenchRow row in picked)
+            foreach (string key in row.AllRelevantSentenceKeys ?? [])
+            {
+                int length = 0;
+                while (length < key.Length && char.IsAsciiDigit(key[length]))
+                    length++;
+                if (length == 0)
+                    continue;
+                int index = int.Parse(key.AsSpan(0, length), System.Globalization.CultureInfo.InvariantCulture);
+                if (index < row.Documents.Count)
+                    qrels.Add(row.Id, RagBenchAdapter.DocId(row.Documents[index]), 1);
+            }
+
+        return dataset with
+        {
+            Queries = [.. picked.Select(r => new EvalQuery(r.Id, r.Question, Model.Split.Test, []))],
+            Qrels = qrels,
+        };
     }
 }

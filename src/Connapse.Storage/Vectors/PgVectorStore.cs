@@ -481,6 +481,40 @@ public class PgVectorStore : IVectorStore
 
     private record ChunkDistanceRow(Guid ChunkId, double Distance);
 
+    public async Task<IReadOnlyList<string>> SampleChunkIdsAsync(
+        string modelId,
+        string? containerId,
+        int count,
+        CancellationToken ct = default)
+    {
+        if (count <= 0)
+            return [];
+
+        List<NpgsqlParameter> parameters =
+        [
+            new("@modelId", NpgsqlDbType.Text) { Value = modelId },
+            new("@count", NpgsqlDbType.Integer) { Value = count },
+        ];
+        string containerClause = "";
+        if (Guid.TryParse(containerId, out Guid owner))
+        {
+            containerClause = "AND cv.owner_id = @containerId";
+            parameters.Add(new NpgsqlParameter("@containerId", NpgsqlDbType.Uuid) { Value = owner });
+        }
+
+        string sql = $@"
+            SELECT cv.chunk_id AS ""Value""
+            FROM chunk_vectors cv
+            WHERE cv.model_id = @modelId {containerClause}
+            ORDER BY md5(cv.chunk_id::text)
+            LIMIT @count";
+
+        List<Guid> ids = await _context.Database
+            .SqlQueryRaw<Guid>(sql, parameters.ToArray())
+            .ToListAsync(ct);
+        return ids.Select(id => id.ToString()).ToList();
+    }
+
     // DTO for raw SQL query result
     private record VectorSearchRow(
         Guid ChunkId,

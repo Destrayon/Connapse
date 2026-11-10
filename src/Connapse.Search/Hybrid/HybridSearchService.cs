@@ -369,7 +369,9 @@ public class HybridSearchService : IKnowledgeSearch
             var vectorSearch = scope.ServiceProvider.GetRequiredService<VectorSearchService>();
             QueryEmbedding queryEmbedding = await vectorSearch.EmbedQueryAsync(query, poolOptions, ct);
             var results = await vectorSearch.SearchAsync(query, queryEmbedding, poolOptions, scopes, ct);
-            return (queryEmbedding, results);
+            float[] background = await vectorSearch.BackgroundAsync(
+                queryEmbedding, options.ContainerId, scope.ServiceProvider.GetRequiredService<IMemoryCache>(), ct);
+            return (queryEmbedding, results, background);
         }, ct);
 
         var keywordTask = Task.Run(async () =>
@@ -382,7 +384,7 @@ public class HybridSearchService : IKnowledgeSearch
 
         await Task.WhenAll(vectorTask, keywordTask);
 
-        var (queryEmbedding, vectorResults) = await vectorTask;
+        var (queryEmbedding, vectorResults, background) = await vectorTask;
         var keywordResults = await keywordTask;
 
         _logger.LogDebug(
@@ -438,7 +440,35 @@ public class HybridSearchService : IKnowledgeSearch
             return scores;
         };
 
-        return (TagRetrievalSource(fused, vectorResults, keywordResults), scoreChunks);
+        return (WithBackground(TagRetrievalSource(fused, vectorResults, keywordResults), background), scoreChunks);
+    }
+
+    // EXPERIMENT (CON-278): background statistics on every hit, for offline analysis.
+    private static List<SearchHit> WithBackground(List<SearchHit> hits, float[] background)
+    {
+        if (background.Length == 0)
+            return hits;
+        float[] sorted = [.. background.OrderBy(x => x)];
+        double mean = sorted.Average();
+        double std = Math.Sqrt(sorted.Average(x => (x - mean) * (x - mean)));
+        float Q(double p) => sorted[(int)(p * (sorted.Length - 1))];
+        Dictionary<string, string> stats = new()
+        {
+            ["bgN"] = sorted.Length.ToString(CultureInfo.InvariantCulture),
+            ["bgMean"] = mean.ToString("F4", CultureInfo.InvariantCulture),
+            ["bgStd"] = std.ToString("F4", CultureInfo.InvariantCulture),
+            ["bgP50"] = Q(0.5).ToString("F4", CultureInfo.InvariantCulture),
+            ["bgP90"] = Q(0.9).ToString("F4", CultureInfo.InvariantCulture),
+            ["bgP99"] = Q(0.99).ToString("F4", CultureInfo.InvariantCulture),
+            ["bgMax"] = sorted[^1].ToString("F4", CultureInfo.InvariantCulture),
+        };
+        return hits.Select(h =>
+        {
+            Dictionary<string, string> metadata = new(h.Metadata);
+            foreach (var (k, v) in stats)
+                metadata[k] = v;
+            return h with { Metadata = metadata };
+        }).ToList();
     }
 
     /// <summary>
