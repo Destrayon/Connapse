@@ -6,8 +6,8 @@ using NpgsqlTypes;
 namespace Connapse.Storage.Tables;
 
 /// <summary>
-/// Every piece of DDL for tables containers (CON-301), the way <c>VectorColumnManager</c> owns the search columns'.
-/// Each tables container gets a schema of its own, <c>tables_&lt;container id&gt;</c>, holding one real table per
+/// Every piece of DDL for containers' tables (CON-301), the way <c>VectorColumnManager</c> owns the search columns'.
+/// Each container that holds tables gets a schema of its own, <c>tables_&lt;container id&gt;</c>, holding one real table per
 /// catalog entry. Table and column names are generated (<c>t_&lt;id&gt;</c>, <c>c_&lt;n&gt;</c>), never taken from
 /// a file, and are checked against <see cref="SafeIdentifier"/> before they go into SQL, since identifiers can't be
 /// query parameters.

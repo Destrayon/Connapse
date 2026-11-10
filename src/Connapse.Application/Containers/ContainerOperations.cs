@@ -95,16 +95,9 @@ internal static class ContainerRules
     public static Attempt<T, ContainerStatus> MemoryOnly<T>(Container container) =>
         Attempt<T, ContainerStatus>.Fail(ContainerStatus.MemoryContainer, MemoryOnly(container));
 
-    /// <summary>
-    /// What text search and text ingestion answer for a tables container (CON-300): it holds tables, which are never
-    /// chunked or embedded, so there are no passages to search and no document to add.
-    /// </summary>
-    public static string TablesOnly(Container container) =>
-        $"'{container.Name}' is a tables container: it holds tables, not documents, so text search doesn't search it "
-        + "and documents can't be added to it.";
 }
 
-/// <summary>Lists documents and tables containers; memory spaces are not among them. Open to viewers; a container has no per-item visibility.</summary>
+/// <summary>Lists document containers, which may hold tables beside their files (CON-319); memory spaces are not among them. Open to viewers; a container has no per-item visibility.</summary>
 [Operation("containers.list", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class ListContainers(IContainerStore containers, IOperationAuthorizer authorizer)
 {
@@ -162,7 +155,7 @@ public sealed class CreateContainer(IContainerStore containers, IAuditLogger aud
         if (!PathUtilities.IsValidContainerName(name))
             return Fail(ContainerStatus.Invalid, ContainerRules.NameRule, "name");
         if (!Enum.IsDefined(request.Kind))
-            return Fail(ContainerStatus.Invalid, "kind must be documents, tables or memory", "kind");
+            return Fail(ContainerStatus.Invalid, "kind must be documents or memory", "kind");
         if (await containers.GetByNameAsync(name, ct) is not null)
             return Fail(ContainerStatus.Conflict, $"Container '{name}' already exists", "name");
 

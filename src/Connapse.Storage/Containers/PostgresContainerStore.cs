@@ -43,13 +43,9 @@ public class PostgresContainerStore(
             UpdatedAt = DateTime.UtcNow
         };
 
-        // A tables container's schema is made with its row, so neither exists without the other.
-        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        // A container's table schema is made by its first table load, not here (CON-319).
         context.Containers.Add(entity);
         await context.SaveChangesAsync(ct);
-        if (entity.Kind == ContainerKind.Tables)
-            await TableDdl.CreateSchemaAsync(context.Database.GetDbConnection(), entity.Id, ct);
-        await transaction.CommitAsync(ct);
 
         logger.LogInformation("Created container {ContainerId} ({Name})", entity.Id, Sanitize(entity.Name));
 
@@ -188,7 +184,7 @@ public class PostgresContainerStore(
         // A container's tables go with it in one transaction: its schema is dropped, and its catalog entries
         // cascade from the row.
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        if (entity.Kind is ContainerKind.Tables or ContainerKind.Documents)
+        if (entity.Kind == ContainerKind.Documents)
             await TableDdl.DropSchemaAsync(context.Database.GetDbConnection(), id, ct);
         context.Containers.Remove(entity);
         await context.SaveChangesAsync(ct);

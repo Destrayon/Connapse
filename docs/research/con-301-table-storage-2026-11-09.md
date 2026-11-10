@@ -1,6 +1,7 @@
 # How should a tables container store its tables, catalog them, and swap in a reload atomically?
 **Date:** 2026-11-09
 **Status:** Reviewed
+**Superseded in part (2026-11-10, CON-319):** there is no longer a separate tables container type. Any documents container holds any number of tables beside its files, and memory containers hold none; read "tables container" below as "a container's tables".
 **Built on:** con-300-tables-container-kind-2026-11-09.md, docs/plans/con-e6-tables-container.md (Connapse MCP was not connected, so no corpus search)
 
 ## Executive summary

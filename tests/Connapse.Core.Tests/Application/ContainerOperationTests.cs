@@ -80,7 +80,7 @@ public class ContainerOperationTests
 
         listed.Result!.Items.Select(c => c.Name).Should().Equal("docs");
         listed.Result.HasMore.Should().BeFalse("a memory space ahead of it doesn't take its place on the page");
-        await _containers.Received().ListAsync(0, 2, Arg.Any<MemoryCaller?>(), ContainerKind.Documents, Arg.Any<CancellationToken>());
+        await _containers.Received().ListAsync(0, 2, Arg.Any<MemoryCaller?>(), ContainerKinds.FileKinds, Arg.Any<CancellationToken>());
     }
 
     [Fact]

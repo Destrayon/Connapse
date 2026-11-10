@@ -1,7 +1,7 @@
 namespace Connapse.Storage.Data.Entities;
 
 /// <summary>
-/// A table in a tables container (CON-301): the catalog entry for one real PostgreSQL table in the container's schema.
+/// A table in a container (CON-301): the catalog entry for one real PostgreSQL table in the container's schema.
 /// <see cref="StorageName"/> points at the table holding the rows now; a reload loads a new table and moves the
 /// pointer, so readers never see half a load.
 /// </summary>

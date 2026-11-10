@@ -28,24 +28,22 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_create", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Create a new container for documents, or for tables with kind \"tables\". Use when setting up a new knowledge domain or project. To make a place for memory facts, use `memory_space_create` instead.")]
+     Description("Create a new container for documents. Use when setting up a new knowledge domain or project. To make a place for memory facts, use `memory_space_create` instead.")]
     public static async Task<string> ContainerCreate(
         CreateContainer create,
         IHttpContextAccessor http,
         [Description("Container name (lowercase alphanumeric and hyphens, 2-128 chars)")] string name,
         [Description("Optional description for the container")] string? description = null,
-        [Description("\"documents\" (default) or \"tables\": a tables container holds tables, not passages, so `search_knowledge` doesn't search it. Fixed once created. \"memory\" is an older option: make memory spaces with `memory_space_create` instead")] string? kind = null,
+        [Description("Older option: \"documents\" (default) or \"memory\". Make memory spaces with `memory_space_create` instead")] string? kind = null,
         CancellationToken ct = default)
     {
         if (ParseKind(kind) is not { } containerKind)
-            return "Error: kind must be \"documents\", \"tables\" or \"memory\".";
+            return "Error: kind must be \"documents\" or \"memory\".";
         var created = await create.RunAsync(Mcp(http), new CreateContainerRequest(name, description, containerKind), ct);
         return created.Status switch
         {
             ContainerStatus.Success when created.Result!.Kind == ContainerKind.Memory =>
                 $"Agent memory container '{created.Result.Name}' created. Save facts to it with `memory_remember` and read them with `memory_recall`.\n\nID: {created.Result.Id}",
-            ContainerStatus.Success when created.Result!.Kind == ContainerKind.Tables =>
-                $"Tables container '{created.Result.Name}' created. It holds tables, not documents, so `search_knowledge` won't search it.\n\nID: {created.Result.Id}",
             ContainerStatus.Success => $"Container '{created.Result!.Name}' created.\n\nID: {created.Result.Id}",
             ContainerStatus.Invalid => "Error: Container name must be 2-128 chars, lowercase alphanumeric and hyphens.",
             ContainerStatus.Conflict => $"Error: Container '{name.Trim()}' already exists.",
@@ -55,7 +53,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_list", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Lists every searchable knowledge scope with its description and document count. Each entry is kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). A kind=tables entry is a tables container: it holds tables, not documents, so `search_knowledge` doesn't search it. Memory spaces are not listed here: `memory_spaces` lists them. Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
+     Description("Lists every searchable knowledge scope with its description and document count. Each entry is kind=managed (storage Connapse owns, browsable with `list_files`) or kind=source (an external system Connapse mirrors read-only — searchable, but it has no file listing). Memory spaces are not listed here: `memory_spaces` lists them. Use to discover what exists when the target is unknown; if the user already named one, call `search_knowledge` on it directly instead.")]
     public static async Task<string> ContainerList(
         ListContainers list,
         ListSources listSources,
@@ -158,7 +156,7 @@ public partial class McpTools
                 // The operation says whether this is an outage or a size mismatch, and what to do about each.
                 SearchStatus.EmbeddingsUnavailable => $"Error: The search could not be run. {searched.Detail}",
                 SearchStatus.ModelNotReady => $"Error: The search could not be run yet. {searched.Detail}",
-                SearchStatus.MemoryContainer or SearchStatus.TablesContainer => Refused(searched),
+                SearchStatus.MemoryContainer => Refused(searched),
                 _ => $"Error: Container '{containerId}' not found.",
             };
         var result = searched.Result!;
@@ -751,10 +749,6 @@ public partial class McpTools
         {
             text += "Type: agent memory (holds memory facts only; use `memory_remember` and `memory_recall`, document tools refuse it)\n";
         }
-        else if (owner.IsTables)
-        {
-            text += "Type: tables (holds tables, not documents; `search_knowledge` doesn't search it)\n";
-        }
         else
         {
             text += "Type: managed storage (browsable and writable)\n";
@@ -827,20 +821,16 @@ public partial class McpTools
         public const string ManagedKind = "managed";
         public const string SourceKind = "source";
         public const string MemoryKind = "memory";
-        public const string TablesKind = "tables";
 
         public bool IsSource => Kind == SourceKind;
 
         public bool IsMemory => Kind == MemoryKind;
-
-        public bool IsTables => Kind == TablesKind;
     }
 
     /// <summary>The container kind container_create names, or null for one it doesn't know. No kind means documents.</summary>
     internal static ContainerKind? ParseKind(string? kind) => kind?.Trim().ToLowerInvariant() switch
     {
         null or "" or "documents" => ContainerKind.Documents,
-        "tables" => ContainerKind.Tables,
         "memory" => ContainerKind.Memory,
         _ => null,
     };
@@ -848,12 +838,7 @@ public partial class McpTools
     private static SearchableOwner? ToOwner(Connapse.Core.Container container) =>
         Guid.TryParse(container.Id, out var id)
             ? new SearchableOwner(id, container.Name,
-                container.Kind switch
-                {
-                    ContainerKind.Memory => SearchableOwner.MemoryKind,
-                    ContainerKind.Tables => SearchableOwner.TablesKind,
-                    _ => SearchableOwner.ManagedKind,
-                },
+                container.Kind == ContainerKind.Memory ? SearchableOwner.MemoryKind : SearchableOwner.ManagedKind,
                 container.Description, container.DocumentCount, container.CreatedAt)
             : null;
 

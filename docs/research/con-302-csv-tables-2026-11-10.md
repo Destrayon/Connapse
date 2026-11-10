@@ -1,6 +1,7 @@
 # How should an uploaded CSV become a typed table: dialect, types, header, rejects and loading?
 **Date:** 2026-11-10
 **Status:** Reviewed
+**Superseded in part (2026-11-10, CON-319):** the tables-only container kind is gone, so every CSV loads as a table and also keeps its text passages; `TableUploads.KeepsText` no longer exists, and `TableUploads.LoadsAsTable` decides by file type alone.
 **Built on:** tables-container-2026-11-02.md, con-301-table-storage-2026-11-09.md, docs/plans/con-e6-tables-container.md (Connapse MCP was not connected, so no corpus search)
 
 ## Executive summary

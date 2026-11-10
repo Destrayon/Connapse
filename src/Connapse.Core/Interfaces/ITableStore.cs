@@ -1,9 +1,9 @@
 namespace Connapse.Core.Interfaces;
 
 /// <summary>
-/// The tables of a tables container (CON-E6): real PostgreSQL tables in the container's own schema, with a catalog
-/// entry each. Throws <see cref="InvalidOperationException"/> when the container doesn't exist or isn't a tables
-/// container.
+/// The tables of a documents container (CON-E6): real PostgreSQL tables in the container's own schema, with a catalog
+/// entry each, held beside the container's files (CON-319). A container holds any number of them. Loads throw
+/// <see cref="InvalidOperationException"/> when the container doesn't exist or is a memory container.
 /// </summary>
 public interface ITableStore
 {
@@ -21,6 +21,15 @@ public interface ITableStore
 
     /// <summary>The container's tables by name; empty for a container that has none or doesn't exist.</summary>
     Task<IReadOnlyList<TableInfo>> ListAsync(Guid containerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// One page of the container's tables, in the same order as <see cref="ListAsync(Guid, CancellationToken)"/>,
+    /// with how many it holds in all, so a caller can go through any number of them.
+    /// </summary>
+    Task<TablePage> ListAsync(Guid containerId, int skip, int take, CancellationToken ct = default);
+
+    /// <summary>The table loaded from <paramref name="documentId"/>, or null when that document has none.</summary>
+    Task<TableInfo?> FindByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default);
 
     /// <summary>Removes a table from the catalog at once; its rows are dropped a little later. False when it doesn't exist.</summary>
     Task<bool> DeleteAsync(Guid containerId, Guid tableId, CancellationToken ct = default);

@@ -86,24 +86,81 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Upload_BadCellPastTheSample_IsListedAndItsRowLeftOut()
+    public async Task ListTablesRoute_ContainerWithFilesAndSeveralCsvs_PagesThroughItsTablesByName()
     {
-        // A tables container, so the 60,000 rows aren't embedded as text too; the table load is the same either way.
-        Guid containerId = await NewContainerAsync(ContainerKind.Tables);
+        Guid containerId = await NewContainerAsync(ContainerKind.Documents);
         try
         {
-            const int bad = 52_051;
-            var csv = new StringBuilder("id,amount\n");
-            for (int i = 1; i <= 60_000; i++)
-                csv.Append(i).Append(',').Append(i == bad ? "n/a" : (i * 3).ToString()).Append('\n');
+            await UploadAsync(containerId, "notes.md", "# Notes\n\nNot a table.");
+            string[] ids =
+            [
+                await UploadAsync(containerId, "orders.csv", "id,total\n1,5\n"),
+                await UploadAsync(containerId, "costs.csv", "item,cost\npen,2\nink,3\n"),
+                await UploadAsync(containerId, "stock.csv", "sku,count\nA1,9\n"),
+            ];
+            foreach (string id in ids)
+                await WaitForReadyAsync(containerId, id);
 
-            string id = await UploadAsync(containerId, "readings.csv", csv.ToString());
+            using JsonDocument first = await GetJsonAsync($"/api/containers/{containerId}/tables?take=2");
+            using JsonDocument second = await GetJsonAsync($"/api/containers/{containerId}/tables?skip=2&take=2");
+
+            Names(first).Should().Equal("costs", "orders");
+            first.RootElement.GetProperty("totalCount").GetInt32().Should().Be(3);
+            first.RootElement.GetProperty("hasMore").GetBoolean().Should().BeTrue();
+            Names(second).Should().Equal("stock");
+            second.RootElement.GetProperty("hasMore").GetBoolean().Should().BeFalse();
+
+            JsonElement costs = first.RootElement.GetProperty("items")[0];
+            costs.GetProperty("documentId").GetString().Should().Be(ids[1]);
+            costs.GetProperty("rowCount").GetInt64().Should().Be(2);
+            costs.GetProperty("columns").GetArrayLength().Should().Be(2);
+            costs.TryGetProperty("storageSchema", out _).Should().BeFalse("where a table is stored is not the caller's business");
+            costs.TryGetProperty("storageName", out _).Should().BeFalse();
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task ListTablesRoute_BadPageMissingOrMemoryContainer_AnswersAProblem()
+    {
+        Guid documents = await NewContainerAsync(ContainerKind.Documents);
+        Guid memory = await NewContainerAsync(ContainerKind.Memory);
+        try
+        {
+            (await fixture.AdminClient.GetAsync($"/api/containers/{documents}/tables?take=0")).StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+            (await fixture.AdminClient.GetAsync($"/api/containers/{documents}/tables?take=201")).StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
+            (await fixture.AdminClient.GetAsync($"/api/containers/{Guid.NewGuid()}/tables")).StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
+            (await fixture.AdminClient.GetAsync($"/api/containers/{memory}/tables")).StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict);
+
+            using JsonDocument empty = await GetJsonAsync($"/api/containers/{documents}/tables");
+            empty.RootElement.GetProperty("totalCount").GetInt32().Should().Be(0);
+            empty.RootElement.GetProperty("items").GetArrayLength().Should().Be(0);
+        }
+        finally
+        {
+            await DeleteContainerAsync(documents);
+            await DeleteContainerAsync(memory);
+        }
+    }
+
+    [Fact]
+    public async Task Upload_RowThatDoesNotFit_IsListedLeftOutAndWarnedAbout()
+    {
+        // Small on purpose: the CSV's text is embedded too, and a bad cell past the type sample is the reader's own
+        // test (CsvTableReaderTests). This proves the upload keeps the reject list and says so on the document.
+        Guid containerId = await NewContainerAsync(ContainerKind.Documents);
+        try
+        {
+            string id = await UploadAsync(containerId, "readings.csv", "id,amount\n1,3\n2,6,9\n3,9\n");
             await WaitForReadyAsync(containerId, id);
 
             var table = (await TablesAsync(containerId)).Single();
-            table.RowCount.Should().Be(59_999);
+            table.RowCount.Should().Be(2);
             table.NeedsReview.Should().BeTrue();
-            table.Rejects.Should().ContainSingle().Which.Should().Be(new TableReject(bad + 1, 2, "n/a", "not a whole number"));
+            table.Rejects.Should().ContainSingle().Which.Should().Be(new TableReject(3, 0, "2,6,9", "has 3 fields, expected 2"));
             (await DocumentAsync(id)).Metadata["ParserWarnings"].Should().Contain("1 row(s) didn't fit");
         }
         finally
@@ -161,24 +218,6 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
         }
     }
 
-    [Fact]
-    public async Task Upload_ToATablesContainer_TakesCsvAndRefusesOtherFiles()
-    {
-        Guid containerId = await NewContainerAsync(ContainerKind.Tables);
-        try
-        {
-            string id = await UploadAsync(containerId, "sales.csv", Sales);
-            await WaitForReadyAsync(containerId, id);
-            (await TablesAsync(containerId)).Should().ContainSingle().Which.Name.Should().Be("sales");
-
-            var refused = await PostFileAsync(containerId, "notes.md", "# Notes");
-            refused.IsSuccessStatusCode.Should().BeFalse();
-        }
-        finally
-        {
-            await DeleteContainerAsync(containerId);
-        }
-    }
 
     private async Task<Guid> NewContainerAsync(ContainerKind kind)
     {
@@ -202,6 +241,16 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<ITableStore>().ListAsync(containerId);
     }
+
+    private async Task<JsonDocument> GetJsonAsync(string url)
+    {
+        using HttpResponseMessage response = await fixture.AdminClient.GetAsync(url);
+        response.EnsureSuccessStatusCode();
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+    }
+
+    private static List<string?> Names(JsonDocument page) =>
+        page.RootElement.GetProperty("items").EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
 
     private async Task<Document> DocumentAsync(string documentId)
     {

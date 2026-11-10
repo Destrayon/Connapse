@@ -52,6 +52,14 @@
       "mcp": "container_stats"
     },
     {
+      "id": "tables.list",
+      "capability": "Page through a container's tables",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/tables"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "containers.settings.get",
       "capability": "Read a container's settings overrides",
       "routes": [

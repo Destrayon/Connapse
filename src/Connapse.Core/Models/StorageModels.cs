@@ -123,28 +123,25 @@ public record Container(
 
 /// <summary>
 /// What a container holds, chosen when it is created and never changed. A memory container holds only agent memory
-/// facts, and every document operation refuses it.
+/// facts, and every document operation refuses it. A documents container holds files and, beside them, any number of
+/// tables (CON-319): there is no tables-only kind.
 /// </summary>
 public enum ContainerKind
 {
     Documents = 0,
     Memory = 1,
-
-    /// <summary>Holds tables, not passages (CON-E6): nothing in it is chunked or embedded, and text search never searches it.</summary>
-    Tables = 2,
 }
 
 /// <summary>How a <see cref="ContainerKind"/> is written in the database's <c>containers.kind</c> column.</summary>
 public static class ContainerKinds
 {
     /// <summary>The kinds that hold files and appear in the container list; memory spaces are listed on their own (CON-291).</summary>
-    public static readonly IReadOnlyList<ContainerKind> FileKinds = [ContainerKind.Documents, ContainerKind.Tables];
+    public static readonly IReadOnlyList<ContainerKind> FileKinds = [ContainerKind.Documents];
 
     public static string ToText(ContainerKind kind) => kind switch
     {
         ContainerKind.Documents => "documents",
         ContainerKind.Memory => "memory",
-        ContainerKind.Tables => "tables",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown container kind."),
     };
 
@@ -156,7 +153,6 @@ public static class ContainerKinds
     {
         "documents" => ContainerKind.Documents,
         "memory" => ContainerKind.Memory,
-        "tables" => ContainerKind.Tables,
         _ => throw new InvalidOperationException($"Unknown container kind '{text}'."),
     };
 }

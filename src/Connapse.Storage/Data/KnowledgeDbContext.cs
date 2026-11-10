@@ -278,7 +278,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 + "(audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))"));
 
             // Only the kinds this build knows (CON-300), so no row can carry a kind that reads back as something else.
-            entity.ToTable(t => t.HasCheckConstraint("ck_containers_kind", "kind IN ('documents', 'memory', 'tables')"));
+            // CON-319 dropped the tables kind: documents containers hold tables beside their files.
+            entity.ToTable(t => t.HasCheckConstraint("ck_containers_kind", "kind IN ('documents', 'memory')"));
 
             // Team names are unique among team containers; a personal space's name only among its owner's spaces, so
             // a name taken by someone's personal space never blocks, or reveals itself to, anyone else.

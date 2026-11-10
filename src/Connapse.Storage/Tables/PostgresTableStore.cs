@@ -15,7 +15,7 @@ using static Connapse.Core.Utilities.LogSanitizer;
 namespace Connapse.Storage.Tables;
 
 /// <summary>
-/// Tables containers' tables (CON-301). A load builds a new table and points the catalog entry at it in one
+/// Containers' tables (CON-301), held beside their files (CON-319). A load builds a new table and points the catalog entry at it in one
 /// transaction, so the table appears, or its new version replaces the old one, only once every row is in. The table a
 /// reload replaces stays until <see cref="DropRetiredTablesAsync"/> drops it after a grace period, so a reader that
 /// resolved the old name just before the reload can still finish.
@@ -106,9 +106,35 @@ public class PostgresTableStore(
         await using var context = await factory.CreateDbContextAsync(ct);
         var entities = await context.ContainerTables.AsNoTracking()
             .Where(t => t.ContainerId == containerId)
-            .OrderBy(t => t.Name).ThenBy(t => t.CreatedAt)
+            .OrderBy(t => t.Name).ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
             .ToListAsync(ct);
         return entities.Select(ToInfo).ToList();
+    }
+
+    public async Task<TablePage> ListAsync(Guid containerId, int skip, int take, CancellationToken ct = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(skip);
+        ArgumentOutOfRangeException.ThrowIfNegative(take);
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var inContainer = context.ContainerTables.AsNoTracking().Where(t => t.ContainerId == containerId);
+        int total = await inContainer.CountAsync(ct);
+        List<ContainerTableEntity> entities = take == 0 || skip >= total
+            ? []
+            : await inContainer
+                .OrderBy(t => t.Name).ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
+                .Skip(skip).Take(take)
+                .ToListAsync(ct);
+        return new TablePage(entities.Select(ToInfo).ToList(), total);
+    }
+
+    public async Task<TableInfo?> FindByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var entity = await context.ContainerTables.AsNoTracking()
+            .Where(t => t.ContainerId == containerId && t.DocumentId == documentId)
+            .OrderBy(t => t.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        return entity is null ? null : ToInfo(entity);
     }
 
     public async Task<bool> DeleteAsync(Guid containerId, Guid tableId, CancellationToken ct = default)
@@ -170,8 +196,8 @@ public class PostgresTableStore(
     }
 
     /// <summary>
-    /// Holds the container's shared load lock, checks it can hold tables, and makes sure its schema exists —
-    /// a tables container made before CON-301 has none.
+    /// Holds the container's shared load lock, checks it can hold tables, and makes sure its schema exists: a
+    /// container's schema is made by its first table load.
     /// </summary>
     private static async Task PrepareLoadAsync(
         KnowledgeDbContext context, DbConnection connection, Guid containerId, CancellationToken ct)
@@ -183,8 +209,8 @@ public class PostgresTableStore(
             .FirstOrDefaultAsync(ct);
         if (kind is null)
             throw new InvalidOperationException($"Container {containerId} not found.");
-        // Documents containers hold tables too, one per CSV file, beside their other files (CON-302).
-        if (kind is not (ContainerKind.Tables or ContainerKind.Documents))
+        // A documents container holds any number of tables beside its files (CON-319); a memory container holds none.
+        if (kind is not ContainerKind.Documents)
             throw new InvalidOperationException($"Container {containerId} can't hold tables.");
 
         // Two first loads can race to create the schema; the loser's statement fails, so it runs under a savepoint.

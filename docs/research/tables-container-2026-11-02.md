@@ -1,6 +1,7 @@
 # How should Connapse add a tables container that agents query with tools instead of text search?
 **Date:** 2026-11-02
 **Status:** Reviewed
+**Superseded in part (2026-11-10, CON-319):** there is no longer a separate tables container type. Any documents container holds any number of tables beside its files, and memory containers hold none; read "tables container" below as "a container's tables".
 **Built on:** agent-memory-design-2026-10-27.md, document-shape-robustness-2026-09-27.md (the decision to keep spreadsheets
 out of RAG), agent-file-search-plus-rag results in `eval/agent-search/results.md` (CON-142), `eval/pass-bars.md` (CON-E3).
 The Connapse MCP corpus was not available in the session that wrote this.

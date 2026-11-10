@@ -48,3 +48,5 @@ POST /api/sources removed the enum value `Filesystem` of the request property `p
 POST /api/sources removed `#/components/schemas/SourceScopeFilesystemFolderScope` from the `scope` request property `oneOf` list
 GET /api/v1/connections removed the enum value `Filesystem` from the `query` request parameter `provider`
 POST /api/v1/connections removed the enum value `Filesystem` of the request property `provider/oneOf[#/components/schemas/ConnectionProvider]/`
+# CON-319: the tables-only container kind is gone before release; a documents container holds tables beside its files.
+POST /api/containers removed the enum value `Tables` of the request property `kind/oneOf[#/components/schemas/ContainerKind]/`

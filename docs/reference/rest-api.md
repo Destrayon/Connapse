@@ -145,6 +145,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | `DELETE` | `/api/containers/{containerId}` | `knowledge:write` | Delete a container. |
 | `GET` | `/api/containers/by-name/{name}` | `knowledge:read` | Get a specific container by name |
 | `GET` | `/api/containers/{containerId}/stats` | `knowledge:read` | Get statistics for a container: document counts by status, chunk count, storage size, embedding models, last indexed time |
+| `GET` | `/api/containers/{containerId}/tables` | `knowledge:read` | List the tables a container holds beside its files, by name (?skip=0&take=50, `take` at most 200). Each uploaded CSV becomes one. `totalCount` is how many the container holds in all; a memory container answers `memory-container` |
 | `GET` | `/api/containers/{containerId}/settings` | `knowledge:read` | Get per-container settings overrides. `search` holds only the search settings the container chose; a missing one follows the global value. |
 | `PUT` | `/api/containers/{containerId}/settings` | `knowledge:write` | Save per-container settings overrides. Only the search settings named in the body are stored; see [Tune search](../guides/tune-search.md#5-set-one-container-apart). |
 | `DELETE` | `/api/containers/{containerId}/settings` | `knowledge:write` | Clear per-container settings overrides, so the container follows the global settings |
