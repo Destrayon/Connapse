@@ -69,6 +69,7 @@ public static class IdentityServiceExtensions
         services.AddScoped<IAgentService, AgentService>();
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<IMcpApprovalStore, McpApprovalStore>();
+        services.AddScoped<IDeletionBatchStore, DeletionBatchStore>();
         services.AddScoped<IAuditLogger, AuditLogger>();
         services.AddScoped<IAuditLogReader, AuditLogReader>();
         services.AddScoped<IOAuthClientRegistry, OAuthClientRegistry>();
