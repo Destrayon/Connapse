@@ -157,7 +157,7 @@ public sealed class SubscriptionLimitException(SubscriptionLimit limit)
 /// </summary>
 public sealed class ClaudeCliAgent(
     ToolBridge bridge, string model, string effort, string workDir, IProcessRunner? runner = null,
-    string executable = "claude", TimeSpan? timeout = null) : IAgentRunner
+    string executable = "claude", TimeSpan? timeout = null, AgentRules? rules = null) : IAgentRunner
 {
     /// <summary>
     /// Variables that would make Claude Code bill an API account or a cloud provider instead of the subscription. The
@@ -180,7 +180,7 @@ public sealed class ClaudeCliAgent(
 
     public async Task<AgentRun> RunAsync(IToolbox toolbox, string system, string question, CancellationToken ct)
     {
-        (string id, BridgeSession session) = bridge.Open(toolbox);
+        (string id, BridgeSession session) = bridge.Open(toolbox, rules);
         try
         {
             ProcessResult process = await _runner.RunAsync(StartInfo(bridge.UrlFor(id), system, question), _timeout, ct);
@@ -254,7 +254,7 @@ public sealed class ClaudeCliAgent(
     public static AgentRun Compose(BridgeSession session, CliResult result, ProcessResult process)
     {
         AgentRun End(AgentOutcome outcome, string? error = null) =>
-            new(outcome, session.Answer, session.Cited, session.Calls, result.Usage, result.Turns, error);
+            new(outcome, session.Answer, session.Cited, session.Calls, result.Usage, result.Turns, error, session.AnswerValue);
 
         if (session.Outcome is { } outcome)
             return End(outcome, session.Error);

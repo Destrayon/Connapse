@@ -84,9 +84,39 @@ public class CachingEmbeddingProviderTests : IDisposable
         inner.Calls.Should().Be(3);
     }
 
+    [Fact]
+    public async Task EmbedBatchAsync_MoreTextsThanBatchSize_CallsInnerOneBatchAtATime()
+    {
+        CountingProvider inner = new();
+        CachingEmbeddingProvider provider = new(inner, new EmbeddingDiskCache(_root), new EmbeddingSettings { Model = "counting", BatchSize = 2 });
+
+        IReadOnlyList<float[]> vectors = await provider.EmbedBatchAsync(["a", "bb", "ccc", "dddd", "eeeee"], EmbeddingInputType.Document);
+
+        inner.BatchSizes.Should().Equal(2, 2, 1);
+        vectors.Select(v => v[0]).Should().Equal(1f, 2f, 3f, 4f, 5f);
+    }
+
+    [Fact]
+    public async Task EmbedBatchAsync_FailsPartWay_KeepsTheBatchesThatReturned()
+    {
+        CountingProvider failing = new() { FailOnBatch = 2 };
+        EmbeddingSettings settings = new() { Model = "counting", BatchSize = 2 };
+        Func<Task> embed = () => new CachingEmbeddingProvider(failing, new EmbeddingDiskCache(_root), settings)
+            .EmbedBatchAsync(["a", "bb", "ccc", "dddd"], EmbeddingInputType.Document);
+        await embed.Should().ThrowAsync<InvalidOperationException>();
+        CountingProvider inner = new();
+
+        await new CachingEmbeddingProvider(inner, new EmbeddingDiskCache(_root), settings)
+            .EmbedBatchAsync(["a", "bb", "ccc", "dddd"], EmbeddingInputType.Document);
+
+        inner.BatchSizes.Should().Equal([2], "the first batch was saved before the second failed");
+    }
+
     private sealed class CountingProvider(int dimensions = 2) : IEmbeddingProvider
     {
         public int Calls { get; private set; }
+        public List<int> BatchSizes { get; } = [];
+        public int? FailOnBatch { get; init; }
         public int Dimensions => dimensions;
         public string ModelId => "counting";
 
@@ -99,6 +129,9 @@ public class CachingEmbeddingProviderTests : IDisposable
         public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IEnumerable<string> texts, EmbeddingInputType inputType, CancellationToken ct = default)
         {
             List<string> list = texts.ToList();
+            BatchSizes.Add(list.Count);
+            if (BatchSizes.Count == FailOnBatch)
+                throw new InvalidOperationException("embedding failed");
             Calls += list.Count;
             return Task.FromResult<IReadOnlyList<float[]>>(list.Select(t => new float[] { t.Length, 1 }).ToList());
         }

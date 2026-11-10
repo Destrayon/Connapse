@@ -40,7 +40,17 @@ public sealed record AgentRun(
     IReadOnlyList<ToolTrace> Calls,
     TokenUsage Usage,
     int Turns,
-    string? Error);
+    string? Error,
+    JsonElement? AnswerValue = null);
+
+/// <summary>
+/// A suite's rules: how many tool calls a run may make and the answer tool it ends with. A typed answer takes any JSON
+/// value, recorded in <see cref="AgentRun.AnswerValue"/>; otherwise the answer is a string.
+/// </summary>
+public sealed record AgentRules(int MaxToolCalls, ToolSpec Answer, bool TypedAnswer)
+{
+    public static readonly AgentRules Default = new(AgentContract.MaxToolCalls, AgentContract.Answer, TypedAnswer: false);
+}
 
 /// <summary>
 /// The rules both arms run under: the agent calls tools until it calls <c>answer</c>. A run ends out of calls when
@@ -67,10 +77,49 @@ public static class AgentContract
         },
         ["answer", "documentIds"]);
 
+    /// <summary>
+    /// The answer tool for typed answers (CON-E6): a number, string, boolean or list, graded by the DataBench rules.
+    /// Citations are optional, since a computed answer may rest on no single document.
+    /// </summary>
+    public static readonly ToolSpec TypedAnswer = new(
+        AnswerTool,
+        "Give your final answer. Call this once, when you are done; it ends the task.",
+        new Dictionary<string, JsonElement>
+        {
+            ["answer"] = JsonSerializer.SerializeToElement(new
+            {
+                type = new[] { "number", "string", "boolean", "array" },
+                items = new { type = new[] { "number", "string" } },
+                description = "The answer as a typed JSON value: a number (no units, no thousands separators), a string, "
+                    + "true or false, or a list of numbers or strings",
+            }),
+            ["documentIds"] = JsonSerializer.SerializeToElement(new
+            {
+                type = "array",
+                items = new { type = "string" },
+                description = "The DocumentId (UUID) of every document your answer relies on",
+            }),
+        },
+        ["answer"]);
+
+    /// <summary>The answer value when it is present and not null, and the cited ids.</summary>
+    public static (JsonElement? Answer, List<string> Cited) ReadTypedAnswer(IReadOnlyDictionary<string, JsonElement> input)
+    {
+        JsonElement? answer = input.TryGetValue("answer", out JsonElement a) && a.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
+            ? a.Clone()
+            : null;
+        return (answer, ReadCited(input));
+    }
+
     /// <summary>The answer text and cited ids; a lone string where an array belongs counts as one id.</summary>
     public static (string? Answer, List<string> Cited) ReadAnswer(IReadOnlyDictionary<string, JsonElement> input)
     {
         string? answer = input.TryGetValue("answer", out JsonElement a) && a.ValueKind == JsonValueKind.String ? a.GetString() : null;
+        return (answer, ReadCited(input));
+    }
+
+    private static List<string> ReadCited(IReadOnlyDictionary<string, JsonElement> input)
+    {
         List<string> cited = [];
         if (input.TryGetValue("documentIds", out JsonElement ids))
         {
@@ -79,6 +128,6 @@ public static class AgentContract
             else if (ids.ValueKind == JsonValueKind.String)
                 cited.Add(ids.GetString()!);
         }
-        return (answer, cited);
+        return cited;
     }
 }
