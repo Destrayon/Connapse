@@ -76,7 +76,7 @@ public static class ApprovalEndpoints
         .WithDescription("Where a batch of deletions your token asked for stands: pending, expired, denied (with the owner's reason), running or "
             + "done, and each item's outcome: deleted, skipped (gone or changed since the request), failed, not_approved or denied. ?wait=N (0-50) "
             + "waits up to N seconds while it is pending or running. Another token's batch reads as not found.")
-        .RequireAuthorization("RequireAgent");
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
 
         return app;
     }
