@@ -48,9 +48,3 @@ POST /api/sources removed the enum value `Filesystem` of the request property `p
 POST /api/sources removed `#/components/schemas/SourceScopeFilesystemFolderScope` from the `scope` request property `oneOf` list
 GET /api/v1/connections removed the enum value `Filesystem` from the `query` request parameter `provider`
 POST /api/v1/connections removed the enum value `Filesystem` of the request property `provider/oneOf[#/components/schemas/ConnectionProvider]/`
-# CON-300: tables containers are a deliberate new container kind, so container responses may now carry kind `Tables`.
-GET /api/containers added the new `Tables` enum value to the `items/items/kind` response property for the response status `200`
-POST /api/containers added the new `Tables` enum value to the `kind` response property for the response status `201`
-GET /api/containers/by-name/{name} added the new `Tables` enum value to the `kind` response property for the response status `200`
-GET /api/containers/{containerId} added the new `Tables` enum value to the `kind` response property for the response status `200`
-PATCH /api/containers/{containerId} added the new `Tables` enum value to the `kind` response property for the response status `200`

@@ -80,18 +80,7 @@ public class ContainerOperationTests
 
         listed.Result!.Items.Select(c => c.Name).Should().Equal("docs");
         listed.Result.HasMore.Should().BeFalse("a memory space ahead of it doesn't take its place on the page");
-        await _containers.Received().ListAsync(0, 2, Arg.Any<MemoryCaller?>(), ContainerKinds.FileKinds, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task List_TablesContainer_IsListedWithDocumentContainers()
-    {
-        _containers.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns([Named("agent-notes") with { Kind = ContainerKind.Memory }, Named("docs"), Named("sales") with { Kind = ContainerKind.Tables }]);
-
-        var listed = await new ListContainers(_containers, _authorizer).RunAsync(Caller, new ListContainersQuery());
-
-        listed.Result!.Items.Select(c => (c.Name, c.Kind)).Should().Equal(("docs", ContainerKind.Documents), ("sales", ContainerKind.Tables));
+        await _containers.Received().ListAsync(0, 2, Arg.Any<MemoryCaller?>(), ContainerKind.Documents, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -188,22 +177,8 @@ public class ContainerOperationTests
 
         created.Status.Should().Be(ContainerStatus.Invalid);
         created.Field.Should().Be("kind");
-        created.Detail.Should().Be("kind must be documents, tables or memory");
+        created.Detail.Should().Be("kind must be documents or memory");
         await _containers.DidNotReceiveWithAnyArgs().CreateAsync(default!);
-    }
-
-    [Fact]
-    public async Task Create_TablesKind_SavesTheKindAndAuditsIt()
-    {
-        var made = Named("sales") with { Kind = ContainerKind.Tables };
-        _containers.CreateAsync(Arg.Any<CreateContainerRequest>(), Arg.Any<CancellationToken>()).Returns(made);
-
-        var created = await Create().RunAsync(Caller, new CreateContainerRequest("sales", null, ContainerKind.Tables));
-
-        created.Result!.Kind.Should().Be(ContainerKind.Tables);
-        await _containers.Received(1).CreateAsync(new CreateContainerRequest("sales", null, ContainerKind.Tables), Arg.Any<CancellationToken>());
-        await _audit.Received(1).LogAsync("container.created", "container", made.Id,
-            Arg.Is<object>(d => d.ToString() == new { Name = "sales", Kind = "tables" }.ToString()), Arg.Any<CancellationToken>());
     }
 
     [Fact]
