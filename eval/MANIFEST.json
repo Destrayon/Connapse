@@ -62,6 +62,9 @@
     "memory-agent-sealed-v1": [
       "memory-agent-sealed-1"
     ],
+    "memory-agent-sealed-v2": [
+      "memory-agent-sealed-2"
+    ],
     "links-v2": [
       "links-connapse-github-2"
     ],
@@ -1143,6 +1146,26 @@
           "name": "tasks.jsonl.gz",
           "url": "repo:memory-agent-sealed-1/tasks.jsonl.gz",
           "sha256": "f905f9954a2d41c74597e29c56b6073a8dcf1d543efc34dd9986b766a4d4c590"
+        }
+      ]
+    },
+    "memory-agent-sealed-2": {
+      "adapter": "memory-agent",
+      "version": "con-322",
+      "tags": [
+        "shape:memory",
+        "sealed"
+      ],
+      "files": [
+        {
+          "name": "facts.jsonl.gz",
+          "url": "repo:memory-agent-sealed-2/facts.jsonl.gz",
+          "sha256": "64a1227179f44a4b8a02bcab866b684da585ce133841456db1fad495191065cf"
+        },
+        {
+          "name": "tasks.jsonl.gz",
+          "url": "repo:memory-agent-sealed-2/tasks.jsonl.gz",
+          "sha256": "5e8ae5e7083a9e5fdc36a13751b2b05ba1d39ee0944e2b10de2e698f6d192ecb"
         }
       ]
     },

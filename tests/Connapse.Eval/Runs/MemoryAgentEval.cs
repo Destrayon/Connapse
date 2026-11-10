@@ -62,9 +62,14 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             RegisteredFindTasks, RegisteredSaveTasks),
         [SealedDataset] = new("Quorvane Logistics",
             "What a project manager keeps about Quorvane Logistics: projects, people, services and working rules", 76, 24),
+        [SealedDataset2] = new("Tessaline Foods",
+            "What a project manager keeps about Tessaline Foods: projects, people, services and working rules", 76, 24),
     };
 
     public const string SealedDataset = "memory-agent-sealed-1";
+
+    /// <summary>The second hidden set, built by the same rules for CON-322 by someone other than the engineer changing search.</summary>
+    public const string SealedDataset2 = "memory-agent-sealed-2";
 
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers,
         string? OutPath, string? AgentDir = null, string Arm = "all", string Search = "memory", string Dataset = DefaultDataset);
