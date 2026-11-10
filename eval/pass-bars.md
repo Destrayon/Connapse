@@ -94,6 +94,13 @@ above are unchanged; this section names the fresh held-out set and how each mode
   bar 4 by the ranking identity on the fresh split and the unit test.
 - **Outcome.** The change merges only if `nomic-embed-text` passes every bar. If `qwen3-embedding` fails one, it
   ships without a built-in cutoff (never flagged) and the report says so.
+- **Result (2026-11-10, `nomic-embed-text` only).** Bar 1 **failed**: the foreign median top-1 is 0.358 (baseline
+  0.863), but 12.3% of foreign queries still score 0.8 or more (limit 10%, baseline 76.5%); 73 of the 74 are
+  `ragbench-emanual` questions searched against the `ragbench-techqa` corpus. Bars 2–5 passed: in-domain AUROC
+  -0.010 (interval -0.017 to -0.004), pooled with foreign +0.078 (0.067 to 0.090); 83.8% of foreign queries flagged
+  and 3.9% of in-domain queries with a relevant top hit; 0 of 600 rankings changed; p95 594 ms against 608. The
+  `qwen3-embedding:0.6b` run was stopped for low machine memory, so it ships without a built-in cutoff. The user
+  chose to ship with the bar 1 miss stated.
 
 ## Container memory for search (CON-244)
 
