@@ -1,0 +1,245 @@
+{"key": "f001", "subject": "Harrow", "attribute": "release branch", "value": "release/2.4", "history": {"value": "release/2.3", "validFrom": "2026-05-04", "changedOn": "2026-09-14"}}
+{"key": "f002", "subject": "Harrow", "attribute": "tech lead", "value": "Ilse Varga"}
+{"key": "f003", "subject": "Harrow", "attribute": "database", "value": "PostgreSQL 16"}
+{"key": "f004", "subject": "Harrow", "attribute": "deploy window", "value": "Tuesdays 14:00-16:00 UTC"}
+{"key": "f005", "subject": "Harrow", "attribute": "repository", "value": "orrin/harrow-billing"}
+{"key": "f006", "subject": "Harrow", "attribute": "purpose", "value": "generates and emails customer invoices"}
+{"key": "f007", "subject": "Harrow", "attribute": "CI provider", "value": "Buildkite"}
+{"key": "f008", "subject": "Harrow", "attribute": "test command", "value": "make check-all"}
+{"key": "f009", "subject": "Quill", "attribute": "purpose", "value": "public documentation website"}
+{"key": "f010", "subject": "Quill", "attribute": "hosting", "value": "Netlify"}
+{"key": "f011", "subject": "Quill", "attribute": "static site generator", "value": "Docusaurus 3"}
+{"key": "f012", "subject": "Quill", "attribute": "content reviewer", "value": "Rosa Lindqvist"}
+{"key": "f013", "subject": "Quill", "attribute": "publish schedule", "value": "every Thursday afternoon", "history": {"value": "every Wednesday morning", "validFrom": "2026-02-02", "changedOn": "2026-08-03"}}
+{"key": "f014", "subject": "Bramble", "attribute": "purpose", "value": "iOS and Android customer app"}
+{"key": "f015", "subject": "Bramble", "attribute": "framework", "value": "React Native 0.76"}
+{"key": "f016", "subject": "Bramble", "attribute": "store submission owner", "value": "Kofi Mensah"}
+{"key": "f017", "subject": "Bramble", "attribute": "minimum iOS version", "value": "iOS 16", "history": {"value": "iOS 15", "validFrom": "2025-09-15", "changedOn": "2026-09-21"}}
+{"key": "f018", "subject": "Bramble", "attribute": "crash reporting", "value": "Sentry"}
+{"key": "f019", "subject": "Bramble", "attribute": "beta channel", "value": "TestFlight group orrin-insiders"}
+{"key": "f020", "subject": "Lantern", "attribute": "purpose", "value": "product search API"}
+{"key": "f021", "subject": "Lantern", "attribute": "index engine", "value": "OpenSearch 2.15"}
+{"key": "f022", "subject": "Lantern", "attribute": "p95 latency target", "value": "180 ms", "history": {"value": "250 ms", "validFrom": "2026-01-12", "changedOn": "2026-07-06"}}
+{"key": "f023", "subject": "Lantern", "attribute": "owner", "value": "Tomas Rheault"}
+{"key": "f024", "subject": "Lantern", "attribute": "reindex job", "value": "nightly at 02:30 UTC"}
+{"key": "f025", "subject": "Ferro", "attribute": "purpose", "value": "nightly ETL from the warehouse into analytics"}
+{"key": "f026", "subject": "Ferro", "attribute": "orchestrator", "value": "Airflow 2.9"}
+{"key": "f027", "subject": "Ferro", "attribute": "warehouse", "value": "Snowflake"}
+{"key": "f028", "subject": "Ferro", "attribute": "failure alerts channel", "value": "#ferro-alerts"}
+{"key": "f029", "subject": "Ferro", "attribute": "owner", "value": "Priya Nandakumar", "history": {"value": "Joel Ashby", "validFrom": "2025-11-03", "changedOn": "2026-10-05"}}
+{"key": "f030", "subject": "Wicket", "attribute": "purpose", "value": "login and single sign-on gateway"}
+{"key": "f031", "subject": "Wicket", "attribute": "token lifetime", "value": "15 minutes", "history": {"value": "30 minutes", "validFrom": "2025-06-01", "changedOn": "2026-06-15"}}
+{"key": "f032", "subject": "Wicket", "attribute": "identity provider", "value": "Okta"}
+{"key": "f033", "subject": "Wicket", "attribute": "security reviewer", "value": "Mireille Sato"}
+{"key": "f034", "subject": "Wicket", "attribute": "Kubernetes namespace", "value": "auth-prod"}
+{"key": "f035", "subject": "Dana Okafor", "attribute": "role", "value": "engineering manager"}
+{"key": "f036", "subject": "Dana Okafor", "attribute": "time zone", "value": "America/Chicago"}
+{"key": "f037", "subject": "Dana Okafor", "attribute": "preferred contact", "value": "Slack direct message"}
+{"key": "f038", "subject": "Ilse Varga", "attribute": "role", "value": "staff engineer"}
+{"key": "f039", "subject": "Ilse Varga", "attribute": "vacation", "value": "out from 2026-12-18 to 2027-01-04"}
+{"key": "f040", "subject": "Tomas Rheault", "attribute": "time zone", "value": "Europe/Lisbon"}
+{"key": "f041", "subject": "Priya Nandakumar", "attribute": "role", "value": "data engineer"}
+{"key": "f042", "subject": "Kofi Mensah", "attribute": "role", "value": "mobile engineer"}
+{"key": "f043", "subject": "Mireille Sato", "attribute": "role", "value": "security engineer"}
+{"key": "f044", "subject": "Rosa Lindqvist", "attribute": "role", "value": "technical writer"}
+{"key": "f045", "subject": "Joel Ashby", "attribute": "role", "value": "contractor, contract ends 2026-12-31"}
+{"key": "f046", "subject": "workers", "attribute": "parallel limit", "value": "at most 4 agents at once", "history": {"value": "at most 3 agents at once", "validFrom": "2026-04-01", "changedOn": "2026-10-20"}}
+{"key": "f047", "subject": "workers", "attribute": "scratch folder", "value": "/var/orrin/scratch"}
+{"key": "f048", "subject": "workers", "attribute": "branch naming", "value": "feature/<ticket>-<short-description>"}
+{"key": "f049", "subject": "workers", "attribute": "commit message format", "value": "conventional commits, e.g. \"fix: ...\""}
+{"key": "f050", "subject": "workers", "attribute": "pull request size", "value": "under 400 changed lines"}
+{"key": "f051", "subject": "workers", "attribute": "docker limits", "value": "2 CPUs and 4 GB per container"}
+{"key": "f052", "subject": "workers", "attribute": "forbidden actions", "value": "never force-push and never merge their own pull request"}
+{"key": "f053", "subject": "workers", "attribute": "report to", "value": "the PM session named orrin-pm"}
+{"key": "f054", "subject": "workers", "attribute": "test before push", "value": "run the unit tests locally"}
+{"key": "f055", "subject": "workers", "attribute": "secrets", "value": "never read .env files"}
+{"key": "f056", "subject": "workers", "attribute": "review bot", "value": "do not wait for any bot; humans review"}
+{"key": "f057", "subject": "release 3.1", "attribute": "target date", "value": "2026-12-08"}
+{"key": "f058", "subject": "release 3.1", "attribute": "branch", "value": "release/3.1"}
+{"key": "f059", "subject": "release 3.1", "attribute": "freeze starts", "value": "2026-12-01"}
+{"key": "f060", "subject": "release 3.1", "attribute": "release manager", "value": "Dana Okafor"}
+{"key": "f061", "subject": "release 3.1", "attribute": "headline feature", "value": "offline mode in Bramble"}
+{"key": "f062", "subject": "release 3.0", "attribute": "shipped on", "value": "2026-10-14"}
+{"key": "f063", "subject": "CI", "attribute": "flaky test quarantine label", "value": "flaky-quarantine"}
+{"key": "f064", "subject": "CI", "attribute": "required checks", "value": "build, unit tests, lint"}
+{"key": "f065", "subject": "CI", "attribute": "runner image", "value": "ubuntu-24.04"}
+{"key": "f066", "subject": "code review", "attribute": "approvals required", "value": "2 approvals for main, 1 for feature branches"}
+{"key": "f067", "subject": "code review", "attribute": "turnaround target", "value": "within one working day"}
+{"key": "f068", "subject": "on-call", "attribute": "rotation", "value": "weekly, handover Monday 09:00 Chicago time"}
+{"key": "f069", "subject": "on-call", "attribute": "paging tool", "value": "PagerDuty"}
+{"key": "f070", "subject": "on-call", "attribute": "current engineer", "value": "Tomas Rheault", "history": {"value": "Kofi Mensah", "validFrom": "2026-10-26", "changedOn": "2026-11-02"}}
+{"key": "f071", "subject": "staging", "attribute": "URL", "value": "https://staging.orrin.example"}
+{"key": "f072", "subject": "staging", "attribute": "reset schedule", "value": "every Sunday night"}
+{"key": "f073", "subject": "project board", "attribute": "ticket tracker", "value": "Linear, team ORR"}
+{"key": "f074", "subject": "project board", "attribute": "ticket prefix", "value": "ORR"}
+{"key": "f075", "subject": "incident reviews", "attribute": "template location", "value": "docs/postmortems/TEMPLATE.md"}
+{"key": "f076", "subject": "incident reviews", "attribute": "deadline", "value": "within 5 working days of the incident"}
+{"key": "f077", "subject": "user", "attribute": "preferred report style", "value": "plain sentences, outcome first"}
+{"key": "f078", "subject": "user", "attribute": "working hours", "value": "08:00-17:00 Central"}
+{"key": "f079", "subject": "user", "attribute": "approval needed for", "value": "anything that deletes data or touches production"}
+{"key": "f080", "subject": "user", "attribute": "eval machine", "value": "runs evals at night only", "history": {"value": "runs evals any time", "validFrom": "2026-01-05", "changedOn": "2026-10-12"}}
+{"key": "f081", "subject": "Harrow", "attribute": "known bug", "value": "duplicate invoices when a payment is retried (ORR-412)"}
+{"key": "f082", "subject": "Lantern", "attribute": "known bug", "value": "typo tolerance off for SKUs (ORR-433)"}
+{"key": "f083", "subject": "Bramble", "attribute": "app store rating", "value": "4.6"}
+{"key": "f084", "subject": "Ferro", "attribute": "data retention", "value": "13 months"}
+{"key": "f085", "subject": "Wicket", "attribute": "rate limit", "value": "20 login attempts per minute per IP"}
+{"key": "f086", "subject": "Quill", "attribute": "analytics", "value": "Plausible"}
+{"key": "f087", "subject": "design system", "attribute": "name", "value": "Pebble"}
+{"key": "f088", "subject": "design system", "attribute": "Figma file owner", "value": "Ana Duarte"}
+{"key": "f089", "subject": "budget", "attribute": "cloud spend cap", "value": "$18,000 per month", "history": {"value": "$15,000 per month", "validFrom": "2026-01-01", "changedOn": "2026-07-01"}}
+{"key": "f090", "subject": "vendor", "attribute": "error tracking contract renewal", "value": "2027-03-01"}
+{"key": "f091", "subject": "Lantern", "attribute": "embedding model", "value": "e5-small"}
+{"key": "f092", "subject": "Harrow", "attribute": "currency support", "value": "USD, EUR and GBP"}
+{"key": "f093", "subject": "Bramble", "attribute": "push notifications", "value": "Firebase Cloud Messaging"}
+{"key": "f094", "subject": "Ferro", "attribute": "schedule", "value": "01:00 UTC daily"}
+{"key": "f095", "subject": "Wicket", "attribute": "MFA", "value": "required for all admins"}
+{"key": "g101", "subject": "Abacus", "attribute": "owner", "value": "Dana Okafor"}
+{"key": "g102", "subject": "Abacus", "attribute": "repository", "value": "orrin/abacus-svc"}
+{"key": "g103", "subject": "Abacus", "attribute": "language", "value": "Go"}
+{"key": "g104", "subject": "Abacus", "attribute": "deploy day", "value": "Monday"}
+{"key": "g105", "subject": "Abacus", "attribute": "alerts channel", "value": "#abacus-alerts"}
+{"key": "g106", "subject": "Beacon", "attribute": "owner", "value": "Priya Nandakumar"}
+{"key": "g107", "subject": "Beacon", "attribute": "repository", "value": "orrin/beacon-svc"}
+{"key": "g108", "subject": "Beacon", "attribute": "language", "value": "Java"}
+{"key": "g109", "subject": "Beacon", "attribute": "deploy day", "value": "Wednesday"}
+{"key": "g110", "subject": "Beacon", "attribute": "alerts channel", "value": "#beacon-alerts"}
+{"key": "g111", "subject": "Cinder", "attribute": "owner", "value": "Ana Duarte"}
+{"key": "g112", "subject": "Cinder", "attribute": "repository", "value": "orrin/cinder-svc"}
+{"key": "g113", "subject": "Cinder", "attribute": "language", "value": "Rust"}
+{"key": "g114", "subject": "Cinder", "attribute": "deploy day", "value": "Friday"}
+{"key": "g115", "subject": "Cinder", "attribute": "alerts channel", "value": "#cinder-alerts"}
+{"key": "g116", "subject": "Dovetail", "attribute": "owner", "value": "Tomas Rheault"}
+{"key": "g117", "subject": "Dovetail", "attribute": "repository", "value": "orrin/dovetail-svc"}
+{"key": "g118", "subject": "Dovetail", "attribute": "language", "value": "TypeScript"}
+{"key": "g119", "subject": "Dovetail", "attribute": "deploy day", "value": "Tuesday"}
+{"key": "g120", "subject": "Dovetail", "attribute": "alerts channel", "value": "#dovetail-alerts"}
+{"key": "g121", "subject": "Ember", "attribute": "owner", "value": "Mireille Sato"}
+{"key": "g122", "subject": "Ember", "attribute": "repository", "value": "orrin/ember-svc"}
+{"key": "g123", "subject": "Ember", "attribute": "language", "value": "Python"}
+{"key": "g124", "subject": "Ember", "attribute": "deploy day", "value": "Thursday"}
+{"key": "g125", "subject": "Ember", "attribute": "alerts channel", "value": "#ember-alerts"}
+{"key": "g126", "subject": "Fathom", "attribute": "owner", "value": "Ilse Varga"}
+{"key": "g127", "subject": "Fathom", "attribute": "repository", "value": "orrin/fathom-svc"}
+{"key": "g128", "subject": "Fathom", "attribute": "language", "value": "Kotlin"}
+{"key": "g129", "subject": "Fathom", "attribute": "deploy day", "value": "Monday"}
+{"key": "g130", "subject": "Fathom", "attribute": "alerts channel", "value": "#fathom-alerts"}
+{"key": "g131", "subject": "Garnet", "attribute": "owner", "value": "Kofi Mensah"}
+{"key": "g132", "subject": "Garnet", "attribute": "repository", "value": "orrin/garnet-svc"}
+{"key": "g133", "subject": "Garnet", "attribute": "language", "value": "Go"}
+{"key": "g134", "subject": "Garnet", "attribute": "deploy day", "value": "Wednesday"}
+{"key": "g135", "subject": "Garnet", "attribute": "alerts channel", "value": "#garnet-alerts"}
+{"key": "g136", "subject": "Heron", "attribute": "owner", "value": "Dana Okafor"}
+{"key": "g137", "subject": "Heron", "attribute": "repository", "value": "orrin/heron-svc"}
+{"key": "g138", "subject": "Heron", "attribute": "language", "value": "Java"}
+{"key": "g139", "subject": "Heron", "attribute": "deploy day", "value": "Friday"}
+{"key": "g140", "subject": "Heron", "attribute": "alerts channel", "value": "#heron-alerts"}
+{"key": "g141", "subject": "Ingot", "attribute": "owner", "value": "Priya Nandakumar"}
+{"key": "g142", "subject": "Ingot", "attribute": "repository", "value": "orrin/ingot-svc"}
+{"key": "g143", "subject": "Ingot", "attribute": "language", "value": "Rust"}
+{"key": "g144", "subject": "Ingot", "attribute": "deploy day", "value": "Tuesday"}
+{"key": "g145", "subject": "Ingot", "attribute": "alerts channel", "value": "#ingot-alerts"}
+{"key": "g146", "subject": "Juniper", "attribute": "owner", "value": "Ana Duarte"}
+{"key": "g147", "subject": "Juniper", "attribute": "repository", "value": "orrin/juniper-svc"}
+{"key": "g148", "subject": "Juniper", "attribute": "language", "value": "TypeScript"}
+{"key": "g149", "subject": "Juniper", "attribute": "deploy day", "value": "Thursday"}
+{"key": "g150", "subject": "Juniper", "attribute": "alerts channel", "value": "#juniper-alerts"}
+{"key": "g151", "subject": "Kestrel", "attribute": "owner", "value": "Tomas Rheault"}
+{"key": "g152", "subject": "Kestrel", "attribute": "repository", "value": "orrin/kestrel-svc"}
+{"key": "g153", "subject": "Kestrel", "attribute": "language", "value": "Python"}
+{"key": "g154", "subject": "Kestrel", "attribute": "deploy day", "value": "Monday"}
+{"key": "g155", "subject": "Kestrel", "attribute": "alerts channel", "value": "#kestrel-alerts"}
+{"key": "g156", "subject": "Ledger", "attribute": "owner", "value": "Mireille Sato"}
+{"key": "g157", "subject": "Ledger", "attribute": "repository", "value": "orrin/ledger-svc"}
+{"key": "g158", "subject": "Ledger", "attribute": "language", "value": "Kotlin"}
+{"key": "g159", "subject": "Ledger", "attribute": "deploy day", "value": "Wednesday"}
+{"key": "g160", "subject": "Ledger", "attribute": "alerts channel", "value": "#ledger-alerts"}
+{"key": "g161", "subject": "Marrow", "attribute": "owner", "value": "Ilse Varga"}
+{"key": "g162", "subject": "Marrow", "attribute": "repository", "value": "orrin/marrow-svc"}
+{"key": "g163", "subject": "Marrow", "attribute": "language", "value": "Go"}
+{"key": "g164", "subject": "Marrow", "attribute": "deploy day", "value": "Friday"}
+{"key": "g165", "subject": "Marrow", "attribute": "alerts channel", "value": "#marrow-alerts"}
+{"key": "g166", "subject": "Nimbus", "attribute": "owner", "value": "Kofi Mensah"}
+{"key": "g167", "subject": "Nimbus", "attribute": "repository", "value": "orrin/nimbus-svc"}
+{"key": "g168", "subject": "Nimbus", "attribute": "language", "value": "Java"}
+{"key": "g169", "subject": "Nimbus", "attribute": "deploy day", "value": "Tuesday"}
+{"key": "g170", "subject": "Nimbus", "attribute": "alerts channel", "value": "#nimbus-alerts"}
+{"key": "g171", "subject": "Osprey", "attribute": "owner", "value": "Dana Okafor"}
+{"key": "g172", "subject": "Osprey", "attribute": "repository", "value": "orrin/osprey-svc"}
+{"key": "g173", "subject": "Osprey", "attribute": "language", "value": "Rust"}
+{"key": "g174", "subject": "Osprey", "attribute": "deploy day", "value": "Thursday"}
+{"key": "g175", "subject": "Osprey", "attribute": "alerts channel", "value": "#osprey-alerts"}
+{"key": "g176", "subject": "Pylon", "attribute": "owner", "value": "Priya Nandakumar"}
+{"key": "g177", "subject": "Pylon", "attribute": "repository", "value": "orrin/pylon-svc"}
+{"key": "g178", "subject": "Pylon", "attribute": "language", "value": "TypeScript"}
+{"key": "g179", "subject": "Pylon", "attribute": "deploy day", "value": "Monday"}
+{"key": "g180", "subject": "Pylon", "attribute": "alerts channel", "value": "#pylon-alerts"}
+{"key": "g181", "subject": "Quarry", "attribute": "owner", "value": "Ana Duarte"}
+{"key": "g182", "subject": "Quarry", "attribute": "repository", "value": "orrin/quarry-svc"}
+{"key": "g183", "subject": "Quarry", "attribute": "language", "value": "Python"}
+{"key": "g184", "subject": "Quarry", "attribute": "deploy day", "value": "Wednesday"}
+{"key": "g185", "subject": "Quarry", "attribute": "alerts channel", "value": "#quarry-alerts"}
+{"key": "g186", "subject": "Rivet", "attribute": "owner", "value": "Tomas Rheault"}
+{"key": "g187", "subject": "Rivet", "attribute": "repository", "value": "orrin/rivet-svc"}
+{"key": "g188", "subject": "Rivet", "attribute": "language", "value": "Kotlin"}
+{"key": "g189", "subject": "Rivet", "attribute": "deploy day", "value": "Friday"}
+{"key": "g190", "subject": "Rivet", "attribute": "alerts channel", "value": "#rivet-alerts"}
+{"key": "g191", "subject": "Sable", "attribute": "owner", "value": "Mireille Sato"}
+{"key": "g192", "subject": "Sable", "attribute": "repository", "value": "orrin/sable-svc"}
+{"key": "g193", "subject": "Sable", "attribute": "language", "value": "Go"}
+{"key": "g194", "subject": "Sable", "attribute": "deploy day", "value": "Tuesday"}
+{"key": "g195", "subject": "Sable", "attribute": "alerts channel", "value": "#sable-alerts"}
+{"key": "g196", "subject": "Tinder", "attribute": "owner", "value": "Ilse Varga"}
+{"key": "g197", "subject": "Tinder", "attribute": "repository", "value": "orrin/tinder-svc"}
+{"key": "g198", "subject": "Tinder", "attribute": "language", "value": "Java"}
+{"key": "g199", "subject": "Tinder", "attribute": "deploy day", "value": "Thursday"}
+{"key": "g200", "subject": "Tinder", "attribute": "alerts channel", "value": "#tinder-alerts"}
+{"key": "g201", "subject": "Umber", "attribute": "owner", "value": "Kofi Mensah"}
+{"key": "g202", "subject": "Umber", "attribute": "repository", "value": "orrin/umber-svc"}
+{"key": "g203", "subject": "Umber", "attribute": "language", "value": "Rust"}
+{"key": "g204", "subject": "Umber", "attribute": "deploy day", "value": "Monday"}
+{"key": "g205", "subject": "Umber", "attribute": "alerts channel", "value": "#umber-alerts"}
+{"key": "g206", "subject": "Vellum", "attribute": "owner", "value": "Dana Okafor"}
+{"key": "g207", "subject": "Vellum", "attribute": "repository", "value": "orrin/vellum-svc"}
+{"key": "g208", "subject": "Vellum", "attribute": "language", "value": "TypeScript"}
+{"key": "g209", "subject": "Vellum", "attribute": "deploy day", "value": "Wednesday"}
+{"key": "g210", "subject": "Vellum", "attribute": "alerts channel", "value": "#vellum-alerts"}
+{"key": "g211", "subject": "Willow", "attribute": "owner", "value": "Priya Nandakumar"}
+{"key": "g212", "subject": "Willow", "attribute": "repository", "value": "orrin/willow-svc"}
+{"key": "g213", "subject": "Willow", "attribute": "language", "value": "Python"}
+{"key": "g214", "subject": "Willow", "attribute": "deploy day", "value": "Friday"}
+{"key": "g215", "subject": "Willow", "attribute": "alerts channel", "value": "#willow-alerts"}
+{"key": "g216", "subject": "Yarrow", "attribute": "owner", "value": "Ana Duarte"}
+{"key": "g217", "subject": "Yarrow", "attribute": "repository", "value": "orrin/yarrow-svc"}
+{"key": "g218", "subject": "Yarrow", "attribute": "language", "value": "Kotlin"}
+{"key": "g219", "subject": "Yarrow", "attribute": "deploy day", "value": "Tuesday"}
+{"key": "g220", "subject": "Yarrow", "attribute": "alerts channel", "value": "#yarrow-alerts"}
+{"key": "g221", "subject": "Zephyr", "attribute": "owner", "value": "Tomas Rheault"}
+{"key": "g222", "subject": "Zephyr", "attribute": "repository", "value": "orrin/zephyr-svc"}
+{"key": "g223", "subject": "Zephyr", "attribute": "language", "value": "Go"}
+{"key": "g224", "subject": "Zephyr", "attribute": "deploy day", "value": "Thursday"}
+{"key": "g225", "subject": "Zephyr", "attribute": "alerts channel", "value": "#zephyr-alerts"}
+{"key": "g226", "subject": "Anvil", "attribute": "owner", "value": "Mireille Sato"}
+{"key": "g227", "subject": "Anvil", "attribute": "repository", "value": "orrin/anvil-svc"}
+{"key": "g228", "subject": "Anvil", "attribute": "language", "value": "Java"}
+{"key": "g229", "subject": "Anvil", "attribute": "deploy day", "value": "Monday"}
+{"key": "g230", "subject": "Anvil", "attribute": "alerts channel", "value": "#anvil-alerts"}
+{"key": "g231", "subject": "Bracken", "attribute": "owner", "value": "Ilse Varga"}
+{"key": "g232", "subject": "Bracken", "attribute": "repository", "value": "orrin/bracken-svc"}
+{"key": "g233", "subject": "Bracken", "attribute": "language", "value": "Rust"}
+{"key": "g234", "subject": "Bracken", "attribute": "deploy day", "value": "Wednesday"}
+{"key": "g235", "subject": "Bracken", "attribute": "alerts channel", "value": "#bracken-alerts"}
+{"key": "g236", "subject": "Cobalt", "attribute": "owner", "value": "Kofi Mensah"}
+{"key": "g237", "subject": "Cobalt", "attribute": "repository", "value": "orrin/cobalt-svc"}
+{"key": "g238", "subject": "Cobalt", "attribute": "language", "value": "TypeScript"}
+{"key": "g239", "subject": "Cobalt", "attribute": "deploy day", "value": "Friday"}
+{"key": "g240", "subject": "Cobalt", "attribute": "alerts channel", "value": "#cobalt-alerts"}
+{"key": "g241", "subject": "Drift", "attribute": "owner", "value": "Dana Okafor"}
+{"key": "g242", "subject": "Drift", "attribute": "repository", "value": "orrin/drift-svc"}
+{"key": "g243", "subject": "Drift", "attribute": "language", "value": "Python"}
+{"key": "g244", "subject": "Drift", "attribute": "deploy day", "value": "Tuesday"}
+{"key": "g245", "subject": "Drift", "attribute": "alerts channel", "value": "#drift-alerts"}
+{"key": "g246", "subject": "Ermine", "attribute": "owner", "value": "Priya Nandakumar"}
+{"key": "g247", "subject": "Ermine", "attribute": "repository", "value": "orrin/ermine-svc"}
+{"key": "g248", "subject": "Ermine", "attribute": "language", "value": "Kotlin"}
+{"key": "g249", "subject": "Ermine", "attribute": "deploy day", "value": "Thursday"}
+{"key": "g250", "subject": "Ermine", "attribute": "alerts channel", "value": "#ermine-alerts"}

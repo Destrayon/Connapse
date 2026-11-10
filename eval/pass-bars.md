@@ -36,6 +36,7 @@ before any of these features or their results existed. A change merges only when
 | **Passage links to tables** (CON-E6 ticket 15, the `tables-v1` linked set; see below) | 80% of the 20 table questions follow a link; both-linked at least as many of 30 right as both-unlinked and 4 more of the 20 | 10 prose questions: at most 2 make a table call, none fewer right; the hidden-table leak test | Agent cost at most 1.2x both-unlinked's |
 | **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
 | **Meaningful search scores** (CON-278; see below) | Unrelated questions no longer score near 1; scores track relevance better; a no-match signal that works | Rankings identical to the baseline on `v1` | Search p95 +10% at most; a search after the embedding model's idle unload measured and fixed or explained |
+| **Finding and saving memories** (suite `memory-agent-v1`, CON-313; see below) | Reworded, indirect and partial-word find tasks at least 0.85 and at least +0.15 over today's memory search | Exact, absent and save tasks non-inferior within 0.10; save tasks at least 0.90; the leak suite | Recall p95 under 300 ms; tool calls per task at most 1 more than today's |
 
 ## Meaningful search scores (CON-278)
 
@@ -246,6 +247,48 @@ This gate is measured in ticket 12's own PR. v0.5.0 needs both the tables pass b
 The size of the bar comes from the literature. TAG and TableRAG show gaps of 30–55 points, so a +10 bar would let a
 weak tool path pass. A 25-point gain on 180 paired questions is well above the McNemar power floor, which is about
 35 pairs for a 30-point gain.
+
+## Finding and saving memories (CON-313)
+
+Written on 2026-11-09, before the `memory-agent` command had scored anything. It judges the change CON-313's plan picks
+for memory search (see `docs/research/memory-findability-2026-11-09.md`) by how well a real agent does its memory work,
+not by ranking alone.
+
+- **Dataset:** `memory-agent` (suite `memory-agent-v1`), 245 made-up facts about the fictional company Orrin Systems,
+  shaped like a project manager's subject, attribute and value facts; 10 of them have an older version in history.
+  Built by `eval/tools/build_memory_agent.py`, which checks each task's wording rule. See its `card.md`.
+- **Setup.** The facts are saved through the MCP tools into a personal space named `pm-desk`, on a local in-process
+  instance with the `keyword` config (memory facts are not embedded today; a change that embeds them runs under the
+  config it needs, and the baseline is re-run under that config if it differs).
+- **Find arm** (74 test tasks). The agent has `memory_spaces`, `memory_recall` and `memory_timeline`, and is told its
+  memory is `pm-desk`. A run scores 1 when it answers and cites the current version of a gold fact and no older
+  version of any fact; an absent task scores 1 when it answers and cites no fact. Kinds: exact (10), reworded (31),
+  indirect (15), partial (10), absent (8). **Hard** is reworded + indirect + partial, 56 tasks.
+- **Save arm** (24 test tasks). Each run gets a fresh user and a freshly seeded space, the read tools plus
+  `memory_remember` and `memory_correct`, and is told to keep memory accurate. It is scored on what memory holds
+  afterwards: **new** (10) needs one or two new facts holding the expected words and no seeded fact changed;
+  **update** (8) needs the target's old value ended or corrected, one or two new versions holding the new value, and
+  nothing else changed; **duplicate** (6) needs nothing new saved and nothing changed except, harmlessly, the target
+  re-saved with the same value.
+- **Retrieval arm** (reported, not gated): `memory_recall` with the question as the query, limit 10. Hit@1, hit@10 and
+  MRR@10 per kind, how often an absent question returns anything, and recall latency p50 and p95.
+- **Fixed before the run:** model `claude-sonnet-5-5` at effort `medium`, 3 repetitions averaged per task, at most 12
+  tool calls, the `test` split scored once, `dev` only for building. A run that errors, runs out of calls or never
+  answers scores 0 in the find arm; in the save arm only an error scores 0, since memory's state is what is judged.
+- **Verdict** (difference = change − today, paired by task; the paired permutation test and BCa intervals of
+  `Statistics/PairedStats.cs`). The change **passes** only when all hold:
+  1. Hard find tasks score at least 0.85, at least +0.15 over today, with permutation p < 0.05;
+  2. exact, absent and save tasks are each non-inferior: the lower end of the 90% BCa interval of the difference is
+     above −0.10;
+  3. save tasks score at least 0.90;
+  4. `memory_recall` p95 is under 300 ms on the retrieval arm, and mean tool calls per find task rise by at most 1;
+  5. the permission-leak suite passes with zero failures.
+
+  Each test is at α = 0.05 with no Holm split, since all must pass. A change that fails is redesigned and judged on a
+  fresh held-out set, per the rules above.
+- **Reported, not gated:** each kind, run recall of gold facts (`sawGold`), whether the first `memory_recall` showed
+  gold, citations of old versions, recall and tool calls, other facts changed and same-chain corrections in the save
+  arm, and tokens.
 
 ## Baselines
 

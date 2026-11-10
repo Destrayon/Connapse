@@ -57,6 +57,11 @@ internal static class EvalEntryPoint
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
+                "memory-agent" => await new MemoryAgentEval(paths, http, Console.Out).RunAsync(new MemoryAgentEval.Options(
+                    cli.Option("config") ?? MemoryAgentEval.RegisteredConfig, cli.Option("split") ?? "test",
+                    cli.Option("model") ?? MemoryAgentEval.RegisteredModel, cli.Option("effort") ?? MemoryAgentEval.RegisteredEffort,
+                    cli.PositiveInt("repetitions") ?? MemoryAgentEval.RegisteredRepetitions, cli.PositiveInt("limit-tasks"),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.Option("arm") ?? "all"), cts.Token),
                 "code" => await new CodeEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "code", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
@@ -277,6 +282,7 @@ internal static class Commands
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
               memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: an agent answering the session-2 questions with search alone, after the late documents)
+              memory-agent [--config keyword] [--arm all|retrieval|find|save] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-agent-v1: an agent finding and saving facts in its memory space; --arm retrieval needs no agent, the others run `claude -p` on your Claude subscription)
               tables-rag [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--skip-mixed] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (tables-v1 rag setup: an agent answering table questions over CSVs as documents; runs `claude -p` on your Claude subscription)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
