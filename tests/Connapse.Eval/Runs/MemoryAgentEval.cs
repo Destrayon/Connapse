@@ -82,9 +82,28 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     public sealed record AgentTask(string Id, string Type, string Kind, string Split, string Question, IReadOnlyList<string> Gold,
         string? Target, IReadOnlyList<IReadOnlyList<string>> Expect);
 
-    /// <summary>A seeded space: each key's current fact id, its older versions' ids, and its correction chain.</summary>
+    /// <summary>
+    /// A seeded space: each key's current fact id, its older versions' ids, and its correction chain. <c>Handles</c> maps
+    /// the short handles memory showed the seeding user (like "f12") to fact ids, so a citation by handle scores like one by id.
+    /// </summary>
     public sealed record Seeded(Guid Space, IReadOnlyDictionary<string, Guid> Current, IReadOnlyDictionary<string, Guid> Old,
-        IReadOnlyDictionary<string, Guid> Chain);
+        IReadOnlyDictionary<string, Guid> Chain, IReadOnlyDictionary<string, Guid>? Handles = null)
+    {
+        /// <summary>The fact a citation names: a full id, or a handle memory showed.</summary>
+        public Guid? Resolve(string cited)
+        {
+            string text = cited.Trim();
+            if (Guid.TryParse(text, out Guid id))
+                return id;
+            return Handles is not null && Handles.TryGetValue(text.ToLowerInvariant(), out Guid handled) ? handled : null;
+        }
+
+        /// <summary>Whether a tool's output shows the fact, by its id or as a whole-word handle.</summary>
+        public bool Shows(string output, Guid fact) =>
+            output.Contains(fact.ToString(), StringComparison.OrdinalIgnoreCase)
+            || Handles is not null && Handles.Any(h => h.Value == fact
+                && System.Text.RegularExpressions.Regex.IsMatch(output, $@"\b{h.Key}\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+    }
 
     /// <summary>One run's score and the measures reported beside it.</summary>
     public sealed record TaskScore(double Score, IReadOnlyDictionary<string, double> Measures, string? Note = null);
@@ -286,29 +305,39 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
         Dictionary<string, Guid> current = new(StringComparer.Ordinal);
         Dictionary<string, Guid> old = new(StringComparer.Ordinal);
+        Dictionary<string, Guid> handles = new(StringComparer.Ordinal);
         foreach (SeedFact f in facts)
         {
             if (f.History is { } h)
             {
                 JsonNode first = await CallAsync(tools, "memory_remember",
                     new { subject = f.Subject, attribute = f.Attribute, value = h.Value, space = SpaceName, validFrom = h.ValidFrom }, ct);
-                Guid oldId = first["remembered"]!["id"]!.GetValue<Guid>();
+                Guid oldId = Note(first["remembered"]!);
                 JsonNode corrected = await CallAsync(tools, "memory_correct",
                     new { factId = oldId.ToString(), value = f.Value, kind = "changed", validFrom = h.ChangedOn }, ct);
                 old[f.Key] = oldId;
-                current[f.Key] = corrected["remembered"]!["id"]!.GetValue<Guid>();
+                current[f.Key] = Note(corrected["remembered"]!);
             }
             else
             {
                 JsonNode saved = await CallAsync(tools, "memory_remember",
                     new { subject = f.Subject, attribute = f.Attribute, value = f.Value, space = SpaceName }, ct);
-                current[f.Key] = saved["remembered"]!["id"]!.GetValue<Guid>();
+                current[f.Key] = Note(saved["remembered"]!);
             }
         }
 
         Dictionary<Guid, Guid> chainOf = (await VersionsAsync(services, space, ct)).ToDictionary(v => v.Id, v => v.ChainId);
         Dictionary<string, Guid> chain = current.ToDictionary(c => c.Key, c => chainOf[c.Value], StringComparer.Ordinal);
-        return new Seeded(space, current, old, chain);
+        return new Seeded(space, current, old, chain, handles);
+
+        // Today's tools show no handle; the CON-322 tools show one per fact, which the seeding user then sees in recall.
+        Guid Note(JsonNode shown)
+        {
+            Guid id = shown["id"]!.GetValue<Guid>();
+            if (shown["handle"]?.GetValue<string>() is { } handle)
+                handles[handle.ToLowerInvariant()] = id;
+            return id;
+        }
     }
 
     private static async Task<JsonNode> CallAsync(McpToolbox tools, string name, object args, CancellationToken ct)
@@ -345,7 +374,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     /// </summary>
     public static TaskScore ScoreFind(AgentTask task, AgentRun run, Seeded seeded)
     {
-        HashSet<Guid> cited = [.. run.Cited.Select(c => Guid.TryParse(c, out Guid g) ? g : Guid.Empty).Where(g => g != Guid.Empty)];
+        HashSet<Guid> cited = [.. run.Cited.Select(seeded.Resolve).OfType<Guid>()];
         HashSet<Guid> gold = [.. task.Gold.Select(k => seeded.Current[k])];
         bool answered = run.Outcome == AgentOutcome.Answered;
         bool citedGold = cited.Overlaps(gold);
@@ -354,7 +383,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
         List<ToolTrace> reads = [.. run.Calls.Where(c => c.Name is "memory_recall" or "memory_timeline" or FactGrepToolbox.GrepTool or FactGrepToolbox.ReadTool)];
         List<ToolTrace> recalls = [.. reads.Where(c => IsSearch(c.Name))];
-        bool Shows(ToolTrace c) => gold.Any(g => c.Output.Contains(g.ToString(), StringComparison.OrdinalIgnoreCase));
+        bool Shows(ToolTrace c) => gold.Any(g => seeded.Shows(c.Output, g));
         return new TaskScore(right ? 1 : 0, new Dictionary<string, double>
         {
             ["sawGold"] = task.Kind == "absent" ? 0 : reads.Any(Shows) ? 1 : 0,
@@ -445,6 +474,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
                 ["space"] = JsonSerializer.SerializeToElement(SpaceName),
                 ["query"] = JsonSerializer.SerializeToElement(task.Question),
                 ["limit"] = JsonSerializer.SerializeToElement(10),
+                ["detailed"] = JsonSerializer.SerializeToElement(true),
             };
             Stopwatch clock = Stopwatch.StartNew();
             string output = await tools.CallAsync("memory_recall", input, ct);

@@ -53,9 +53,9 @@ public class MemorySpaceSurfaceTests(SharedWebAppFixture fixture)
                 savedTo.GetProperty("audience").GetString().Should().Be("personal");
                 personal = savedTo.GetProperty("id").GetString()!;
 
-                Values(await CallAsync(owner, "memory_recall", new() { ["containerId"] = personal, ["subject"] = "owner" }))
+                Values(await CallAsync(owner, "memory_recall", new() { ["detailed"] = true, ["containerId"] = personal, ["subject"] = "owner" }))
                     .Should().Contain("Tacos on Tuesdays");
-                Values(await CallAsync(owner, "memory_recall", new() { ["containerId"] = personalName, ["subject"] = "owner" }))
+                Values(await CallAsync(owner, "memory_recall", new() { ["detailed"] = true, ["containerId"] = personalName, ["subject"] = "owner" }))
                     .Should().Contain("Tacos on Tuesdays");
                 // A memory space is not a file container (CON-291): the owner finds it among memory spaces instead.
                 (await CallAsync(owner, "container_list", new())).Should().NotContain(personalName);
@@ -80,13 +80,13 @@ public class MemorySpaceSurfaceTests(SharedWebAppFixture fixture)
             await using (var stranger = await ConnectAsync(await AuthzPrincipals.CredentialAsync(fixture, AuthzPrincipal.AgentWrite)))
             {
                 (await CallAsync(stranger, "container_list", new())).Should().NotContain(personalName);
-                (await CallAsync(stranger, "memory_recall", new() { ["containerId"] = personal, ["subject"] = "owner" }))
+                (await CallAsync(stranger, "memory_recall", new() { ["detailed"] = true, ["containerId"] = personal, ["subject"] = "owner" }))
                     .Should().ContainEquivalentOf("not found");
-                (await CallAsync(stranger, "memory_recall", new() { ["containerId"] = personalName, ["subject"] = "owner" }))
+                (await CallAsync(stranger, "memory_recall", new() { ["detailed"] = true, ["containerId"] = personalName, ["subject"] = "owner" }))
                     .Should().ContainEquivalentOf("not found");
                 (await CallAsync(stranger, "search_knowledge", new() { ["containerId"] = personal, ["query"] = "tacos" }))
                     .Should().ContainEquivalentOf("not found");
-                Values(await CallAsync(stranger, "memory_recall", new() { ["containerId"] = team, ["subject"] = "owner" }))
+                Values(await CallAsync(stranger, "memory_recall", new() { ["detailed"] = true, ["containerId"] = team, ["subject"] = "owner" }))
                     .Should().BeEmpty("the fact went to the owner's personal space, not the team container");
             }
         }
@@ -118,7 +118,7 @@ public class MemorySpaceSurfaceTests(SharedWebAppFixture fixture)
             // A read-only key on a Viewer's agent: the most a Viewer can hand an agent.
             await using var viewer = await ConnectAsync(
                 await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Viewer), "knowledge:read"));
-            Values(await CallAsync(viewer, "memory_recall", new() { ["containerId"] = name, ["subject"] = "deploys" }))
+            Values(await CallAsync(viewer, "memory_recall", new() { ["detailed"] = true, ["containerId"] = name, ["subject"] = "deploys" }))
                 .Should().Contain("Fridays");
 
             string written;
@@ -137,7 +137,7 @@ public class MemorySpaceSurfaceTests(SharedWebAppFixture fixture)
                 written = ex.Message; // the tool isn't offered to a key without knowledge:write
             }
             written.Should().NotContain("remembered", "a Viewer reads memory but saves none");
-            Values(await CallAsync(viewer, "memory_recall", new() { ["containerId"] = name, ["subject"] = "deploys" }))
+            Values(await CallAsync(viewer, "memory_recall", new() { ["detailed"] = true, ["containerId"] = name, ["subject"] = "deploys" }))
                 .Should().NotContain("Mondays");
         }
         finally

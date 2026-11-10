@@ -100,7 +100,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
             for (int i = 0; i < 5; i++)
             {
                 await McpTools.MemoryRemember(sp.GetRequiredService<RememberFact>(), sp.GetRequiredService<ListMemorySpaces>(), sp.GetRequiredService<IHttpContextAccessor>(), $"warm{i}", "database", "x", validFrom: "2026-01-01", sources: [source], containerId: container);
-                await McpTools.MemoryRecall(sp.GetRequiredService<RecallMemory>(), sp.GetRequiredService<IHttpContextAccessor>(), container, "warm database");
+                await McpTools.MemoryRecall(sp.GetRequiredService<RecallMemory>(), sp.GetRequiredService<IHttpContextAccessor>(), container, "warm database", detailed: true);
             }
 
             List<TimeSpan> writes = [];
@@ -124,7 +124,7 @@ public class MemoryGateTests(SharedWebAppFixture fixture, ITestOutputHelper outp
                 writes.Add(correct);
 
                 (TimeSpan recall, string facts) = await BestOfThreeAsync(() =>
-                    McpTools.MemoryRecall(sp.GetRequiredService<RecallMemory>(), sp.GetRequiredService<IHttpContextAccessor>(), container, $"What is project {i}'s database now?"));
+                    McpTools.MemoryRecall(sp.GetRequiredService<RecallMemory>(), sp.GetRequiredService<IHttpContextAccessor>(), container, $"What is project {i}'s database now?", detailed: true));
                 facts.Should().Contain("PostgreSQL 15");
                 recalls.Add(recall);
             }

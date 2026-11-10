@@ -857,6 +857,29 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("memory_facts", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactHandleEntity", b =>
+                {
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<int>("Handle")
+                        .HasColumnType("integer")
+                        .HasColumnName("handle");
+
+                    b.Property<Guid>("FactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fact_id");
+
+                    b.HasKey("OwnerId", "Handle");
+
+                    b.HasIndex("OwnerId", "FactId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_memory_fact_handles_fact");
+
+                    b.ToTable("memory_fact_handles", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactSourceEntity", b =>
                 {
                     b.Property<Guid>("FactId")

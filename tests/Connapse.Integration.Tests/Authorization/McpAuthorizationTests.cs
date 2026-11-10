@@ -156,7 +156,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                 (McpApiTools.WriteName, new() { ["operation"] = "folders.delete", ["parameters"] = new Dictionary<string, object?> { ["containerId"] = full, ["path"] = "/probe", ["cascade"] = true } },
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{third}")).IsSuccessStatusCode),
                 ("memory_forget", new() { ["containerId"] = space, ["factId"] = fact },
-                    async () => Text(await agent.CallToolAsync("memory_recall", new Dictionary<string, object?> { ["containerId"] = space, ["subject"] = "probe" })).Contains(fact)),
+                    async () => Text(await agent.CallToolAsync("memory_recall", new Dictionary<string, object?> { ["detailed"] = true, ["containerId"] = space, ["subject"] = "probe" })).Contains(fact)),
             ];
             Tools.Where(t => t.Value.Risk == "destructive").Select(t => t.Key)
                 .Should().BeEquivalentTo(cases.Select(c => c.Tool), "each destructive tool needs a case here");

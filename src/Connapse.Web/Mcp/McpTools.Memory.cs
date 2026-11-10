@@ -163,11 +163,14 @@ public partial class McpTools
         if (ParseSources(sources) is not { } parsed)
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
-        var written = await remember.RunAsync(Mcp(http), target,
+        OperationContext context = Mcp(http);
+        var written = await remember.RunAsync(context, target,
             new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), ct);
-        return written.Succeeded
-            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson)
-            : Refused(written);
+        if (!written.Succeeded)
+            return Refused(written);
+        MemoryFact fact = written.Result!.Fact;
+        IReadOnlyDictionary<Guid, int> handles = await MemoryHandles.ShowAsync(remember.Handles, context, [fact.Id], ct);
+        return JsonSerializer.Serialize(new { remembered = Shown(fact, null, null, HandleOf(handles, fact.Id)), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson);
     }
 
     /// <summary>
@@ -227,7 +230,7 @@ public partial class McpTools
     public static async Task<string> MemoryCorrect(
         CorrectFact correct,
         IHttpContextAccessor http,
-        [Description("ID of the fact to replace (from memory_recall)")] string factId,
+        [Description("Handle (like \"f12\") or ID of the fact to replace, as memory_recall showed it")] string factId,
         [Description("The new value")] string value,
         [Description("Optional and not needed: the fact is found by its id in every space you can see, and the correction stays where the fact is")] string? containerId = null,
         [Description("\"changed\" (default) or \"wrong\"")] string? kind = null,
@@ -246,11 +249,20 @@ public partial class McpTools
         if (ParseSources(sources) is not { } parsed)
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
 
-        var written = await correct.RunAsync(Mcp(http), containerId, factId, correction,
+        OperationContext context = Mcp(http);
+        if (await MemoryHandles.ResolveShownAsync(correct.Handles, context, factId, ct) is not { } id)
+            return NotShown(factId);
+        var written = await correct.RunAsync(context, containerId, id.ToString(), correction,
             new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, sources is null ? null : parsed, reason), ct);
-        return written.Succeeded
-            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), replaced = Shown(written.Result.Replaced!, null) }, MemoryJson)
-            : Refused(written);
+        if (!written.Succeeded)
+            return Refused(written);
+        MemoryFact fact = written.Result!.Fact, replaced = written.Result.Replaced!;
+        IReadOnlyDictionary<Guid, int> handles = await MemoryHandles.ShowAsync(correct.Handles, context, [fact.Id, replaced.Id], ct);
+        return JsonSerializer.Serialize(new
+        {
+            remembered = Shown(fact, null, null, HandleOf(handles, fact.Id)),
+            replaced = Shown(replaced, null, null, HandleOf(handles, replaced.Id)),
+        }, MemoryJson);
     }
 
     [McpServerTool(Name = "memory_forget", Destructive = true),
@@ -259,17 +271,20 @@ public partial class McpTools
     public static async Task<string> MemoryForget(
         ForgetFact forget,
         IHttpContextAccessor http,
-        [Description("ID of the fact to delete")] string factId,
+        [Description("Handle (like \"f12\") or ID of the fact to delete, as memory_recall showed it")] string factId,
         [Description("Optional and not needed: the fact is found by its id in every space you can see")] string? containerId = null,
         CancellationToken ct = default)
     {
-        var forgotten = await forget.RunAsync(Mcp(http), containerId, factId, ct);
+        OperationContext context = Mcp(http);
+        if (await MemoryHandles.ResolveShownAsync(forget.Handles, context, factId, ct) is not { } id)
+            return NotShown(factId);
+        var forgotten = await forget.RunAsync(context, containerId, id.ToString(), ct);
         return forgotten.Succeeded ? $"Forgot fact '{factId}' ({forgotten.Result} version(s) deleted)." : Refused(forgotten);
     }
 
     [McpServerTool(Name = "memory_recall", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, several in `spaces` to read them as one memory, or neither to read every space you can see. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its space, whether it is personal (only you see it) or team, its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\"). Reading one named space without `asOf` or `attribute` returns `nextCursor` when there are more facts: pass it back as `cursor` for the next page.")]
+     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, several in `spaces` to read them as one memory, or neither to read every space you can see. Filter by subject or attribute, or pass a question as `query`: put every other word for what you want (synonyms, abbreviations, the full name) in that one query rather than searching again. `subject` lists everything known about a subject. Facts come one per line under their subject, each led by a handle such as f12 that memory_correct and memory_forget accept, with its dates and sources; an ended fact says which fact replaced it. Answer from current facts only, unless the question asks about the past. Pass detailed=true for JSON with authors and record times. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\"). Reading one named space without `asOf` or `attribute` returns `nextCursor` when there are more facts: pass it back as `cursor` for the next page.")]
     public static async Task<string> MemoryRecall(
         RecallMemory recall,
         IHttpContextAccessor http,
@@ -283,18 +298,20 @@ public partial class McpTools
         [Description("Older name for `space`")] string? containerId = null,
         [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
         [Description("Several space IDs or names to read as one memory (up to 100)")] string[]? spaces = null,
+        [Description("Return JSON with every field (authors, record times) instead of one line per fact")] bool detailed = false,
         CancellationToken ct = default)
     {
         if (ParseDates(asOf, null) is not { } at)
             return "Error: asOf must be YYYY-MM-DD or ISO 8601.";
 
-        return RecallJson(await recall.RecallAsync(Mcp(http), new MemoryRecallRequest(null, query, subject,
-            attribute, at.From, includeHistory, limit, cursor, NamedSpaces(space, containerId, spaces)), ct));
+        OperationContext context = Mcp(http);
+        return await RecallAnswerAsync(recall, context, await recall.RecallAsync(context, new MemoryRecallRequest(null, query, subject,
+            attribute, at.From, includeHistory, limit, cursor, NamedSpaces(space, containerId, spaces)), ct), detailed, ct);
     }
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. Name a `space` to read one space, several in `spaces` to read them as one memory, or neither to read every space you can see; each fact says which space it is in. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\"). Reading one named space without `from`, `to` or `attribute` returns the newest facts first a page at a time, each page in date order, with `nextCursor` when older facts remain: pass it back as `cursor`.")]
+     Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. Name a `space` to read one space, several in `spaces` to read them as one memory, or neither to read every space you can see; each fact says which space it is in. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\"). Reading one named space without `from`, `to` or `attribute` returns the newest facts first a page at a time, each page in date order, with `nextCursor` when older facts remain: pass it back as `cursor`. Facts come one per line, each led by a handle such as f12 that memory_correct and memory_forget accept; pass detailed=true for JSON.")]
     public static async Task<string> MemoryTimeline(
         RecallMemory recall,
         IHttpContextAccessor http,
@@ -308,13 +325,15 @@ public partial class McpTools
         [Description("Older name for `space`")] string? containerId = null,
         [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
         [Description("Several space IDs or names to read as one memory (up to 100)")] string[]? spaces = null,
+        [Description("Return JSON with every field (authors, record times) instead of one line per fact")] bool detailed = false,
         CancellationToken ct = default)
     {
         if (ParseDates(from, to) is not { } window)
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
 
-        return RecallJson(await recall.TimelineAsync(Mcp(http), new MemoryTimelineRequest(null, query, subject, attribute,
-            window.From, window.To, limit, cursor, NamedSpaces(space, containerId, spaces)), ct));
+        OperationContext context = Mcp(http);
+        return await RecallAnswerAsync(recall, context, await recall.TimelineAsync(context, new MemoryTimelineRequest(null, query, subject, attribute,
+            window.From, window.To, limit, cursor, NamedSpaces(space, containerId, spaces)), ct), detailed, ct);
     }
 
     /// <summary>
@@ -328,22 +347,13 @@ public partial class McpTools
         return string.IsNullOrWhiteSpace(one) ? [.. several] : [one, .. several];
     }
 
-    private static string RecallJson(Attempt<SpacedRecall, MemoryStatus> recalled)
-    {
-        if (!recalled.Succeeded)
-            return Refused(recalled);
-        SpacedRecall result = recalled.Result!;
-        IEnumerable<RecalledFact> facts = result.Facts;
-        return JsonSerializer.Serialize(new
-        {
-            notice = MemoryNotice,
-            facts = facts.Select(f => Shown(f.Fact, f.Sources, result.Spaces.GetValueOrDefault(f.Fact.ContainerId))),
-            note = result.SkippedSpaces > 0
-                ? $"Read the {RecallMemory.MaxSpaces} most recently changed spaces; {result.SkippedSpaces} more were not read. Name a `space` to read one of them."
-                : NearestNote(result),
-            nextCursor = result.NextCursor,
-        }, MemoryJson);
-    }
+    /// <summary>
+    /// The refusal for a fact ID or handle the caller was never shown. Acting only on shown facts stops a well-formed
+    /// but wrong ID from changing a fact the agent never looked at.
+    /// </summary>
+    internal static string NotShown(string factId) =>
+        $"Error: '{factId}' is not a fact memory_recall has shown you. Find the fact with memory_recall or memory_timeline, "
+        + "then pass the handle it shows (like f12).";
 
     /// <summary>What an empty search of one space says: that nothing matched, the nearest subjects and the next call.</summary>
     internal static string? NearestNote(SpacedRecall result)
@@ -356,8 +366,9 @@ public partial class McpTools
             + "or one `query` holding several other words for what you want.";
     }
 
-    private static object Shown(MemoryFact fact, IReadOnlyList<ShownMemorySource>? sources, Connapse.Core.Container? space = null) => new
+    private static object Shown(MemoryFact fact, IReadOnlyList<ShownMemorySource>? sources, Connapse.Core.Container? space = null, string? handle = null) => new
     {
+        handle,
         id = fact.Id,
         space = space is null ? null : new { id = space.Id, name = space.Name, kind = SpaceKind(space) },
         scope = fact.Scope == MemoryScope.Personal ? "personal" : "team",

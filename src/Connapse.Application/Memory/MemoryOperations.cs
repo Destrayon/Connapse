@@ -153,8 +153,12 @@ internal static class MemoryRules
 /// Either scope needs write access; read-only callers can only recall.
 /// </summary>
 [Operation("memory.remember", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class RememberFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class RememberFact(
+    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that show them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     public Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
         OperationContext context, string containerId, NewMemoryFact fact, CancellationToken ct = default) =>
         RunAsync(context, MemoryTarget.Container(containerId), fact, ct);
@@ -223,8 +227,12 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 /// A fact left in a document container reads as missing too, since those don't hold memory.
 /// </summary>
 [Operation("memory.correct", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class CorrectFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class CorrectFact(
+    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that accept them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     /// <param name="containerId">
     /// Ignored: the fact is found by id in every space and container the caller can see, so a fact moved into a space
     /// (CON-236) is still reached through the container it used to be in.
@@ -256,8 +264,11 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
 /// reads as missing, and nothing is deleted. Forgetting needs write access, whatever the scope.
 /// </summary>
 [Operation("memory.forget", Scope = MemoryRules.WriteScope, Risk = RiskTier.Destructive)]
-public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer authorizer, IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that accept them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     /// <param name="containerId">
     /// Ignored: the fact is found by id in every space and container the caller can see, so a fact moved into a space
     /// (CON-236) is still reached through the container it used to be in.
@@ -288,8 +299,12 @@ public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer autho
 /// </summary>
 [Operation("memory.recall", Scope = MemoryRules.ReadScope, Risk = RiskTier.Read)]
 public sealed class RecallMemory(
-    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemorySpaceStore? spaces = null)
+    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemorySpaceStore? spaces = null,
+    IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that show them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     /// <summary>
     /// The most spaces one recall reads: an unnamed one reads the most recently changed first and counts the rest as
     /// skipped; a recall naming more is refused.

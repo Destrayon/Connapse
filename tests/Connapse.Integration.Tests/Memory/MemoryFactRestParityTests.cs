@@ -8,6 +8,7 @@ using Connapse.Identity.Authentication;
 using Connapse.Identity.Services;
 using Connapse.Integration.Tests.Authorization;
 using Connapse.Integration.Tests.CrossSurface;
+using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
@@ -144,9 +145,9 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
             await using (McpClient stranger = await ConnectAsync(
                 await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Admin), "knowledge:read", "knowledge:write")))
             {
-                (await CallAsync(stranger, "memory_recall", new() { ["space"] = personal, ["subject"] = subject }))
+                (await CallAsync(stranger, "memory_recall", new() { ["detailed"] = true, ["space"] = personal, ["subject"] = subject }))
                     .Should().ContainEquivalentOf("not found");
-                (await CallAsync(stranger, "memory_forget", new() { ["factId"] = fact })).Should().ContainEquivalentOf("not found");
+                (await CallAsync(stranger, "memory_forget", new() { ["factId"] = fact })).Should().Be(McpTools.NotShown(fact));
             }
 
             (await RestRecallAsync(viewer, $"space={personal}&subject={subject}")).Select(f => f.Id).Should().Equal(fact);
@@ -258,7 +259,7 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
             }
             (await RestTimelineAsync(viewer, $"space={personal}&subject={subject}")).Select(f => f.Value).Should().Equal("Tacos on Tuesdays");
             (await rest.GetAsync($"/api/memory/timeline?space={personal}&subject={subject}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
-            (await CallAsync(mcp, "memory_timeline", new() { ["space"] = personal, ["subject"] = subject })).Should().ContainEquivalentOf("not found");
+            (await CallAsync(mcp, "memory_timeline", new() { ["detailed"] = true, ["space"] = personal, ["subject"] = subject })).Should().ContainEquivalentOf("not found");
             (await RestTimelineAsync(rest, $"subject={subject}&attribute=lunch")).Should().BeEmpty();
         }
         finally
@@ -276,7 +277,7 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
 
     private static async Task<List<Recalled>> McpTimelineAsync(McpClient mcp, Dictionary<string, object?> arguments)
     {
-        string read = await CallAsync(mcp, "memory_timeline", arguments);
+        string read = await CallAsync(mcp, "memory_timeline", new(arguments) { ["detailed"] = true });
         read.Should().StartWith("{", read);
         return Facts(JsonDocument.Parse(read).RootElement.GetProperty("facts"), f => f);
     }
@@ -309,7 +310,7 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
 
     private static async Task<List<Recalled>> McpRecallAsync(McpClient mcp, Dictionary<string, object?> arguments)
     {
-        string recalled = await CallAsync(mcp, "memory_recall", arguments);
+        string recalled = await CallAsync(mcp, "memory_recall", new(arguments) { ["detailed"] = true });
         recalled.Should().StartWith("{", recalled);
         return [.. JsonDocument.Parse(recalled).RootElement.GetProperty("facts").EnumerateArray()
             .Select(f => new Recalled(f.GetProperty("id").GetString()!, f.GetProperty("value").GetString()!))];
