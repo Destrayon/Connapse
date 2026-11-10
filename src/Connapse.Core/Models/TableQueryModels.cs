@@ -56,16 +56,23 @@ public sealed record TableCondition(TableField Field, TableFilterOperator Operat
 
 public sealed record TableOrder(TableField Field, TableSortDirection Direction = TableSortDirection.Ascending);
 
-/// <summary>Reads rows of one table: chosen columns (all when null), a filter, an order, a limit and an offset.</summary>
+/// <summary>
+/// Reads rows of one table: chosen columns (all when null), a filter, an order, a limit and an offset.
+/// <see cref="SeenAsOf"/> reads a table with history as Connapse saw it at that time instead of as it is now.
+/// </summary>
 public sealed record TableReadRequest(
     Guid TableId,
     IReadOnlyList<string>? Columns = null,
     TableFilter? Where = null,
     IReadOnlyList<TableOrder>? OrderBy = null,
     int? Limit = null,
-    int? Offset = null);
+    int? Offset = null,
+    DateTimeOffset? SeenAsOf = null);
 
-/// <summary>Aggregates one table's rows, optionally grouped, with a row filter and a filter on the aggregates.</summary>
+/// <summary>
+/// Aggregates one table's rows, optionally grouped, with a row filter and a filter on the aggregates.
+/// <see cref="SeenAsOf"/> aggregates a table with history as Connapse saw it at that time.
+/// </summary>
 public sealed record TableAggregateRequest(
     Guid TableId,
     IReadOnlyList<TableField> Aggregates,
@@ -73,7 +80,22 @@ public sealed record TableAggregateRequest(
     TableFilter? Where = null,
     TableFilter? Having = null,
     IReadOnlyList<TableOrder>? OrderBy = null,
-    int? Limit = null);
+    int? Limit = null,
+    DateTimeOffset? SeenAsOf = null);
+
+/// <summary>
+/// What changed in a table with history between <see cref="Since"/> and <see cref="Until"/> (now when null), as
+/// Connapse saw it (CON-306): the net change per key, each changed key as its <c>old</c> and <c>new</c> row, an added
+/// key as <c>new</c> only and a removed one as <c>old</c> only, in key order. Only the chosen columns (all when null)
+/// are compared; the key column is always returned.
+/// </summary>
+public sealed record TableChangesRequest(
+    Guid TableId,
+    DateTimeOffset Since,
+    DateTimeOffset? Until = null,
+    IReadOnlyList<string>? Columns = null,
+    int? Limit = null,
+    int? Offset = null);
 
 /// <summary>
 /// Who may read what, for one request (CON-320 plan): the ids of the source documents the caller may read, worked out

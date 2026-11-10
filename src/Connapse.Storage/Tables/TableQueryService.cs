@@ -33,6 +33,13 @@ public sealed class TableQueryService(
         return RunAsync(containerId, access, request.TableId, table => TableQueryCompiler.CompileAggregate(table, request), ct);
     }
 
+    public Task<TableQueryResult> ChangesAsync(Guid containerId, TableAccess access, TableChangesRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(access);
+        ArgumentNullException.ThrowIfNull(request);
+        return RunAsync(containerId, access, request.TableId, table => TableQueryCompiler.CompileChanges(table, request), ct);
+    }
+
     private async Task<TableQueryResult> RunAsync(
         Guid containerId, TableAccess access, Guid tableId, Func<TableInfo, CompiledTableQuery> compile, CancellationToken ct)
     {

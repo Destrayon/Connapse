@@ -70,14 +70,23 @@ internal static partial class TableDdl
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 
-    internal static string CreateTableSql(Guid containerId, string tableName, IReadOnlyList<TableColumn> columns) =>
+    /// <summary>
+    /// The table's DDL. With <paramref name="history"/> it also gets <see cref="TableHistory.SeenFrom"/> and
+    /// <see cref="TableHistory.SeenUntil"/> (CON-306), the until column <c>'infinity'</c> while a version is current.
+    /// </summary>
+    internal static string CreateTableSql(Guid containerId, string tableName, IReadOnlyList<TableColumn> columns, bool history = false) =>
         $"CREATE TABLE {QualifiedName(containerId, tableName)} ("
         + string.Join(", ", columns.Select((c, i) => Quote(ColumnName(i)) + " " + SqlType(c.Type)))
+        + (history
+            ? $", {Quote(TableHistory.SeenFrom)} timestamptz NOT NULL, {Quote(TableHistory.SeenUntil)} timestamptz NOT NULL DEFAULT 'infinity'"
+            : "")
         + ")";
 
-    internal static string CopySql(Guid containerId, string tableName, int columnCount) =>
+    /// <summary>The binary COPY into the table's columns, and with <paramref name="history"/> its seen-from column last.</summary>
+    internal static string CopySql(Guid containerId, string tableName, int columnCount, bool history = false) =>
         $"COPY {QualifiedName(containerId, tableName)} ("
         + string.Join(", ", Enumerable.Range(0, columnCount).Select(i => Quote(ColumnName(i))))
+        + (history ? ", " + Quote(TableHistory.SeenFrom) : "")
         + ") FROM STDIN (FORMAT BINARY)";
 
     /// <summary>

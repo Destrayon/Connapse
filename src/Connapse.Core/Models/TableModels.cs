@@ -55,8 +55,14 @@ public sealed record TableLoad(
 
 /// <summary>
 /// A table's catalog entry. <see cref="StorageName"/> is the generated name of the PostgreSQL table holding its rows
-/// right now; it changes on every reload, so a reader resolves it from the catalog each time. <see cref="Version"/>
+/// right now; a reload can change it, so a reader resolves it from the catalog each time. <see cref="Version"/>
 /// counts loads, starting at 1.
+/// <para>
+/// <see cref="Key"/> is the column that identifies a row across syncs (CON-306), or null when the table has none. A
+/// table with a key keeps its history: a re-sync closes the versions that changed or went away and adds the new ones,
+/// so the table can be read as Connapse saw it at any time from <see cref="HistoryFrom"/> on. A table without a key
+/// replaces its rows on each sync and keeps no history.
+/// </para>
 /// </summary>
 public sealed record TableInfo(
     Guid Id,
@@ -72,7 +78,13 @@ public sealed record TableInfo(
     string StorageName,
     int Version,
     DateTime CreatedAt,
-    DateTime LoadedAt);
+    DateTime LoadedAt,
+    string? Key = null,
+    DateTime? HistoryFrom = null)
+{
+    /// <summary>True when the table keeps row history, so it can be read as seen at a time and asked what changed.</summary>
+    public bool HasHistory => Key is not null && HistoryFrom is not null;
+}
 
 /// <summary>One page of a container's tables and how many the container holds in all.</summary>
 public sealed record TablePage(IReadOnlyList<TableInfo> Items, int Total);

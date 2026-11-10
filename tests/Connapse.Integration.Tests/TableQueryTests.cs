@@ -495,7 +495,7 @@ public class TableQueryTests(SharedWebAppFixture fixture)
     private static async Task<(IContainerStore Containers, Guid ContainerId, TableInfo Table)> NewTableAsync(AsyncServiceScope scope)
     {
         var containers = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-        var container = await containers.CreateAsync(new CreateContainerRequest($"query-{Guid.NewGuid():N}", null, ContainerKind.Tables));
+        var container = await containers.CreateAsync(new CreateContainerRequest($"query-{Guid.NewGuid():N}", null, ContainerKind.Documents));
         Guid containerId = Guid.Parse(container.Id);
         TableInfo table = await scope.ServiceProvider.GetRequiredService<ITableStore>()
             .CreateAsync(containerId, new TableLoad("Sales", Columns, Rows(SalesRows), await NewDocumentAsync(scope, containerId)));

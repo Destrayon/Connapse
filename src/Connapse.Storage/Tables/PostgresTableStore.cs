@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using NpgsqlTypes;
 using static Connapse.Core.Utilities.LogSanitizer;
 
 namespace Connapse.Storage.Tables;
@@ -37,17 +38,21 @@ public class PostgresTableStore(
         var connection = context.Database.GetDbConnection();
 
         await PrepareLoadAsync(context, connection, containerId, ct);
+        DateTime now = await SeenTimeAsync(connection, ct);
         string storageName = TableDdl.NewTableName();
-        long rows = await BuildTableAsync(connection, containerId, storageName, load, ct);
+        var candidates = TableHistory.KeyCandidates(load.Columns);
+        long rows = await BuildTableAsync(connection, containerId, storageName, load, candidates.Count > 0 ? now : null, ct);
+        int? key = FirstValid(candidates, await ValidKeysAsync(connection, containerId, storageName, candidates, ct));
+        if (key is int k)
+            await TableDdl.ExecuteAsync(connection, TableHistory.CurrentKeyIndexSql(containerId, storageName, k), ct);
 
-        DateTime now = DateTime.UtcNow;
         var entity = new ContainerTableEntity
         {
             Id = Guid.NewGuid(),
             ContainerId = containerId,
             CreatedAt = now,
         };
-        Apply(entity, load, storageName, rows, now);
+        Apply(entity, load, storageName, rows, now, key is int i ? load.Columns[i].Name : null, key is null ? null : now);
         entity.Version = 1;
         context.ContainerTables.Add(entity);
         await context.SaveChangesAsync(ct);
@@ -71,13 +76,51 @@ public class PostgresTableStore(
         if (entity is null)
             return null;
 
+        // One seen time for every version this sync writes, never before the last sync's even if the clock stepped back.
+        DateTime now = await SeenTimeAsync(connection, ct);
+        DateTime last = DateTime.SpecifyKind(entity.LoadedAt, DateTimeKind.Utc);
+        if (now <= last)
+            now = last.AddTicks(10);
+
+        var existing = ToInfo(entity);
         string oldName = entity.StorageName;
         string storageName = TableDdl.NewTableName();
-        long rows = await BuildTableAsync(connection, containerId, storageName, load, ct);
+        var candidates = TableHistory.KeyCandidates(load.Columns);
+        long rows = await BuildTableAsync(connection, containerId, storageName, load, candidates.Count > 0 ? now : null, ct);
+        var valid = await ValidKeysAsync(connection, containerId, storageName, candidates, ct);
+
+        // Same columns and the key still holds: close the versions that changed or went away and add the new ones.
+        int existingKey = existing.HasHistory ? IndexOf(load.Columns, existing.Key!) : -1;
+        if (existing.HasHistory && SameColumns(existing.Columns, load.Columns)
+            && candidates.Select((c, n) => (c, n)).Any(x => x.c == existingKey && valid[x.n]))
+        {
+            string current = TableDdl.QualifiedName(containerId, oldName);
+            string incoming = TableDdl.QualifiedName(containerId, storageName);
+            int closed = await ExecuteAtAsync(connection,
+                TableHistory.CloseSql(current, incoming, existingKey, load.Columns.Count), now, ct);
+            int added = await ExecuteAtAsync(connection,
+                TableHistory.InsertSql(current, incoming, existingKey, load.Columns.Count), now, ct);
+            await TableDdl.ExecuteAsync(connection, $"DROP TABLE {incoming}", ct);
+
+            Apply(entity, load, oldName, rows, now, existing.Key, existing.HistoryFrom);
+            entity.Version++;
+            await context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+
+            logger.LogInformation(
+                "Re-synced table {TableId} in container {ContainerId} with history: {Rows} rows, {Closed} versions closed, {Added} added",
+                tableId, containerId, rows, closed, added);
+            return ToInfo(entity);
+        }
+
+        // Otherwise the new table replaces the old one, and history, if the new one has a key, starts again here.
+        int? key = FirstValid(candidates, valid);
+        if (key is int k)
+            await TableDdl.ExecuteAsync(connection, TableHistory.CurrentKeyIndexSql(containerId, storageName, k), ct);
 
         // The swap: the entry now names the new table. Readers resolve the name from here, so none of them waits on a
         // lock or sees the new table before this commits.
-        Apply(entity, load, storageName, rows, DateTime.UtcNow);
+        Apply(entity, load, storageName, rows, now, key is int i ? load.Columns[i].Name : null, key is null ? null : now);
         entity.Version++;
         context.RetiredTables.Add(new RetiredTableEntity
         {
@@ -233,16 +276,20 @@ public class PostgresTableStore(
             .FromSql($"SELECT * FROM container_tables WHERE id = {tableId} AND container_id = {containerId} FOR UPDATE")
             .FirstOrDefaultAsync(ct);
 
-    /// <summary>Creates <paramref name="storageName"/> and binary-copies every row of the load into it.</summary>
+    /// <summary>
+    /// Creates <paramref name="storageName"/> and binary-copies every row of the load into it. With
+    /// <paramref name="seenFrom"/> the table has the history columns and every row is seen from then.
+    /// </summary>
     private static async Task<long> BuildTableAsync(
-        DbConnection connection, Guid containerId, string storageName, TableLoad load, CancellationToken ct)
+        DbConnection connection, Guid containerId, string storageName, TableLoad load, DateTime? seenFrom, CancellationToken ct)
     {
-        await TableDdl.ExecuteAsync(connection, TableDdl.CreateTableSql(containerId, storageName, load.Columns), ct);
+        bool history = seenFrom is not null;
+        await TableDdl.ExecuteAsync(connection, TableDdl.CreateTableSql(containerId, storageName, load.Columns, history), ct);
 
         var npgsql = (NpgsqlConnection)connection;
         var types = load.Columns.Select(c => c.Type).ToArray();
         long rows = 0;
-        await using (var writer = await npgsql.BeginBinaryImportAsync(TableDdl.CopySql(containerId, storageName, types.Length), ct))
+        await using (var writer = await npgsql.BeginBinaryImportAsync(TableDdl.CopySql(containerId, storageName, types.Length, history), ct))
         {
             await foreach (var row in load.Rows.WithCancellation(ct))
             {
@@ -258,12 +305,69 @@ public class PostgresTableStore(
                     else
                         await writer.WriteAsync(value, TableDdl.CopyType(types[i]), ct);
                 }
+                if (seenFrom is DateTime from)
+                    await writer.WriteAsync(from, NpgsqlDbType.TimestampTz, ct);
                 rows++;
             }
             await writer.CompleteAsync(ct);
         }
         return rows;
     }
+
+    /// <summary>The database's clock, read once the load's locks are held, so syncs of a table get increasing times.</summary>
+    private static async Task<DateTime> SeenTimeAsync(DbConnection connection, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT pg_catalog.clock_timestamp()";
+        var value = (DateTime)(await command.ExecuteScalarAsync(ct))!;
+        return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+    }
+
+    /// <summary>Whether each candidate key column of the new table is unique and never empty.</summary>
+    private static async Task<IReadOnlyList<bool>> ValidKeysAsync(
+        DbConnection connection, Guid containerId, string storageName, IReadOnlyList<int> candidates, CancellationToken ct)
+    {
+        if (candidates.Count == 0)
+            return [];
+        await using var command = connection.CreateCommand();
+        command.CommandText = TableHistory.ValidKeysSql(TableDdl.QualifiedName(containerId, storageName), candidates);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        return Enumerable.Range(0, candidates.Count).Select(reader.GetBoolean).ToList();
+    }
+
+    private static int? FirstValid(IReadOnlyList<int> candidates, IReadOnlyList<bool> valid)
+    {
+        for (int n = 0; n < candidates.Count; n++)
+        {
+            if (valid[n])
+                return candidates[n];
+        }
+        return null;
+    }
+
+    /// <summary>Runs <paramref name="sql"/> with <paramref name="seen"/> as its <c>$1</c>.</summary>
+    private static async Task<int> ExecuteAtAsync(DbConnection connection, string sql, DateTime seen, CancellationToken ct)
+    {
+        await using var command = (NpgsqlCommand)connection.CreateCommand();
+        command.CommandText = sql;
+        command.Parameters.Add(new NpgsqlParameter { Value = seen, NpgsqlDbType = NpgsqlDbType.TimestampTz });
+        return await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static int IndexOf(IReadOnlyList<TableColumn> columns, string name)
+    {
+        for (int i = 0; i < columns.Count; i++)
+        {
+            if (string.Equals(columns[i].Name, name, StringComparison.Ordinal))
+                return i;
+        }
+        return -1;
+    }
+
+    private static bool SameColumns(IReadOnlyList<TableColumn> a, IReadOnlyList<TableColumn> b) =>
+        a.Count == b.Count && a.Zip(b).All(p => string.Equals(p.First.Name, p.Second.Name, StringComparison.Ordinal)
+            && p.First.Type == p.Second.Type);
 
     private static void Validate(TableLoad load)
     {
@@ -278,7 +382,8 @@ public class PostgresTableStore(
             throw new ArgumentException("Every column needs a name and a known type.", nameof(load));
     }
 
-    private static void Apply(ContainerTableEntity entity, TableLoad load, string storageName, long rows, DateTime loadedAt)
+    private static void Apply(
+        ContainerTableEntity entity, TableLoad load, string storageName, long rows, DateTime loadedAt, string? key, DateTime? historyFrom)
     {
         entity.Name = load.Name.Trim();
         entity.Description = load.Description;
@@ -287,7 +392,9 @@ public class PostgresTableStore(
         entity.SchemaJson = JsonSerializer.Serialize(
             new FrictionlessSchema(load.Columns.Select((c, i) =>
                 new FrictionlessField(c.Name, TableValues.FrictionlessType(c.Type), c.Description, TableDdl.ColumnName(i),
-                    c.Format?.Pattern, c.Format?.DecimalChar, c.Format?.GroupChar, c.Format?.TrueValues, c.Format?.FalseValues)).ToList()),
+                    c.Format?.Pattern, c.Format?.DecimalChar, c.Format?.GroupChar, c.Format?.TrueValues, c.Format?.FalseValues)).ToList(),
+                key is null ? null : [key],
+                historyFrom),
             Json);
         entity.RowCount = rows;
         entity.NeedsReview = load.NeedsReview;
@@ -309,7 +416,9 @@ public class PostgresTableStore(
         return new TableInfo(
             entity.Id, entity.ContainerId, entity.Name, entity.Description, entity.DocumentId, columns,
             entity.RowCount, entity.NeedsReview, rejects, TableDdl.SchemaName(entity.ContainerId), entity.StorageName,
-            entity.Version, entity.CreatedAt, entity.LoadedAt);
+            entity.Version, entity.CreatedAt, entity.LoadedAt,
+            schema.PrimaryKey?.FirstOrDefault(),
+            schema.HistoryFrom is DateTime from ? DateTime.SpecifyKind(from, DateTimeKind.Utc) : null);
     }
 
     private static readonly JsonSerializerOptions Json = new()
@@ -318,8 +427,12 @@ public class PostgresTableStore(
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    /// <summary>A Frictionless Table Schema; <c>column</c> is a Connapse extension naming the field's real column.</summary>
-    private sealed record FrictionlessSchema(IReadOnlyList<FrictionlessField> Fields);
+    /// <summary>
+    /// A Frictionless Table Schema; <c>column</c> is a Connapse extension naming the field's real column. A table with
+    /// history has a <c>primaryKey</c>, and <c>historyFrom</c>, another extension, is when its current history began.
+    /// </summary>
+    private sealed record FrictionlessSchema(
+        IReadOnlyList<FrictionlessField> Fields, IReadOnlyList<string>? PrimaryKey = null, DateTime? HistoryFrom = null);
 
     /// <summary>A field, with the Frictionless properties that say how the source file wrote its values.</summary>
     private sealed record FrictionlessField(
