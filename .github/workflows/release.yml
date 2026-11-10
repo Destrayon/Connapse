@@ -28,11 +28,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The server reports this version (CON-316). The Dockerfile fails the build if the published
+      # assembly doesn't carry it, so an image that would say 0.0.0 is never pushed.
+      - name: Version from the tag
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            0.0.0*|"") echo "::error::Tag $GITHUB_REF_NAME gives version '$version'"; exit 1 ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
           platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/destrayon/connapse:${{ github.ref_name }}
