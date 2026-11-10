@@ -17,14 +17,15 @@ namespace Connapse.Eval.Runs.MemorySearch;
 /// one at a time in arrival order. The run closes on its answer, on the call past <see cref="AgentContract.MaxToolCalls"/>,
 /// or when a tool throws; every call after that is refused and recorded nowhere, so the outcome is the first one.
 /// </summary>
-public sealed class BridgeSession(IToolbox toolbox)
+public sealed class BridgeSession(IToolbox toolbox, AgentRules? rules = null)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<ToolTrace> _calls = [];
+    private readonly AgentRules _rules = rules ?? AgentRules.Default;
 
     public const string TaskOver = "The task is over. Do not call any more tools; stop now.";
 
-    public IReadOnlyList<ToolSpec> Tools { get; } = [.. toolbox.Tools, AgentContract.Answer];
+    public IReadOnlyList<ToolSpec> Tools { get; } = [.. toolbox.Tools, (rules ?? AgentRules.Default).Answer];
 
     public IReadOnlyList<ToolTrace> Calls => _calls;
 
@@ -32,6 +33,9 @@ public sealed class BridgeSession(IToolbox toolbox)
     public AgentOutcome? Outcome { get; private set; }
 
     public string? Answer { get; private set; }
+
+    /// <summary>The answer as the agent gave it, under typed rules; <see cref="Answer"/> then holds its raw JSON.</summary>
+    public JsonElement? AnswerValue { get; private set; }
 
     public IReadOnlyList<string> Cited { get; private set; } = [];
 
@@ -44,6 +48,14 @@ public sealed class BridgeSession(IToolbox toolbox)
         {
             if (Outcome is not null)
                 return (TaskOver, true);
+            if (name == AgentContract.AnswerTool && _rules.TypedAnswer)
+            {
+                (JsonElement? value, List<string> typedCited) = AgentContract.ReadTypedAnswer(input);
+                if (value is not { } v)
+                    return ("Error: Missing required argument 'answer': give the answer as a JSON value.", true);
+                (Outcome, Answer, AnswerValue, Cited) = (AgentOutcome.Answered, v.GetRawText(), v, typedCited);
+                return ("Answer recorded. " + TaskOver, false);
+            }
             if (name == AgentContract.AnswerTool)
             {
                 (string? text, List<string> cited) = AgentContract.ReadAnswer(input);
@@ -52,10 +64,10 @@ public sealed class BridgeSession(IToolbox toolbox)
                 (Outcome, Answer, Cited) = (AgentOutcome.Answered, text, cited);
                 return ("Answer recorded. " + TaskOver, false);
             }
-            if (_calls.Count >= AgentContract.MaxToolCalls)
+            if (_calls.Count >= _rules.MaxToolCalls)
             {
                 Outcome = AgentOutcome.OutOfCalls;
-                return ($"You have used all {AgentContract.MaxToolCalls} tool calls. " + TaskOver, true);
+                return ($"You have used all {_rules.MaxToolCalls} tool calls. " + TaskOver, true);
             }
             string output;
             try
@@ -92,10 +104,10 @@ public sealed class ToolBridge : IAsyncDisposable
     /// <summary>The base address, e.g. <c>http://127.0.0.1:51234</c>, once started.</summary>
     public string? BaseUrl { get; private set; }
 
-    public (string Id, BridgeSession Session) Open(IToolbox toolbox)
+    public (string Id, BridgeSession Session) Open(IToolbox toolbox, AgentRules? rules = null)
     {
         string id = Guid.NewGuid().ToString("N");
-        BridgeSession session = new(toolbox);
+        BridgeSession session = new(toolbox, rules);
         _sessions[id] = session;
         return (id, session);
     }

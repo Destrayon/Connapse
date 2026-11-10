@@ -42,13 +42,15 @@ public sealed class CachingEmbeddingProvider(IEmbeddingProvider inner, Embedding
                 result[i] = cached;
         }
 
-        if (missing.Count > 0)
+        // One provider batch at a time, each saved as it returns: a run stopped part way through a huge call (the
+        // semantic chunker embeds every sentence of a document in one) keeps what it already embedded.
+        foreach (int[] slice in missing.Chunk(Math.Max(1, settings.BatchSize)))
         {
-            IReadOnlyList<float[]> fresh = await inner.EmbedBatchAsync(missing.Select(i => list[i]), inputType, ct);
-            for (int j = 0; j < missing.Count; j++)
+            IReadOnlyList<float[]> fresh = await inner.EmbedBatchAsync(slice.Select(i => list[i]), inputType, ct);
+            for (int j = 0; j < slice.Length; j++)
             {
-                result[missing[j]] = fresh[j];
-                cache.Put(Namespace, keys[missing[j]], fresh[j]);
+                result[slice[j]] = fresh[j];
+                cache.Put(Namespace, keys[slice[j]], fresh[j]);
             }
         }
         return result;

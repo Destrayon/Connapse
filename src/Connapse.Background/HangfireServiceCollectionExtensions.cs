@@ -14,6 +14,20 @@ public static class HangfireServiceCollectionExtensions
     /// Registers Hangfire infrastructure: storage (PostgreSQL), server (worker pools),
     /// dashboard authorization filter. Job-class registrations are added separately.
     /// </summary>
+    /// <summary>
+    /// The sliding timeout keeps a running job's fetch renewed. With a fixed timeout, Hangfire hands a job still running
+    /// after it to another worker, which cancels the first run: an ingestion longer than the timeout (a large CSV on a
+    /// CPU-only embedding model) was cancelled, re-enqueued by the stuck-document sweep and cancelled again, for ever.
+    /// </summary>
+    internal static PostgreSqlStorageOptions StorageOptions() => new()
+    {
+        SchemaName = "hangfire",
+        PrepareSchemaIfNecessary = true,
+        QueuePollInterval = TimeSpan.FromSeconds(2),
+        InvisibilityTimeout = TimeSpan.FromMinutes(30),
+        UseSlidingInvisibilityTimeout = true,
+    };
+
     public static IServiceCollection AddConnapseHangfire(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -50,13 +64,7 @@ public static class HangfireServiceCollectionExtensions
             // hits ObjectDisposedException("LoggerFactory"). See NoOpHangfireLogProvider
             // for full rationale.
             .UseLogProvider(new NoOpHangfireLogProvider())
-            .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(hangfireConnectionString), new PostgreSqlStorageOptions
-            {
-                SchemaName = "hangfire",
-                PrepareSchemaIfNecessary = true,
-                QueuePollInterval = TimeSpan.FromSeconds(2),
-                InvisibilityTimeout = TimeSpan.FromMinutes(30)
-            }));
+            .UsePostgreSqlStorage(c => c.UseNpgsqlConnection(hangfireConnectionString), StorageOptions()));
 
         // BackgroundJobServer startup can be suppressed via Hangfire:DisableServer=true.
         // Used by integration-test derived factories (WebApplicationFactory.WithWebHostBuilder)

@@ -25,13 +25,16 @@ namespace Connapse.Eval.Systems;
 public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
 {
     public static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan StallTimeout = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan DefaultStallTimeout = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan DocumentTimeout = TimeSpan.FromMinutes(2);
     private static readonly IReadOnlyDictionary<string, TimeSpan> NoStages = new Dictionary<string, TimeSpan>();
     private const int UploadBatchSize = 100;
 
     private readonly EvalHost _host;
     private SystemConfig _config;
+
+    /// <summary>How long ingestion may go without a document settling before the wait gives up.</summary>
+    public TimeSpan StallTimeout { get; set; } = DefaultStallTimeout;
 
     /// <summary>
     /// The search settings the host started with, before any config's were saved: every config's

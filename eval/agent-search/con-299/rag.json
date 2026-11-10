@@ -1,0 +1,108 @@
+{
+  "setup": "rag",
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "all": {
+    "questions": 180,
+    "correct": 51,
+    "accuracy": 0.2833,
+    "toolCalls": 4.19
+  },
+  "families": {
+    "filter_count": {
+      "questions": 30,
+      "correct": 3,
+      "accuracy": 0.1,
+      "toolCalls": 4.93
+    },
+    "group_topk": {
+      "questions": 30,
+      "correct": 7,
+      "accuracy": 0.2333,
+      "toolCalls": 3.87
+    },
+    "join": {
+      "questions": 30,
+      "correct": 1,
+      "accuracy": 0.0333,
+      "toolCalls": 5.53
+    },
+    "lookup": {
+      "questions": 30,
+      "correct": 25,
+      "accuracy": 0.8333,
+      "toolCalls": 2.83
+    },
+    "seen_as_of": {
+      "questions": 30,
+      "correct": 11,
+      "accuracy": 0.3667,
+      "toolCalls": 2.33
+    },
+    "sum_avg": {
+      "questions": 30,
+      "correct": 4,
+      "accuracy": 0.1333,
+      "toolCalls": 5.67
+    }
+  },
+  "admin": {
+    "questions": 168,
+    "correct": 51,
+    "accuracy": 0.3036,
+    "toolCalls": 4.19
+  },
+  "restricted": {
+    "questions": 12,
+    "correct": 0,
+    "accuracy": 0,
+    "toolCalls": 4.25
+  },
+  "restrictedLeaks": 0,
+  "seenAsOf": {
+    "load1": {
+      "questions": 16,
+      "correct": 0,
+      "accuracy": 0,
+      "toolCalls": 2.56
+    },
+    "load2": {
+      "questions": 14,
+      "correct": 11,
+      "accuracy": 0.7857,
+      "toolCalls": 2.07
+    }
+  },
+  "mixed": {
+    "questions": 30,
+    "correct": 1,
+    "accuracy": 0.0333,
+    "toolCalls": 6.63
+  },
+  "outcomes": {
+    "Answered": 155,
+    "NoAnswer": 55
+  },
+  "tokens": {
+    "runs": 210,
+    "input": 2182,
+    "cacheWrite": 4147370,
+    "cacheRead": 11805106,
+    "output": 292877,
+    "apiListPriceUsd": 20.7031
+  },
+  "costPerQuestionUsd": 0.0931,
+  "conforming": true,
+  "diagnosticOnly": [],
+  "inventorySeen": {
+    "load1": "2026-11-09 23:58:51 UTC",
+    "load2": "2026-11-09 23:59:05 UTC"
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 25%)",
+    "atLastRun": "allowed (seven_day 26%)"
+  }
+}
