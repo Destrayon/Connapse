@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Connapse.Storage.Tables;
 using CsCheck;
 using FluentAssertions;
@@ -418,27 +417,5 @@ public class TableSqlCheckTests
         // The other half of the test above: the templates themselves are plain reads, so the refusal comes from the splice.
         foreach (string template in Templates)
             Allowed(string.Format(System.Globalization.CultureInfo.InvariantCulture, template, "lower('a')"));
-    }
-
-    [Fact]
-    [Trait("Size", "Medium")]
-    public void Check_TypicalQuery_P95UnderFiveMilliseconds()
-    {
-        const string sql = "WITH recent AS (SELECT c_1, c_2, c_3 FROM t_1 WHERE c_3 > CURRENT_DATE - 30) " +
-            "SELECT r.c_1, count(*), avg(r.c_2), max(t.c_2), row_number() OVER (ORDER BY count(*) DESC) " +
-            "FROM recent r LEFT JOIN t_2 t ON t.c_1 = r.c_1 WHERE lower(r.c_1) LIKE 'a%' " +
-            "GROUP BY r.c_1 HAVING count(*) > 1 ORDER BY 2 DESC LIMIT 50";
-        for (int i = 0; i < 50; i++)
-            Check(sql).Allowed.Should().BeTrue();
-
-        var times = new double[500];
-        for (int i = 0; i < times.Length; i++)
-        {
-            long start = Stopwatch.GetTimestamp();
-            Check(sql);
-            times[i] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-        }
-        Array.Sort(times);
-        times[(int)(times.Length * 0.95)].Should().BeLessThan(5);
     }
 }

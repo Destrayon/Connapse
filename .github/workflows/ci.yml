@@ -55,6 +55,10 @@ jobs:
       if: success() || failure()
       run: dotnet test tests/Connapse.Ingestion.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=gate-tests.trx"
 
+    - name: Run table query check speed gate
+      if: success() || failure()
+      run: dotnet test tests/Connapse.Storage.Tests --no-build --configuration Release --filter "Category=Gate" --verbosity normal --logger "trx;LogFileName=table-sql-gate-tests.trx"
+
     - uses: ./.github/actions/disk-report
       if: always()
 
