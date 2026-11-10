@@ -11,6 +11,7 @@ internal enum TableSqlRefusal
     Empty,
     TooLong,
     NullCharacter,
+    TooDeep,
     Unparseable,
     MultipleStatements,
     NotASelect,
@@ -54,6 +55,13 @@ internal static class TableSqlCheck
 {
     /// <summary>The longest query text checked; anything longer is refused before it is parsed.</summary>
     internal const int MaxLength = 20_000;
+
+    /// <summary>
+    /// The deepest parse tree checked, counted in protobuf messages (a nested subquery adds four). The parser's own
+    /// limit depends on the platform's stack, so without this cap the same query could pass on Linux and fail to parse
+    /// on Windows.
+    /// </summary>
+    internal const int MaxDepth = 400;
 
     private const string Catalog = "pg_catalog";
 
@@ -145,11 +153,13 @@ internal static class TableSqlCheck
     /// </summary>
     private static TableSqlVerdict Walk(Pg.SelectStmt root, TableSqlScope scope)
     {
-        var pending = new Stack<(IMessage Message, CteNames? Ctes)>();
-        pending.Push((root, null));
+        var pending = new Stack<(IMessage Message, CteNames? Ctes, int Depth)>();
+        pending.Push((root, null, 1));
         while (pending.TryPop(out var item))
         {
-            var (message, ctes) = item;
+            var (message, ctes, depth) = item;
+            if (depth > MaxDepth)
+                return Refuse(TableSqlRefusal.TooDeep, $"the query nests deeper than {MaxDepth} levels");
             if (!AllowedNodes.Contains(message.Descriptor.Name))
                 return Refuse(TableSqlRefusal.DisallowedSyntax, $"{message.Descriptor.Name} is not allowed");
             if (Inspect(message, scope, ctes) is { } refused)
@@ -162,13 +172,13 @@ internal static class TableSqlCheck
                     foreach (var cte in with.Ctes)
                     {
                         // A plain WITH's query sees the names before it, never its own or later ones.
-                        pending.Push((cte, all));
+                        pending.Push((cte, all, depth + 1));
                         all = new CteNames(cte.CommonTableExpr.Ctename, all);
                     }
-                    PushChildren(pending, select, all, skip: Pg.SelectStmt.WithClauseFieldNumber);
+                    PushChildren(pending, select, all, depth + 1, skip: Pg.SelectStmt.WithClauseFieldNumber);
                     break;
                 default:
-                    PushChildren(pending, message, ctes, skip: -1);
+                    PushChildren(pending, message, ctes, depth + 1, skip: -1);
                     break;
             }
         }
@@ -176,7 +186,8 @@ internal static class TableSqlCheck
         return TableSqlVerdict.Allow;
     }
 
-    private static void PushChildren(Stack<(IMessage, CteNames?)> pending, IMessage message, CteNames? ctes, int skip)
+    private static void PushChildren(
+        Stack<(IMessage, CteNames?, int)> pending, IMessage message, CteNames? ctes, int depth, int skip)
     {
         foreach (var field in message.Descriptor.Fields.InFieldNumberOrder())
         {
@@ -186,11 +197,11 @@ internal static class TableSqlCheck
             if (field.IsRepeated)
             {
                 foreach (object? child in (System.Collections.IList)value!)
-                    pending.Push(((IMessage)child!, ctes));
+                    pending.Push(((IMessage)child!, ctes, depth));
             }
             else if (value is IMessage child)
             {
-                pending.Push((child, ctes));
+                pending.Push((child, ctes, depth));
             }
         }
     }

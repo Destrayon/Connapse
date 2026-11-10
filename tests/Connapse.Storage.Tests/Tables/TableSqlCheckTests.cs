@@ -253,11 +253,17 @@ public class TableSqlCheckTests
         string.Concat(Enumerable.Repeat(") s", depth));
 
     [Fact]
+    public void Check_NestingPastTheDepthLimit_RefusedTheSameOnEveryPlatform() =>
+        // 120 levels parse on Windows and Linux alike, so the refusal comes from the check's own cap.
+        Refused(NestedSubqueries(120, "t_1"), TableSqlRefusal.TooDeep);
+
+    [Fact]
     public void Check_NestingPastTheParsersLimit_RefusedWithoutCrashing()
     {
-        Refused(NestedSubqueries(300, "t_1"), TableSqlRefusal.Unparseable);
-        var act = () => Check("SELECT " + new string('(', 9_000) + "1" + new string(')', 9_000));
-        act.Should().NotThrow();
+        var act = () => Check(NestedSubqueries(1_000, "t_1"));
+        act.Should().NotThrow().Which.Allowed.Should().BeFalse();
+        var parens = () => Check("SELECT " + new string('(', 9_000) + "1" + new string(')', 9_000));
+        parens.Should().NotThrow();
     }
 
     [Fact]
