@@ -35,3 +35,6 @@ Stacked on PR #1206 (CON-324, row-level security); merge after it.
   access. Found and fixed: on a fresh database the first table build failed (`tables_auth` didn't exist until the
   first query), so `PostgresTableStore` now provisions the reader first. All 90 table integration tests pass.
   Next: Release build with CI flags, PR.
+- Phase 6: Release build (`--no-incremental -warnaserror`), format and all unit tests clean after adding
+  `docs/problems.md` entries and keeping `ContainerTables.razor` inside its logic budget. Commit 2bd95417, PR #1208
+  into `epic/con-e6-tables`; ClaudePM told. Next: wait for CI/review.
