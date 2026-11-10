@@ -71,6 +71,30 @@ side of the fusion to 0–1 within each query, so the top hit always scores abou
      embedding model has been idle longer than Ollama's unload time is measured before and after; after the change
      it is at most 1.5 times the warm p95, or the report explains why not.
 
+### Redesign judgement (CON-278)
+
+Written on 2026-11-09, after the first design failed bar 2 on the held-out run above and before the redesign's
+code or any fresh-split run existed. The redesign flags a search as having no good match when its top hit's raw
+cosine similarity is below a cutoff set per embedding model, and lowers scores only on flagged searches. The bars
+above are unchanged; this section names the fresh held-out set and how each model's cutoff is chosen.
+
+- **Fresh split.** The `scores` command's `--split fresh` on suite `v1`, datasets `ragbench-techqa` and
+  `ragbench-emanual`, each dataset's foreign queries being the other's. From each dataset's RAGBench train rows,
+  drop any whose ID or question text is also a dev or test question, keep one row per ID, order by the lowercase hex
+  SHA-256 of `con-278-fresh:` + ID (ordinal), and take the first 300. A hit is relevant when its document is one the
+  row's relevant sentence keys point to. No run has used train questions as queries; their documents are already in
+  the `v1` index, as they always were.
+- **Cutoff rule.** On the spent `--split dev` questions of the same two datasets: the cutoff is the 5th percentile
+  of the top hit's raw cosine over in-domain queries whose top hit is relevant, and the floor point is the median
+  top raw cosine over foreign queries, each rounded to 0.01. A flagged search's scores are multiplied by 0.79 at the
+  cutoff, falling linearly to 0.3 at the floor point, and by 0.3 below it. For `nomic-embed-text` (the default)
+  this gives 0.69 and 0.61. A model without a cutoff is never flagged and its scores are unchanged.
+- **Models.** `nomic-embed-text` and `qwen3-embedding:0.6b` (1024 dimensions), each with its own index of the two
+  datasets and its own baseline from the base commit. Bars 1, 2, 3 and 5 are judged per model on the fresh split;
+  bar 4 by the ranking identity on the fresh split and the unit test.
+- **Outcome.** The change merges only if `nomic-embed-text` passes every bar. If `qwen3-embedding` fails one, it
+  ships without a built-in cutoff (never flagged) and the report says so.
+
 ## Container memory for search (CON-244)
 
 **Result:** the planted-memory arm passed, but the realistic arm below came back WORSE, so container memory was
