@@ -236,7 +236,7 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
             table.RowCount.Should().Be(60_000);
             (await DocumentAsync(id)).Metadata["TableId"].Should().Be(table.Id.ToString());
             var chunks = await QueryAsync($"SELECT count(*) FROM chunks WHERE document_id = '{id}'", r => r.GetInt64(0));
-            chunks.Single().Should().BeInRange(1, 20,"a large CSV's text is its summary, not its rows");
+            chunks.Single().Should().BeInRange(1, 20, "a large CSV's text is its summary, not its rows");
 
             (await KeywordHitsAsync(containerId, "customer-7")).Should().Contain(id, "its first rows are in the summary");
             (await KeywordHitsAsync(containerId, "59999")).Should().NotContain(id, "later rows are in the table only");
