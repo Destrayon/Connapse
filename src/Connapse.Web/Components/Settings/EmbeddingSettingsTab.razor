@@ -27,6 +27,12 @@
                 <InputText @bind-Value="localSettings.BaseUrl" class="form-control" placeholder="e.g. http://ollama:11434 (Docker) or http://localhost:11434 (local)" />
                 <small class="form-text text-muted">An address set in the deployment's environment takes priority over this one.</small>
             </div>
+
+            <div class="col-md-6">
+                <label class="form-label">Keep Model Loaded For</label>
+                <InputText @bind-Value="localSettings.OllamaKeepAlive" class="form-control" placeholder="30m" />
+                <small class="form-text text-muted">How long Ollama keeps the model in memory after a request, such as 30m or 1h. Ollama unloads it after 5 minutes otherwise, and the next search waits while it reloads. Leave empty to use the Ollama server's setting.</small>
+            </div>
         }
         else if (IsOpenAi)
         {

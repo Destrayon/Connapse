@@ -35,6 +35,72 @@ before any of these features or their results existed. A change merges only when
 | **Tables container** (suite `tables-v1`, CON-E6; see below) | On the 180 held-out questions: +25 points over rag, exact McNemar p < 0.01, at least 70% correct, no family lower than rag; "both" no worse than rag on the 30 mixed questions | All suites; the leak suite and the table leak tests | 0 server AI tokens, `table_aggregate` p95 under 500 ms on 100k rows, agent cost at most 1.5x rag's |
 | **Passage links to tables** (CON-E6 ticket 15, the `tables-v1` linked set; see below) | 80% of the 20 table questions follow a link; both-linked at least as many of 30 right as both-unlinked and 4 more of the 20 | 10 prose questions: at most 2 make a table call, none fewer right; the hidden-table leak test | Agent cost at most 1.2x both-unlinked's |
 | **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
+| **Meaningful search scores** (CON-278; see below) | Unrelated questions no longer score near 1; scores track relevance better; a no-match signal that works | Rankings identical to the baseline on `v1` | Search p95 +10% at most; a search after the embedding model's idle unload measured and fixed or explained |
+
+## Meaningful search scores (CON-278)
+
+Written on 2026-11-08, before the `scores` command or any measurement existed. Today hybrid search scales each
+side of the fusion to 0–1 within each query, so the top hit always scores about 1 however unrelated it is.
+
+- **Measured with** the `scores` command on suite `v1`, `hybrid` config, test queries. Each dataset's own test
+  queries are **in-domain**. Each dataset is also searched with the test queries of another dataset in the suite
+  (the next one in suite order, wrapping around); those are **foreign** queries. A hit is relevant when its document
+  has a grade above 0. Rules are tuned on the `dev` suite only and judged once on `v1`.
+- **Baseline:** the same command on the scoring of the commit this change branches from.
+- **Bars** (all must pass):
+  1. **No near-perfect unrelated hit.** Over foreign queries, the median top-1 score is at most 0.5 and at most 10%
+     of them have a top-1 score of 0.8 or more.
+  2. **Scores track relevance.** Replaced on 2026-11-09 with the user's approval, after the first `v1` judgement
+     failed the original bar (in-domain AUROC at least 0.05 above the baseline's, interval above 0) and before the
+     held-out run below existed. Both parts must pass; intervals are 95% bootstrap intervals of the difference
+     against the baseline (resampling queries, 1,000 draws, seed 278).
+     - **In-domain, no worse.** Pooled AUROC of the score over every top-10 hit of in-domain queries, relevant
+       against not relevant: the interval's lower bound is above -0.02.
+     - **In-domain and foreign, better.** Pooled AUROC over every top-10 hit of in-domain and foreign queries,
+       where a foreign hit is never relevant: the interval's lower bound is above 0.
+     Judged on the held-out run: suite `v1`, `--split dev`, datasets `ragbench-techqa` and `ragbench-emanual`
+     (RAGBench validation questions, 304 and 132; each dataset's foreign queries are the other's). No dev or tune
+     run used these questions, and the `v1` test run that failed the original bar used only test questions; the
+     corpus is the same `v1` index. The `v1` test numbers are reported alongside.
+  3. **No-match signal.** The search result's no-match flag is set for at least 70% of foreign queries and for at
+     most 10% of in-domain queries whose top-1 hit is relevant.
+  4. **No regression.** Every in-domain query's top-10 ranking is identical to the baseline's, so nDCG@10 is
+     unchanged. `enterprise-v1` and `pdfqa-v1` are covered by the same identity, which a unit test proves for any
+     input with the default settings (no reranker, minimum score 0, auto-cut off).
+  5. **Speed.** Search p95 over in-domain queries is at most 10% above the baseline's. A search made after the
+     embedding model has been idle longer than Ollama's unload time is measured before and after; after the change
+     it is at most 1.5 times the warm p95, or the report explains why not.
+
+### Redesign judgement (CON-278)
+
+Written on 2026-11-09, after the first design failed bar 2 on the held-out run above and before the redesign's
+code or any fresh-split run existed. The redesign flags a search as having no good match when its top hit's raw
+cosine similarity is below a cutoff set per embedding model, and lowers scores only on flagged searches. The bars
+above are unchanged; this section names the fresh held-out set and how each model's cutoff is chosen.
+
+- **Fresh split.** The `scores` command's `--split fresh` on suite `v1`, datasets `ragbench-techqa` and
+  `ragbench-emanual`, each dataset's foreign queries being the other's. From each dataset's RAGBench train rows,
+  drop any whose ID or question text is also a dev or test question, keep one row per ID, order by the lowercase hex
+  SHA-256 of `con-278-fresh:` + ID (ordinal), and take the first 300. A hit is relevant when its document is one the
+  row's relevant sentence keys point to. No run has used train questions as queries; their documents are already in
+  the `v1` index, as they always were.
+- **Cutoff rule.** On the spent `--split dev` questions of the same two datasets: the cutoff is the 5th percentile
+  of the top hit's raw cosine over in-domain queries whose top hit is relevant, and the floor point is the median
+  top raw cosine over foreign queries, each rounded to 0.01. A flagged search's scores are multiplied by 0.79 at the
+  cutoff, falling linearly to 0.3 at the floor point, and by 0.3 below it. For `nomic-embed-text` (the default)
+  this gives 0.69 and 0.61. A model without a cutoff is never flagged and its scores are unchanged.
+- **Models.** `nomic-embed-text` and `qwen3-embedding:0.6b` (1024 dimensions), each with its own index of the two
+  datasets and its own baseline from the base commit. Bars 1, 2, 3 and 5 are judged per model on the fresh split;
+  bar 4 by the ranking identity on the fresh split and the unit test.
+- **Outcome.** The change merges only if `nomic-embed-text` passes every bar. If `qwen3-embedding` fails one, it
+  ships without a built-in cutoff (never flagged) and the report says so.
+- **Result (2026-11-10, `nomic-embed-text` only).** Bar 1 **failed**: the foreign median top-1 is 0.358 (baseline
+  0.863), but 12.3% of foreign queries still score 0.8 or more (limit 10%, baseline 76.5%); 73 of the 74 are
+  `ragbench-emanual` questions searched against the `ragbench-techqa` corpus. Bars 2–5 passed: in-domain AUROC
+  -0.010 (interval -0.017 to -0.004), pooled with foreign +0.078 (0.067 to 0.090); 83.8% of foreign queries flagged
+  and 3.9% of in-domain queries with a relevant top hit; 0 of 600 rankings changed; p95 594 ms against 608. The
+  `qwen3-embedding:0.6b` run was stopped for low machine memory, so it ships without a built-in cutoff. The user
+  chose to ship with the bar 1 miss stated.
 
 ## Container memory for search (CON-244)
 

@@ -38,6 +38,9 @@ internal static class EvalEntryPoint
                     ? await new VectorIndexScaleProbe(paths, Console.Out).RunAsync(scale, cli.PositiveInt("limit-queries") ?? 50, cli.Flag("strategy"), cli.Flag("insert-bench"), cts.Token)
                     : await new VectorIndexProbe(paths, Console.Out, http)
                         .RunAsync(cli.Required("suite"), cli.List("datasets"), cli.PositiveInt("limit-queries"), cts.Token),
+                "scores" => await new ScoresProbe(paths, Console.Out, http).RunAsync(new ScoresProbe.Options(
+                    cli.Required("suite"), cli.Option("config") ?? "hybrid", cli.List("datasets"), cli.PositiveInt("limit-queries"),
+                    cli.Option("split") ?? "test", cli.Option("index-key"), cli.Option("out")), cts.Token),
                 "report" => Commands.Report(cli),
                 "memory" => await new MemoryEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
@@ -266,8 +269,10 @@ internal static class Commands
               compare  <runDirA> <runDirB> [--allow-dataset-mismatch]
               vector-index --suite <name> [--datasets a,b] [--limit-queries N]   (production index vs exact search)
               vector-index --scale <dir> [--limit-queries N] [--strategy] [--insert-bench]
+              scores   --suite <name> [--config hybrid] [--datasets a,b] [--limit-queries N] [--split test|dev|all] [--index-key <key>] [--out <file.jsonl>]
+                       (what search scores say: each dataset searched with its own and the next dataset's queries)
               report   <runDir>
-              pool     <runDir>... --out <file>
+              pool    <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
               memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)

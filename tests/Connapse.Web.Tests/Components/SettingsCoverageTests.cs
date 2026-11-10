@@ -46,6 +46,10 @@ public class SettingsCoverageTests
         ["SearchSettings.LinkSeeds"] = "link layer is off by default and has no page yet",
         ["SearchSettings.UseVectorSearch"] = "per-source choice read only by the link layer, which has no page yet",
         ["SearchSettings.UseKeywordSearch"] = "per-source choice read only by the link layer, which has no page yet",
+        // A no-match cutoff is measured per embedding model by the rule in eval/pass-bars.md (CON-278), not tuned by
+        // hand; the built-in ones apply on their own, and the override is set through the settings API.
+        ["SearchSettings.NoMatchCutoff"] = "measured per embedding model, not hand-tuned; override through the settings API",
+        ["SearchSettings.NoMatchFloor"] = "measured per embedding model, not hand-tuned; override through the settings API",
     };
 
     private static string TabSource(string file)

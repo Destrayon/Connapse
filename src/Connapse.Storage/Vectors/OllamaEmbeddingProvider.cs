@@ -166,7 +166,8 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
             var request = new OllamaEmbedRequest
             {
                 Model = _settings.Model,
-                Input = texts
+                Input = texts,
+                KeepAlive = string.IsNullOrWhiteSpace(_settings.OllamaKeepAlive) ? null : _settings.OllamaKeepAlive.Trim(),
             };
 
             response = await _httpClient.PostAsJsonAsync("/api/embed", request, ct);
@@ -239,6 +240,11 @@ public class OllamaEmbeddingProvider : IEmbeddingProvider
         // without saying so. False makes it refuse instead, so the text is split and embedded whole.
         [JsonPropertyName("truncate")]
         public bool Truncate { get; init; }
+
+        // Omitted when null, so the Ollama server's own OLLAMA_KEEP_ALIVE applies.
+        [JsonPropertyName("keep_alive")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? KeepAlive { get; init; }
     }
 
     private record OllamaEmbedResponse

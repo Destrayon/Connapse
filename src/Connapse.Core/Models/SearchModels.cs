@@ -25,11 +25,16 @@ public record SearchOptions(
 /// Documents in the searched container or source still waiting to be indexed, so none of their text can be in
 /// <paramref name="Hits"/> yet (CON-277). Zero when the caller may not know the scope exists.
 /// </param>
+/// <param name="NoGoodMatch">
+/// True when search found nothing that matches the query well: no hits, or hits whose scores say they are
+/// unrelated. A caller can tell the user nothing relevant was found instead of presenting the hits as answers.
+/// </param>
 public record SearchResult(
     List<SearchHit> Hits,
     int TotalMatches,
     TimeSpan Duration,
-    int PendingDocuments = 0);
+    int PendingDocuments = 0,
+    bool NoGoodMatch = false);
 
 public record SearchHit(
     string ChunkId,

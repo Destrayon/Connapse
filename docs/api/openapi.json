@@ -18504,6 +18504,12 @@
             ],
             "format": "int32"
           },
+          "ollamaKeepAlive": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "apiKey": {
             "type": [
               "null",
@@ -21464,6 +21470,10 @@
             ],
             "format": "int32",
             "default": 0
+          },
+          "noGoodMatch": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -21549,6 +21559,24 @@
           "minimumScore": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
             "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "noMatchCutoff": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "noMatchFloor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
               "number",
               "string"
             ],

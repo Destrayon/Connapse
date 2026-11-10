@@ -64,6 +64,13 @@ public record EmbeddingSettings
     public int MaxConcurrentQueryRequests { get; set; } = 8;
 
     /// <summary>
+    /// How long Ollama keeps the embedding model loaded after a request, in Ollama's duration format
+    /// ("30m", "2h", "-1" for always). Ollama's own default unloads it after 5 minutes idle, and the next
+    /// search then waits seconds for it to load again. Empty leaves it to the Ollama server's setting.
+    /// </summary>
+    public string? OllamaKeepAlive { get; set; } = "30m";
+
+    /// <summary>
     /// API key — legacy shared field, kept for backward compatibility.
     /// Prefer the provider-specific key properties below.
     /// </summary>
@@ -290,8 +297,23 @@ public record SearchSettings
     /// Minimum similarity score floor (0.0-1.0, default: 0).
     /// Set to 0 by default — TopK is the primary result limiter.
     /// Raise to filter low-relevance results (e.g., 0.2 to drop noise).
+    /// A search flagged as having no good match (see <see cref="NoMatchCutoff"/>) has every score multiplied by 0.79
+    /// or less, so a floor of 0.8 drops all of it while keeping every result of a search that matched.
     /// </summary>
     public double MinimumScore { get; set; } = 0;
+
+    /// <summary>
+    /// Best-match cosine similarity below which a semantic or hybrid search reports that nothing matched well and
+    /// scales its scores down. Empty uses the built-in cutoff for the embedding model, when it has one (models
+    /// without one are never flagged); zero turns the flag off. Each embedding model needs its own value.
+    /// </summary>
+    public double? NoMatchCutoff { get; set; }
+
+    /// <summary>
+    /// Best-match cosine at or below which a flagged search's scores are scaled down the most (by 0.3). Only read
+    /// with <see cref="NoMatchCutoff"/>; empty puts it 0.08 below the cutoff.
+    /// </summary>
+    public double? NoMatchFloor { get; set; }
 
     /// <summary>
     /// When enabled, automatically trims results after the largest score gap.

@@ -16,7 +16,8 @@ public class OllamaEmbeddingProviderTests
 
     private readonly ILogger<OllamaEmbeddingProvider> _logger = Substitute.For<ILogger<OllamaEmbeddingProvider>>();
 
-    private OllamaEmbeddingProvider CreateProvider(HttpMessageHandler handler, string model = "all-minilm-cased", int batchSize = 32)
+    private OllamaEmbeddingProvider CreateProvider(
+        HttpMessageHandler handler, string model = "all-minilm-cased", int batchSize = 32, string? keepAlive = "30m")
     {
         var settings = new EmbeddingSettings
         {
@@ -24,6 +25,7 @@ public class OllamaEmbeddingProviderTests
             Model = model,
             BaseUrl = "http://localhost:11434",
             BatchSize = batchSize,
+            OllamaKeepAlive = keepAlive,
         };
         return new OllamaEmbeddingProvider(new HttpClient(handler), new TestOptionsSnapshot<EmbeddingSettings>(settings), _logger);
     }
@@ -264,6 +266,33 @@ public class OllamaEmbeddingProviderTests
         ollama.Requests.Should().Be(0);
     }
 
+    [Fact]
+    public async Task EmbedBatchAsync_DefaultSettings_AsksOllamaToKeepTheModelLoadedForThirtyMinutes()
+    {
+        var ollama = new FakeOllama(maxInputLength: 100);
+        var provider = new OllamaEmbeddingProvider(
+            new HttpClient(ollama),
+            new TestOptionsSnapshot<EmbeddingSettings>(new EmbeddingSettings { BaseUrl = "http://localhost:11434" }),
+            _logger);
+
+        await provider.EmbedBatchAsync(["a"], EmbeddingInputType.Unspecified);
+
+        ollama.KeepAlive.Should().Be("30m");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task EmbedBatchAsync_KeepAliveEmpty_LeavesItToTheOllamaServer(string? keepAlive)
+    {
+        var ollama = new FakeOllama(maxInputLength: 100);
+
+        await CreateProvider(ollama, keepAlive: keepAlive).EmbedBatchAsync(["a"], EmbeddingInputType.Unspecified);
+
+        ollama.KeepAliveSent.Should().BeFalse();
+    }
+
     private static float Length(float[] v) => (float)Math.Sqrt(v.Sum(x => x * x));
 
     /// <summary>
@@ -279,6 +308,8 @@ public class OllamaEmbeddingProviderTests
     {
         public int Requests { get; private set; }
         public List<string> Accepted { get; } = [];
+        public bool KeepAliveSent { get; private set; }
+        public string? KeepAlive { get; private set; }
 
         public static float[] VectorFor(string text) => [text.Length, 1f];
 
@@ -291,6 +322,8 @@ public class OllamaEmbeddingProviderTests
         {
             Requests++;
             using JsonDocument body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            if (body.RootElement.TryGetProperty("keep_alive", out JsonElement keepAlive))
+                (KeepAliveSent, KeepAlive) = (true, keepAlive.GetString());
             List<string> inputs = body.RootElement.GetProperty("input").EnumerateArray().Select(e => e.GetString()!).ToList();
 
             bool truncate = !body.RootElement.TryGetProperty("truncate", out JsonElement t) || t.ValueKind != JsonValueKind.False;
