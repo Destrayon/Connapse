@@ -162,6 +162,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICustomLinkRemovalStore, Connections.PostgresCustomLinkRemovalStore>();
         services.AddScoped<ISourceStore, PostgresSourceStore>();
 
+        // Tables containers' tables (CON-301)
+        services.AddScoped<Tables.PostgresTableStore>();
+        services.AddScoped<ITableStore>(sp => sp.GetRequiredService<Tables.PostgresTableStore>());
+
         // Folder store
         services.AddScoped<IFolderStore, PostgresFolderStore>();
         services.AddScoped<IStoredFileRemovalStore, Documents.PostgresStoredFileRemovalStore>();

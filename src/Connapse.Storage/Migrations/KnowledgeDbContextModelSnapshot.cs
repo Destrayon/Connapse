@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.7")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -330,6 +330,89 @@ namespace Connapse.Storage.Migrations
                             t.HasCheckConstraint("ck_containers_audience_owner", "(audience = 'team' AND owner_user_id IS NULL AND owner_agent_id IS NULL) OR (audience = 'personal' AND kind = 'memory' AND (owner_user_id IS NULL) <> (owner_agent_id IS NULL))");
 
                             t.HasCheckConstraint("ck_containers_kind", "kind IN ('documents', 'memory', 'tables')");
+                        });
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.ContainerTableEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<Guid?>("DocumentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("document_id");
+
+                    b.Property<DateTime>("LoadedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("loaded_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("NeedsReview")
+                        .HasColumnType("boolean")
+                        .HasColumnName("needs_review");
+
+                    b.Property<string>("RejectsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("rejects");
+
+                    b.Property<long>("RowCount")
+                        .HasColumnType("bigint")
+                        .HasColumnName("row_count");
+
+                    b.Property<string>("SchemaJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("schema");
+
+                    b.Property<string>("StorageName")
+                        .IsRequired()
+                        .HasMaxLength(63)
+                        .HasColumnType("character varying(63)")
+                        .HasColumnName("storage_name");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContainerId")
+                        .HasDatabaseName("ix_container_tables_container");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("StorageName")
+                        .IsUnique()
+                        .HasDatabaseName("ix_container_tables_storage_name");
+
+                    b.ToTable("container_tables", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_container_tables_storage_name", "storage_name ~ '^t_[0-9a-f]{32}$'");
                         });
                 });
 
@@ -989,6 +1072,41 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("provider_credentials", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.RetiredTableEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTime>("RetiredAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("retired_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("StorageName")
+                        .IsRequired()
+                        .HasMaxLength(63)
+                        .HasColumnType("character varying(63)")
+                        .HasColumnName("storage_name");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContainerId");
+
+                    b.HasIndex("RetiredAt")
+                        .HasDatabaseName("ix_retired_tables_retired_at");
+
+                    b.ToTable("retired_tables", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.SettingEntity", b =>
                 {
                     b.Property<string>("Category")
@@ -1204,6 +1322,20 @@ namespace Connapse.Storage.Migrations
                     b.Navigation("Document");
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.ContainerTableEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Connapse.Storage.Data.Entities.DocumentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.DocumentEntity", b =>
                 {
                     b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", "Container")
@@ -1251,6 +1383,15 @@ namespace Connapse.Storage.Migrations
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.MemorySpaceStarEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.RetiredTableEntity", b =>
                 {
                     b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
                         .WithMany()

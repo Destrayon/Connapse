@@ -26,6 +26,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<MemoryFactEntity> MemoryFacts => Set<MemoryFactEntity>();
     public DbSet<MemoryFactSourceEntity> MemoryFactSources => Set<MemoryFactSourceEntity>();
     public DbSet<MemorySpaceStarEntity> MemorySpaceStars => Set<MemorySpaceStarEntity>();
+    public DbSet<ContainerTableEntity> ContainerTables => Set<ContainerTableEntity>();
+    public DbSet<RetiredTableEntity> RetiredTables => Set<RetiredTableEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +51,47 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureLinks(modelBuilder);
         ConfigureMemory(modelBuilder);
         ConfigureMemorySpaceStars(modelBuilder);
+        ConfigureTables(modelBuilder);
+    }
+
+    private static void ConfigureTables(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ContainerTableEntity>(entity =>
+        {
+            entity.ToTable("container_tables", t => t.HasCheckConstraint("ck_container_tables_storage_name",
+                "storage_name ~ '^t_[0-9a-f]{32}$'"));
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.DocumentId).HasColumnName("document_id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.StorageName).HasColumnName("storage_name").HasMaxLength(63).IsRequired();
+            entity.Property(e => e.SchemaJson).HasColumnName("schema").HasColumnType("jsonb").IsRequired();
+            entity.Property(e => e.RowCount).HasColumnName("row_count");
+            entity.Property(e => e.NeedsReview).HasColumnName("needs_review");
+            entity.Property(e => e.RejectsJson).HasColumnName("rejects").HasColumnType("jsonb").IsRequired();
+            entity.Property(e => e.Version).HasColumnName("version");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
+            entity.Property(e => e.LoadedAt).HasColumnName("loaded_at").HasDefaultValueSql("now()");
+            entity.HasIndex(e => e.ContainerId).HasDatabaseName("ix_container_tables_container");
+            entity.HasIndex(e => e.StorageName).IsUnique().HasDatabaseName("ix_container_tables_storage_name");
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<DocumentEntity>().WithMany().HasForeignKey(e => e.DocumentId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RetiredTableEntity>(entity =>
+        {
+            entity.ToTable("retired_tables");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.StorageName).HasColumnName("storage_name").HasMaxLength(63).IsRequired();
+            entity.Property(e => e.RetiredAt).HasColumnName("retired_at").HasDefaultValueSql("now()");
+            entity.HasIndex(e => e.RetiredAt).HasDatabaseName("ix_retired_tables_retired_at");
+            // The container's schema is dropped with the container, taking its retired tables with it.
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     private static void ConfigureMemorySpaceStars(ModelBuilder modelBuilder)

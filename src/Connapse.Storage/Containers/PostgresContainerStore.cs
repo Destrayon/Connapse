@@ -5,6 +5,7 @@ using Connapse.Core.Utilities;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
 using Connapse.Storage.Settings;
+using Connapse.Storage.Tables;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using static Connapse.Core.Utilities.LogSanitizer;
@@ -42,8 +43,13 @@ public class PostgresContainerStore(
             UpdatedAt = DateTime.UtcNow
         };
 
+        // A tables container's schema is made with its row, so neither exists without the other.
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
         context.Containers.Add(entity);
         await context.SaveChangesAsync(ct);
+        if (entity.Kind == ContainerKind.Tables)
+            await TableDdl.CreateSchemaAsync(context.Database.GetDbConnection(), entity.Id, ct);
+        await transaction.CommitAsync(ct);
 
         logger.LogInformation("Created container {ContainerId} ({Name})", entity.Id, Sanitize(entity.Name));
 
@@ -179,8 +185,14 @@ public class PostgresContainerStore(
             throw new InvalidOperationException(
                 $"Container '{entity.Name}' is not empty ({entity.Documents.Count} documents). Delete all files first.");
 
+        // A tables container's tables go with it in one transaction: its schema is dropped, and its catalog entries
+        // cascade from the row.
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        if (entity.Kind == ContainerKind.Tables)
+            await TableDdl.DropSchemaAsync(context.Database.GetDbConnection(), id, ct);
         context.Containers.Remove(entity);
         await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         logger.LogInformation("Deleted container {ContainerId} ({Name})", id, Sanitize(entity.Name));
         return true;
