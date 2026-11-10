@@ -50,3 +50,7 @@ GET /api/v1/connections removed the enum value `Filesystem` from the `query` req
 POST /api/v1/connections removed the enum value `Filesystem` of the request property `provider/oneOf[#/components/schemas/ConnectionProvider]/`
 # CON-319: the tables-only container kind is gone before release; a documents container holds tables beside its files.
 POST /api/containers removed the enum value `Tables` of the request property `kind/oneOf[#/components/schemas/ContainerKind]/`
+# CON-304: a merged table the caller can read only part of leaves out its version and load time, which change when
+# rows the caller can't read do. The tables list hasn't shipped yet, so no client relies on them being set.
+GET /api/containers/{containerId}/tables the response property `items/items/loadedAt` became nullable for the status `200`
+GET /api/containers/{containerId}/tables the response property `items/items/version` became nullable for the status `200`
