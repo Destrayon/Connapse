@@ -1,61 +1,56 @@
 # Plan: raw read-only SQL for agents, with row-level security (CON-320)
 
-Research: `docs/research/rls-raw-sql-agents-2026-11-10.md`. This plan only runs if the decision gate in Phase 1 says
-so. Nothing here ships in v0.5.0.
+Research: `docs/research/rls-raw-sql-agents-2026-11-10.md`. In scope for v0.5.0 (the user's decision on PR #1198,
+2026-11-10). A head-to-head eval of the structured tools against `table_sql` decides whether `table_sql` ships and which
+approach is the default. The eval, its pass bar and the outcomes are set out in the research note's section (4) and
+repeated below so the tickets can cite them.
 
-## Decision gate
+## Tickets (one PR each)
 
-The tables proof (CON-E6 ticket 10) runs first, with the four structured tools only. From its held-out failures, count
-the questions that failed **because the tools couldn't express them**: window or latest-per-group, date arithmetic,
-self-join, percentile, CASE bucketing.
-
-- Fewer than 10 of 180: close this plan. File structured-operator tickets for the common gaps (latest row per key,
-  date difference) instead.
-- 10 or more: run the phases below.
-
-## Phases
-
-1. **Gate count.** Goal: classify the tables proof's held-out failures by cause. Done when a short note in
-   `docs/research/` lists each failure, its cause, and the count against the threshold of 10.
-2. **Leak suite first.** Goal: write the bypass tests before any implementation, one integration test per row of the
-   research note's bypass table, plus the planted-leak and red-team sets. Done when the suite exists, runs against a
-   stub `table_sql` that refuses everything, and passes.
-3. **Database layer.** Goal: per-container NOLOGIN reader roles granted with `SET TRUE, INHERIT FALSE`; a NOLOGIN
-   `tables_owner`; `REVOKE TEMPORARY` from PUBLIC; column grants for hidden columns; `tables_auth.requests` and the
-   `SECURITY DEFINER` lookup with pinned `search_path`; one restrictive RLS policy per table with `FORCE ROW LEVEL
-   SECURITY`; `security_invoker` on memory's views; a startup check that refuses raw SQL below PostgreSQL 17.11, 18.6
-   or 16.15. Done when every database-layer leak test passes **with the parser switched off**.
-4. **RLS on the structured tools.** Goal: the CON-303 runner writes and binds the request token too, so both paths
-   check the same readable set in the database. Done when the existing table-tool tests and the planted-leak tests pass
-   through the policy.
-5. **Parser allowlist.** Goal: `pgsqlparser` (libpg_query) allowlist exactly as the research note specifies (one
-   `SelectStmt`, container tables only, allowlisted functions, no `reg*` casts, no `WITH RECURSIVE`), run through one
-   `NpgsqlBatch` command. Done when the full leak suite passes with the parser on, and parse-plus-check p95 is under
-   5 ms.
-6. **`table_sql` tool.** Goal: the fifth tool over MCP and REST, off by default behind a per-container admin setting,
-   with row and byte caps, client-side cancel and the untrusted-data notice. Done when it answers through the full path
-   and the leak suite stays at zero.
-7. **Eval.** Goal: write `tables-sql-v1` (60 held-out questions, five families) before any run, then run the pass bar
-   below. Done when results are recorded in `docs/research/` with the ship or no-ship outcome.
+1. **RLS under the structured tools.** Goal: the database enforces the readable set for the existing CON-303 tools.
+   Covers a NOLOGIN `tables_owner`; per-container NOLOGIN reader roles granted to the login with
+   `SET TRUE, INHERIT FALSE`; `REVOKE TEMPORARY` from PUBLIC; column grants for hidden columns; the
+   `tables_auth.requests` token table and its `SECURITY DEFINER` lookup with pinned `search_path`; one restrictive
+   policy per table with `FORCE ROW LEVEL SECURITY`; `security_invoker` on memory's views; the runner writing and binding
+   the token; a startup check for PostgreSQL 17.11, 18.6 or 16.15. Done when the existing table-tool tests and the
+   planted-leak tests pass through the policy, and a test with no token sees zero rows.
+2. **Parser allowlist.** Goal: a `pgsqlparser` (libpg_query) check that accepts exactly the statements the research
+   note allows (one `SelectStmt`, container tables only, allowlisted functions, no catalog relations, no `reg*` casts,
+   no `WITH RECURSIVE`). Pure library with unit tests over every parser row of the bypass table. Done when those tests
+   pass on Windows and Linux CI and parse-plus-check p95 is under 5 ms. Independent of ticket 1.
+3. **`table_sql` tool.** Goal: the tool over MCP and REST, using tickets 1 and 2, sent as one `NpgsqlBatch` command,
+   with the CON-303 limits, row and byte caps, client-side cancel, the untrusted-data notice, and a per-container admin
+   setting whose default the eval decides. Done when every row of the bypass table is an integration test that passes,
+   the database-layer rows also pass with the parser switched off, the planted-leak tests pass through `table_sql`, and
+   the 100-prompt red-team set gives zero hidden rows. Depends on 1 and 2.
+4. **Eval arms in the harness.** Goal: the tables eval can run arm S (four structured tools plus search) and arm Q
+   (`table_sql` plus table listing, description and search) on the same questions, 3 runs each, interleaved by
+   question, and record per run: correct, tool calls (refused SQL and tool errors count), search calls, confident wrong
+   answers, tokens, cost and wall time. Reports the McNemar and Wilcoxon results per the pass bar. Done when a dry run on
+   a 10-question dev slice produces the full report for both arms. Can start alongside 1 and 2 with a stub `table_sql`.
+5. **Head-to-head run and decision.** Goal: run both arms on tables-v1's 180 held-out questions and apply the pass bar.
+   Done when the results and the ship or no-ship outcome are recorded in `docs/research/`, and the `table_sql` default
+   is set to match. Depends on 3, 4 and the tables-v1 question set (CON-E6).
 
 ## Pass bar (fixed 2026-11-10, before any data exists)
 
-Same agent, harness and DataBench grading as CON-E6. Result-informed changes are re-tested on a sealed reserve set,
-never by moving a bar. All must hold:
+Same agent, harness and DataBench grading as CON-E6; result-informed changes re-tested on the sealed reserve set.
 
-1. **Gain:** on `tables-sql-v1`, four tools plus `table_sql` beat four tools alone by at least 25 points, exact McNemar
-   p < 0.01.
-2. **No loss:** on tables-v1's 180 held-out questions, at most 3 fewer correct answers; no family loses more than 2.
-3. **No more confident wrong answers:** wrong answers (not refusals) rise by at most 3 points on either set.
-4. **Leaks:** zero failures across the bypass suite (parser on and, for database-layer rows, parser off), the
-   planted-leak tests and the 100-prompt red-team set.
-5. **Speed:** parse and check p95 under 5 ms; on 100k rows with 1,000 readable documents, `table_sql` p95 at most 1.5×
-   the equivalent structured request and under 500 ms for aggregates; RLS overhead reported separately.
-6. **Cost:** average agent cost per question at most 1.2× without `table_sql`, on both sets.
+1. **Leaks:** zero failures on both arms (bypass suite, parser-off database rows, planted-leak tests, red-team set).
+2. **Correct answers:** exact McNemar on the 180 pairs. Arm Q wins at ≥ 5 points higher with p < 0.05, loses at
+   ≥ 5 points lower with p < 0.05, otherwise ties. No family 10+ points worse in the arm that becomes the default.
+3. **Tool calls to the right answer:** on questions both arms got right, paired Wilcoxon; lower median wins at p < 0.05.
+4. **Cost:** arm Q's average cost per question at most 1.2× arm S's.
+5. **Speed:** parse and check p95 under 5 ms; `table_sql` aggregate p95 under 500 ms on 100k rows with 1,000 readable
+   documents.
 
-**Outcomes:** all pass, ship behind the setting. Bar 1 fails, don't ship; add structured operators for the failing
-families. Bar 4 fails, don't ship until fixed. Any other failure, one redesign re-tested on the sealed reserve.
+**Outcomes:** leaks fail, no `table_sql` until fixed. Q wins and 4–5 hold, `table_sql` on by default with the
+structured tools kept. Tie, the tool-call winner is the default; a double tie keeps structured as default with
+`table_sql` off behind the setting. Q loses, `table_sql` doesn't ship and structured operators are filed for any family
+where SQL did better.
 
 ## Progress
 
-- 2026-11-10: research note and this plan written (CON-320). Next action: Phase 1, after the tables proof runs.
+- 2026-11-10: research note and plan written (CON-320).
+- 2026-11-10: revised after the user's review. Raw SQL is in v0.5.0; the 180-failure threshold is replaced by the
+  head-to-head eval; the build is split into the five tickets above. Next action: PM files tickets 1–5.

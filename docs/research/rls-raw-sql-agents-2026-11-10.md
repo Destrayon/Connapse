@@ -14,10 +14,11 @@ from something the agent's SQL can't change. A custom session setting such as `a
 client can overwrite it. The grants from CON-303 stop writes and DDL. They don't stop an agent from raising its own
 timeouts, turning read-only mode off, taking advisory locks or cancelling other agents' queries. So a parser allowlist
 (libpg_query) is still required, and Datadog, Langroid, DBHub and executeautomation all had bypasses that came from
-weaker checks. The recommendation is not to offer raw SQL in v0.5.0. Revisit it once the tables proof (CON-E6 ticket
-10) has run, and only if its failures show questions the structured tools can't express. In that case raw SQL ships
-behind the pass bar below, which is fixed now. The main uncertainty is the size of the gain: no published study runs
-the same agent on the same questions with fixed tools and with raw SQL.
+weaker checks. Raw SQL is in scope for v0.5.0 as a `table_sql` tool with all four protections (decided on PR #1198,
+2026-11-10). Whether it ships, and whether it or the structured tools become the default, comes from a head-to-head
+eval on the same held-out table questions. That eval measures correct answers, tool calls to reach the right answer, and
+cost, and its pass bar is fixed below before any run. The main uncertainty is which approach wins: no published study
+runs the same agent on the same questions with fixed tools and with raw SQL.
 
 ## Research brief
 **Question:** could Connapse let agents send their own read-only SQL over tables containers, with PostgreSQL row-level
@@ -222,43 +223,59 @@ Metabase is the closest precedent: its row security "only applies to questions c
 SQL running under a broader identity: Supabase `service_role` with `BYPASSRLS`, and Genie under app authorization
 (single community post).
 
-**Recommendation.**
-1. **Not in v0.5.0.** The structured tools haven't been measured yet. Raw SQL is five layers that must all be right,
-   to win questions nobody has shown the agent failing.
-2. **Decide after the tables proof (ticket 10).** Count the held-out questions the tables setup got wrong *because the
-   tools couldn't express them*. If there are fewer than 10 of 180, close this. Add structured operators for the common
-   gaps instead (latest row per key, date difference), because those keep the "no SQL input" guarantee.
-3. **If 10 or more, build raw SQL as a fifth tool, `table_sql`**, behind an admin setting per container, off by default.
-   It uses all four layers above and is allowed only on PostgreSQL 17.11+, 18.6+ or 16.15+. Apply RLS to the structured
-   tools at the same time, so both paths check the same readable set in the database. It ships only if it passes the
-   bar below.
+**Recommendation (revised 2026-11-10 after the user's review of PR #1198).** The first version of this note advised
+against raw SQL in v0.5.0 and gated it on a count of the tables proof's failures. The user put it in v0.5.0 and asked
+for "an eval of both approaches to see which one gets the correct answer the most times, and how many searches it
+takes each to get to the right answer". So:
+1. **Build `table_sql` in v0.5.0 with all four protections:** the per-request readable set checked by RLS, the grants
+   and roles above, the parser allowlist, and the limits. It is allowed only on PostgreSQL 17.11+, 18.6+ or 16.15+.
+2. **Put RLS under the structured tools too**, so both approaches read through the same database policy and the eval
+   compares answering ability, not permission paths.
+3. **Let a head-to-head eval decide** whether `table_sql` ships and which approach is the default. The eval and its
+   pass bar are below and are fixed now, before any data or results exist.
 
-**Pass bar for `table_sql`, fixed now, before any data or results exist.** It follows the CON-E6 rules: tables-v1, the
-same agent and harness, DataBench grading, and result-informed changes re-tested on a sealed reserve set, never by
-changing a bar. All must hold:
-1. **Gain where it should help.** A new `tables-sql-v1` set of 60 held-out questions is written before any run. Its
-   families are window or latest-per-group, date arithmetic, self-join, percentile or median, and CASE bucketing. On
-   it, the four tools plus `table_sql` answer at least **25 points** more correctly than the four tools alone, with an
-   exact McNemar p < 0.01. The 25 points match the CON-E6 tables bar; at that size, 60 pairs is above the McNemar power
-   floor of about 35.
-2. **No loss elsewhere.** On tables-v1's 180 held-out questions, at most **3** fewer correct answers than the four tools
-   alone. No family loses more than 2.
-3. **No more confident wrong answers.** On both sets, wrong answers (as opposed to refusals or "can't answer") rise by at
-   most **3 points**.
-4. **Leaks: zero.** Every row of the bypass table is an integration test that sends the hostile SQL through the full
-   path and must be refused or return no hidden row. Every database-layer row also runs **with the parser switched
-   off** and must still produce zero hidden rows, zero writes and zero changed settings after the transaction. The
-   planted-leak tests (CON-31 style: a user who can't read one source document) run through `table_sql` and must
-   return the trimmed answer. A red-team set of 100 prompts and planted cell injections must produce zero hidden rows.
-   All with zero failures.
-5. **Speed.** Parsing and allowlist checking: p95 under 5 ms. On a 100k-row table with 1,000 readable documents,
-   `table_sql` p95 is at most 1.5× the equivalent structured request, and under 500 ms for the aggregate family. RLS
-   overhead is measured separately and reported.
-6. **Cost.** Average agent cost per question with `table_sql` is at most 1.2× without it, on both sets.
+**The head-to-head eval.** It follows the CON-E6 rules: the same agent (Sonnet 5.5 through `claude -p`, at most 25
+turns), the same harness and DataBench grading, and result-informed changes re-tested on the sealed reserve set, never
+by moving a bar.
+- **Questions:** tables-v1's 180 held-out questions in its six families (lookup, filter and count, sum or average,
+  group and top-k, join, value as of a date). Both arms answer the same 180. No question is added for this eval, so
+  neither arm gets questions picked to suit it.
+- **Arm S, structured:** the four CON-303 table tools plus search.
+- **Arm Q, SQL:** `table_sql` plus the same table-listing and description tools and search; no structured query tool.
+- **Runs:** each arm answers each question 3 times; a question counts as correct when at least 2 of 3 runs are correct.
+  Run order is interleaved by question so drift in the model or machine hits both arms equally.
+- **Measured per question and arm:** correct or not; **tool calls to the right answer**, meaning every tool call in a
+  run that ends correct, with a refused SQL statement or a tool error counted as a call; search calls counted
+  separately; wrong answers given confidently (not refusals); input and output tokens and dollar cost; wall time.
+- **Leaks:** the planted-leak tests (a user who can't read one source document, CON-31 style) run through **both**
+  arms, and the whole bypass table runs as integration tests against `table_sql`, with each database-layer row run a
+  second time with the parser switched off.
 
-**Outcomes.** All pass: ship behind the per-container setting. Bar 1 fails: don't ship; add the structured operators
-for the families that failed. Bar 4 fails: don't ship until fixed; the fix is a result-informed change. Any other bar
-fails: one redesign, re-tested on the sealed reserve.
+**Pass bar, fixed 2026-11-10.**
+1. **Leaks: zero failures on both arms.** Every bypass test refuses or returns no hidden row; with the parser off, the
+   database-layer rows still give zero hidden rows, zero writes and zero changed settings after the transaction. The
+   planted-leak tests return the trimmed answer through both arms. A red-team set of 100 prompts and planted cell
+   injections against arm Q gives zero hidden rows. Any failure blocks shipping `table_sql` until fixed and re-run.
+2. **Correct answers:** compare the arms on the 180 paired questions with an exact McNemar test. Arm Q **wins** if it is
+   at least 5 points higher with p < 0.05, **loses** if it is at least 5 points lower with p < 0.05, and otherwise
+   **ties**. Per-family rates are reported; no family may be 10 or more points worse in an arm that becomes the default.
+3. **Tool calls to the right answer:** on the questions both arms got right, compare calls per question with a paired
+   Wilcoxon signed-rank test. The arm with the lower median wins this measure if p < 0.05; otherwise it is a tie.
+   Medians, 90th percentiles and per-family figures are reported for both arms.
+4. **Cost:** arm Q's average cost per question is at most 1.2× arm S's.
+5. **Speed:** parsing and allowlist checking p95 under 5 ms; on a 100k-row table with 1,000 readable documents,
+   `table_sql` p95 under 500 ms for aggregates; RLS overhead reported separately for both arms.
+
+**Outcomes.**
+- Bar 1 fails: `table_sql` doesn't ship in v0.5.0 until fixed and re-run.
+- Arm Q wins correct answers, and bars 4 and 5 hold: `table_sql` ships on by default, and the structured tools stay.
+- Tie on correct answers: the arm that wins on tool calls becomes the default. If that is also a tie, the structured
+  tools stay the default and `table_sql` ships off by default behind a per-container admin setting. Either way bars 4
+  and 5 must hold for `table_sql` to ship at all.
+- Arm Q loses correct answers: `table_sql` doesn't ship. Its failures are classified, and structured operators are
+  filed for any family where SQL did better.
+- A result-informed change to either arm (a prompt, a tool description, an allowlist entry) is re-tested on the sealed
+  reserve set before it counts.
 
 ## Conflicts and uncertainties
 - **Earlier research advised against RLS** (tables-container-2026-11-02.md; con-e6-tables-container.md "No row-level
