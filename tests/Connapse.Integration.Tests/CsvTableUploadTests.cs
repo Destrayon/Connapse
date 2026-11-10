@@ -218,6 +218,64 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task Upload_LargeCsv_LoadsEveryRowButIndexesOnlyASummaryAsText()
+    {
+        // CON-329: every row of a 60,000-row CSV used to be embedded, which took over ten minutes on two CPUs. Its
+        // text is now a summary and its first rows, so it is Ready within the 90 s wait.
+        Guid containerId = await NewContainerAsync(ContainerKind.Documents);
+        try
+        {
+            var csv = new StringBuilder("id,customer,amount\n");
+            for (int i = 1; i <= 60_000; i++)
+                csv.Append(i).Append(",customer-").Append(i).Append(',').Append(i % 500).Append('\n');
+            string id = await UploadAsync(containerId, "ledger.csv", csv.ToString());
+            await WaitForReadyAsync(containerId, id);
+
+            var table = (await TablesAsync(containerId)).Single();
+            table.RowCount.Should().Be(60_000);
+            (await DocumentAsync(id)).Metadata["TableId"].Should().Be(table.Id.ToString());
+            var chunks = await QueryAsync($"SELECT count(*) FROM chunks WHERE document_id = '{id}'", r => r.GetInt64(0));
+            chunks.Single().Should().BeInRange(1, 20, "a large CSV's text is its summary, not its rows");
+
+            (await KeywordHitsAsync(containerId, "customer-7")).Should().Contain(id, "its first rows are in the summary");
+            (await KeywordHitsAsync(containerId, "59999")).Should().NotContain(id, "later rows are in the table only");
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Upload_SmallCsv_KeepsEveryRowInTextSearch()
+    {
+        Guid containerId = await NewContainerAsync(ContainerKind.Documents);
+        try
+        {
+            var csv = new StringBuilder("id,city\n");
+            for (int i = 1; i <= 59; i++) // past the 51 lines a large table's summary keeps, so a cut would drop the last row
+                csv.Append(i).Append(",town").Append(i).Append('\n');
+            csv.Append("60,Ouagadougou\n");
+            string id = await UploadAsync(containerId, "cities.csv", csv.ToString());
+            await WaitForReadyAsync(containerId, id);
+
+            (await KeywordHitsAsync(containerId, "Ouagadougou")).Should().Contain(id, "a small CSV's last row is still searchable text");
+            (await TablesAsync(containerId)).Single().RowCount.Should().Be(60);
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    private async Task<List<string?>> KeywordHitsAsync(Guid containerId, string query)
+    {
+        using JsonDocument found = await GetJsonAsync(
+            $"/api/containers/{containerId}/search?q={Uri.EscapeDataString(query)}&mode=Keyword&topK=5");
+        return found.RootElement.GetProperty("hits").EnumerateArray().Select(h => h.GetProperty("documentId").GetString()).ToList();
+    }
+
 
     private async Task<Guid> NewContainerAsync(ContainerKind kind)
     {

@@ -316,6 +316,16 @@ public class IngestionPipeline : IKnowledgeIngester
             if (partlyGarbled is not null)
                 warnings.Add(partlyGarbled);
 
+            // The table loads before the text is chunked and embedded, so it can be queried while the text is still
+            // indexing (CON-329). A large one is then searched by a summary and its first rows, not by every row.
+            TableInfo? table = null;
+            if (alsoTableIn is Guid alsoContainerId && !await IsStaleJobAsync(documentId, options.Generation, ct))
+            {
+                table = await LoadTableAsync(workingStream, options.FileName ?? virtualPath, alsoContainerId, documentId, warnings, ct);
+                if (table is not null && CsvTextDigest.IsLarge(table))
+                    parsedDocument = parsedDocument with { Content = StorableText.Clean(CsvTextDigest.Build(table, parsedDocument.Content)) };
+            }
+
             // A re-parse of unchanged bytes that lost pages to exceptions would swap a complete
             // index for a partial one -- or, when every page threw, fail a document whose old
             // chunks are still right. Decided before chunking so that second case reaches it too.
@@ -383,8 +393,8 @@ public class IngestionPipeline : IKnowledgeIngester
             else
                 metadata.Remove(MetadataKeyReadWithoutLayout);
 
-            if (alsoTableIn is Guid alsoContainerId)
-                await AddTableAsync(workingStream, options.FileName ?? virtualPath, alsoContainerId, documentId, metadata, warnings, ct);
+            if (table is not null)
+                metadata[MetadataKeyTableId] = table.Id.ToString();
             else
                 metadata.Remove(MetadataKeyTableId);
 
@@ -583,17 +593,16 @@ public class IngestionPipeline : IKnowledgeIngester
     }
 
     /// <summary>
-    /// Loads a documents container's CSV into a table beside its text (CON-302), before the text commits, so the
-    /// document is Ready with its table id already on it. A file that won't load as a table keeps its text and says
-    /// why in its warnings; a document deleted meanwhile is left to the text commit, which finds it gone. The table
-    /// load runs outside the text's transaction, so a superseded job can reload the table before the newer job does.
+    /// Loads a documents container's CSV into a table beside its text (CON-302), before the text is chunked, so the
+    /// table can be queried while the text indexes (CON-329) and the document is Ready with its table id already on
+    /// it. A file that won't load as a table keeps its text and says why in its warnings; a document deleted meanwhile
+    /// is left to the text commit, which finds it gone. The table load runs outside the text's transaction, so a
+    /// superseded job can reload the table before the newer job does.
     /// </summary>
-    private async Task AddTableAsync(
-        Stream file, string fileName, Guid containerId, Guid documentId, Dictionary<string, string> metadata,
-        List<string> warnings, CancellationToken ct)
+    private async Task<TableInfo?> LoadTableAsync(
+        Stream file, string fileName, Guid containerId, Guid documentId, List<string> warnings, CancellationToken ct)
     {
         string name = Path.GetFileName(fileName);
-        metadata.Remove(MetadataKeyTableId);
         TableInfo table;
         try
         {
@@ -602,18 +611,33 @@ public class IngestionPipeline : IKnowledgeIngester
         catch (Exception ex) when (IsUnreadableTable(ex))
         {
             warnings.Add($"Could not load {name} as a table: {StorableText.Clean(ex.Message)}");
-            return;
+            return null;
         }
         catch (Exception ex) when (IsDocumentGone(ex))
         {
-            return;
+            return null;
         }
 
-        metadata[MetadataKeyTableId] = table.Id.ToString();
         if (RejectsWarning(table) is { } rejects)
             warnings.Add(rejects);
         _logger.LogInformation("Loaded document {DocumentId} as table {TableId} too: {Rows} rows, {Rejects} rejects",
             documentId, table.Id, table.RowCount, table.Rejects.Count);
+        return table;
+    }
+
+    /// <summary>
+    /// Whether a job's document was re-uploaded or deleted since the job was queued, so its table load can be
+    /// skipped: the job is superseded before it commits anyway. A direct caller (generation 0) is never stale here.
+    /// </summary>
+    private async Task<bool> IsStaleJobAsync(Guid documentId, int generation, CancellationToken ct)
+    {
+        if (generation == 0)
+            return false;
+        int? current = await _context.Documents.AsNoTracking()
+            .Where(d => d.Id == documentId)
+            .Select(d => (int?)d.Generation)
+            .FirstOrDefaultAsync(ct);
+        return current != generation;
     }
 
     /// <summary>Reads a CSV into the document's own table: a new one on the first load, a reload after that.</summary>
