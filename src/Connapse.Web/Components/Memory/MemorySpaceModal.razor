@@ -1,0 +1,25 @@
+@* The frame the rename and delete space dialogs share: a backdrop that closes, a title with a close button, a body and
+   a footer. *@
+<div class="modal-backdrop" @onclick="OnClose"></div>
+<div class="space-modal" role="dialog" aria-modal="true" aria-labelledby="@TitleId">
+    <div class="space-modal-content">
+        <div class="space-modal-header">
+            <h4 id="@TitleId">@Title</h4>
+            <button type="button" class="btn-close btn-close-white" aria-label="Close" @onclick="OnClose"></button>
+        </div>
+        <div class="space-modal-body">@Body</div>
+        <div class="space-modal-footer">@Footer</div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string TitleId { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    [Parameter] public RenderFragment? Body { get; set; }
+
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+}

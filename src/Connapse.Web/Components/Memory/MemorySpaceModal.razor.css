@@ -1,0 +1,53 @@
+/* The frame of the rename and delete space dialogs, matching the New memory space dialog. */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--shadow-overlay);
+    z-index: 1040;
+}
+
+.space-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1050;
+    width: 100%;
+    max-width: 500px;
+    padding: 1rem;
+}
+
+.space-modal-content {
+    background: var(--surface-elevated);
+    border: 1px solid var(--bs-border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.space-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.4rem;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.space-modal-header h4 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.space-modal-body {
+    padding: 1.1rem 1.4rem;
+}
+
+.space-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    padding: 0.9rem 1.4rem;
+    border-top: 1px solid var(--bs-border-color);
+}
