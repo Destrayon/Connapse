@@ -289,6 +289,12 @@ not by ranking alone.
 - **Reported, not gated:** each kind, run recall of gold facts (`sawGold`), whether the first `memory_recall` showed
   gold, citations of old versions, recall and tool calls, other facts changed and same-chain corrections in the save
   arm, and tokens.
+- **Today's result** (2026-11-10, conforming run, `eval/baselines/memory-agent-test-2026-11-10.json`): hard find
+  tasks **0.946**, exact 1.00, absent 0.875, save 0.986, `memory_recall` p95 20 ms. On the retrieval arm the question
+  as typed puts gold in the top 10 for 0.50 of hard tasks and 0 of indirect and partial ones; the agent closes the gap
+  by rewording its query and listing a subject's facts, at 1.46 recall calls per find task (2.04 on indirect). Bar 1
+  cannot be met as written, since +0.15 over 0.946 exceeds 1.0. The bar is not changed here; the plan doc proposes
+  what to do about it.
 
 ## Baselines
 
