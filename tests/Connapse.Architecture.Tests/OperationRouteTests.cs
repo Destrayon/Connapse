@@ -16,6 +16,8 @@ public class OperationRouteTests
     {
         ["approvals.list"] = "UI only by design (#782): a token must never approve the MCP call it is waiting on, so every non-UI caller is refused.",
         ["approvals.decide"] = "UI only by design (#782): a token must never approve the MCP call it is waiting on, so every non-UI caller is refused.",
+        ["approvals.batches.list"] = "UI only by design (CON-315): only the owner decides a batch of deletions, on the Approvals page, so every non-UI caller is refused.",
+        ["approvals.batches.decide"] = "UI only by design (CON-315): a token must never approve the deletions it asked for, so every non-UI caller is refused.",
         ["search.knowledge"] = "Routed as search.container and search.source, which are this operation narrowed to a container or a source id.",
     };
 
