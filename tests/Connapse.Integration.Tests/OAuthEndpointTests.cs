@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using System.Net.Http.Headers;
+using Microsoft.AspNetCore.Http;
 
 namespace Connapse.Integration.Tests;
 
@@ -212,6 +213,59 @@ public class OAuthEndpointTests(SharedWebAppFixture fixture)
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
         var json = await response.Content.ReadFromJsonAsync<JsonDocument>();
         json!.RootElement.GetProperty("error").GetString().Should().Be("invalid_request");
+    }
+
+    [Fact]
+    public async Task TokenEndpoint_BodyReadFailsMidway_Returns400InvalidRequest()
+    {
+        HttpContext context = await fixture.Factory.Server.SendAsync(ctx =>
+        {
+            ctx.Request.Method = HttpMethods.Post;
+            ctx.Request.Path = "/oauth/token";
+            ctx.Request.ContentType = "application/x-www-form-urlencoded";
+            ctx.Request.Body = new FailingMidBodyStream("grant_type=refresh_token&refresh_token=abc");
+        });
+
+        context.Response.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        context.Response.ContentType.Should().StartWith("application/json");
+        using JsonDocument json = await JsonDocument.ParseAsync(context.Response.Body);
+        json.RootElement.GetProperty("error").GetString().Should().Be("invalid_request");
+    }
+
+    // Yields the start of a form body, then fails the way a dropped connection does.
+    private sealed class FailingMidBodyStream(string start) : Stream
+    {
+        private readonly byte[] _start = Encoding.UTF8.GetBytes(start);
+        private int _position;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+
+        public override int Read(Span<byte> buffer)
+        {
+            if (_position >= _start.Length)
+                throw new IOException("The connection dropped mid-body.");
+            int n = Math.Min(buffer.Length, _start.Length - _position);
+            _start.AsSpan(_position, n).CopyTo(buffer);
+            _position += n;
+            return n;
+        }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(Read(buffer.Span));
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            Task.FromResult(Read(buffer.AsSpan(offset, count)));
+
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     [Fact]
