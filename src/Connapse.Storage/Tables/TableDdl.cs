@@ -71,21 +71,34 @@ internal static partial class TableDdl
     };
 
     /// <summary>
-    /// The table's DDL. With <paramref name="history"/> it also gets <see cref="TableHistory.SeenFrom"/> and
-    /// <see cref="TableHistory.SeenUntil"/> (CON-306), the until column <c>'infinity'</c> while a version is current.
+    /// The column of a merged table (CON-304) holding each row's source document. It never matches a generated field
+    /// name (<c>c_&lt;n&gt;</c>), is never listed to callers, and is what the row policy checks.
     /// </summary>
-    internal static string CreateTableSql(Guid containerId, string tableName, IReadOnlyList<TableColumn> columns, bool history = false) =>
+    internal const string DocumentColumn = "_document";
+
+    /// <summary>
+    /// The table's DDL. With <paramref name="merged"/> it also gets <see cref="DocumentColumn"/> (CON-304); with
+    /// <paramref name="history"/> it gets <see cref="TableHistory.SeenFrom"/> and <see cref="TableHistory.SeenUntil"/>
+    /// (CON-306), the until column <c>'infinity'</c> while a version is current.
+    /// </summary>
+    internal static string CreateTableSql(
+        Guid containerId, string tableName, IReadOnlyList<TableColumn> columns, bool history = false, bool merged = false) =>
         $"CREATE TABLE {QualifiedName(containerId, tableName)} ("
         + string.Join(", ", columns.Select((c, i) => Quote(ColumnName(i)) + " " + SqlType(c.Type)))
+        + (merged ? ", " + Quote(DocumentColumn) + " uuid NOT NULL" : "")
         + (history
             ? $", {Quote(TableHistory.SeenFrom)} timestamptz NOT NULL, {Quote(TableHistory.SeenUntil)} timestamptz NOT NULL DEFAULT 'infinity'"
             : "")
         + ")";
 
-    /// <summary>The binary COPY into the table's columns, and with <paramref name="history"/> its seen-from column last.</summary>
-    internal static string CopySql(Guid containerId, string tableName, int columnCount, bool history = false) =>
+    /// <summary>
+    /// The binary COPY into the table's columns, then with <paramref name="merged"/> its document column and with
+    /// <paramref name="history"/> its seen-from column.
+    /// </summary>
+    internal static string CopySql(Guid containerId, string tableName, int columnCount, bool history = false, bool merged = false) =>
         $"COPY {QualifiedName(containerId, tableName)} ("
         + string.Join(", ", Enumerable.Range(0, columnCount).Select(i => Quote(ColumnName(i))))
+        + (merged ? ", " + Quote(DocumentColumn) : "")
         + (history ? ", " + Quote(TableHistory.SeenFrom) : "")
         + ") FROM STDIN (FORMAT BINARY)";
 
@@ -162,18 +175,29 @@ internal static partial class TableDdl
     /// when the token's documents include the table's source document and none otherwise; a table with no source
     /// document shows none to anyone. The check is a sub-select on its own, so it runs once per query.
     /// </summary>
-    internal static IReadOnlyList<string> ProtectSql(Guid containerId, string tableName, Guid? documentId)
+    /// <remarks>
+    /// A merged table (CON-304) is checked row by row instead: a row shows when its <see cref="DocumentColumn"/> is
+    /// among the token's documents. The lookup is still a sub-select of its own, cast so PostgreSQL reads it as an
+    /// array rather than <c>= ANY (subquery)</c>, so it runs once per query and not once per row. The column is
+    /// indexed for the compiler's own filter on it.
+    /// </remarks>
+    internal static IReadOnlyList<string> ProtectSql(Guid containerId, string tableName, Guid? documentId, bool merged = false)
     {
         string table = QualifiedName(containerId, tableName);
-        string check = documentId is Guid document
-            ? $"((SELECT '{document:D}'::uuid = ANY ({ReadableDocumentsFunction})))"
-            : "(false)";
-        return
+        string check = merged
+            ? $"({Quote(DocumentColumn)} = ANY ((SELECT {ReadableDocumentsFunction})::uuid[]))"
+            : documentId is Guid document
+                ? $"((SELECT '{document:D}'::uuid = ANY ({ReadableDocumentsFunction})))"
+                : "(false)";
+        List<string> statements =
         [
             $"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY",
             $"ALTER TABLE {table} FORCE ROW LEVEL SECURITY",
             $"CREATE POLICY readable ON {table} AS PERMISSIVE FOR SELECT TO PUBLIC USING {check}",
         ];
+        if (merged)
+            statements.Add($"CREATE INDEX ON {table} ({Quote(DocumentColumn)})");
+        return statements;
     }
 
     /// <summary>

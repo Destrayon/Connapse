@@ -3137,7 +3137,7 @@
         "tags": [
           "Containers"
         ],
-        "description": "List the tables a container holds, by name, a page at a time (?skip=0&take=50, take at most 200). totalCount is how many it holds in all.",
+        "description": "List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.",
         "operationId": "tables.list",
         "parameters": [
           {
@@ -3235,6 +3235,16 @@
               }
             }
           },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
             "content": {
@@ -3250,6 +3260,123 @@
           "id": "tables.list",
           "scope": "knowledge:read",
           "risk": "Read",
+          "mcp": "Generic"
+        }
+      }
+    },
+    "/api/containers/{containerId}/tables/{tableId}/hidden-columns": {
+      "put": {
+        "tags": [
+          "Containers"
+        ],
+        "description": "Hide a table's columns, by header name, from every caller; replaces the ones hidden before, and an empty list shows them all. A hidden column can't be selected, filtered, grouped, ordered or joined on. Admins only.",
+        "operationId": "tables.hideColumns",
+        "parameters": [
+          {
+            "name": "containerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tableId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HideTableColumnsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "tables.hideColumns",
+          "scope": "admin:settings",
+          "risk": "Write",
           "mcp": "Generic"
         }
       }
@@ -19205,6 +19332,20 @@
           }
         }
       },
+      "HideTableColumnsRequest": {
+        "required": [
+          "columns"
+        ],
+        "type": "object",
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "HttpValidationProblemDetails": {
         "type": "object",
         "properties": {
@@ -22683,6 +22824,7 @@
           "version": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "null",
               "integer",
               "string"
             ],
@@ -22693,8 +22835,24 @@
             "format": "date-time"
           },
           "loadedAt": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "date-time"
+          },
+          "partial": {
+            "type": "boolean",
+            "default": false
+          },
+          "hiddenColumns": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

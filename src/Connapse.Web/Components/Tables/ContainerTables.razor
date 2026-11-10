@@ -54,7 +54,7 @@
                         </td>
                         <td class="col-columns">@table.Columns.Count</td>
                         <td class="col-rows">@table.RowCount.ToString("N0")</td>
-                        <td class="col-loaded">@table.LoadedAt.ToString("MMM d, yyyy")</td>
+                        <td class="col-loaded"><span hidden="@table.Partial">@table.LoadedAt.ToString("MMM d, yyyy")</span></td>
                     </tr>
                     @if (open)
                     {
@@ -62,7 +62,7 @@
                             <td colspan="4">
                                 <table class="schema-table" aria-label="@($"Schema of {table.Name}")">
                                     <thead>
-                                        <tr><th>Column</th><th>Type</th></tr>
+                                        <tr><th>Column</th><th>Type</th><th><span class="visually-hidden">Visibility</span></th></tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var column in table.Columns)
@@ -70,6 +70,7 @@
                                             <tr class="schema-column">
                                                 <td class="schema-name">@column.Name</td>
                                                 <td class="schema-type">@TypeName(column)</td>
+                                                <td class="schema-hidden"><span class="badge bg-secondary" title="Hidden from everyone" hidden="@(!table.Hides(column.Name))">Hidden</span></td>
                                             </tr>
                                         }
                                     </tbody>

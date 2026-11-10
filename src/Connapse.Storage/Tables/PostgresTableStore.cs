@@ -40,7 +40,7 @@ public class PostgresTableStore(
         await PrepareLoadAsync(context, connection, containerId, ct);
         DateTime now = await SeenTimeAsync(connection, ct);
         string storageName = TableDdl.NewTableName();
-        var candidates = TableHistory.KeyCandidates(load.Columns);
+        var candidates = TableHistory.KeyCandidates(load.Columns, load.IsMerged);
         long rows = await BuildTableAsync(connection, containerId, storageName, load, candidates.Count > 0 ? now : null, ct);
         int? key = FirstValid(candidates, await ValidKeysAsync(connection, containerId, storageName, candidates, ct));
         if (key is int k)
@@ -85,21 +85,23 @@ public class PostgresTableStore(
         var existing = ToInfo(entity);
         string oldName = entity.StorageName;
         string storageName = TableDdl.NewTableName();
-        var candidates = TableHistory.KeyCandidates(load.Columns);
+        bool merged = load.IsMerged;
+        var candidates = TableHistory.KeyCandidates(load.Columns, merged);
         long rows = await BuildTableAsync(connection, containerId, storageName, load, candidates.Count > 0 ? now : null, ct);
         var valid = await ValidKeysAsync(connection, containerId, storageName, candidates, ct);
 
         // Same columns and the key still holds: close the versions that changed or went away and add the new ones.
+        // A table that became merged or stopped being one has a different shape, so it starts again instead.
         int existingKey = existing.HasHistory ? IndexOf(load.Columns, existing.Key!) : -1;
-        if (existing.HasHistory && SameColumns(existing.Columns, load.Columns)
+        if (existing.HasHistory && existing.IsMerged == merged && SameColumns(existing.Columns, load.Columns)
             && candidates.Select((c, n) => (c, n)).Any(x => x.c == existingKey && valid[x.n]))
         {
             string current = TableDdl.QualifiedName(containerId, oldName);
             string incoming = TableDdl.QualifiedName(containerId, storageName);
             int closed = await ExecuteAtAsync(connection,
-                TableHistory.CloseSql(current, incoming, existingKey, load.Columns.Count), now, ct);
+                TableHistory.CloseSql(current, incoming, existingKey, load.Columns.Count, merged), now, ct);
             int added = await ExecuteAtAsync(connection,
-                TableHistory.InsertSql(current, incoming, existingKey, load.Columns.Count), now, ct);
+                TableHistory.InsertSql(current, incoming, existingKey, load.Columns.Count, merged), now, ct);
             await TableDdl.ExecuteAsync(connection, $"DROP TABLE {incoming}", ct);
 
             Apply(entity, load, oldName, rows, now, existing.Key, existing.HistoryFrom);
@@ -284,18 +286,22 @@ public class PostgresTableStore(
         DbConnection connection, Guid containerId, string storageName, TableLoad load, DateTime? seenFrom, CancellationToken ct)
     {
         bool history = seenFrom is not null;
-        await TableDdl.ExecuteAsync(connection, TableDdl.CreateTableSql(containerId, storageName, load.Columns, history), ct);
+        bool merged = load.IsMerged;
+        await TableDdl.ExecuteAsync(connection, TableDdl.CreateTableSql(containerId, storageName, load.Columns, history, merged), ct);
 
         var npgsql = (NpgsqlConnection)connection;
         var types = load.Columns.Select(c => c.Type).ToArray();
+        HashSet<Guid> sources = merged ? [.. load.SourceDocuments!] : [];
+        int width = types.Length + (merged ? 1 : 0);
         long rows = 0;
-        await using (var writer = await npgsql.BeginBinaryImportAsync(TableDdl.CopySql(containerId, storageName, types.Length, history), ct))
+        await using (var writer = await npgsql.BeginBinaryImportAsync(TableDdl.CopySql(containerId, storageName, types.Length, history, merged), ct))
         {
             await foreach (var row in load.Rows.WithCancellation(ct))
             {
-                if (row.Count != types.Length)
-                    throw new ArgumentException(
-                        $"Row {rows + 1} has {row.Count} values; the table has {types.Length} columns.", nameof(load));
+                if (row.Count != width)
+                    throw new ArgumentException(merged
+                        ? $"Row {rows + 1} has {row.Count} values; a merged table's rows need {types.Length} columns and the source document."
+                        : $"Row {rows + 1} has {row.Count} values; the table has {types.Length} columns.", nameof(load));
                 await writer.StartRowAsync(ct);
                 for (int i = 0; i < types.Length; i++)
                 {
@@ -305,6 +311,14 @@ public class PostgresTableStore(
                     else
                         await writer.WriteAsync(value, TableDdl.CopyType(types[i]), ct);
                 }
+                if (merged)
+                {
+                    // Every row must name one of the table's own documents, or it would be shown by the wrong one's permissions.
+                    if (row[types.Length] is not Guid document || !sources.Contains(document))
+                        throw new ArgumentException(
+                            $"Row {rows + 1} doesn't name one of the table's source documents.", nameof(load));
+                    await writer.WriteAsync(document, NpgsqlTypes.NpgsqlDbType.Uuid, ct);
+                }
                 if (seenFrom is DateTime from)
                     await writer.WriteAsync(from, NpgsqlDbType.TimestampTz, ct);
                 rows++;
@@ -313,7 +327,7 @@ public class PostgresTableStore(
         }
 
         await TableDdl.EnsureTokenStoreAsync(connection, ct);
-        foreach (string sql in TableDdl.ProtectSql(containerId, storageName, load.DocumentId))
+        foreach (string sql in TableDdl.ProtectSql(containerId, storageName, load.DocumentId, merged))
             await TableDdl.ExecuteAsync(connection, sql, ct);
         return rows;
     }
@@ -384,6 +398,39 @@ public class PostgresTableStore(
             throw new ArgumentException($"A table must have 1-{TableDdl.MaxColumns} columns.", nameof(load));
         if (load.Columns.Any(c => c is null || c.Name is null || !Enum.IsDefined(c.Type)))
             throw new ArgumentException("Every column needs a name and a known type.", nameof(load));
+        if (load.IsMerged)
+        {
+            if (load.DocumentId is not null)
+                throw new ArgumentException("A merged table takes its documents from its rows, so it has no single document.", nameof(load));
+            if (load.SourceDocuments!.Contains(Guid.Empty))
+                throw new ArgumentException("A merged table's source documents must be real document ids.", nameof(load));
+            if (load.Rejects?.Any(r => r.DocumentId is not Guid d || !load.SourceDocuments!.Contains(d)) == true)
+                throw new ArgumentException("Every reject of a merged table must name one of its source documents.", nameof(load));
+        }
+    }
+
+    public async Task<TableInfo?> SetHiddenColumnsAsync(
+        Guid containerId, Guid tableId, IReadOnlyList<string> columns, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+        await using var context = await factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        var entity = await LockEntryAsync(context, containerId, tableId, ct);
+        if (entity is null)
+            return null;
+
+        var headers = ToInfo(entity).Columns.Select(c => c.Name).ToHashSet(StringComparer.Ordinal);
+        string[] unknown = columns.Where(c => !headers.Contains(c)).ToArray();
+        if (unknown.Length > 0)
+            throw new ArgumentException($"The table has no column named {string.Join(", ", unknown.Select(u => $"'{u}'"))}.", nameof(columns));
+
+        entity.HiddenColumns = columns.Distinct(StringComparer.Ordinal).ToArray();
+        await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        logger.LogInformation("Table {TableId} in container {ContainerId} now hides {Count} columns",
+            tableId, containerId, entity.HiddenColumns.Length);
+        return ToInfo(entity);
     }
 
     private static void Apply(
@@ -392,6 +439,8 @@ public class PostgresTableStore(
         entity.Name = load.Name.Trim();
         entity.Description = load.Description;
         entity.DocumentId = load.DocumentId;
+        // Hidden columns are kept by name: a reload that keeps a header keeps it hidden.
+        entity.SourceDocuments = load.IsMerged ? load.SourceDocuments!.Distinct().ToArray() : null;
         entity.StorageName = storageName;
         entity.SchemaJson = JsonSerializer.Serialize(
             new FrictionlessSchema(load.Columns.Select((c, i) =>
@@ -422,7 +471,9 @@ public class PostgresTableStore(
             entity.RowCount, entity.NeedsReview, rejects, TableDdl.SchemaName(entity.ContainerId), entity.StorageName,
             entity.Version, entity.CreatedAt, entity.LoadedAt,
             schema.PrimaryKey?.FirstOrDefault(),
-            schema.HistoryFrom is DateTime from ? DateTime.SpecifyKind(from, DateTimeKind.Utc) : null);
+            schema.HistoryFrom is DateTime from ? DateTime.SpecifyKind(from, DateTimeKind.Utc) : null,
+            entity.SourceDocuments is { Length: > 0 } sources ? sources : null,
+            entity.HiddenColumns ?? []);
     }
 
     private static readonly JsonSerializerOptions Json = new()

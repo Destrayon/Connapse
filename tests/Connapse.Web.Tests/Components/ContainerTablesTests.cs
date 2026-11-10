@@ -22,6 +22,8 @@ public class ContainerTablesTests : IDisposable
     private readonly IContainerStore containers = ContainerStoreFakes.Create();
     private readonly ITableStore tables = Substitute.For<ITableStore>();
     private readonly IOperationAuthorizer authorizer = Substitute.For<IOperationAuthorizer>();
+    private readonly IDocumentStore documents = Substitute.For<IDocumentStore>();
+    private readonly Connapse.Application.Ports.IDocumentAccess access = Substitute.For<Connapse.Application.Ports.IDocumentAccess>();
     private readonly Guid containerId = Guid.NewGuid();
 
     public ContainerTablesTests()
@@ -32,7 +34,14 @@ public class ContainerTablesTests : IDisposable
         ctx.Services.AddSingleton(containers);
         ctx.Services.AddSingleton(tables);
         ctx.Services.AddSingleton(authorizer);
+        ctx.Services.AddSingleton(Substitute.For<ITableQueryService>());
+        ctx.Services.AddSingleton(documents);
+        ctx.Services.AddSingleton(access);
         ctx.Services.AddSingleton<ListTables>();
+        documents.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call => new Document(call.ArgAt<string>(0), containerId.ToString(), "t.csv", null, "/t.csv", 1, Loaded, []));
+        access.ReadableAsync(Arg.Any<System.Security.Claims.ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+            .Returns(call => (IReadOnlySet<string>)call.ArgAt<IReadOnlyList<Document>>(1).Select(d => d.Id).ToHashSet());
         ctx.AddAuthorization().SetAuthorized("viewer");
     }
 
@@ -42,12 +51,7 @@ public class ContainerTablesTests : IDisposable
         new(Guid.NewGuid(), containerId, name, null, Guid.NewGuid(), columns, rows, false, [], "s", "t", 1, Loaded, Loaded);
 
     private void Holds(params TableInfo[] all) =>
-        tables.ListAsync(containerId, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(call =>
-            {
-                int skip = call.ArgAt<int>(1), take = call.ArgAt<int>(2);
-                return new TablePage(all.Skip(skip).Take(take).ToList(), all.Length);
-            });
+        tables.ListAsync(containerId, Arg.Any<CancellationToken>()).Returns(all);
 
     private IRenderedComponent<ContainerTables> Render(int pageSize = ContainerTables.DefaultPageSize)
     {

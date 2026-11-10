@@ -175,9 +175,33 @@ public static class ContainersEndpoints
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("tables.list")
-        .WithDescription("List the tables a container holds, by name, a page at a time (?skip=0&take=50, take at most 200). totalCount is how many it holds in all.")
+        .WithDescription("List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.")
         .RequireAuthorization("RequireViewer");
+
+        // PUT /api/containers/{containerId}/tables/{tableId}/hidden-columns - Hide a table's columns from every caller
+        group.MapPut("/{containerId:guid}/tables/{tableId:guid}/hidden-columns", async (
+            Guid containerId,
+            Guid tableId,
+            [FromBody] HideTableColumnsRequest request,
+            [FromServices] HideTableColumns hide,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            if (request?.Columns is null)
+                return ApiProblem.BadRequest("Request body must name the columns to hide");
+            var hidden = await hide.RunAsync(Rest(http), containerId, tableId, request.Columns, ct);
+            return hidden.Succeeded ? Results.Ok(TableResponse.From(hidden.Result!)) : OperationProblems.Result(hidden);
+        })
+        .Produces<TableResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .WithName("tables.hideColumns")
+        .WithDescription("Hide a table's columns, by header name, from every caller; replaces the ones hidden before, and an empty list shows them all. A hidden column can't be selected, filtered, grouped, ordered or joined on. Admins only.")
+        .RequireAuthorization("RequireAdmin");
 
         // GET /api/containers/{containerId}/settings - Get container settings overrides
         group.MapGet("/{containerId:guid}/settings", async (
@@ -430,14 +454,21 @@ public record TableResponse(
     long RowCount,
     bool NeedsReview,
     int RejectCount,
-    int Version,
+    int? Version,
     DateTime CreatedAt,
-    DateTime LoadedAt)
+    DateTime? LoadedAt,
+    bool Partial = false,
+    IReadOnlyList<string>? HiddenColumns = null)
 {
     public static TableResponse From(TableInfo table) => new(
         table.Id, table.ContainerId, table.Name, table.Description, table.DocumentId, table.Columns,
-        table.RowCount, table.NeedsReview, table.Rejects.Count, table.Version, table.CreatedAt, table.LoadedAt);
+        table.RowCount, table.NeedsReview, table.Rejects.Count,
+        table.Partial ? null : table.Version, table.CreatedAt, table.Partial ? null : table.LoadedAt,
+        table.Partial, table.HiddenColumns is { Count: > 0 } hidden ? hidden : null);
 }
+
+/// <summary>The columns of a table to hide, by header name; an empty list shows them all.</summary>
+public record HideTableColumnsRequest(IReadOnlyList<string> Columns);
 
 public record ContainerReindexResponse(
     string BatchId,
