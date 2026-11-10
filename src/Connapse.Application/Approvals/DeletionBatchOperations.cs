@@ -57,7 +57,7 @@ public enum DeletionBatchOutcome
 }
 
 /// <summary>Finding a batch's items, fingerprinting them, and describing a batch (CON-315).</summary>
-internal static class DeletionTargets
+public static class DeletionTargets
 {
     public static string KindName(DeletionItemKind kind) => kind switch
     {
