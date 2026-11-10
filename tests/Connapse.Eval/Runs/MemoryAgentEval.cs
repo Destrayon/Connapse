@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -22,7 +23,7 @@ namespace Connapse.Eval.Runs;
 /// </summary>
 public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter log)
 {
-    public const string Dataset = "memory-agent";
+    public const string DefaultDataset = "memory-agent";
     public const string SpaceName = "pm-desk";
 
     /// <summary>The date the save prompt gives as today; every seeded change is earlier.</summary>
@@ -31,6 +32,12 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     public static readonly string[] ReadTools = ["memory_spaces", "memory_recall", "memory_timeline"];
     public static readonly string[] WriteTools = [.. ReadTools, "memory_remember", "memory_correct"];
     public static readonly string[] Arms = ["all", "retrieval", "find", "save"];
+
+    /// <summary>How the agent reads memory: today's memory tools, or a regex grep over the facts as text (CON-321).</summary>
+    public static readonly string[] Searches = ["memory", "grep"];
+
+    /// <summary>The save tools the grep arm keeps, so both arms write the same way.</summary>
+    public static readonly string[] GrepWriteTools = ["memory_remember", "memory_correct"];
 
     /// <summary>Find tasks whose question shares no content word with the fact, or names only part of one.</summary>
     public static readonly string[] HardKinds = ["reworded", "indirect", "partial"];
@@ -42,8 +49,25 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     public const int RegisteredFindTasks = 74;
     public const int RegisteredSaveTasks = 24;
 
+    /// <summary>A task set's made-up company and its registered task counts.</summary>
+    public sealed record DatasetProfile(string Company, string SpaceDescription, int FindTasks, int SaveTasks);
+
+    /// <summary>
+    /// The task sets. memory-agent is the CON-313 set; memory-agent-sealed-1 is the hidden set built by the same rules
+    /// for CON-321, which nobody reads or tunes against.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, DatasetProfile> Profiles = new Dictionary<string, DatasetProfile>(StringComparer.Ordinal)
+    {
+        [DefaultDataset] = new("Orrin Systems", "What a project manager keeps about Orrin Systems: projects, people, services and working rules",
+            RegisteredFindTasks, RegisteredSaveTasks),
+        [SealedDataset] = new("Quorvane Logistics",
+            "What a project manager keeps about Quorvane Logistics: projects, people, services and working rules", 76, 24),
+    };
+
+    public const string SealedDataset = "memory-agent-sealed-1";
+
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers,
-        string? OutPath, string? AgentDir = null, string Arm = "all");
+        string? OutPath, string? AgentDir = null, string Arm = "all", string Search = "memory", string Dataset = DefaultDataset);
 
     public sealed record SeedHistory(string Value, string ValidFrom, string ChangedOn);
 
@@ -79,31 +103,43 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
     public static readonly AgentRules Rules = new(AgentContract.MaxToolCalls, Answer, TypedAnswer: false);
 
-    public static string FindPrompt =>
-        "You are a project manager's assistant at Orrin Systems. Your memory is the Connapse memory space named "
-        + $"\"{SpaceName}\"; read it with the memory tools. Answer the question from memory, then call the answer tool with a "
+    public static string FindPrompt(string company = "Orrin Systems", string search = "memory") =>
+        $"You are a project manager's assistant at {company}. Your memory is the Connapse memory space named "
+        + $"\"{SpaceName}\"; {ReadsWith(search)}. Answer the question from memory, then call the answer tool with a "
         + "short answer and, in factIds, the id of every fact the answer relies on. If memory does not hold the answer, "
         + $"say so and cite no facts. You may make at most {AgentContract.MaxToolCalls} tool calls before answering.";
 
-    public static string SavePrompt =>
-        "You are a project manager's assistant at Orrin Systems, and you keep its memory accurate. Your memory is the "
-        + $"Connapse memory space named \"{SpaceName}\". When the user tells you something, check what memory already holds, "
-        + "then save it with memory_remember if memory lacks it, fix the fact with memory_correct if its value changed, and "
+    public static string SavePrompt(string company = "Orrin Systems", string search = "memory") =>
+        $"You are a project manager's assistant at {company}, and you keep its memory accurate. Your memory is the "
+        + $"Connapse memory space named \"{SpaceName}\"{(search == "grep" ? $"; {ReadsWith(search)}" : "")}. "
+        + "When the user tells you something, check what memory already holds, "
+        + $"then save it with memory_remember{(search == "grep" ? $" (space \"{SpaceName}\")" : "")} if memory lacks it, fix the fact with memory_correct if its value changed, and "
         + $"change nothing if memory already holds it. Today is {Today}. When you are done, call the answer tool with a "
         + "one-line summary and, in factIds, the id of every fact you saved or corrected (none if you changed nothing). "
         + $"You may make at most {AgentContract.MaxToolCalls} tool calls before answering.";
+
+    /// <summary>How the prompt says to read memory; the rest of each prompt is the same in both arms.</summary>
+    private static string ReadsWith(string search) => search == "grep"
+        ? $"you see it as a text file with one fact per line ({FactGrepToolbox.Header}), which you search with grep and read"
+        : "read it with the memory tools";
 
     public async Task<int> RunAsync(Options options, CancellationToken ct)
     {
         if (!Arms.Contains(options.Arm))
             throw new ArgumentException($"--arm must be one of {string.Join(", ", Arms)}.");
+        if (!Searches.Contains(options.Search))
+            throw new ArgumentException($"--search must be one of {string.Join(", ", Searches)}.");
+        if (!Profiles.TryGetValue(options.Dataset, out DatasetProfile? profile))
+            throw new ArgumentException($"--dataset must be one of {string.Join(", ", Profiles.Keys)}.");
+        bool grep = options.Search == "grep";
 
-        DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[Dataset];
+        DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[options.Dataset];
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
-        await cache.EnsureAsync(Dataset, entry, allowUnpinned: false, ct);
-        string root = cache.DirectoryFor(Dataset, entry);
-        List<SeedFact> facts = ReadFacts(Path.Combine(root, "facts.jsonl"));
-        List<AgentTask> all = [.. ReadTasks(Path.Combine(root, "tasks.jsonl")).Where(t => t.Split == options.Split)];
+        await cache.EnsureAsync(options.Dataset, entry, allowUnpinned: false, ct);
+        string root = cache.DirectoryFor(options.Dataset, entry);
+        string FileNamed(string stem) => Path.Combine(root, entry.Files.Single(f => f.Name.StartsWith(stem, StringComparison.Ordinal)).Name);
+        List<SeedFact> facts = ReadFacts(FileNamed("facts.jsonl"));
+        List<AgentTask> all = [.. ReadTasks(FileNamed("tasks.jsonl")).Where(t => t.Split == options.Split)];
         List<AgentTask> find = Limit([.. all.Where(t => t.Type == "find")], options.LimitTasks);
         List<AgentTask> save = Limit([.. all.Where(t => t.Type == "save")], options.LimitTasks);
 
@@ -112,11 +148,13 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
         await using ConnapseSearchSystem system = await ConnapseSearchSystem.StartAsync(config, paths.WebContentRoot, embeddings, log, null, ct);
 
         Guid reader = Guid.NewGuid();
-        Seeded seeded = await SeedAsync(system.Services, reader, facts, ct);
+        Seeded seeded = await SeedAsync(system.Services, reader, facts, ct, profile.SpaceDescription);
         log.WriteLine($"{facts.Count} facts seeded into {SpaceName} ({seeded.Old.Count} with an older version)");
 
         JsonObject report = new()
         {
+            ["dataset"] = options.Dataset,
+            ["search"] = options.Search,
             ["config"] = options.Config,
             ["split"] = options.Split,
             ["model"] = options.Model,
@@ -125,7 +163,8 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             ["arm"] = options.Arm,
             ["facts"] = facts.Count,
         };
-        if (options.Arm is "all" or "retrieval")
+        // The retrieval arm measures memory_recall alone, which the grep arm does not have.
+        if (options.Arm is "all" or "retrieval" && !grep)
             report["retrieval"] = await RetrievalAsync(system.Services, reader, seeded, find, ct);
 
         List<string> runLines = [];
@@ -140,10 +179,13 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
             if (options.Arm is "all" or "find")
             {
-                McpToolbox tools = new(system.Services, McpToolbox.Reader(reader, "memory-agent-eval"), ReadTools);
+                IToolbox tools = grep
+                    ? new FactGrepToolbox(async token => await VersionsAsync(system.Services, seeded.Space, token))
+                    : new McpToolbox(system.Services, McpToolbox.Reader(reader, "memory-agent-eval"), ReadTools);
+                string prompt = FindPrompt(profile.Company, options.Search);
                 List<TaskResult> results = await RunJobsAsync(find, options, agent, async (task, token) =>
                 {
-                    AgentRun run = await agent.RunAsync(tools, FindPrompt, task.Question, token);
+                    AgentRun run = await agent.RunAsync(tools, prompt, task.Question, token);
                     return (run, ScoreFind(task, run, seeded));
                 }, ct);
                 report["find"] = Section(results, HardKinds);
@@ -152,13 +194,17 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
             if (options.Arm is "all" or "save")
             {
+                string prompt = SavePrompt(profile.Company, options.Search);
                 List<TaskResult> results = await RunJobsAsync(save, options, agent, async (task, token) =>
                 {
                     // Each run writes, so each gets its own user and a freshly seeded space.
                     Guid user = Guid.NewGuid();
-                    Seeded own = await SeedAsync(system.Services, user, facts, token);
-                    McpToolbox tools = new(system.Services, Writer(user, "memory-agent-eval"), WriteTools);
-                    AgentRun run = await agent.RunAsync(tools, SavePrompt, task.Question, token);
+                    Seeded own = await SeedAsync(system.Services, user, facts, token, profile.SpaceDescription);
+                    IToolbox tools = grep
+                        ? new FactGrepToolbox(async t => await VersionsAsync(system.Services, own.Space, t),
+                            new McpToolbox(system.Services, Writer(user, "memory-agent-eval"), GrepWriteTools))
+                        : new McpToolbox(system.Services, Writer(user, "memory-agent-eval"), WriteTools);
+                    AgentRun run = await agent.RunAsync(tools, prompt, task.Question, token);
                     List<MemoryFact> versions = await VersionsAsync(system.Services, own.Space, token);
                     return (run, ScoreSave(task, run, own, versions));
                 }, ct);
@@ -173,7 +219,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             };
         }
 
-        List<string> nonconforming = Nonconforming(options, find.Count, save.Count);
+        List<string> nonconforming = Nonconforming(options, find.Count, save.Count, profile);
         report["conforming"] = nonconforming.Count == 0;
         report["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]);
 
@@ -221,14 +267,15 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     /// Makes the user's personal space and saves every fact through the MCP tools. A fact with history is saved with its
     /// old value first, then corrected as changed on the day it changed, so the old version stays in history.
     /// </summary>
-    public static async Task<Seeded> SeedAsync(IServiceProvider services, Guid userId, IReadOnlyList<SeedFact> facts, CancellationToken ct)
+    public static async Task<Seeded> SeedAsync(IServiceProvider services, Guid userId, IReadOnlyList<SeedFact> facts, CancellationToken ct,
+        string? spaceDescription = null)
     {
         McpToolbox tools = new(services, Writer(userId, "memory-agent-seed"), ["memory_space_create", "memory_remember", "memory_correct"]);
         JsonNode created = await CallAsync(tools, "memory_space_create", new
         {
             name = SpaceName,
             kind = "personal",
-            description = "What a project manager keeps about Orrin Systems: projects, people, services and working rules",
+            description = spaceDescription ?? Profiles[DefaultDataset].SpaceDescription,
         }, ct);
         Guid space = created["created"]!["id"]!.GetValue<Guid>();
 
@@ -288,7 +335,8 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
     /// <summary>
     /// A find run scores 1 when it answered, cited a current version of a gold fact and no older version of any fact.
-    /// An absent run scores 1 when it answered and cited nothing.
+    /// An absent run scores 1 when it answered and cited nothing. The grep arm's grep counts as a recall and its read as
+    /// a read, so the measures compare across arms.
     /// </summary>
     public static TaskScore ScoreFind(AgentTask task, AgentRun run, Seeded seeded)
     {
@@ -299,8 +347,8 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
         bool citedOld = cited.Overlaps(seeded.Old.Values);
         bool right = task.Kind == "absent" ? answered && run.Cited.Count == 0 : answered && citedGold && !citedOld;
 
-        List<ToolTrace> reads = [.. run.Calls.Where(c => c.Name is "memory_recall" or "memory_timeline")];
-        List<ToolTrace> recalls = [.. reads.Where(c => c.Name == "memory_recall")];
+        List<ToolTrace> reads = [.. run.Calls.Where(c => c.Name is "memory_recall" or "memory_timeline" or FactGrepToolbox.GrepTool or FactGrepToolbox.ReadTool)];
+        List<ToolTrace> recalls = [.. reads.Where(c => IsSearch(c.Name))];
         bool Shows(ToolTrace c) => gold.Any(g => c.Output.Contains(g.ToString(), StringComparison.OrdinalIgnoreCase));
         return new TaskScore(right ? 1 : 0, new Dictionary<string, double>
         {
@@ -309,8 +357,11 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             ["citedOld"] = citedOld ? 1 : 0,
             ["toolCalls"] = run.Calls.Count,
             ["recallCalls"] = recalls.Count,
+            ["costUsd"] = run.Usage.CostUsd,
         });
     }
+
+    private static bool IsSearch(string tool) => tool is "memory_recall" or FactGrepToolbox.GrepTool;
 
     /// <summary>
     /// A save run is scored on what memory holds afterwards. A fact is live when it is neither ended nor corrected; a
@@ -359,7 +410,8 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             ["otherFactsChanged"] = others.Count > 0 ? 1 : 0,
             ["sameChain"] = sameChain ? 1 : 0,
             ["toolCalls"] = run.Calls.Count,
-            ["recallCalls"] = run.Calls.Count(c => c.Name == "memory_recall"),
+            ["recallCalls"] = run.Calls.Count(c => IsSearch(c.Name)),
+            ["costUsd"] = run.Usage.CostUsd,
         }, note);
     }
 
@@ -443,6 +495,10 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
         if (hardKinds.Count > 0)
             section["hard"] = Group([.. results.Where(r => hardKinds.Contains(r.Task.Kind))]);
         section["perTask"] = new JsonObject([.. results.Select(r => KeyValuePair.Create(r.Task.Id, (JsonNode?)Round(r.Runs.Average(x => x.Score.Score))))]);
+        // Per-task means of the bar's other two measures, for the paired permutation tests against another arm.
+        foreach (string measure in (string[])["toolCalls", "costUsd"])
+            section[$"perTask_{measure}"] = new JsonObject([.. results.Select(r => KeyValuePair.Create(r.Task.Id,
+                (JsonNode?)Math.Round(r.Runs.Average(x => x.Score.Measures.GetValueOrDefault(measure)), 6)))]);
         section["outcomes"] = Outcomes(results.SelectMany(r => r.Runs));
         section["tokens"] = Tokens(results.SelectMany(r => r.Runs));
         return section;
@@ -501,6 +557,8 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
                     ["outcome"] = run.Outcome.ToString(),
                     ["score"] = score.Score,
                     ["note"] = score.Note,
+                    ["toolCalls"] = run.Calls.Count,
+                    ["costUsd"] = run.Usage.CostUsd,
                     ["answer"] = run.Answer,
                     ["cited"] = new JsonArray([.. run.Cited.Select(c => (JsonNode?)c)]),
                     ["calls"] = new JsonArray([.. run.Calls.Select(c => (JsonNode?)new JsonObject
@@ -515,8 +573,9 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     }
 
     /// <summary>Why a run is diagnostic only: anything short of the pre-registered run. Empty when it conforms.</summary>
-    public static List<string> Nonconforming(Options options, int findTasks, int saveTasks)
+    public static List<string> Nonconforming(Options options, int findTasks, int saveTasks, DatasetProfile? profile = null)
     {
+        profile ??= Profiles[DefaultDataset];
         List<string> reasons = [];
         if (options.Arm != "all")
             reasons.Add($"arm is {options.Arm}, not all");
@@ -530,10 +589,10 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             reasons.Add($"effort is {options.Effort}, not {RegisteredEffort}");
         if (options.LimitTasks is not null)
             reasons.Add("--limit-tasks was set");
-        if (findTasks != RegisteredFindTasks)
-            reasons.Add($"{findTasks} find tasks, not {RegisteredFindTasks}");
-        if (saveTasks != RegisteredSaveTasks)
-            reasons.Add($"{saveTasks} save tasks, not {RegisteredSaveTasks}");
+        if (findTasks != profile.FindTasks)
+            reasons.Add($"{findTasks} find tasks, not {profile.FindTasks}");
+        if (saveTasks != profile.SaveTasks)
+            reasons.Add($"{saveTasks} save tasks, not {profile.SaveTasks}");
         if (options.Repetitions != RegisteredRepetitions)
             reasons.Add($"{options.Repetitions} repetitions, not {RegisteredRepetitions}");
         return reasons;
@@ -541,13 +600,27 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
     private static double Round(double x) => Math.Round(x, 4);
 
+    /// <summary>A file's lines; a .gz file is decompressed, as the sealed sets are committed.</summary>
+    private static List<string> Lines(string path)
+    {
+        if (!path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase))
+            return [.. File.ReadLines(path)];
+        using FileStream file = File.OpenRead(path);
+        using GZipStream gzip = new(file, CompressionMode.Decompress);
+        using StreamReader reader = new(gzip);
+        List<string> lines = [];
+        while (reader.ReadLine() is { } line)
+            lines.Add(line);
+        return lines;
+    }
+
     public static List<SeedFact> ReadFacts(string path) =>
-        [.. File.ReadLines(path).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).Select(f => new SeedFact(
+        [.. Lines(path).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).Select(f => new SeedFact(
             (string)f["key"]!, (string)f["subject"]!, (string)f["attribute"]!, (string)f["value"]!,
             f["history"] is JsonObject h ? new SeedHistory((string)h["value"]!, (string)h["validFrom"]!, (string)h["changedOn"]!) : null))];
 
     public static List<AgentTask> ReadTasks(string path) =>
-        [.. File.ReadLines(path).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).Select(t => new AgentTask(
+        [.. Lines(path).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).Select(t => new AgentTask(
             (string)t["id"]!, (string)t["type"]!, (string)t["kind"]!, (string)t["split"]!, (string)t["question"]!,
             [.. (t["gold"]?.AsArray() ?? []).Select(g => (string)g!)],
             (string?)t["target"],

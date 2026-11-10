@@ -2,11 +2,16 @@
 the facts that answer them, and save tasks where the user tells the agent something to record.
 
 Usage: python -I eval/tools/build_memory_agent.py eval/datasets/memory-agent
+       python -I eval/tools/build_memory_agent.py eval/datasets/memory-agent-sealed-1 --spec eval/tools/memory-agent-sealed-1.spec.json.gz
 
-Every company, project, person and value is made up. The output is a pure function of this file. The script fails if
-a task breaks its kind's wording rule (see check_find).
+Every company, project, person and value is made up. The output is a pure function of this file, or of this file and
+the spec. The script fails if a task breaks its kind's wording rule (see check_find).
+
+A spec (CON-321) replaces the facts, filler names and tasks below with another set held to the same rules. A spec's
+output is written gzipped, as a sealed set is committed; don't decompress a sealed set or its spec to read it.
 """
 
+import gzip
 import json
 import re
 import sys
@@ -122,16 +127,16 @@ LANGUAGES = ["Go", "Kotlin", "Python", "TypeScript", "Rust", "Java"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
 
-def filler():
+def filler(services=SERVICES, owners=OWNERS, languages=LANGUAGES, days=DAYS, org="orrin"):
     facts = []
     n = 101
-    for i, name in enumerate(SERVICES):
+    for i, name in enumerate(services):
         low = name.lower()
         for attribute, value in [
-            ("owner", OWNERS[(i * 3) % len(OWNERS)]),
-            ("repository", f"orrin/{low}-svc"),
-            ("language", LANGUAGES[(i * 5) % len(LANGUAGES)]),
-            ("deploy day", DAYS[(i * 2) % len(DAYS)]),
+            ("owner", owners[(i * 3) % len(owners)]),
+            ("repository", f"{org}/{low}-svc"),
+            ("language", languages[(i * 5) % len(languages)]),
+            ("deploy day", days[(i * 2) % len(days)]),
             ("alerts channel", f"#{low}-alerts"),
         ]:
             facts.append((f"g{n:03d}", name, attribute, value, None))
@@ -318,7 +323,7 @@ def overlap(a, b):
     return {x for x in a for y in b if x == y or (len(x) >= 5 and len(y) >= 5 and x[:5] == y[:5])}
 
 
-def check_find(task, facts):
+def check_find(task, facts, partial=PARTIAL, absent=ABSENT):
     tid, kind, _, question, gold, _ = task
     q = stems(question)
     for key in gold:
@@ -332,28 +337,58 @@ def check_find(task, facts):
             assert not overlap(q, attr_value), f"{tid}: shares {overlap(q, attr_value)} with the attribute or value"
         elif kind in ("indirect", "partial"):
             # A partial question's abbreviation is its one allowed link to the fact.
-            shared = overlap(q - ({stem(PARTIAL[tid][0])} if kind == "partial" else set()), subj | attr_value)
+            shared = overlap(q - ({stem(partial[tid][0])} if kind == "partial" else set()), subj | attr_value)
             assert not shared, f"{tid}: shares {shared} with the fact"
     if kind == "partial":
-        short, full = PARTIAL[tid]
+        short, full = partial[tid]
         assert short in re.findall(r"[a-z0-9]+", question.lower()), f"{tid}: '{short}' is not in the question"
         words = [w for key in gold for w in re.findall(r"[a-z0-9]+", " ".join(facts[key][1:4]).lower())]
         assert full in words, f"{tid}: '{full}' is not in the fact"
     if kind == "absent":
-        subject, word = ABSENT[tid]
+        subject, word = absent[tid]
         held = [k for k, f in facts.items() if f[1].lower() == subject.lower() and word in f[2].lower()]
         assert not held, f"{tid}: memory holds {held}"
 
 
-def main(out):
+def load_spec(path):
+    """A spec's facts, filler names and tasks, in the same shapes as the constants above."""
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        s = json.load(f)
+    return {
+        "facts": [(k, subj, attr, val, tuple(h) if h else None) for k, subj, attr, val, h in s["facts"]],
+        "filler": filler(s["services"], s["owners"], s["languages"], s["days"], s["org"]),
+        "find": [tuple(t) for t in s["find"]],
+        "partial": {k: tuple(v) for k, v in s["partial"].items()},
+        "absent": {k: tuple(v) for k, v in s["absent"].items()},
+        "save": [tuple(t) for t in s["save"]],
+    }
+
+
+def write_lines(path, rows, compress):
+    text = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows).encode("utf-8")
+    if compress:
+        # No name and a zero time in the header, so the same input always gives the same bytes.
+        with open(str(path) + ".gz", "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as f:
+            f.write(text)
+    else:
+        with open(path, "wb") as f:
+            f.write(text)
+
+
+def main(out, spec=None):
+    FACTS, FIND, PARTIAL, ABSENT, SAVE = (spec["facts"], spec["find"], spec["partial"], spec["absent"], spec["save"]) if spec \
+        else (globals()["FACTS"], globals()["FIND"], globals()["PARTIAL"], globals()["ABSENT"], globals()["SAVE"])
+    extra = spec["filler"] if spec else filler()
     hand = {f[0]: f for f in FACTS}
-    facts = {f[0]: f for f in FACTS + filler()}
-    assert len(hand) == len(FACTS) and len(facts) == len(FACTS) + len(filler()), "fact keys must be unique"
+    facts = {f[0]: f for f in FACTS + extra}
+    assert len(hand) == len(FACTS) and len(facts) == len(FACTS) + len(extra), "fact keys must be unique"
     pairs = [(f[1].lower(), f[2].lower()) for f in facts.values()]
     assert len(set(pairs)) == len(pairs), "two facts share a subject and attribute"
     for task in FIND:
         assert all(k in hand for k in task[4]), f"{task[0]}: unknown gold key"
-        check_find(task, facts)
+        check_find(task, facts, PARTIAL, ABSENT)
+    assert {t[0] for t in FIND if t[1] == "partial"} == set(PARTIAL), "every partial task needs one PARTIAL entry"
+    assert {t[0] for t in FIND if t[1] == "absent"} == set(ABSENT), "every absent task needs one ABSENT entry"
     for tid, kind, _, _, target, groups in SAVE:
         if kind != "new":
             assert target in hand, f"{tid}: unknown target"
@@ -365,19 +400,18 @@ def main(out):
 
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    with open(out / "facts.jsonl", "w", encoding="utf-8", newline="\n") as f:
-        for key, subject, attribute, value, history in facts.values():
-            row = {"key": key, "subject": subject, "attribute": attribute, "value": value}
-            if history:
-                row["history"] = {"value": history[0], "validFrom": history[1], "changedOn": history[2]}
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    with open(out / "tasks.jsonl", "w", encoding="utf-8", newline="\n") as f:
-        for tid, kind, split, question, gold, answer in FIND:
-            f.write(json.dumps({"id": tid, "type": "find", "kind": kind, "split": split, "question": question,
-                                "gold": gold, "answer": answer}, ensure_ascii=False) + "\n")
-        for tid, kind, split, said, target, groups in SAVE:
-            f.write(json.dumps({"id": tid, "type": "save", "kind": kind, "split": split, "question": said,
-                                "target": target, "expect": groups}, ensure_ascii=False) + "\n")
+    fact_rows = []
+    for key, subject, attribute, value, history in facts.values():
+        row = {"key": key, "subject": subject, "attribute": attribute, "value": value}
+        if history:
+            row["history"] = {"value": history[0], "validFrom": history[1], "changedOn": history[2]}
+        fact_rows.append(row)
+    write_lines(out / "facts.jsonl", fact_rows, spec is not None)
+    task_rows = [{"id": tid, "type": "find", "kind": kind, "split": split, "question": question, "gold": gold, "answer": answer}
+                 for tid, kind, split, question, gold, answer in FIND]
+    task_rows += [{"id": tid, "type": "save", "kind": kind, "split": split, "question": said, "target": target, "expect": groups}
+                  for tid, kind, split, said, target, groups in SAVE]
+    write_lines(out / "tasks.jsonl", task_rows, spec is not None)
     counts = {}
     for t in FIND + SAVE:
         counts[(t[1], t[2])] = counts.get((t[1], t[2]), 0) + 1
@@ -386,4 +420,5 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    args = sys.argv[1:]
+    main(args[0], load_spec(args[args.index("--spec") + 1]) if "--spec" in args else None)
