@@ -100,6 +100,8 @@ public static class DeletionTargets
     public static string SpaceFingerprint(Container space, MemorySpaceImpact impact) =>
         Hash($"space\n{space.Id}\n{space.Name}\n{space.UpdatedAt.Ticks}\n{impact.Facts}\n{impact.Versions}");
 
+    internal static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
+
     private static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
     public static DeletionBatchView View(DeletionBatchEntity batch, DateTime now, Guid? viewer = null)
@@ -246,7 +248,7 @@ public sealed class RequestDeletions(
                     bool recorded = await folders.ExistsAsync(containerId, path, ct);
                     if (!recorded && inside.Count == 0)
                         return (null, $"folder '{path}' was not found in '{container.Name}'");
-                    return (new NewDeletionItem(kind, containerId, path, $"{container.Name}:{path} ({inside.Count} files)", reason,
+                    return (new NewDeletionItem(kind, containerId, path, $"{container.Name}:{path} ({DeletionTargets.Count(inside.Count, "file")})", reason,
                         DeletionTargets.FolderFingerprint(containerId, path, recorded, inside)), null);
                 }
         }
@@ -403,7 +405,7 @@ public sealed class DecideDeletionBatch(
                             return Changed("folder");
                         var deleted = await deleteFolder.RunAsync(owner, item.ContainerId, item.Target, ct);
                         return deleted.Succeeded
-                            ? (DeletionItemState.Deleted, $"Deleted, with the {deleted.Result!.DocumentsDeleted} files in it.")
+                            ? (DeletionItemState.Deleted, $"Deleted, with the {DeletionTargets.Count(deleted.Result!.DocumentsDeleted, "file")} in it.")
                             : Failed(deleted.Detail);
                     }
 
@@ -418,7 +420,7 @@ public sealed class DecideDeletionBatch(
                             return Changed("memory space");
                         var deleted = await deleteSpace.RunAsync(owner, item.ContainerId, dryRun: false, ct);
                         return deleted.Succeeded
-                            ? (DeletionItemState.Deleted, $"Deleted, with its {deleted.Result!.Facts} facts.")
+                            ? (DeletionItemState.Deleted, $"Deleted, with its {DeletionTargets.Count(deleted.Result!.Facts, "fact")}.")
                             : Failed(deleted.Detail);
                     }
             }
