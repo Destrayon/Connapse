@@ -10,6 +10,8 @@ namespace Connapse.Storage.Tables;
 /// <c>table_sql</c> (CON-326) is meant to run through it too, so both answer under the same limits and in the same
 /// shape (docs/plans/con-320-raw-sql-rls.md):
 /// <list type="bullet">
+/// <item>a per-request token and the container's reader role, so the database itself refuses rows from documents the
+/// caller may not read (CON-324);</item>
 /// <item>a <c>READ ONLY</c> transaction that sets <c>statement_timeout</c>, <c>lock_timeout</c>, <c>work_mem</c>,
 /// <c>max_parallel_workers_per_gather</c> and a fixed <c>search_path</c> with <c>set_config(…, true)</c>, and is
 /// always rolled back;</item>
@@ -35,22 +37,40 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
     /// <summary>When the client gives up and cancels the query itself.</summary>
     internal TimeSpan ClientTimeout { get; init; } = TimeSpan.FromSeconds(TableReaderLogin.StatementTimeoutSeconds + 2);
 
-    internal async Task<TableQueryResult> RunAsync(CompiledTableQuery query, CancellationToken ct)
+    /// <summary>
+    /// Runs <paramref name="query"/> on <paramref name="containerId"/>'s tables for a caller who may read
+    /// <paramref name="access"/>'s documents. The container's grants must already be given
+    /// (<see cref="TableReaderLogin.EnsureGrantsAsync"/>). A request token listing those documents is written first and
+    /// deleted afterwards; the query runs under the container's reader role with the token bound, so row-level security
+    /// shows rows only from tables whose source document is in the set, whatever the query asks for.
+    /// </summary>
+    internal async Task<TableQueryResult> RunAsync(Guid containerId, TableAccess access, CompiledTableQuery query, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(access);
         ArgumentNullException.ThrowIfNull(query);
         using CancellationTokenSource deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(ClientTimeout);
+        string? token = null;
         try
         {
-            return await ExecuteAsync(query, deadline.Token);
+            token = await reader.IssueTokenAsync(access.ReadableDocuments, ClientTimeout + TokenGrace, deadline.Token);
+            return await ExecuteAsync(reader.ContainerRoleName(containerId), token, query, deadline.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             throw TimedOut();
         }
+        finally
+        {
+            if (token is not null)
+                await reader.RevokeTokenAsync(token);
+        }
     }
 
-    private async Task<TableQueryResult> ExecuteAsync(CompiledTableQuery query, CancellationToken ct)
+    /// <summary>How long a token outlives the client deadline, for clock skew between the token write and the query.</summary>
+    private static readonly TimeSpan TokenGrace = TimeSpan.FromSeconds(5);
+
+    private async Task<TableQueryResult> ExecuteAsync(string role, string token, CompiledTableQuery query, CancellationToken ct)
     {
         await using NpgsqlConnection connection = await reader.OpenConnectionAsync(ct);
         await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
@@ -58,11 +78,14 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
         await using (NpgsqlBatch setup = new(connection, transaction))
         {
             setup.BatchCommands.Add(new NpgsqlBatchCommand("SET TRANSACTION READ ONLY"));
+            // The role name is generated and checked by Quote; SET ROLE can't take a parameter.
+            setup.BatchCommands.Add(new NpgsqlBatchCommand($"SET LOCAL ROLE {TableDdl.Quote(role)}"));
             setup.BatchCommands.Add(new NpgsqlBatchCommand(
                 "SELECT pg_catalog.set_config('statement_timeout', $1, true), pg_catalog.set_config('lock_timeout', $2, true), "
                 + "pg_catalog.set_config('idle_in_transaction_session_timeout', $3, true), pg_catalog.set_config('work_mem', $4, true), "
                 + "pg_catalog.set_config('max_parallel_workers_per_gather', $5, true), "
-                + "pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true)")
+                + "pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true), "
+                + "pg_catalog.set_config('tables_auth.token', $6, true)")
             {
                 Parameters =
                 {
@@ -71,6 +94,7 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
                     new NpgsqlParameter { Value = TableReaderLogin.IdleInTransactionTimeout },
                     new NpgsqlParameter { Value = TableReaderLogin.WorkMem },
                     new NpgsqlParameter { Value = MaxParallelWorkersPerGather },
+                    new NpgsqlParameter { Value = token },
                 },
             });
             await setup.ExecuteNonQueryAsync(ct);

@@ -89,6 +89,93 @@ internal static partial class TableDdl
         + (history ? ", " + Quote(TableHistory.SeenFrom) : "")
         + ") FROM STDIN (FORMAT BINARY)";
 
+    /// <summary>The schema holding the per-request tokens and the lookup the row policies call (CON-324).</summary>
+    internal const string AuthSchema = "tables_auth";
+
+    /// <summary>The lookup the row policies call: the documents the current request's token may read.</summary>
+    internal const string ReadableDocumentsFunction = AuthSchema + ".readable_documents()";
+
+    /// <summary>
+    /// The token table and its lookup (CON-324). The table is unlogged, since no token needs to outlive a crash, and
+    /// nobody but the main login may touch it. The lookup runs as the main login (<c>SECURITY DEFINER</c>, with a fixed
+    /// <c>search_path</c>) and returns the documents of the token bound to this transaction, or none when the token is
+    /// missing, unknown or expired.
+    /// </summary>
+    internal static IReadOnlyList<string> TokenStoreSql { get; } =
+    [
+        $"CREATE SCHEMA IF NOT EXISTS {AuthSchema}",
+        $"REVOKE ALL ON SCHEMA {AuthSchema} FROM PUBLIC",
+        $"CREATE UNLOGGED TABLE IF NOT EXISTS {AuthSchema}.requests (token text PRIMARY KEY, documents uuid[] NOT NULL, expires_at timestamptz NOT NULL)",
+        $"REVOKE ALL ON {AuthSchema}.requests FROM PUBLIC",
+        $"CREATE OR REPLACE FUNCTION {ReadableDocumentsFunction} RETURNS uuid[] LANGUAGE sql STABLE SECURITY DEFINER "
+            + "SET search_path = pg_catalog, pg_temp AS $$ SELECT coalesce((SELECT r.documents FROM tables_auth.requests r "
+            + "WHERE r.token = nullif(pg_catalog.current_setting('tables_auth.token', true), '') "
+            + "AND r.expires_at > pg_catalog.statement_timestamp()), '{}'::uuid[]) $$",
+        $"REVOKE ALL ON FUNCTION {ReadableDocumentsFunction} FROM PUBLIC",
+    ];
+
+    /// <summary>
+    /// Takes the transaction lock that serializes creating or replacing the token store, so two connections never
+    /// create the schema or the lookup at once.
+    /// </summary>
+    internal static Task LockTokenStoreAsync(DbConnection connection, CancellationToken ct) =>
+        ExecuteAsync(connection, $"SELECT pg_advisory_xact_lock({LockClass}, hashtext('{AuthSchema}'))", ct);
+
+    /// <summary>
+    /// Creates the token store if it's missing, inside the caller's transaction. A table's row policy calls the
+    /// lookup, so the store must exist before the first table is built, which can be before any query provisions the
+    /// reader login. The lock is only taken when the lookup is missing, so loads don't queue behind each other.
+    /// </summary>
+    internal static async Task EnsureTokenStoreAsync(DbConnection connection, CancellationToken ct)
+    {
+        if (await TokenStoreExistsAsync(connection, ct))
+            return;
+        await LockTokenStoreAsync(connection, ct);
+        if (await TokenStoreExistsAsync(connection, ct))
+            return;
+        foreach (string sql in TokenStoreSql)
+            await ExecuteAsync(connection, sql, ct);
+    }
+
+    private static async Task<bool> TokenStoreExistsAsync(DbConnection connection, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT pg_catalog.to_regprocedure('{ReadableDocumentsFunction}') IS NOT NULL";
+        return (bool)(await command.ExecuteScalarAsync(ct))!;
+    }
+
+    internal const string ContainerRolePrefix = "connapse_tr_";
+
+    /// <summary>
+    /// The NOLOGIN role a container's queries run as (CON-324). Roles are cluster-wide, so the name carries a hash of
+    /// the database's name as well as the container's id: <c>connapse_tr_&lt;8 hex&gt;_&lt;32 hex&gt;</c>, 53 characters.
+    /// </summary>
+    internal static string ContainerRoleName(string database, Guid containerId) =>
+        ContainerRolePrefix
+        + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(database)))[..8]
+        + "_" + containerId.ToString("N");
+
+    /// <summary>
+    /// Turns row-level security on for a freshly loaded table (CON-324). Runs after the rows are copied, because
+    /// <c>COPY FROM</c> is refused on a table with row-level security. <c>FORCE</c> holds the owner (Connapse's main
+    /// login) to the policy too, so nothing reads the rows without a request token. The one policy shows every row
+    /// when the token's documents include the table's source document and none otherwise; a table with no source
+    /// document shows none to anyone. The check is a sub-select on its own, so it runs once per query.
+    /// </summary>
+    internal static IReadOnlyList<string> ProtectSql(Guid containerId, string tableName, Guid? documentId)
+    {
+        string table = QualifiedName(containerId, tableName);
+        string check = documentId is Guid document
+            ? $"((SELECT '{document:D}'::uuid = ANY ({ReadableDocumentsFunction})))"
+            : "(false)";
+        return
+        [
+            $"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY",
+            $"ALTER TABLE {table} FORCE ROW LEVEL SECURITY",
+            $"CREATE POLICY readable ON {table} AS PERMISSIVE FOR SELECT TO PUBLIC USING {check}",
+        ];
+    }
+
     /// <summary>
     /// Creates the container's schema if it isn't there. Runs inside the caller's transaction, so a container insert
     /// that rolls back takes its schema with it.
@@ -105,6 +192,30 @@ internal static partial class TableDdl
         await LockContainerAsync(connection, containerId, shared: false, ct);
         await ExecuteAsync(connection, $"SET LOCAL lock_timeout = '{DropLockTimeout}'", ct);
         await ExecuteAsync(connection, $"DROP SCHEMA IF EXISTS {Quote(SchemaName(containerId))} CASCADE", ct);
+        await DropContainerRoleAsync(connection, containerId, ct);
+    }
+
+    /// <summary>
+    /// Drops the container's reader role, if a query ever made one (CON-324). Its grants on the container's schema went
+    /// with the schema; the ones on the token lookup are revoked first, since a role holding privileges can't be dropped.
+    /// </summary>
+    private static async Task DropContainerRoleAsync(DbConnection connection, Guid containerId, CancellationToken ct)
+    {
+        string name = ContainerRoleName(connection.Database, containerId);
+        await using (var exists = connection.CreateCommand())
+        {
+            exists.CommandText = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1)";
+            var parameter = exists.CreateParameter();
+            parameter.Value = name;
+            exists.Parameters.Add(parameter);
+            if (await exists.ExecuteScalarAsync(ct) is not true)
+                return;
+        }
+
+        string role = Quote(name);
+        await ExecuteAsync(connection, $"REVOKE ALL ON FUNCTION {ReadableDocumentsFunction} FROM {role}", ct);
+        await ExecuteAsync(connection, $"REVOKE ALL ON SCHEMA {Quote(AuthSchema)} FROM {role}", ct);
+        await ExecuteAsync(connection, $"DROP ROLE {role}", ct);
     }
 
     /// <summary>

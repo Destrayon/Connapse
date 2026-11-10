@@ -311,6 +311,10 @@ public class PostgresTableStore(
             }
             await writer.CompleteAsync(ct);
         }
+
+        await TableDdl.EnsureTokenStoreAsync(connection, ct);
+        foreach (string sql in TableDdl.ProtectSql(containerId, storageName, load.DocumentId))
+            await TableDdl.ExecuteAsync(connection, sql, ct);
         return rows;
     }
 

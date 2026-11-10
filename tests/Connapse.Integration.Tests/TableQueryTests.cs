@@ -204,7 +204,8 @@ public class TableQueryTests(SharedWebAppFixture fixture)
 
         await using NpgsqlCommand command = new(
             "SELECT rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls, rolinherit, "
-            + "(SELECT count(*) FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid), "
+            + "(SELECT count(*) FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles g ON g.oid = m.roleid WHERE m.member = r.oid "
+            + "AND NOT (m.set_option AND NOT m.inherit_option AND NOT m.admin_option AND g.rolname LIKE 'connapse\\_tr\\_%')), "
             + "pg_catalog.current_setting('default_transaction_read_only'), pg_catalog.current_setting('statement_timeout'), "
             + "pg_catalog.current_setting('temp_file_limit'), pg_catalog.current_setting('work_mem'), "
             + "pg_catalog.current_setting('max_parallel_workers_per_gather') "
@@ -213,7 +214,7 @@ public class TableQueryTests(SharedWebAppFixture fixture)
         (await row.ReadAsync()).Should().BeTrue();
 
         Enumerable.Range(0, 6).Select(row.GetBoolean).Should().AllBeEquivalentTo(false);
-        row.GetInt64(6).Should().Be(0, "the reader belongs to no role");
+        row.GetInt64(6).Should().Be(0, "the reader belongs to no role but container readers it can only SET ROLE to");
         row.GetString(7).Should().Be("on");
         row.GetString(8).Should().Be(TableReaderLogin.StatementTimeout);
         row.GetString(9).Should().Be(TableReaderLogin.TempFileLimit);
@@ -296,37 +297,344 @@ public class TableQueryTests(SharedWebAppFixture fixture)
     public async Task Runner_ClientDeadline_CancelsTheQueryOnTheServer()
     {
         const string Sleep = "SELECT pg_catalog.pg_sleep(3)";
-        TableQueryRunner runner = new(fixture.Factory.Services.GetRequiredService<TableReaderLogin>())
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
         {
-            ClientTimeout = TimeSpan.FromMilliseconds(500),
-        };
-        System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
+            TableQueryRunner runner = new(fixture.Factory.Services.GetRequiredService<TableReaderLogin>())
+            {
+                ClientTimeout = TimeSpan.FromMilliseconds(500),
+            };
+            System.Diagnostics.Stopwatch elapsed = System.Diagnostics.Stopwatch.StartNew();
 
-        Func<Task> act = () => runner.RunAsync(new CompiledTableQuery(Sleep, [], null, 1), default);
+            Func<Task> act = () => runner.RunAsync(containerId, Access(table), new CompiledTableQuery(Sleep, [], null, 1), default);
 
-        await act.Should().ThrowAsync<TableQueryException>().WithMessage("*took longer than*");
-        elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2.5), "the client gave up before the server's timeout");
-        var configuration = fixture.Factory.Services.GetRequiredService<IConfiguration>();
-        await using NpgsqlDataSource admin = NpgsqlDataSource.Create(configuration.GetConnectionString("DefaultConnection")!);
-        await using NpgsqlCommand running = admin.CreateCommand(
-            "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE state = 'active' AND query = $1");
-        running.Parameters.Add(new NpgsqlParameter { Value = Sleep });
-        ((long)(await running.ExecuteScalarAsync())!).Should().Be(0, "the server stopped the query, not just the client");
+            await act.Should().ThrowAsync<TableQueryException>().WithMessage("*took longer than*");
+            elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2.5), "the client gave up before the server's timeout");
+            await using NpgsqlDataSource admin = AdminDataSource();
+            await using NpgsqlCommand running = admin.CreateCommand(
+                "SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE state = 'active' AND query = $1");
+            running.Parameters.Add(new NpgsqlParameter { Value = Sleep });
+            ((long)(await running.ExecuteScalarAsync())!).Should().Be(0, "the server stopped the query, not just the client");
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
     }
 
     [Fact]
     public async Task Runner_QueryWithoutColumns_TakesTheDatabaseNamesAndIsNeverSplit()
     {
-        TableQueryRunner runner = new(fixture.Factory.Services.GetRequiredService<TableReaderLogin>());
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            TableQueryRunner runner = new(fixture.Factory.Services.GetRequiredService<TableReaderLogin>());
 
-        TableQueryResult result = await runner.RunAsync(new CompiledTableQuery("SELECT 1 AS one", [], null, 10), default);
-        Func<Task> stacked = () => runner.RunAsync(
-            new CompiledTableQuery("SELECT 1 AS one; SET default_transaction_read_only = off", [], null, 10), default);
+            TableQueryResult result = await runner.RunAsync(containerId, Access(table), new CompiledTableQuery("SELECT 1 AS one", [], null, 10), default);
+            Func<Task> stacked = () => runner.RunAsync(containerId, Access(table),
+                new CompiledTableQuery("SELECT 1 AS one; SET default_transaction_read_only = off", [], null, 10), default);
 
-        result.Columns.Should().Equal("one");
-        result.Rows.Should().ContainSingle().Which.Should().Equal(1);
-        result.Notice.Should().Be(TableQueryResult.UntrustedDataNotice);
-        (await stacked.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.SyntaxError);
+            result.Columns.Should().Equal("one");
+            result.Rows.Should().ContainSingle().Which.Should().Equal(1);
+            result.Notice.Should().Be(TableQueryResult.UntrustedDataNotice);
+            (await stacked.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.SyntaxError);
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_RightToken_SeesEveryRow()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            string token = await Login.IssueTokenAsync(Access(table).ReadableDocuments, TimeSpan.FromMinutes(1), default);
+
+            (await CountUnderRoleAsync(containerId, table, token)).Should().Be(SalesRows.Length);
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_NoToken_SeesNoRows()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            (await CountUnderRoleAsync(containerId, table, token: null)).Should().Be(0);
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_ForgedToken_SeesNoRows()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            await Login.IssueTokenAsync(Access(table).ReadableDocuments, TimeSpan.FromMinutes(1), default);
+            string forged = System.Security.Cryptography.RandomNumberGenerator.GetHexString(32, lowercase: true);
+
+            (await CountUnderRoleAsync(containerId, table, forged)).Should().Be(0, "a token nobody issued lists no documents");
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_AnotherCallersToken_SeesNoRows()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            string other = await Login.IssueTokenAsync(new HashSet<Guid> { Guid.NewGuid() }, TimeSpan.FromMinutes(1), default);
+
+            (await CountUnderRoleAsync(containerId, table, other)).Should().Be(0);
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_ExpiredToken_SeesNoRows()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            string expired = await Login.IssueTokenAsync(Access(table).ReadableDocuments, TimeSpan.FromSeconds(-1), default);
+
+            (await CountUnderRoleAsync(containerId, table, expired)).Should().Be(0);
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_PlantedAppSideLeak_DatabaseStillReturnsNoRows()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            // The app-side check is skipped: the runner gets a query for the table with a caller who can't read it.
+            var runner = fixture.Factory.Services.GetRequiredService<TableQueryRunner>();
+            TableAccess stranger = new(new HashSet<Guid> { Guid.NewGuid() });
+            CompiledTableQuery read = TableQueryCompiler.CompileRead(table, new TableReadRequest(table.Id));
+            CompiledTableQuery count = TableQueryCompiler.CompileAggregate(table,
+                new TableAggregateRequest(table.Id, [new TableField(null, TableAggregateFunction.Count)]));
+
+            (await runner.RunAsync(containerId, stranger, read, default)).Rows.Should().BeEmpty();
+            (await runner.RunAsync(containerId, stranger, count, default)).Rows.Should().ContainSingle().Which.Should().Equal(0L);
+            (await runner.RunAsync(containerId, Access(table), read, default)).Rows.Should().HaveCount(SalesRows.Length, "the same query works for a reader");
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_TableOfAnotherContainerInTheSameQuery_SeesNoRowsWithoutItsDocument()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        var (_, otherId, otherTable) = await NewGrantedTableAsync(scope);
+        try
+        {
+            var runner = fixture.Factory.Services.GetRequiredService<TableQueryRunner>();
+
+            Func<Task> act = () => runner.RunAsync(containerId, Access(table),
+                new CompiledTableQuery($"SELECT count(*) FROM {Name(otherTable)}", [], null, 10), default);
+
+            (await act.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege,
+                "a container's role has no grants on another container's schema");
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+            await DeleteAsync(scope, containers, otherId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_LoginWithoutContainerRole_IsRefused()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            string token = await Login.IssueTokenAsync(Access(table).ReadableDocuments, TimeSpan.FromMinutes(1), default);
+            await using NpgsqlConnection connection = await Login.OpenConnectionAsync(default);
+            await using (NpgsqlCommand bind = new("SELECT pg_catalog.set_config('tables_auth.token', $1, false)", connection))
+            {
+                bind.Parameters.Add(new NpgsqlParameter { Value = token });
+                await bind.ExecuteNonQueryAsync();
+            }
+            await using NpgsqlCommand command = new($"RESET ROLE; SELECT count(*) FROM {Name(table)}", connection);
+
+            Func<Task> act = () => command.ExecuteScalarAsync();
+
+            (await act.Should().ThrowAsync<PostgresException>()).Which.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Theory]
+    [InlineData("SELECT count(*) FROM tables_auth.requests")]
+    [InlineData("INSERT INTO tables_auth.requests VALUES ('forged', ARRAY[]::uuid[], now() + interval '1 hour')")]
+    [InlineData("UPDATE tables_auth.requests SET expires_at = now() + interval '1 hour'")]
+    [InlineData("CREATE OR REPLACE FUNCTION tables_auth.readable_documents() RETURNS uuid[] LANGUAGE sql AS 'SELECT NULL::uuid[]'")]
+    [InlineData("CREATE TEMP TABLE pwned (x int)")]
+    [InlineData("ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")]
+    [InlineData("ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")]
+    [InlineData("CREATE POLICY pwned ON {table} FOR SELECT USING (true)")]
+    [InlineData("DROP POLICY readable ON {table}")]
+    public async Task Rls_ContainerRoleCannotForgeItsIdentity(string attack)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewGrantedTableAsync(scope);
+        try
+        {
+            string sql = attack.Replace("{table}", Name(table), StringComparison.Ordinal);
+
+            PostgresException ex = await ReaderFailsAsync(containerId, table, sql, readOnlyOff: true);
+
+            ex.SqlState.Should().Be(PostgresErrorCodes.InsufficientPrivilege);
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_QueryThroughTheService_DeletesItsToken()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewTableAsync(scope);
+        try
+        {
+            var service = scope.ServiceProvider.GetRequiredService<ITableQueryService>();
+            await using NpgsqlDataSource admin = AdminDataSource();
+            await using NpgsqlCommand before = admin.CreateCommand(
+                "SELECT coalesce(array_agg(token), '{}') FROM tables_auth.requests");
+            string[] earlier = (string[])(await before.ExecuteScalarAsync())!;
+
+            await service.ReadAsync(containerId, Access(table), new TableReadRequest(table.Id));
+
+            await using NpgsqlCommand live = admin.CreateCommand(
+                "SELECT count(*) FROM tables_auth.requests WHERE NOT (token = ANY ($1))");
+            live.Parameters.Add(new NpgsqlParameter { Value = earlier });
+            ((long)(await live.ExecuteScalarAsync())!).Should().Be(0, "the token is deleted once the query is done");
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_TableBuiltBeforeAnyQuery_CreatesTheTokenStoreItself()
+    {
+        // Ingestion builds tables before any query provisions the reader, so a fresh database has no token store yet.
+        string database = "con324_fresh_" + Guid.NewGuid().ToString("N")[..12];
+        await using NpgsqlDataSource admin = AdminDataSource();
+        await using (NpgsqlCommand create = admin.CreateCommand($"CREATE DATABASE {database}"))
+            await create.ExecuteNonQueryAsync();
+        try
+        {
+            string main = fixture.Factory.Services.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")!;
+            NpgsqlConnectionStringBuilder fresh = new(main) { Database = database };
+            await using NpgsqlConnection connection = new(fresh.ConnectionString);
+            await connection.OpenAsync();
+            await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync();
+            Guid containerId = Guid.NewGuid();
+            await TableDdl.CreateSchemaAsync(connection, containerId, CancellationToken.None);
+            await TableDdl.ExecuteAsync(connection,
+                TableDdl.CreateTableSql(containerId, "t_1", [new TableColumn("a", TableColumnType.Text)]), CancellationToken.None);
+
+            await TableDdl.EnsureTokenStoreAsync(connection, CancellationToken.None);
+            foreach (string sql in TableDdl.ProtectSql(containerId, "t_1", Guid.NewGuid()))
+                await TableDdl.ExecuteAsync(connection, sql, CancellationToken.None);
+            await TableDdl.EnsureTokenStoreAsync(connection, CancellationToken.None);
+            await transaction.CommitAsync();
+
+            await using NpgsqlCommand policies = new("SELECT count(*) FROM pg_catalog.pg_policies WHERE policyname = 'readable'", connection);
+            ((long)(await policies.ExecuteScalarAsync())!).Should().Be(1);
+        }
+        finally
+        {
+            NpgsqlConnection.ClearAllPools();
+            await using NpgsqlCommand drop = admin.CreateCommand($"DROP DATABASE IF EXISTS {database} WITH (FORCE)");
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Rls_LoadedTable_ForcesRowSecurityOnItsOwnerToo()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewTableAsync(scope);
+        try
+        {
+            await using NpgsqlDataSource admin = AdminDataSource();
+            await using NpgsqlCommand flags = admin.CreateCommand(
+                "SELECT c.relrowsecurity, c.relforcerowsecurity, (SELECT count(*) FROM pg_catalog.pg_policy p WHERE p.polrelid = c.oid) "
+                + "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2");
+            flags.Parameters.Add(new NpgsqlParameter { Value = table.StorageSchema });
+            flags.Parameters.Add(new NpgsqlParameter { Value = table.StorageName });
+            await using NpgsqlDataReader row = await flags.ExecuteReaderAsync();
+            (await row.ReadAsync()).Should().BeTrue();
+
+            row.GetBoolean(0).Should().BeTrue("row-level security is on");
+            row.GetBoolean(1).Should().BeTrue("it holds the owning main login too (the test login is a superuser, which skips it)");
+            row.GetInt64(2).Should().Be(1, "one policy carries the document check");
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Rls_ContainerDelete_DropsItsRole()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, _) = await NewGrantedTableAsync(scope);
+        string role = Login.ContainerRoleName(containerId);
+        await using NpgsqlDataSource admin = AdminDataSource();
+        await using NpgsqlCommand exists = admin.CreateCommand("SELECT count(*) FROM pg_catalog.pg_roles WHERE rolname = $1");
+        exists.Parameters.Add(new NpgsqlParameter { Value = role });
+        ((long)(await exists.ExecuteScalarAsync())!).Should().Be(1);
+
+        await DeleteAsync(scope, containers, containerId);
+
+        ((long)(await exists.ExecuteScalarAsync())!).Should().Be(0);
     }
 
     [Fact]
@@ -475,6 +783,9 @@ public class TableQueryTests(SharedWebAppFixture fixture)
         var login = fixture.Factory.Services.GetRequiredService<TableReaderLogin>();
         await login.EnsureGrantsAsync(containerId, table.StorageSchema, default);
         await using NpgsqlConnection connection = await login.OpenConnectionAsync(default);
+        // Queries run as the container's reader role (CON-324), so the attacks do too.
+        await using (NpgsqlCommand role = new($"SET ROLE {TableDdl.Quote(login.ContainerRoleName(containerId))}", connection))
+            await role.ExecuteNonQueryAsync();
         if (readOnlyOff)
         {
             await using NpgsqlCommand off = new("SET default_transaction_read_only = off", connection);
@@ -486,6 +797,35 @@ public class TableQueryTests(SharedWebAppFixture fixture)
             command.Parameters.Add(new NpgsqlParameter { Value = value });
         Func<Task> act = () => command.ExecuteNonQueryAsync();
         return (await act.Should().ThrowAsync<PostgresException>()).Which;
+    }
+
+    private TableReaderLogin Login => fixture.Factory.Services.GetRequiredService<TableReaderLogin>();
+
+    private NpgsqlDataSource AdminDataSource() => NpgsqlDataSource.Create(
+        fixture.Factory.Services.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")!);
+
+    /// <summary>Counts a table's rows the way a query sees them: on the reader login, as the container's role, with a token or none.</summary>
+    private async Task<long> CountUnderRoleAsync(Guid containerId, TableInfo table, string? token)
+    {
+        await using NpgsqlConnection connection = await Login.OpenConnectionAsync(default);
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync();
+        await using (NpgsqlCommand role = new($"SET LOCAL ROLE {TableDdl.Quote(Login.ContainerRoleName(containerId))}", connection, transaction))
+            await role.ExecuteNonQueryAsync();
+        if (token is not null)
+        {
+            await using NpgsqlCommand bind = new("SELECT pg_catalog.set_config('tables_auth.token', $1, true)", connection, transaction);
+            bind.Parameters.Add(new NpgsqlParameter { Value = token });
+            await bind.ExecuteNonQueryAsync();
+        }
+        await using NpgsqlCommand count = new($"SELECT count(*) FROM {Name(table)}", connection, transaction);
+        return (long)(await count.ExecuteScalarAsync())!;
+    }
+
+    private async Task<(IContainerStore Containers, Guid ContainerId, TableInfo Table)> NewGrantedTableAsync(AsyncServiceScope scope)
+    {
+        var created = await NewTableAsync(scope);
+        await Login.EnsureGrantsAsync(created.ContainerId, created.Table.StorageSchema, default);
+        return created;
     }
 
     private static TableAccess Access(TableInfo table) => new(new HashSet<Guid> { table.DocumentId!.Value });

@@ -55,7 +55,7 @@ public sealed class TableQueryService(
             Stopwatch elapsed = Stopwatch.StartNew();
             try
             {
-                TableQueryResult result = await runner.RunAsync(query, ct);
+                TableQueryResult result = await runner.RunAsync(containerId, access, query, ct);
                 logger.LogDebug("Table query on {TableId} returned {Rows} rows in {Elapsed} ms", tableId, result.Rows.Count, elapsed.ElapsedMilliseconds);
                 return result;
             }
