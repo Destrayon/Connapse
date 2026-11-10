@@ -1,4 +1,11 @@
 {
+  "Approvals/DeletionBatchList.razor": {
+    "CodeLines": 57,
+    "Injects": 3,
+    "Complexity": 14,
+    "MarkupLogic": 20,
+    "IsEmpty": false
+  },
   "Auth/RedirectToAccessDenied.razor": {
     "CodeLines": 4,
     "Injects": 1,
@@ -126,10 +133,10 @@
     "IsEmpty": false
   },
   "Pages/Approvals.razor": {
-    "CodeLines": 43,
+    "CodeLines": 45,
     "Injects": 3,
     "Complexity": 9,
-    "MarkupLogic": 10,
+    "MarkupLogic": 13,
     "IsEmpty": false
   },
   "Pages/Auth/Login.razor": {
@@ -182,9 +189,9 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 742,
+    "CodeLines": 753,
     "Injects": 8,
-    "Complexity": 169,
+    "Complexity": 173,
     "MarkupLogic": 85,
     "IsEmpty": false
   },

@@ -34,7 +34,9 @@
         </div>
     }
 
-    @if (pending.Count == 0)
+    <DeletionBatchList Loaded="n => batchCount = n" />
+
+    @if (pending.Count == 0 && batchCount == 0)
     {
         <div class="card">
             <div class="card-body text-center py-5 text-muted">
@@ -43,7 +45,7 @@
             </div>
         </div>
     }
-    else
+    else if (pending.Count > 0)
     {
         <div class="card">
             <div class="table-responsive">
@@ -104,6 +106,7 @@
     private readonly Dictionary<Guid, string?> reasons = [];
     private OperationContext caller = null!;
     private bool isAdmin;
+    private int batchCount;
     private bool isProcessing;
     private string? statusMessage;
     private bool statusSuccess;

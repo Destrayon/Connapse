@@ -564,6 +564,10 @@
 @code {
     [Parameter] public string ContainerId { get; set; } = "";
 
+    // Deep links from the approvals page (CON-315): open at a folder, or open one file's details.
+    [SupplyParameterFromQuery(Name = "path")] public string? StartPath { get; set; }
+    [SupplyParameterFromQuery(Name = "file")] public string? StartFile { get; set; }
+
     private string activeTab = "files";
 
     // Settings tab state
@@ -665,7 +669,16 @@
         else if (IsMemory)
             (activeTab, isLoading) = ("memory", false);
         else
-            await LoadEntries();
+            await OpenStartAsync();
+    }
+
+    private async Task OpenStartAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(StartFile))
+            await LoadFileDetails(StartFile);
+        currentPath = selectedFile is null ? DeletionBatchDisplay.StartFolder(StartPath) : FileLinksPanel.FolderOf(selectedFile.Path);
+        await LoadEntries();
+        selectedBrowseEntry = entries.FirstOrDefault(e => e.Id == selectedFile?.Id);
     }
 
     private async Task RetryIngestion(BrowseEntryDto entry)
