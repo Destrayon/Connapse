@@ -25,6 +25,7 @@
     <PackageReference Include="RapidOcrNet" Version="4.2.0" GeneratePathProperty="true" />
     <PackageReference Include="PragmaticSegmenterNet" Version="1.0.5" />
     <PackageReference Include="ReverseMarkdown" Version="6.2.1" />
+    <PackageReference Include="Sylvan.Data.Csv" Version="1.4.4" />
     <PackageReference Include="SmartReader" Version="0.11.1" />
     <PackageReference Include="Tabula" Version="1.0.1" />
     <!-- tree-sitter and its grammars for code files (CON-36); Directory.Build.targets keeps only the grammars CodeParser loads. -->
@@ -99,6 +100,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Connapse.Ingestion.Tests" />
+    <InternalsVisibleTo Include="Connapse.Integration.Tests" />
   </ItemGroup>
 
 </Project>

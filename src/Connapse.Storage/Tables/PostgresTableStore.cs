@@ -170,7 +170,7 @@ public class PostgresTableStore(
     }
 
     /// <summary>
-    /// Holds the container's shared load lock, checks it is a tables container, and makes sure its schema exists —
+    /// Holds the container's shared load lock, checks it can hold tables, and makes sure its schema exists —
     /// a tables container made before CON-301 has none.
     /// </summary>
     private static async Task PrepareLoadAsync(
@@ -183,8 +183,9 @@ public class PostgresTableStore(
             .FirstOrDefaultAsync(ct);
         if (kind is null)
             throw new InvalidOperationException($"Container {containerId} not found.");
-        if (kind != ContainerKind.Tables)
-            throw new InvalidOperationException($"Container {containerId} is not a tables container.");
+        // Documents containers hold tables too, one per CSV file, beside their other files (CON-302).
+        if (kind is not (ContainerKind.Tables or ContainerKind.Documents))
+            throw new InvalidOperationException($"Container {containerId} can't hold tables.");
 
         // Two first loads can race to create the schema; the loser's statement fails, so it runs under a savepoint.
         var transaction = context.Database.CurrentTransaction!.GetDbTransaction();
@@ -259,7 +260,8 @@ public class PostgresTableStore(
         entity.StorageName = storageName;
         entity.SchemaJson = JsonSerializer.Serialize(
             new FrictionlessSchema(load.Columns.Select((c, i) =>
-                new FrictionlessField(c.Name, TableValues.FrictionlessType(c.Type), c.Description, TableDdl.ColumnName(i))).ToList()),
+                new FrictionlessField(c.Name, TableValues.FrictionlessType(c.Type), c.Description, TableDdl.ColumnName(i),
+                    c.Format?.Pattern, c.Format?.DecimalChar, c.Format?.GroupChar, c.Format?.TrueValues, c.Format?.FalseValues)).ToList()),
             Json);
         entity.RowCount = rows;
         entity.NeedsReview = load.NeedsReview;
@@ -272,7 +274,10 @@ public class PostgresTableStore(
         var schema = JsonSerializer.Deserialize<FrictionlessSchema>(entity.SchemaJson, Json)
             ?? new FrictionlessSchema([]);
         var columns = schema.Fields
-            .Select(f => new TableColumn(f.Name, TableValues.FromFrictionlessType(f.Type), f.Description))
+            .Select(f => new TableColumn(f.Name, TableValues.FromFrictionlessType(f.Type), f.Description,
+                f.Format is null && f.DecimalChar is null && f.GroupChar is null && f.TrueValues is null && f.FalseValues is null
+                    ? null
+                    : new TableColumnFormat(f.Format, f.DecimalChar, f.GroupChar, f.TrueValues, f.FalseValues)))
             .ToList();
         var rejects = JsonSerializer.Deserialize<List<TableReject>>(entity.RejectsJson, Json) ?? [];
         return new TableInfo(
@@ -290,7 +295,10 @@ public class PostgresTableStore(
     /// <summary>A Frictionless Table Schema; <c>column</c> is a Connapse extension naming the field's real column.</summary>
     private sealed record FrictionlessSchema(IReadOnlyList<FrictionlessField> Fields);
 
-    private sealed record FrictionlessField(string Name, string Type, string? Description, string Column);
+    /// <summary>A field, with the Frictionless properties that say how the source file wrote its values.</summary>
+    private sealed record FrictionlessField(
+        string Name, string Type, string? Description, string Column, string? Format = null, string? DecimalChar = null,
+        string? GroupChar = null, IReadOnlyList<string>? TrueValues = null, IReadOnlyList<string>? FalseValues = null);
 }
 
 /// <summary>Turns load values into what binary COPY writes for each column type, and names the types for Frictionless.</summary>

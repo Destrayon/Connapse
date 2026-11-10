@@ -5,6 +5,7 @@ using Connapse.Ingestion.Chunking;
 using Connapse.Ingestion.Isolation;
 using Connapse.Ingestion.Parsers;
 using Connapse.Ingestion.Parsers.Code;
+using Connapse.Ingestion.Tables;
 using Connapse.Ingestion.Validation;
 using Connapse.Storage.Data;
 using Connapse.Storage.Data.Entities;
@@ -17,6 +18,7 @@ using Microsoft.Extensions.Logging;
 
 using Microsoft.Extensions.Options;
 using Npgsql;
+using Sylvan.Data.Csv;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -47,6 +49,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly IConnectionStore _connectionStore;
     private readonly PostgresLinkStore? _linkStore;
     private readonly ICustomProviderStore? _customProviders;
+    private readonly ITableStore? _tableStore;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
     private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
@@ -127,6 +130,9 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <summary>The parser's warnings from the last ingestion, one per line.</summary>
     public const string MetadataKeyParserWarnings = "ParserWarnings";
 
+    /// <summary>The table a CSV document loaded into (CON-302), in its container's tables.</summary>
+    public const string MetadataKeyTableId = "TableId";
+
     /// <summary>Keeps a page-by-page warning list from a long PDF from bloating the metadata column.</summary>
     private const int MaxParserWarningsLength = 4000;
 
@@ -180,9 +186,11 @@ public class IngestionPipeline : IKnowledgeIngester
         ILogger<IngestionPipeline> logger,
         ParserProcessPool? parserPool = null,
         ICustomProviderStore? customProviders = null,
-        PostgresLinkStore? linkStore = null)
+        PostgresLinkStore? linkStore = null,
+        ITableStore? tableStore = null)
     {
         _linkStore = linkStore;
+        _tableStore = tableStore;
         _parserPool = parserPool;
         _customProviders = customProviders;
         _context = context;
@@ -218,6 +226,11 @@ public class IngestionPipeline : IKnowledgeIngester
     /// fix; anything else is treated as transient by the job that called this. A ChunkCount of 0
     /// means the work was superseded — a newer version of the document, or its deletion — and
     /// nothing was written.
+    /// </para>
+    /// <para>
+    /// A container's CSV file also loads into a table (CON-302). In a documents container it is indexed as text first,
+    /// so search still finds it; in a tables container it loads only as a table and completes with a ChunkCount of 0
+    /// too: the document is Ready, and has no chunks because it isn't indexed as text there.
     /// </para>
     /// </remarks>
     public async Task<IngestionResult> IngestAsync(
@@ -269,6 +282,18 @@ public class IngestionPipeline : IKnowledgeIngester
 
             var contentHash = await ComputeContentHashAsync(workingStream, ct);
             var virtualPath = options.Path ?? options.FileName ?? $"upload-{documentId}";
+
+            // A container's CSV becomes a table: in place of text in a tables container, and as well as text in a
+            // documents container, loaded just before its text commits. TableUploads decides which files do.
+            Guid? alsoTableIn = null;
+            if (_tableStore is not null && owner.ContainerId is Guid tableContainerId && TableUploads.LoadsAsTable(options.FileName))
+            {
+                ContainerKind kind = await _context.Containers.AsNoTracking()
+                    .Where(c => c.Id == tableContainerId).Select(c => c.Kind).FirstOrDefaultAsync(ct);
+                if (!TableUploads.KeepsText(kind))
+                    return await LoadTableAsync(workingStream, options, owner, tableContainerId, documentId, contentHash, virtualPath, stopwatch, ct);
+                alsoTableIn = tableContainerId;
+            }
 
             // Parsing and chunking first: they need nothing from the database, and a file that
             // cannot be read is known to be a permanent failure before any row is touched.
@@ -333,48 +358,9 @@ public class IngestionPipeline : IKnowledgeIngester
             if (pageErrors is null)
                 existing = await LoadExistingAsync(documentId, ct);
 
-            if (existing is not null)
-            {
-                // Ownership is immutable. Writing both columns from the incoming options would
-                // let a reindex move a document between a source and a container while still
-                // satisfying ck_documents_single_owner — exactly one column stays set, so the
-                // database cannot catch it — silently carrying content across an authorization
-                // boundary.
-                var existingOwner = existing.SourceId is Guid existingSourceId
-                    ? OwnerRef.ForSource(existingSourceId)
-                    : OwnerRef.ForContainer(existing.ContainerId!.Value);
-
-                if (existingOwner != owner)
-                    throw new DocumentOwnershipChangedException(documentId, existingOwner, owner);
-            }
-
-            // A job claimed the document before calling here, so it is already Processing. A
-            // direct caller has not, and takes it the same way a job would: as a new generation,
-            // so that anything already working on the document can no longer complete it.
-            int generation = options.Generation;
-            if (existing is null && generation != 0)
-            {
-                // A job's row existed when it was enqueued, so a missing one was deleted after the job read the file,
-                // by a file or folder delete that then removes the stored file. Writing the row back would leave a
-                // document whose file is gone (CON-98).
-                return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
-            }
-            if (existing is not null && generation != 0)
-            {
-                // A re-upload sets the row back to Queued under a newer generation. Read as a direct caller's
-                // unclaimed row, that let a job still holding the old file claim it and index the old content (CON-102).
-                if (existing.Generation != generation)
-                    return Superseded(documentId, stopwatch, "Stale job skipped — document was re-uploaded");
-                if (existing.IngestionStatus != DocumentStatus.Processing)
-                    return Superseded(documentId, stopwatch, "Document changed before ingestion started");
-            }
-            else if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
-            {
-                int? claimed = await _lifecycle.EnqueuedAsync(documentId, resetAttempts: false, ct);
-                if (claimed is null || !await _lifecycle.TryClaimAsync(documentId, claimed.Value, ct))
-                    return Superseded(documentId, stopwatch, "Document changed before ingestion started");
-                generation = claimed.Value;
-            }
+            var (generation, superseded) = await TakeDocumentAsync(documentId, owner, existing, options.Generation, ct);
+            if (superseded is not null)
+                return Superseded(documentId, stopwatch, superseded);
 
             // The old chunks stay; the document returns to Ready marked incomplete, with its previous
             // parser and index time, so it reads as what it is and the next reindex tries again.
@@ -403,6 +389,11 @@ public class IngestionPipeline : IKnowledgeIngester
                 metadata[MetadataKeyReadWithoutLayout] = withoutLayoutMb;
             else
                 metadata.Remove(MetadataKeyReadWithoutLayout);
+
+            if (alsoTableIn is Guid alsoContainerId)
+                await AddTableAsync(workingStream, options.FileName ?? virtualPath, alsoContainerId, documentId, metadata, warnings, ct);
+            else
+                metadata.Remove(MetadataKeyTableId);
 
             if (warnings.Count > 0)
                 metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
@@ -546,6 +537,206 @@ public class IngestionPipeline : IKnowledgeIngester
         await _context.SaveChangesAsync(ct);
         return true;
     }
+
+    /// <summary>
+    /// Checks the document still belongs to <paramref name="owner"/> and takes it for this ingest. Returns the
+    /// generation the ingest completes under, or the reason it was superseded.
+    /// </summary>
+    private async Task<(int Generation, string? Superseded)> TakeDocumentAsync(
+        Guid documentId, OwnerRef owner, DocumentEntity? existing, int generation, CancellationToken ct)
+    {
+        if (existing is not null)
+        {
+            // Ownership is immutable. Writing both columns from the incoming options would
+            // let a reindex move a document between a source and a container while still
+            // satisfying ck_documents_single_owner — exactly one column stays set, so the
+            // database cannot catch it — silently carrying content across an authorization
+            // boundary.
+            var existingOwner = existing.SourceId is Guid existingSourceId
+                ? OwnerRef.ForSource(existingSourceId)
+                : OwnerRef.ForContainer(existing.ContainerId!.Value);
+
+            if (existingOwner != owner)
+                throw new DocumentOwnershipChangedException(documentId, existingOwner, owner);
+        }
+
+        // A job claimed the document before calling here, so it is already Processing. A
+        // direct caller has not, and takes it the same way a job would: as a new generation,
+        // so that anything already working on the document can no longer complete it.
+        if (existing is null && generation != 0)
+        {
+            // A job's row existed when it was enqueued, so a missing one was deleted after the job read the file,
+            // by a file or folder delete that then removes the stored file. Writing the row back would leave a
+            // document whose file is gone (CON-98).
+            return (generation, "Document was deleted during ingestion");
+        }
+        if (existing is not null && generation != 0)
+        {
+            // A re-upload sets the row back to Queued under a newer generation. Read as a direct caller's
+            // unclaimed row, that let a job still holding the old file claim it and index the old content (CON-102).
+            if (existing.Generation != generation)
+                return (generation, "Stale job skipped — document was re-uploaded");
+            if (existing.IngestionStatus != DocumentStatus.Processing)
+                return (generation, "Document changed before ingestion started");
+        }
+        else if (existing is not null && existing.IngestionStatus != DocumentStatus.Processing)
+        {
+            int? claimed = await _lifecycle.EnqueuedAsync(documentId, resetAttempts: false, ct);
+            if (claimed is null || !await _lifecycle.TryClaimAsync(documentId, claimed.Value, ct))
+                return (generation, "Document changed before ingestion started");
+            generation = claimed.Value;
+        }
+        return (generation, null);
+    }
+
+    /// <summary>
+    /// Loads a container's CSV file into a table of its container (CON-302) in place of chunking it: a new table on
+    /// the first load, the document's own table reloaded after that. The document completes with no chunks and the
+    /// table's id in its metadata. A file that can't be read as a table is a permanent failure.
+    /// </summary>
+    private async Task<IngestionResult> LoadTableAsync(
+        Stream file, IngestionOptions options, OwnerRef owner, Guid containerId, Guid documentId, string contentHash,
+        string virtualPath, Stopwatch stopwatch, CancellationToken ct)
+    {
+        string fileName = Path.GetFileName(options.FileName ?? virtualPath);
+        DocumentEntity? existing = await LoadExistingAsync(documentId, ct);
+        var (generation, superseded) = await TakeDocumentAsync(documentId, owner, existing, options.Generation, ct);
+        if (superseded is not null)
+            return Superseded(documentId, stopwatch, superseded);
+
+        if (existing is null)
+        {
+            // A direct caller's new document. The table names its document, so the row comes first; it stays
+            // Processing until the table is in, and a load that fails leaves it to the stuck-job sweep.
+            _context.Documents.Add(new DocumentEntity
+            {
+                Id = documentId,
+                ContainerId = owner.ContainerId,
+                FileName = options.FileName ?? "unknown",
+                Path = virtualPath,
+                CreatedAt = DateTime.UtcNow,
+                IngestionStatus = DocumentStatus.Processing,
+                StatusChangedAt = DateTime.UtcNow,
+            });
+            await _context.SaveChangesAsync(ct);
+        }
+
+        TableInfo table;
+        try
+        {
+            table = await StoreTableAsync(file, fileName, containerId, documentId, ct);
+        }
+        catch (Exception ex) when (IsUnreadableTable(ex))
+        {
+            throw new PermanentIngestionException($"Could not load {fileName} as a table: {StorableText.Clean(ex.Message)}", ex);
+        }
+        catch (Exception ex) when (IsDocumentGone(ex))
+        {
+            // The table names its document, so a document deleted during the load refuses it.
+            return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
+        }
+
+        List<string> warnings = [];
+        if (RejectsWarning(table) is { } rejects)
+            warnings.Add(rejects);
+
+        var metadata = new Dictionary<string, string>(options.Metadata ?? new Dictionary<string, string>())
+        {
+            [MetadataKeyParser] = nameof(CsvTableReader),
+            [MetadataKeyTableId] = table.Id.ToString(),
+        };
+        if (warnings.Count > 0)
+            metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
+
+        // A file indexed as text before tables existed loses its chunks, as a reindex replaces them.
+        await using var transaction = await _context.Database.BeginTransactionAsync(ct);
+        var documentEntity = await _context.Documents.FirstOrDefaultAsync(d => d.Id == documentId, ct);
+        if (documentEntity is null)
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            return Superseded(documentId, stopwatch, "Document was deleted during ingestion");
+        }
+        await _context.Chunks.Where(c => c.DocumentId == documentId).ExecuteDeleteAsync(ct);
+        documentEntity.FileName = options.FileName ?? "unknown";
+        documentEntity.ContentType = options.ContentType;
+        documentEntity.Path = virtualPath;
+        documentEntity.ContentHash = contentHash;
+        documentEntity.SizeBytes = file.Length;
+        documentEntity.ChunkCount = 0;
+        documentEntity.Metadata = metadata;
+        await _context.SaveChangesAsync(ct);
+
+        if ((await DocumentLifecycle.CompleteAsync(_context, documentId, generation, ct)).Count == 0)
+        {
+            // A newer job owns the document and loads the table again from the newer file.
+            await transaction.RollbackAsync(CancellationToken.None);
+            return Superseded(documentId, stopwatch, "Document was re-uploaded during ingestion");
+        }
+        await transaction.CommitAsync(CancellationToken.None);
+        await _lifecycle.NotifyAsync(documentId, CancellationToken.None);
+
+        stopwatch.Stop();
+        _logger.LogInformation(
+            "Loaded document {DocumentId} as table {TableId}: {Rows} rows, {Rejects} rejects in {Duration}ms",
+            documentId, table.Id, table.RowCount, table.Rejects.Count, stopwatch.ElapsedMilliseconds);
+        return new IngestionResult(DocumentId: documentId.ToString(), ChunkCount: 0, Duration: stopwatch.Elapsed, Warnings: warnings);
+    }
+
+    /// <summary>
+    /// Loads a documents container's CSV into a table beside its text (CON-302), before the text commits, so the
+    /// document is Ready with its table id already on it. A file that won't load as a table keeps its text and says
+    /// why in its warnings; a document deleted meanwhile is left to the text commit, which finds it gone. The table
+    /// load runs outside the text's transaction, so a superseded job can reload the table before the newer job does.
+    /// </summary>
+    private async Task AddTableAsync(
+        Stream file, string fileName, Guid containerId, Guid documentId, Dictionary<string, string> metadata,
+        List<string> warnings, CancellationToken ct)
+    {
+        string name = Path.GetFileName(fileName);
+        metadata.Remove(MetadataKeyTableId);
+        TableInfo table;
+        try
+        {
+            table = await StoreTableAsync(file, name, containerId, documentId, ct);
+        }
+        catch (Exception ex) when (IsUnreadableTable(ex))
+        {
+            warnings.Add($"Could not load {name} as a table: {StorableText.Clean(ex.Message)}");
+            return;
+        }
+        catch (Exception ex) when (IsDocumentGone(ex))
+        {
+            return;
+        }
+
+        metadata[MetadataKeyTableId] = table.Id.ToString();
+        if (RejectsWarning(table) is { } rejects)
+            warnings.Add(rejects);
+        _logger.LogInformation("Loaded document {DocumentId} as table {TableId} too: {Rows} rows, {Rejects} rejects",
+            documentId, table.Id, table.RowCount, table.Rejects.Count);
+    }
+
+    /// <summary>Reads a CSV into the document's own table: a new one on the first load, a reload after that.</summary>
+    private async Task<TableInfo> StoreTableAsync(Stream file, string fileName, Guid containerId, Guid documentId, CancellationToken ct)
+    {
+        file.Position = 0;
+        TableLoad load = await CsvTableReader.ReadAsync(file, fileName, documentId, ct);
+        TableInfo? current = (await _tableStore!.ListAsync(containerId, ct)).FirstOrDefault(t => t.DocumentId == documentId);
+        return current is not null && await _tableStore.ReloadAsync(containerId, current.Id, load, ct) is { } reloaded
+            ? reloaded
+            : await _tableStore.CreateAsync(containerId, load, ct);
+    }
+
+    private static bool IsUnreadableTable(Exception ex) => ex is InvalidDataException or CsvFormatException or ArgumentException;
+
+    private static bool IsDocumentGone(Exception ex) =>
+        ex is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation }
+        || ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation };
+
+    private static string? RejectsWarning(TableInfo table) =>
+        table.Rejects.Count == 0
+            ? null
+            : $"{table.Rejects.Select(r => r.Row).Distinct().LongCount()} row(s) didn't fit their columns and were left out of the table; its rejects list them";
 
     private Task<DocumentEntity?> LoadExistingAsync(Guid documentId, CancellationToken ct) =>
         _context.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.Id == documentId, ct);

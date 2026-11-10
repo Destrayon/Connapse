@@ -143,6 +143,10 @@ internal static class FileRules
         _ => null,
     };
 
+    /// <summary>As <see cref="RefuseText{T}"/>, except that a tables container takes a file that loads as a table.</summary>
+    public static Attempt<T, FileStatus>? RefuseUpload<T>(Container container, string? fileName) =>
+        container.Kind == ContainerKind.Tables && TableUploads.LoadsAsTable(fileName) ? null : RefuseText<T>(container);
+
     public static Attempt<T, FileStatus> FileNotFound<T>(Guid containerId, string fileRef) =>
         Fail<T>(FileStatus.NotFound, $"File {fileRef} not found in container {containerId}");
 
