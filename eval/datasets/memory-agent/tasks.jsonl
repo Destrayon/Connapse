@@ -1,0 +1,112 @@
+{"id": "find-e01", "type": "find", "kind": "exact", "split": "test", "question": "Who is the tech lead of Harrow?", "gold": ["f002"], "answer": "Ilse Varga"}
+{"id": "find-e02", "type": "find", "kind": "exact", "split": "test", "question": "What index engine does Lantern use?", "gold": ["f021"], "answer": "OpenSearch 2.15"}
+{"id": "find-e03", "type": "find", "kind": "exact", "split": "test", "question": "Which warehouse does Ferro read from?", "gold": ["f027"], "answer": "Snowflake"}
+{"id": "find-e04", "type": "find", "kind": "exact", "split": "test", "question": "Who is the security reviewer for Wicket?", "gold": ["f033"], "answer": "Mireille Sato"}
+{"id": "find-e05", "type": "find", "kind": "exact", "split": "test", "question": "What is the target date of release 3.1?", "gold": ["f057"], "answer": "2026-12-08"}
+{"id": "find-e06", "type": "find", "kind": "exact", "split": "test", "question": "What is the CI label for quarantining a flaky test?", "gold": ["f063"], "answer": "flaky-quarantine"}
+{"id": "find-e07", "type": "find", "kind": "exact", "split": "test", "question": "What paging tool does on-call use?", "gold": ["f069"], "answer": "PagerDuty"}
+{"id": "find-e08", "type": "find", "kind": "exact", "split": "test", "question": "What ticket prefix does the project board use?", "gold": ["f074"], "answer": "ORR"}
+{"id": "find-e09", "type": "find", "kind": "exact", "split": "test", "question": "What is Bramble's beta channel?", "gold": ["f019"], "answer": "TestFlight group orrin-insiders"}
+{"id": "find-e10", "type": "find", "kind": "exact", "split": "test", "question": "What is Bramble's app store rating?", "gold": ["f083"], "answer": "4.6"}
+{"id": "find-e11", "type": "find", "kind": "exact", "split": "dev", "question": "Which repository holds Harrow?", "gold": ["f005"], "answer": "orrin/harrow-billing"}
+{"id": "find-e12", "type": "find", "kind": "exact", "split": "dev", "question": "What is the code review turnaround target?", "gold": ["f067"], "answer": "within one working day"}
+{"id": "find-r01", "type": "find", "kind": "reworded", "split": "test", "question": "Which line of code should a fix for Harrow target so it ships next?", "gold": ["f001"], "answer": "release/2.4"}
+{"id": "find-r02", "type": "find", "kind": "reworded", "split": "test", "question": "Who makes the final engineering calls on Harrow?", "gold": ["f002"], "answer": "Ilse Varga"}
+{"id": "find-r03", "type": "find", "kind": "reworded", "split": "test", "question": "Where does Harrow keep its records? What storage engine?", "gold": ["f003"], "answer": "PostgreSQL 16"}
+{"id": "find-r04", "type": "find", "kind": "reworded", "split": "test", "question": "When am I allowed to ship Harrow to production?", "gold": ["f004"], "answer": "Tuesdays 14:00-16:00 UTC"}
+{"id": "find-r05", "type": "find", "kind": "reworded", "split": "test", "question": "Where is Quill served from?", "gold": ["f010"], "answer": "Netlify"}
+{"id": "find-r06", "type": "find", "kind": "reworded", "split": "test", "question": "Who has to sign off on Quill wording edits?", "gold": ["f012"], "answer": "Rosa Lindqvist"}
+{"id": "find-r07", "type": "find", "kind": "reworded", "split": "test", "question": "On which weekday do Quill updates go live?", "gold": ["f013"], "answer": "Thursday afternoon"}
+{"id": "find-r08", "type": "find", "kind": "reworded", "split": "test", "question": "What is Bramble built with?", "gold": ["f015"], "answer": "React Native 0.76"}
+{"id": "find-r09", "type": "find", "kind": "reworded", "split": "test", "question": "Who uploads new Bramble builds for Apple and Google approval?", "gold": ["f016"], "answer": "Kofi Mensah"}
+{"id": "find-r10", "type": "find", "kind": "reworded", "split": "test", "question": "What is the oldest iPhone software Bramble still supports?", "gold": ["f017"], "answer": "iOS 16"}
+{"id": "find-r11", "type": "find", "kind": "reworded", "split": "test", "question": "What technology sits underneath Lantern's queries?", "gold": ["f021"], "answer": "OpenSearch 2.15"}
+{"id": "find-r12", "type": "find", "kind": "reworded", "split": "test", "question": "How fast must Lantern answer for nearly all calls?", "gold": ["f022"], "answer": "180 ms"}
+{"id": "find-r13", "type": "find", "kind": "reworded", "split": "test", "question": "Who is responsible for Lantern?", "gold": ["f023"], "answer": "Tomas Rheault"}
+{"id": "find-r14", "type": "find", "kind": "reworded", "split": "test", "question": "When does Lantern rebuild its catalogue data?", "gold": ["f024"], "answer": "nightly at 02:30 UTC"}
+{"id": "find-r15", "type": "find", "kind": "reworded", "split": "test", "question": "Where are Ferro breakages announced?", "gold": ["f028"], "answer": "#ferro-alerts"}
+{"id": "find-r16", "type": "find", "kind": "reworded", "split": "test", "question": "Who should I ask about Ferro these days?", "gold": ["f029"], "answer": "Priya Nandakumar"}
+{"id": "find-r17", "type": "find", "kind": "reworded", "split": "test", "question": "How long does a Wicket sign-in stay valid?", "gold": ["f031"], "answer": "15 minutes"}
+{"id": "find-r18", "type": "find", "kind": "reworded", "split": "test", "question": "In which cluster area does Wicket run live?", "gold": ["f034"], "answer": "auth-prod"}
+{"id": "find-r19", "type": "find", "kind": "reworded", "split": "test", "question": "Which city's clock does Dana Okafor keep?", "gold": ["f036"], "answer": "America/Chicago"}
+{"id": "find-r20", "type": "find", "kind": "reworded", "split": "test", "question": "When is Ilse Varga away over the holidays?", "gold": ["f039"], "answer": "2026-12-18 to 2027-01-04"}
+{"id": "find-r21", "type": "find", "kind": "reworded", "split": "test", "question": "How many workers may run simultaneously?", "gold": ["f046"], "answer": "4"}
+{"id": "find-r22", "type": "find", "kind": "reworded", "split": "test", "question": "How big may a worker's patch get before it must be split?", "gold": ["f050"], "answer": "under 400 changed lines"}
+{"id": "find-r23", "type": "find", "kind": "reworded", "split": "test", "question": "How much processor and RAM may a worker's sandboxes take?", "gold": ["f051"], "answer": "2 CPUs and 4 GB"}
+{"id": "find-r24", "type": "find", "kind": "reworded", "split": "test", "question": "Are workers allowed to look at credentials on disk?", "gold": ["f055"], "answer": "no, never read .env files"}
+{"id": "find-r25", "type": "find", "kind": "reworded", "split": "test", "question": "When does release 3.1 go out the door?", "gold": ["f057"], "answer": "2026-12-08"}
+{"id": "find-r26", "type": "find", "kind": "reworded", "split": "test", "question": "From what day is release 3.1 locked for new code?", "gold": ["f059"], "answer": "2026-12-01"}
+{"id": "find-r27", "type": "find", "kind": "reworded", "split": "test", "question": "Who is running release 3.1?", "gold": ["f060"], "answer": "Dana Okafor"}
+{"id": "find-r28", "type": "find", "kind": "reworded", "split": "test", "question": "How many sign-offs does code review need for the primary line?", "gold": ["f066"], "answer": "2"}
+{"id": "find-r29", "type": "find", "kind": "reworded", "split": "test", "question": "Who is holding the pager this week for on-call?", "gold": ["f070"], "answer": "Tomas Rheault"}
+{"id": "find-r30", "type": "find", "kind": "reworded", "split": "test", "question": "How soon after an outage must the incident review be written?", "gold": ["f076"], "answer": "within 5 working days"}
+{"id": "find-r31", "type": "find", "kind": "reworded", "split": "dev", "question": "How does the user want my updates worded?", "gold": ["f077"], "answer": "plain sentences, outcome first"}
+{"id": "find-r32", "type": "find", "kind": "reworded", "split": "dev", "question": "What should I confirm with the user before going ahead?", "gold": ["f079"], "answer": "anything that deletes data or touches production"}
+{"id": "find-r33", "type": "find", "kind": "reworded", "split": "dev", "question": "When may I start heavy benchmarks on the user's computer?", "gold": ["f080"], "answer": "at night only"}
+{"id": "find-r34", "type": "find", "kind": "reworded", "split": "test", "question": "How much may the hosting bill reach under the budget?", "gold": ["f089"], "answer": "$18,000 per month"}
+{"id": "find-i01", "type": "find", "kind": "indirect", "split": "test", "question": "The invoicing service has a bug fix ready. Which line of code should it go into?", "gold": ["f001"], "answer": "release/2.4"}
+{"id": "find-i02", "type": "find", "kind": "indirect", "split": "test", "question": "Who is responsible for the product lookup API?", "gold": ["f023"], "answer": "Tomas Rheault"}
+{"id": "find-i03", "type": "find", "kind": "indirect", "split": "test", "question": "How long does a sign-in stay valid at the SSO gateway?", "gold": ["f031"], "answer": "15 minutes"}
+{"id": "find-i04", "type": "find", "kind": "indirect", "split": "test", "question": "What is the customer phone app built with?", "gold": ["f015"], "answer": "React Native 0.76"}
+{"id": "find-i05", "type": "find", "kind": "indirect", "split": "test", "question": "Where is the public docs site served from?", "gold": ["f010"], "answer": "Netlify"}
+{"id": "find-i06", "type": "find", "kind": "indirect", "split": "test", "question": "Which scheduler drives the nightly analytics load?", "gold": ["f026"], "answer": "Airflow 2.9"}
+{"id": "find-i07", "type": "find", "kind": "indirect", "split": "test", "question": "Who makes the final engineering calls on the invoicing service?", "gold": ["f002"], "answer": "Ilse Varga"}
+{"id": "find-i08", "type": "find", "kind": "indirect", "split": "test", "question": "What is the oldest iPhone software the customer phone app still supports?", "gold": ["f017"], "answer": "iOS 16"}
+{"id": "find-i09", "type": "find", "kind": "indirect", "split": "test", "question": "Who is holding the pager this week?", "gold": ["f070"], "answer": "Tomas Rheault"}
+{"id": "find-i10", "type": "find", "kind": "indirect", "split": "test", "question": "Who is running the December ship?", "gold": ["f060"], "answer": "Dana Okafor"}
+{"id": "find-i11", "type": "find", "kind": "indirect", "split": "test", "question": "How many helpers may I have going simultaneously?", "gold": ["f046"], "answer": "4"}
+{"id": "find-i12", "type": "find", "kind": "indirect", "split": "test", "question": "When may I start heavy benchmarks on the computer of the person I work for?", "gold": ["f080"], "answer": "at night only"}
+{"id": "find-i13", "type": "find", "kind": "indirect", "split": "test", "question": "When is the staff engineer away over the holidays?", "gold": ["f039"], "answer": "2026-12-18 to 2027-01-04"}
+{"id": "find-i14", "type": "find", "kind": "indirect", "split": "test", "question": "Where do I hear about it when the warehouse-to-analytics job breaks?", "gold": ["f028"], "answer": "#ferro-alerts"}
+{"id": "find-i15", "type": "find", "kind": "indirect", "split": "dev", "question": "Which outside company holds user accounts for the login gateway?", "gold": ["f032"], "answer": "Okta"}
+{"id": "find-i16", "type": "find", "kind": "indirect", "split": "dev", "question": "When does the product lookup API rebuild its catalogue?", "gold": ["f024"], "answer": "nightly at 02:30 UTC"}
+{"id": "find-i17", "type": "find", "kind": "indirect", "split": "test", "question": "What stats tool counts visits to the docs site?", "gold": ["f086"], "answer": "Plausible"}
+{"id": "find-p01", "type": "find", "kind": "partial", "split": "test", "question": "Where in k8s does the SSO gateway live?", "gold": ["f034"], "answer": "auth-prod"}
+{"id": "find-p02", "type": "find", "kind": "partial", "split": "test", "question": "Which Postgres major does the invoicing service run?", "gold": ["f003"], "answer": "PostgreSQL 16"}
+{"id": "find-p03", "type": "find", "kind": "partial", "split": "test", "question": "What is the address of stg?", "gold": ["f071"], "answer": "https://staging.orrin.example"}
+{"id": "find-p04", "type": "find", "kind": "partial", "split": "test", "question": "What pager app wakes people up at night?", "gold": ["f069"], "answer": "PagerDuty"}
+{"id": "find-p05", "type": "find", "kind": "partial", "split": "test", "question": "Who is our sec eng?", "gold": ["f043"], "answer": "Mireille Sato"}
+{"id": "find-p06", "type": "find", "kind": "partial", "split": "test", "question": "Which eng works on iOS and Android?", "gold": ["f042"], "answer": "Kofi Mensah"}
+{"id": "find-p07", "type": "find", "kind": "partial", "split": "test", "question": "Where is the outage write-up tmpl?", "gold": ["f075"], "answer": "docs/postmortems/TEMPLATE.md"}
+{"id": "find-p08", "type": "find", "kind": "partial", "split": "dev", "question": "What is the ETL ret period?", "gold": ["f084"], "answer": "13 months"}
+{"id": "find-p09", "type": "find", "kind": "partial", "split": "test", "question": "What is our DS called?", "gold": ["f087"], "answer": "Pebble"}
+{"id": "find-p10", "type": "find", "kind": "partial", "split": "test", "question": "Where do we file tix?", "gold": ["f073"], "answer": "Linear, team ORR"}
+{"id": "find-p11", "type": "find", "kind": "partial", "split": "test", "question": "Which ccys can invoices be issued in?", "gold": ["f092"], "answer": "USD, EUR and GBP"}
+{"id": "find-a01", "type": "find", "kind": "absent", "split": "test", "question": "What is Quill's release branch?", "gold": [], "answer": ""}
+{"id": "find-a02", "type": "find", "kind": "absent", "split": "test", "question": "Who is the tech lead for Bramble?", "gold": [], "answer": ""}
+{"id": "find-a03", "type": "find", "kind": "absent", "split": "test", "question": "What database does Lantern use?", "gold": [], "answer": ""}
+{"id": "find-a04", "type": "find", "kind": "absent", "split": "test", "question": "When does release 3.2 ship?", "gold": [], "answer": ""}
+{"id": "find-a05", "type": "find", "kind": "absent", "split": "test", "question": "What is Tomas Rheault's preferred contact method?", "gold": [], "answer": ""}
+{"id": "find-a06", "type": "find", "kind": "absent", "split": "test", "question": "What is Wicket's p95 latency target?", "gold": [], "answer": ""}
+{"id": "find-a07", "type": "find", "kind": "absent", "split": "test", "question": "Which Slack channel gets Harrow failure alerts?", "gold": [], "answer": ""}
+{"id": "find-a08", "type": "find", "kind": "absent", "split": "test", "question": "What is the minimum Android version Bramble supports?", "gold": [], "answer": ""}
+{"id": "find-a09", "type": "find", "kind": "absent", "split": "dev", "question": "Who is the backup for the on-call engineer?", "gold": [], "answer": ""}
+{"id": "find-a10", "type": "find", "kind": "absent", "split": "dev", "question": "Who owns the staging environment?", "gold": [], "answer": ""}
+{"id": "save-n01", "type": "save", "kind": "new", "split": "test", "question": "Note for later: Lantern's search results are now cached in Redis for 60 seconds.", "target": null, "expect": [["lantern"], ["redis"], ["60"]]}
+{"id": "save-n02", "type": "save", "kind": "new", "split": "test", "question": "Kofi Mensah's time zone is Africa/Accra. Remember that.", "target": null, "expect": [["kofi"], ["accra"]]}
+{"id": "save-n03", "type": "save", "kind": "new", "split": "test", "question": "From now on Ferro's dashboards live at https://grafana.orrin.example/d/ferro.", "target": null, "expect": [["ferro"], ["grafana"]]}
+{"id": "save-n04", "type": "save", "kind": "new", "split": "test", "question": "Wicket now writes every admin login to the audit table auth_audit.", "target": null, "expect": [["wicket"], ["auth_audit"]]}
+{"id": "save-n05", "type": "save", "kind": "new", "split": "test", "question": "Bramble's Android minimum is now Android 10 (API 29).", "target": null, "expect": [["bramble"], ["android"], ["10", "29"]]}
+{"id": "save-n06", "type": "save", "kind": "new", "split": "test", "question": "Ilse Varga is taking over as Quill's tech lead as well, starting today.", "target": null, "expect": [["quill"], ["ilse", "varga"]]}
+{"id": "save-n07", "type": "save", "kind": "new", "split": "test", "question": "Remember: the 3.1 release notes go in docs/releases/3.1.md.", "target": null, "expect": [["3.1"], ["docs/releases/3.1.md"]]}
+{"id": "save-n08", "type": "save", "kind": "new", "split": "test", "question": "Workers have to post a short comment on the ticket when they open a pull request.", "target": null, "expect": [["worker"], ["comment"]]}
+{"id": "save-n09", "type": "save", "kind": "new", "split": "test", "question": "Harrow's staging copy uses the fake payment provider PayStub.", "target": null, "expect": [["harrow"], ["paystub"]]}
+{"id": "save-n10", "type": "save", "kind": "new", "split": "test", "question": "Rosa Lindqvist prefers to be contacted by email.", "target": null, "expect": [["rosa", "lindqvist"], ["email"]]}
+{"id": "save-n11", "type": "save", "kind": "new", "split": "dev", "question": "Mireille Sato's time zone is Asia/Tokyo.", "target": null, "expect": [["mireille", "sato"], ["tokyo"]]}
+{"id": "save-n12", "type": "save", "kind": "new", "split": "dev", "question": "Harrow's on-call channel is #harrow-oncall.", "target": null, "expect": [["harrow"], ["#harrow-oncall"]]}
+{"id": "save-u01", "type": "save", "kind": "update", "split": "test", "question": "Heads up: Harrow fixes should target release/2.5 now; 2.4 is closed.", "target": "f001", "expect": [["2.5"]]}
+{"id": "save-u02", "type": "save", "kind": "update", "split": "test", "question": "Lantern has a new owner: Joel Ashby took it over this week.", "target": "f023", "expect": [["joel", "ashby"]]}
+{"id": "save-u03", "type": "save", "kind": "update", "split": "test", "question": "Wicket tokens now expire after 10 minutes instead of 15.", "target": "f031", "expect": [["10"]]}
+{"id": "save-u04", "type": "save", "kind": "update", "split": "test", "question": "Harrow deploys moved to Wednesdays 15:00-17:00 UTC.", "target": "f004", "expect": [["wednesday"]]}
+{"id": "save-u05", "type": "save", "kind": "update", "split": "test", "question": "Kofi is on call this week, not Tomas.", "target": "f070", "expect": [["kofi"]]}
+{"id": "save-u06", "type": "save", "kind": "update", "split": "test", "question": "Raise the worker cap: up to 5 agents may run at once now.", "target": "f046", "expect": [["5"]]}
+{"id": "save-u07", "type": "save", "kind": "update", "split": "test", "question": "Quill moved off Netlify; it is hosted on Cloudflare Pages now.", "target": "f010", "expect": [["cloudflare"]]}
+{"id": "save-u08", "type": "save", "kind": "update", "split": "test", "question": "Ferro belongs to Dana Okafor now; she is the owner.", "target": "f029", "expect": [["dana", "okafor"]]}
+{"id": "save-u09", "type": "save", "kind": "update", "split": "dev", "question": "Quill now publishes on Fridays.", "target": "f013", "expect": [["friday"]]}
+{"id": "save-d01", "type": "save", "kind": "duplicate", "split": "test", "question": "FYI, Harrow stores everything in Postgres 16.", "target": "f003", "expect": [["16"]]}
+{"id": "save-d02", "type": "save", "kind": "duplicate", "split": "test", "question": "Bramble crashes get reported to Sentry, just so you know.", "target": "f018", "expect": [["sentry"]]}
+{"id": "save-d03", "type": "save", "kind": "duplicate", "split": "test", "question": "Reminder: worker containers are capped at 2 CPUs and 4 GB of memory.", "target": "f051", "expect": [["2"], ["4"]]}
+{"id": "save-d04", "type": "save", "kind": "duplicate", "split": "test", "question": "Wicket's logins go through Okta.", "target": "f032", "expect": [["okta"]]}
+{"id": "save-d05", "type": "save", "kind": "duplicate", "split": "test", "question": "Lantern re-indexes every night at 2:30 UTC.", "target": "f024", "expect": [["2:30", "02:30"]]}
+{"id": "save-d06", "type": "save", "kind": "duplicate", "split": "test", "question": "Dana Okafor is running release 3.1.", "target": "f060", "expect": [["dana", "okafor"]]}
+{"id": "save-d07", "type": "save", "kind": "duplicate", "split": "dev", "question": "Lantern runs on OpenSearch 2.15.", "target": "f021", "expect": [["opensearch"]]}

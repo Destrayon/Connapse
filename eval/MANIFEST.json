@@ -56,6 +56,9 @@
     "memory-learned-v1": [
       "memory-learned"
     ],
+    "memory-agent-v1": [
+      "memory-agent"
+    ],
     "links-v2": [
       "links-connapse-github-2"
     ],
@@ -1098,6 +1101,25 @@
           "name": "tasks.jsonl",
           "url": "repo:memory-learned/tasks.jsonl",
           "sha256": "a6ec9dbbc8dc127a46498d335391401fc145d6b7ca7cd5afff37aa9213c0dc8f"
+        }
+      ]
+    },
+    "memory-agent": {
+      "adapter": "memory-agent",
+      "version": "con-313",
+      "tags": [
+        "shape:memory"
+      ],
+      "files": [
+        {
+          "name": "facts.jsonl",
+          "url": "repo:memory-agent/facts.jsonl",
+          "sha256": "8086bca4bdcd7e8f24d6445961af18b2bc92b929c60c4aeead43d7149888b6f6"
+        },
+        {
+          "name": "tasks.jsonl",
+          "url": "repo:memory-agent/tasks.jsonl",
+          "sha256": "4d8c72ab4c6a502e87ea60109758b3e0622ebe6fb193494588abe97c9e0ce2d7"
         }
       ]
     },

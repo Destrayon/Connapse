@@ -118,11 +118,14 @@ public static class AgentContract
         return (answer, ReadCited(input));
     }
 
+    /// <summary>The cited document ids, then the cited memory fact ids (the memory-agent suite's answer cites facts).</summary>
     private static List<string> ReadCited(IReadOnlyDictionary<string, JsonElement> input)
     {
         List<string> cited = [];
-        if (input.TryGetValue("documentIds", out JsonElement ids))
+        foreach (string key in (string[])["documentIds", "factIds"])
         {
+            if (!input.TryGetValue(key, out JsonElement ids))
+                continue;
             if (ids.ValueKind == JsonValueKind.Array)
                 cited.AddRange(ids.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!));
             else if (ids.ValueKind == JsonValueKind.String)
