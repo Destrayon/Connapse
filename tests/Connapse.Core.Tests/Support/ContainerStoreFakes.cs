@@ -22,10 +22,10 @@ public static class ContainerStoreFakes
                 : []);
         store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<MemoryCaller?>(), Arg.Any<CancellationToken>())
             .Returns(call => store.ListAsync(call.ArgAt<int>(0), call.ArgAt<int>(1), call.ArgAt<CancellationToken>(3)));
-        store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<MemoryCaller?>(), Arg.Any<ContainerKind>(), Arg.Any<CancellationToken>())
+        store.ListAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<MemoryCaller?>(), Arg.Any<IReadOnlyList<ContainerKind>>(), Arg.Any<CancellationToken>())
             .Returns(async call => (IReadOnlyList<Container>)[.. (await store.ListAsync(
                     0, int.MaxValue, call.ArgAt<MemoryCaller?>(2), call.ArgAt<CancellationToken>(4)))
-                .Where(c => c.Kind == call.ArgAt<ContainerKind>(3))
+                .Where(c => call.ArgAt<IReadOnlyList<ContainerKind>>(3).Contains(c.Kind))
                 .Skip(call.ArgAt<int>(0))
                 .Take(call.ArgAt<int>(1))]);
         return store;

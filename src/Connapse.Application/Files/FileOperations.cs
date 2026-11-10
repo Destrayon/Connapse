@@ -56,6 +56,9 @@ public enum FileStatus
 
     [Failure(409, "memory-container", "Agent memory container")]
     MemoryContainer,
+
+    [Failure(409, "tables-container", "Tables container")]
+    TablesContainer,
 }
 
 /// <summary>
@@ -131,6 +134,14 @@ internal static class FileRules
 
     public static Attempt<T, FileStatus> MemoryOnly<T>(Container container) =>
         Fail<T>(FileStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
+
+    /// <summary>A memory or tables container refuses text ingestion; null for a documents container.</summary>
+    public static Attempt<T, FileStatus>? RefuseText<T>(Container container) => container.Kind switch
+    {
+        ContainerKind.Memory => MemoryOnly<T>(container),
+        ContainerKind.Tables => Fail<T>(FileStatus.TablesContainer, ContainerRules.TablesOnly(container)),
+        _ => null,
+    };
 
     public static Attempt<T, FileStatus> FileNotFound<T>(Guid containerId, string fileRef) =>
         Fail<T>(FileStatus.NotFound, $"File {fileRef} not found in container {containerId}");

@@ -86,18 +86,21 @@ public class PostgresContainerStore(
         ListAsync(skip, take, viewer: null, ct);
 
     public Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, CancellationToken ct = default) =>
-        ListAsync(skip, take, viewer, kind: null, ct);
+        ListOfKindsAsync(skip, take, viewer, kinds: null, ct);
 
-    public Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, ContainerKind kind, CancellationToken ct = default) =>
-        ListAsync(skip, take, viewer, (ContainerKind?)kind, ct);
+    public Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, IReadOnlyList<ContainerKind> kinds, CancellationToken ct = default) =>
+        ListOfKindsAsync(skip, take, viewer, kinds, ct);
 
-    private async Task<IReadOnlyList<Container>> ListAsync(int skip, int take, MemoryCaller? viewer, ContainerKind? kind, CancellationToken ct)
+    private async Task<IReadOnlyList<Container>> ListOfKindsAsync(int skip, int take, MemoryCaller? viewer, IReadOnlyList<ContainerKind>? kinds, CancellationToken ct)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
 
         var visible = VisibleTo(context.Containers.AsNoTracking(), viewer);
-        if (kind is { } only)
-            visible = visible.Where(c => c.Kind == only);
+        if (kinds is not null)
+        {
+            List<ContainerKind> only = [.. kinds];
+            visible = visible.Where(c => only.Contains(c.Kind));
+        }
         var results = await visible
             .OrderBy(c => c.Name)
             .ThenBy(c => c.Audience == MemoryScope.Personal)

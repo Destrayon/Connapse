@@ -43,8 +43,8 @@ public sealed class AppendToFile(
             return FileRules.Fail<FileAppend>(FileStatus.Invalid, "file is required", "file");
         if (await containers.GetAsync(containerId, ct) is not { } container)
             return FileRules.ContainerNotFound<FileAppend>(containerId);
-        if (container.Kind == ContainerKind.Memory)
-            return FileRules.MemoryOnly<FileAppend>(container);
+        if (FileRules.RefuseText<FileAppend>(container) is { } refused)
+            return refused;
         if (!UploadRules.Writable(storage, container.Id))
             return FileRules.Fail<FileAppend>(FileStatus.NotWritable, "This container is not writable.");
         if (await FileRules.FindReadableAsync(documents, access, context, containerId, fileRef, ct) is not { } document)

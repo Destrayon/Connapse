@@ -168,10 +168,10 @@
     "IsEmpty": false
   },
   "Pages/Home.razor": {
-    "CodeLines": 138,
+    "CodeLines": 142,
     "Injects": 3,
     "Complexity": 18,
-    "MarkupLogic": 21,
+    "MarkupLogic": 26,
     "IsEmpty": false
   },
   "Pages/MemoryPage.razor": {

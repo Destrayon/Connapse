@@ -90,7 +90,7 @@ public sealed class PostgresMemorySpaceStore(
         return rows.Select(r => new MemorySpaceSummary(
                 new Container(
                     r.Id.ToString(), r.Name, r.Description, r.CreatedAt.UtcDateTime, r.UpdatedAt.UtcDateTime,
-                    Kind: r.Kind == "memory" ? ContainerKind.Memory : ContainerKind.Documents,
+                    Kind: ContainerKinds.FromText(r.Kind),
                     Audience: r.Audience == "personal" ? MemoryScope.Personal : MemoryScope.Team)
                 {
                     OwnerUserId = r.OwnerUserId,
@@ -149,7 +149,7 @@ public sealed class PostgresMemorySpaceStore(
         return rows.Select(r => new MemorySpaceCandidate(
                 new Container(
                     r.Id.ToString(), r.Name, r.Description, r.CreatedAt.UtcDateTime, r.UpdatedAt.UtcDateTime,
-                    Kind: r.Kind == "memory" ? ContainerKind.Memory : ContainerKind.Documents,
+                    Kind: ContainerKinds.FromText(r.Kind),
                     Audience: r.Audience == "personal" ? MemoryScope.Personal : MemoryScope.Team)
                 {
                     OwnerUserId = r.OwnerUserId,

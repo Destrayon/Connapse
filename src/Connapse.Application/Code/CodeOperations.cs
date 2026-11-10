@@ -24,6 +24,9 @@ public enum CodeStatus
     [Failure(409, "memory-container", "Agent memory container")]
     MemoryContainer,
 
+    [Failure(409, "tables-container", "Tables container")]
+    TablesContainer,
+
     [Failure(503, "code-access-unchecked", "Access could not be checked")]
     Unchecked,
 }
@@ -46,8 +49,10 @@ internal static class CodeAsker
         if (string.IsNullOrWhiteSpace(containerId)
             || await search.ResolveAsync(context, new SearchScope(containerId.Trim()), ct) is not { } found)
             return NotFound<T>(containerId);
-        if (found.Memory is { } memory)
-            return Attempt<T, CodeStatus>.Fail(CodeStatus.MemoryContainer, ContainerRules.MemoryOnly(memory));
+        if (found.Refused is { } refused)
+            return refused.Kind == ContainerKind.Tables
+                ? Attempt<T, CodeStatus>.Fail(CodeStatus.TablesContainer, ContainerRules.TablesOnly(refused))
+                : Attempt<T, CodeStatus>.Fail(CodeStatus.MemoryContainer, ContainerRules.MemoryOnly(refused));
 
         T answer = await ask(new CodeScope(found.Id, SearchPrincipal.Resolve(context.User)));
         if (denied(answer))

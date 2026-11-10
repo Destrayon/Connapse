@@ -29,10 +29,10 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 
 | Tool | Scope | Risk | What it does |
 |------|-------|------|--------------|
-| `container_list` | `knowledge:read` | Read | Lists every container and source with its description and document count. Each entry is `managed` (a container, browsable with `list_files`) or `source` (searchable, with no file listing). Memory spaces are not listed: `memory_spaces` lists them. |
+| `container_list` | `knowledge:read` | Read | Lists every container and source with its description and document count. Each entry is `managed` (a container, browsable with `list_files`) or `source` (searchable, with no file listing), and a tables container is `tables` (`search_knowledge` doesn't search it). Memory spaces are not listed: `memory_spaces` lists them. |
 | `container_describe` | `knowledge:read` | Read | Describes one container or source: its description and document statistics. |
 | `container_stats` | `knowledge:read` | Read | A container's document, chunk and storage counts and its embedding model. |
-| `container_create` | `knowledge:write` | Write | Creates a container. |
+| `container_create` | `knowledge:write` | Write | Creates a container for documents or for tables. |
 | `container_delete` | `knowledge:write` | Destructive | Deletes an empty container. Sources can't be deleted here. |
 | `search_knowledge` | `knowledge:read` | Read | Searches a container or source and returns ranked passages with their document ids and scores. |
 | `list_files` | `knowledge:read` | Read | Lists the folders and documents at a path in a container, each document with the date it was added and, if different, last updated. Sorts by name or newest first. |
@@ -62,7 +62,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 |------|-----------|------|----------|-------------|
 | `container_create` | `name` | string | Yes | 2 to 128 lowercase letters, digits and hyphens |
 | | `description` | string | No | What the container holds |
-| | `kind` | string | No | `documents` (default) or `memory`, for an agent memory container. Fixed once created |
+| | `kind` | string | No | `documents` (default), `tables` for a tables container that text search doesn't search, or `memory` (older: use `memory_space_create`). Fixed once created |
 | `container_delete`, `container_stats` | `containerId` | string | Yes | Container id or name |
 | `container_describe` | `containerId` | string | Yes | Container or source id or name |
 | `search_knowledge` | `query` | string | Yes | The search text |

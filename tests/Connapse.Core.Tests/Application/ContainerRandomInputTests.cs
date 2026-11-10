@@ -144,7 +144,7 @@ public class ContainerRandomInputTests
     [Fact]
     [RandomInputTestOf(typeof(CreateContainer))]
     public Task Create_AnyName_SavesOnlyAValidFreeNameAndAuditsIt() =>
-        Gen.Select(AnyCaller, Gen.Bool, Name, Maybe(Name), Gen.Bool, Gen.Bool, Gen.Int[-1, 3].Select(k => (ContainerKind)k))
+        Gen.Select(AnyCaller, Gen.Bool, Name, Maybe(Name), Gen.Bool, Gen.Bool, Gen.Int[-1, 4].Select(k => (ContainerKind)k))
             .SampleAsync(async t =>
             {
                 var (caller, writer, name, description, taken, raced, kind) = t;
@@ -161,7 +161,7 @@ public class ContainerRandomInputTests
                 var created = await new CreateContainer(world.Containers, world.Audit, world.Authorizer)
                     .RunAsync(caller, new CreateContainerRequest(name, description, kind));
 
-                bool knownKind = kind is ContainerKind.Documents or ContainerKind.Memory;
+                bool knownKind = kind is ContainerKind.Documents or ContainerKind.Memory or ContainerKind.Tables;
                 ContainerStatus expected = !writer ? ContainerStatus.Forbidden
                     : !IsValidName(trimmed) || !knownKind ? ContainerStatus.Invalid
                     : taken || raced ? ContainerStatus.Conflict

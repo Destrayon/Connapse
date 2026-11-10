@@ -129,6 +129,36 @@ public enum ContainerKind
 {
     Documents = 0,
     Memory = 1,
+
+    /// <summary>Holds tables, not passages (CON-E6): nothing in it is chunked or embedded, and text search never searches it.</summary>
+    Tables = 2,
+}
+
+/// <summary>How a <see cref="ContainerKind"/> is written in the database's <c>containers.kind</c> column.</summary>
+public static class ContainerKinds
+{
+    /// <summary>The kinds that hold files and appear in the container list; memory spaces are listed on their own (CON-291).</summary>
+    public static readonly IReadOnlyList<ContainerKind> FileKinds = [ContainerKind.Documents, ContainerKind.Tables];
+
+    public static string ToText(ContainerKind kind) => kind switch
+    {
+        ContainerKind.Documents => "documents",
+        ContainerKind.Memory => "memory",
+        ContainerKind.Tables => "tables",
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown container kind."),
+    };
+
+    /// <summary>
+    /// The kind a column value names. An unknown value throws rather than reading as documents, so a container of a
+    /// kind this build doesn't know is never text-searched or written to as if it held documents.
+    /// </summary>
+    public static ContainerKind FromText(string text) => text switch
+    {
+        "documents" => ContainerKind.Documents,
+        "memory" => ContainerKind.Memory,
+        "tables" => ContainerKind.Tables,
+        _ => throw new InvalidOperationException($"Unknown container kind '{text}'."),
+    };
 }
 
 public record CreateContainerRequest(

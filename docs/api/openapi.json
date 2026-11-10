@@ -17230,7 +17230,8 @@
       "ContainerKind": {
         "enum": [
           "Documents",
-          "Memory"
+          "Memory",
+          "Tables"
         ],
         "default": "Documents"
       },

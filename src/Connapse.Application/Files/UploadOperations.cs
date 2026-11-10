@@ -88,8 +88,8 @@ public sealed class UploadFile(
             return FileRules.Fail<UploadedFile>(status, detail, field);
         if (await containers.GetAsync(containerId, ct) is not { } container)
             return FileRules.ContainerNotFound<UploadedFile>(containerId);
-        if (container.Kind == ContainerKind.Memory)
-            return FileRules.MemoryOnly<UploadedFile>(container);
+        if (FileRules.RefuseText<UploadedFile>(container) is { } refused)
+            return refused;
         if (!UploadRules.Writable(storage, container.Id))
             return FileRules.Fail<UploadedFile>(FileStatus.NotWritable, "This container is not writable.");
 
@@ -122,8 +122,8 @@ public sealed class BulkUploadFiles(
             return FileRules.Fail<BulkUpload>(FileStatus.Invalid, $"A bulk upload must name at most {MaxFiles} files", "files");
         if (await containers.GetAsync(containerId, ct) is not { } container)
             return FileRules.ContainerNotFound<BulkUpload>(containerId);
-        if (container.Kind == ContainerKind.Memory)
-            return FileRules.MemoryOnly<BulkUpload>(container);
+        if (FileRules.RefuseText<BulkUpload>(container) is { } refused)
+            return refused;
         if (!UploadRules.Writable(storage, container.Id))
             return FileRules.Fail<BulkUpload>(FileStatus.NotWritable, "This container is not writable.");
 

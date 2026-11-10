@@ -54,4 +54,35 @@ public class ContainerCreationTests(SharedWebAppFixture fixture)
         doc.RootElement.TryGetProperty("connectorType", out _).Should().BeFalse();
         doc.RootElement.TryGetProperty("connectorConfig", out _).Should().BeFalse();
     }
+
+    /// <summary>CON-300: the API can make a tables container, and its kind comes back on create, get and list.</summary>
+    [Fact]
+    public async Task CreateContainer_TablesKind_KindShowsOnCreateGetAndList()
+    {
+        var name = ShortName("tables");
+
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers", new { Name = name, Kind = "Tables" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        using var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        created.RootElement.GetProperty("kind").GetString().Should().Be("Tables");
+        string id = created.RootElement.GetProperty("id").GetString()!;
+
+        using var got = JsonDocument.Parse(await fixture.AdminClient.GetStringAsync($"/api/containers/{id}"));
+        got.RootElement.GetProperty("kind").GetString().Should().Be("Tables");
+
+        using var listed = JsonDocument.Parse(await fixture.AdminClient.GetStringAsync("/api/containers?take=200"));
+        listed.RootElement.GetProperty("items").EnumerateArray()
+            .Single(c => c.GetProperty("id").GetString() == id)
+            .GetProperty("kind").GetString().Should().Be("Tables");
+    }
+
+    [Fact]
+    public async Task CreateContainer_UnknownKind_IsRefused()
+    {
+        var response = await fixture.AdminClient.PostAsJsonAsync("/api/containers",
+            new { Name = ShortName("odd"), Kind = "Spreadsheets" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 }
