@@ -57,6 +57,24 @@ Npgsql 10 sends positional-parameter commands unchanged, resets pooled sessions,
 - No live Azure Flexible Server test (the PM's rule: no data on shared servers; there is no test Azure server).
 - Not measured: how much memory `work_mem` × parallel workers can reach on the smallest Azure tier.
 
+## Addendum (2026-11-10): reworked for the CON-320 plan
+The structured layer is now arm S of the head-to-head eval against `table_sql` (CON-328), so it takes permissions and
+shapes answers the way docs/plans/con-320-raw-sql-rls.md specifies:
+- **Readable set.** Every request takes a `TableAccess`: the ids of the source documents the caller may read, worked out
+  by Connapse's permission check before the query runs. A table whose source document isn't in the set, or that has no
+  source document, is reported exactly as a missing table, and this is checked before compiling so a compile error can't
+  name its columns. Row-level security (CON-324) will check the same set again in the database; until then the check is
+  in the service only. Under RLS an unreadable table will return zero rows to `table_sql` rather than "no table", and
+  neither reveals its data.
+- **Shared runner.** `TableQueryRunner` holds the read-only transaction, the limits, a client-side deadline 2 s past the
+  statement timeout (Npgsql then cancels the query on the server), row and 64 KB byte caps applied while streaming, and
+  the untrusted-data notice on every answer. The query goes alone in an `NpgsqlBatch`, after a separate setup batch, so
+  its text can only ever be one statement. `table_sql` (CON-326) runs through the same runner.
+- **No parallel workers.** `max_parallel_workers_per_gather = 0` on the role and per transaction, which closes the
+  `work_mem` × workers gap above.
+- **Left to other tickets:** RLS and the per-request token (CON-324), the parser allowlist (CON-325), `table_sql` and its
+  bypass table (CON-326), hidden columns and merged tables (epic ticket 7), and the agent tools (epic ticket 8).
+
 ## Sources
 **Primary:**
 - PostgreSQL 17 docs: sql-createrole, sql-alterrole, role-attributes, sql-set-role, sql-set-transaction, runtime-config-client, runtime-config-resource, functions-admin, sql-copy, predefined-roles, lo-funcs, sql-createextension, contrib, ddl-priv, ddl-schemas, sql-grant, sql-alterdefaultprivileges, sql-createfunction, catalog-pg-authid, monitoring-stats

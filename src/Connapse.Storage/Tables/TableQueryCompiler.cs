@@ -10,12 +10,13 @@ namespace Connapse.Storage.Tables;
 /// <summary>
 /// One compiled table query: a single <c>SELECT</c> whose only identifiers are the catalog's generated names and whose
 /// every value is a positional (<c>$n</c>) parameter. <see cref="Columns"/> names the output columns as the agent knows
-/// them. The query fetches <see cref="Limit"/> + 1 rows so the runner can tell the answer was cut.
+/// them; when it is null the runner takes the names the database returns. The query fetches <see cref="Limit"/> + 1
+/// rows so the runner can tell the answer was cut.
 /// </summary>
 internal sealed record CompiledTableQuery(
     string Sql,
     IReadOnlyList<NpgsqlParameter> Parameters,
-    IReadOnlyList<string> Columns,
+    IReadOnlyList<string>? Columns,
     int Limit);
 
 /// <summary>

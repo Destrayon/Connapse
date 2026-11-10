@@ -164,6 +164,7 @@ public sealed partial class TableReaderLogin : IAsyncDisposable
                 await ExecuteAsync(connection, transaction, $"ALTER ROLE {role} SET lock_timeout = '{LockTimeout}'", ct);
                 await ExecuteAsync(connection, transaction, $"ALTER ROLE {role} SET idle_in_transaction_session_timeout = '{IdleInTransactionTimeout}'", ct);
                 await ExecuteAsync(connection, transaction, $"ALTER ROLE {role} SET work_mem = '{WorkMem}'", ct);
+                await ExecuteAsync(connection, transaction, $"ALTER ROLE {role} SET max_parallel_workers_per_gather = {TableQueryRunner.MaxParallelWorkersPerGather}", ct);
                 await ExecuteAsync(connection, transaction, $"ALTER ROLE {role} SET default_transaction_read_only = on", ct);
 
                 await transaction.SaveAsync("temp_file_limit", ct);
