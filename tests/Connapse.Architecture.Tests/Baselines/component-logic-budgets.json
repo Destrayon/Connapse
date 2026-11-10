@@ -55,6 +55,13 @@
     "MarkupLogic": 12,
     "IsEmpty": false
   },
+  "Memory/DeleteMemorySpaceDialog.razor": {
+    "CodeLines": 36,
+    "Injects": 2,
+    "Complexity": 14,
+    "MarkupLogic": 8,
+    "IsEmpty": false
+  },
   "Memory/MemoryAuthor.razor": {
     "CodeLines": 1,
     "Injects": 0,
@@ -83,11 +90,25 @@
     "MarkupLogic": 2,
     "IsEmpty": false
   },
+  "Memory/MemorySpaceModal.razor": {
+    "CodeLines": 5,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
   "Memory/NewMemorySpaceDialog.razor": {
     "CodeLines": 32,
     "Injects": 2,
     "Complexity": 9,
     "MarkupLogic": 17,
+    "IsEmpty": false
+  },
+  "Memory/RenameMemorySpaceDialog.razor": {
+    "CodeLines": 31,
+    "Injects": 2,
+    "Complexity": 14,
+    "MarkupLogic": 4,
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
@@ -175,10 +196,10 @@
     "IsEmpty": false
   },
   "Pages/MemoryPage.razor": {
-    "CodeLines": 204,
+    "CodeLines": 228,
     "Injects": 3,
-    "Complexity": 77,
-    "MarkupLogic": 36,
+    "Complexity": 81,
+    "MarkupLogic": 40,
     "IsEmpty": false
   },
   "Pages/MemorySpacePage.razor": {
