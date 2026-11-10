@@ -41,8 +41,10 @@ public class FileBrowserTablesViewTests(SharedWebAppFixture fixture)
         page.Find("#fileDropZone").GetAttribute("style").Should().Contain("display:none", "the files hide while the tables show");
         page.Find("#tables-range").TextContent.Should().Be($"1–25 of {count} tables");
 
+        // FileBrowser hears every container's status changes on the same dispatcher, so the click's render can trail it.
         page.Find(".table-row").Click();
-        page.FindAll(".schema-column .schema-name").Select(n => n.TextContent).Should().Equal("Region", "Units");
+        page.WaitForAssertion(() => page.FindAll(".schema-column .schema-name").Select(n => n.TextContent)
+            .Should().Equal("Region", "Units"), TimeSpan.FromSeconds(10));
         page.FindAll(".schema-column .schema-type").Select(n => n.TextContent).Should().Equal("Text", "Whole number");
         page.Find(".table-row .col-rows").TextContent.Trim().Should().Be("2");
 
