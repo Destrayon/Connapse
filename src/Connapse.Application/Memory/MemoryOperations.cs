@@ -414,25 +414,99 @@ public sealed class RecallMemory(
     /// attribute is read a page at a time (by relevance when there is text, newest recorded first otherwise); any
     /// other read goes through <see cref="AcrossAsync"/>, and a cursor on it is refused, since it has no next page.
     /// </summary>
-    public Task<Attempt<SpacedRecall, MemoryStatus>> RecallAsync(
+    public async Task<Attempt<SpacedRecall, MemoryStatus>> RecallAsync(
         OperationContext context, MemoryRecallRequest request, CancellationToken ct = default)
     {
         IReadOnlyList<string> named = request.Named();
+        Attempt<SpacedRecall, MemoryStatus> read;
         if (named.Count == 1 && request.AsOf is null && string.IsNullOrWhiteSpace(request.Attribute))
         {
             MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject,
                 Status: request.History ? MemoryFactStatus.All : MemoryFactStatus.Current);
             MemoryFactSort sort = string.IsNullOrWhiteSpace(request.Text) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
-            return PageAsync(context, named[0],
+            read = await PageAsync(context, named[0],
                 new MemoryFactListing(filter, sort, request.Cursor, Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
         }
-        if (!string.IsNullOrWhiteSpace(request.Cursor))
-            return Task.FromResult(MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
-                "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor"));
+        else if (!string.IsNullOrWhiteSpace(request.Cursor))
+        {
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
+                "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor");
+        }
+        else
+        {
+            read = await AcrossAsync(context, named,
+                new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
+        }
 
-        return AcrossAsync(context, named,
-            new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
+        // A first search of one space that found nothing names the subjects nearest to what was asked, so the next call
+        // can go straight to one of them rather than guessing at other words.
+        string asked = string.Join(' ', new[] { request.Text, request.Subject }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        if (read.Succeeded && read.Result is { Facts.Count: 0, Spaces.Count: 1 } empty && string.IsNullOrWhiteSpace(request.Cursor)
+            && asked.Length > 0)
+        {
+            IReadOnlyList<string> nearest = await NearestSubjectsAsync(empty.Spaces.Keys.Single(), asked, MemoryRules.Caller(context.User), ct);
+            if (nearest.Count > 0)
+                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(empty with { Nearest = nearest });
+        }
+        return read;
     }
+
+    /// <summary>How many subjects an empty search names.</summary>
+    public const int NearestCount = 3;
+
+    /// <summary>How many of a space's subjects an empty search compares with the query.</summary>
+    private const int NearestScan = 1000;
+
+    /// <summary>
+    /// The space's current subjects the caller can see that are most like the query's words by trigram similarity, or,
+    /// when none is close, its subjects with the most facts, so an empty search still shows where memory has something.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> NearestSubjectsAsync(Guid space, string text, MemoryCaller caller, CancellationToken ct)
+    {
+        List<MemorySubject> subjects = [];
+        string? after = null;
+        do
+        {
+            MemorySubjectPage page = await memory.SubjectsAsync(space, null, MemoryFactStatus.Current, after, MemoryPaging.MaxLimit, caller, ct);
+            if (page.Denied)
+                return [];
+            subjects.AddRange(page.Subjects);
+            after = page.Next;
+        }
+        while (after is not null && subjects.Count < NearestScan);
+        return Nearest(text, subjects);
+    }
+
+    /// <summary>The least similarity at which a subject counts as near the query.</summary>
+    public const double NearSimilarity = 0.3;
+
+    /// <summary>
+    /// The <see cref="NearestCount"/> subjects with a word most like one of <paramref name="text"/>'s, or, when none is
+    /// at least <see cref="NearSimilarity"/> alike, the ones with the most facts.
+    /// </summary>
+    public static IReadOnlyList<string> Nearest(string text, IReadOnlyList<MemorySubject> subjects)
+    {
+        List<HashSet<string>> asked = [.. Words(text).Select(Trigrams.Of)];
+        if (asked.Count == 0 || subjects.Count == 0)
+            return [];
+        List<string> near = [.. subjects
+            .Select(s => (s.Subject, Score: Words(s.Subject).Select(Trigrams.Of)
+                .SelectMany(w => asked.Select(a => Trigrams.Similarity(a, w))).DefaultIfEmpty(0).Max()))
+            .Where(s => s.Score >= NearSimilarity)
+            .OrderByDescending(s => s.Score).ThenBy(s => s.Subject, StringComparer.OrdinalIgnoreCase)
+            .Take(NearestCount)
+            .Select(s => s.Subject)];
+        return near.Count > 0
+            ? near
+            : [.. subjects.OrderByDescending(s => s.Facts).ThenBy(s => s.Subject, StringComparer.OrdinalIgnoreCase).Take(NearestCount).Select(s => s.Subject)];
+    }
+
+    /// <summary>The words of three letters or more, lowercased.</summary>
+    private static IEnumerable<string> Words(string text) =>
+        text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .SelectMany(w => System.Text.RegularExpressions.Regex.Split(w, "[^\\p{L}\\p{N}]+"))
+            .Where(w => w.Length >= 3)
+            .Select(w => w.ToLowerInvariant());
 
     /// <summary>
     /// A timeline as the API and the memory_timeline tool both take it: facts in date order, ended and corrected ones
@@ -542,10 +616,12 @@ public sealed record MemoryTimelineRequest(
 /// <summary>
 /// Facts read from one or more spaces, with the spaces they came from for labelling, and how many spaces an unnamed
 /// read left out for being past <see cref="RecallMemory.MaxSpaces"/>. <paramref name="NextCursor"/> continues a paged
-/// read of one space, and is null on its last page and for every other read.
+/// read of one space, and is null on its last page and for every other read. <paramref name="Nearest"/> names the
+/// subjects closest to a search of one space that found nothing, and is null otherwise.
 /// </summary>
 public sealed record SpacedRecall(
-    IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null);
+    IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null,
+    IReadOnlyList<string>? Nearest = null);
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
 public sealed class MemoryOperations(

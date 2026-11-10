@@ -340,9 +340,20 @@ public partial class McpTools
             facts = facts.Select(f => Shown(f.Fact, f.Sources, result.Spaces.GetValueOrDefault(f.Fact.ContainerId))),
             note = result.SkippedSpaces > 0
                 ? $"Read the {RecallMemory.MaxSpaces} most recently changed spaces; {result.SkippedSpaces} more were not read. Name a `space` to read one of them."
-                : null,
+                : NearestNote(result),
             nextCursor = result.NextCursor,
         }, MemoryJson);
+    }
+
+    /// <summary>What an empty search of one space says: that nothing matched, the nearest subjects and the next call.</summary>
+    internal static string? NearestNote(SpacedRecall result)
+    {
+        if (result.Nearest is not { Count: > 0 } nearest || result.Spaces.Count != 1)
+            return null;
+        string space = result.Spaces.Values.Single().Name;
+        return $"Nothing matched. Closest subjects in '{space}': {string.Join(", ", nearest.Select(s => $"\"{s}\""))}. "
+            + $"Next: memory_recall with space=\"{space}\" and subject=\"{nearest[0]}\" to read all of a subject, "
+            + "or one `query` holding several other words for what you want.";
     }
 
     private static object Shown(MemoryFact fact, IReadOnlyList<ShownMemorySource>? sources, Connapse.Core.Container? space = null) => new

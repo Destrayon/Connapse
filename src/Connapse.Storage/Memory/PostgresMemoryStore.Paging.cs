@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -90,11 +91,13 @@ public sealed partial class PostgresMemoryStore
     }
 
     /// <summary>
-    /// The search terms a list ranks by: the cursor's when paging on, else the text's distinctive words. A cursor's terms
-    /// are rebuilt from their words, since a client can send any cursor and to_tsquery fails on malformed syntax.
+    /// The search a list matches and ranks by, from the cursor's words when paging on, else the text's. A cursor carries
+    /// the words alone and the plan is rebuilt from them, since a client can send any cursor and to_tsquery fails on
+    /// malformed syntax; over the same facts the rebuilt plan ranks as the first page did.
     /// </summary>
-    private static async Task<string?> TermsAsync(KnowledgeDbContext context, Guid containerId, MemoryFactFilter filter, MemoryFactKey? after, CancellationToken ct) =>
-        after?.Terms is { } carried ? TsQuery(carried) : TsQuery(await DistinctiveWordsAsync(context, containerId, QueryWords(filter.Text), ct));
+    private Task<SearchPlan?> TermsAsync(KnowledgeDbContext context, Guid containerId, IQueryable<MemoryFactEntity> rows,
+        MemoryFactFilter filter, MemoryFactKey? after, CancellationToken ct) =>
+        PlanAsync(context, containerId, rows, after?.Terms ?? filter.Text, clock.GetUtcNow(), ct);
 
     public async Task<IReadOnlyList<MemoryListedFact>> PageAsync(
         Guid containerId, MemoryFactFilter filter, MemoryFactSort sort, MemoryFactKey? after, int take, MemoryViewer viewer,
@@ -102,9 +105,9 @@ public sealed partial class PostgresMemoryStore
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         IQueryable<MemoryFactEntity> rows = Filtered(context, containerId, filter, viewer);
-        string? terms = await TermsAsync(context, containerId, filter, after, ct);
-        if (terms is not null)
-            rows = rows.Where(f => f.SearchVector.Matches(EF.Functions.ToTsQuery("english", terms)));
+        SearchPlan? plan = await TermsAsync(context, containerId, rows, filter, after, ct);
+        if (plan is not null)
+            rows = rows.Where(plan.Where);
         else if (sort == MemoryFactSort.Relevance)
             sort = MemoryFactSort.Recorded;
 
@@ -135,7 +138,7 @@ public sealed partial class PostgresMemoryStore
                     f => new MemoryFactKey(f.Id, ValidFrom: f.ValidFrom));
 
             case MemoryFactSort.Relevance:
-                return await RankedAsync(rows, terms!, after, take, ct);
+                return await RankedAsync(rows, plan!, after, take, ct);
 
             default:
                 if (after is not null)
@@ -156,28 +159,34 @@ public sealed partial class PostgresMemoryStore
 
     /// <summary>Best match first, by (rank, id) descending, stopping at the best <see cref="IMemoryStore.MaxSearchResults"/>.</summary>
     private static async Task<IReadOnlyList<MemoryListedFact>> RankedAsync(
-        IQueryable<MemoryFactEntity> rows, string terms, MemoryFactKey? after, int take, CancellationToken ct)
+        IQueryable<MemoryFactEntity> rows, SearchPlan plan, MemoryFactKey? after, int take, CancellationToken ct)
     {
         int position = Math.Max(0, after?.Position ?? 0);
         take = Math.Min(take, IMemoryStore.MaxSearchResults - position);
         if (take <= 0)
             return [];
+        ParameterExpression f = plan.Score.Parameters[0];
+        Expression<Func<MemoryFactEntity, ScoredRow>> scored = Expression.Lambda<Func<MemoryFactEntity, ScoredRow>>(
+            Expression.MemberInit(Expression.New(typeof(ScoredRow)),
+                Expression.Bind(typeof(ScoredRow).GetProperty(nameof(ScoredRow.Row))!, f),
+                Expression.Bind(typeof(ScoredRow).GetProperty(nameof(ScoredRow.Score))!, plan.Score.Body)),
+            f);
+        IQueryable<ScoredRow> ranked = rows.Select(scored);
         if (after is not null)
         {
             float rank = after.Rank ?? float.MaxValue;
             Guid id = after.Id;
-            rows = rows.Where(f => EF.Functions.LessThan(
-                ValueTuple.Create(f.SearchVector.Rank(EF.Functions.ToTsQuery("english", terms)), f.Id), ValueTuple.Create(rank, id)));
+            ranked = ranked.Where(r => EF.Functions.LessThan(ValueTuple.Create(r.Score, r.Row.Id), ValueTuple.Create(rank, id)));
         }
-        var page = await rows
-            .Select(f => new { Row = f, Sources = f.Sources.ToList(), Rank = f.SearchVector.Rank(EF.Functions.ToTsQuery("english", terms)) })
-            .OrderByDescending(r => r.Rank).ThenByDescending(r => r.Row.Id)
+        var page = await ranked
+            .OrderByDescending(r => r.Score).ThenByDescending(r => r.Row.Id)
             .Take(take)
+            .Select(r => new { r.Row, Sources = r.Row.Sources.ToList(), r.Score })
             .ToListAsync(ct);
         return [.. page.Select((r, i) =>
         {
             r.Row.Sources = r.Sources;
-            return new MemoryListedFact(ToFact(r.Row), new MemoryFactKey(r.Row.Id, Rank: r.Rank, Terms: terms, Position: position + i + 1));
+            return new MemoryListedFact(ToFact(r.Row), new MemoryFactKey(r.Row.Id, Rank: r.Score, Terms: plan.Words, Position: position + i + 1));
         })];
     }
 
@@ -187,11 +196,11 @@ public sealed partial class PostgresMemoryStore
         long started = clock.GetTimestamp();
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         IQueryable<MemoryFactEntity> rows = Filtered(context, containerId, filter, viewer);
-        string? terms = await TermsAsync(context, containerId, filter, null, ct);
+        SearchPlan? plan = await TermsAsync(context, containerId, rows, filter, null, ct);
         long most = long.MaxValue;
-        if (terms is not null)
+        if (plan is not null)
         {
-            rows = rows.Where(f => f.SearchVector.Matches(EF.Functions.ToTsQuery("english", terms)));
+            rows = rows.Where(plan.Where);
             most = IMemoryStore.MaxSearchResults;
         }
 
@@ -251,6 +260,12 @@ public sealed partial class PostgresMemoryStore
 #pragma warning restore CA1304, CA1309, CA1311
         var page = await groups.OrderBy(g => g.Key).Take(take).ToListAsync(ct);
         return [.. page.Select(g => (g.Key, new MemorySubject(g.Subject!, g.Facts)))];
+    }
+
+    private sealed class ScoredRow
+    {
+        public MemoryFactEntity Row { get; init; } = null!;
+        public float Score { get; init; }
     }
 
     public async Task<IReadOnlyList<MemoryFact>> HistoryAsync(

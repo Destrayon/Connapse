@@ -179,6 +179,24 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         (await McpTools.MemoryCorrect(Sp.GetRequiredService<CorrectFact>(), Sp.GetRequiredService<IHttpContextAccessor>(), first, "x", kind: "wrong", sources: [_upload])).Should().StartWith("Error:");
     }
 
+    [Fact]
+    public async Task Recall_NothingMatches_NamesTheNearestSubjectAndTheNextCall()
+    {
+        As(_writer);
+        await Remember("PostgreSQL 15");
+
+        string misspelled = await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyn");
+        string unrelated = await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, "zebra stripes");
+        string found = await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, "Halcyon database");
+
+        Facts(misspelled).Should().BeEmpty();
+        JsonDocument.Parse(misspelled).RootElement.GetProperty("note").GetString().Should().StartWith("Nothing matched.")
+            .And.Contain("subject=\"Halcyon\"");
+        JsonDocument.Parse(unrelated).RootElement.GetProperty("note").GetString().Should().Contain("\"Halcyon\"",
+            "with nothing close, the subjects holding the most facts are named");
+        found.Should().NotContain("Nothing matched", "a search that found facts adds no hint");
+    }
+
     /// <summary>The one value recall gives for Halcyon's database on <paramref name="asOf"/>; fails on none or several.</summary>
     private async Task<string?> OnlyValueAsync(string asOf) =>
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon", attribute: "database", asOf: asOf)).Should().ContainSingle().Subject;

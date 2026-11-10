@@ -104,6 +104,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                     "setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || "
                     + "setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || "
                     + "setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || "
+                    // A date in the value also reads as its month and year, so "January" finds 2027-01-19
+                    // (memory_date_words, from the MemoryDateWords migration).
+                    + "setweight(to_tsvector('english', memory_date_words(value)), 'C') || "
                     + "setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')",
                     stored: true);
             entity.HasIndex(e => new { e.ContainerId, e.Subject, e.Attribute }).HasDatabaseName("idx_memory_facts_key");
