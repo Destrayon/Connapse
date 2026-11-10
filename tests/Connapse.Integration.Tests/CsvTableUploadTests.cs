@@ -254,14 +254,14 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
         try
         {
             var csv = new StringBuilder("id,city\n");
-            for (int i = 1; i <= 300; i++)
+            for (int i = 1; i <= 59; i++) // past the 51 lines a large table's summary keeps, so a cut would drop the last row
                 csv.Append(i).Append(",town").Append(i).Append('\n');
-            csv.Append("301,Ouagadougou\n");
+            csv.Append("60,Ouagadougou\n");
             string id = await UploadAsync(containerId, "cities.csv", csv.ToString());
             await WaitForReadyAsync(containerId, id);
 
             (await KeywordHitsAsync(containerId, "Ouagadougou")).Should().Contain(id, "a small CSV's last row is still searchable text");
-            (await TablesAsync(containerId)).Single().RowCount.Should().Be(301);
+            (await TablesAsync(containerId)).Single().RowCount.Should().Be(60);
         }
         finally
         {
