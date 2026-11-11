@@ -146,6 +146,7 @@ else
                         <th class="col-desc">What belongs here</th>
                         <th class="col-facts">Facts</th>
                         <th class="col-updated">Updated</th>
+                        <th class="col-actions"><span class="visually-hidden">Change</span></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -158,6 +159,7 @@ else
                             <td class="col-desc">@space.Description</td>
                             <td class="col-facts">@space.Facts.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)</td>
                             <td class="col-updated" title="@Absolute(space.UpdatedAt)">@MemoryFactList.Relative(space.UpdatedAt)</td>
+                            <td class="col-actions">@Actions(space)</td>
                         </tr>
                     }
                 </tbody>
@@ -181,6 +183,14 @@ else
 {
     <NewMemorySpaceDialog Accounts="audience.Accounts" OnCreated="OnCreated" OnClose="() => creating = false" />
 }
+@if (renaming is not null)
+{
+    <RenameMemorySpaceDialog Space="renaming" OnRenamed="OnRenamed" OnClose="() => renaming = null" />
+}
+@if (deleting is not null)
+{
+    <DeleteMemorySpaceDialog Space="deleting" OnDeleted="OnDeleted" OnClose="() => deleting = null" />
+}
 
 @code {
     private MemorySpacesView view = new();
@@ -200,6 +210,8 @@ else
     private bool isLoading = true;
     private bool disposed;
     private bool creating;
+    private MemorySpaceView? renaming;
+    private MemorySpaceView? deleting;
     private string? errorMessage;
     private string? notice;
 
@@ -358,6 +370,18 @@ else
         await LoadAsync(view, fresh: true);
     }
 
+    private async Task OnRenamed(MemorySpaceView renamed)
+    {
+        (renaming, notice) = (null, $"Saved changes to {renamed.Name}.");
+        await LoadAsync(view);
+    }
+
+    private async Task OnDeleted(MemorySpaceDeletion deleted)
+    {
+        (deleting, notice) = (null, $"Deleted {deleted.Name} and {DeleteMemorySpaceDialog.FactsLabel(deleted.Facts)}.");
+        await LoadAsync(view, fresh: true);
+    }
+
     private static string Href(MemorySpaceView space) =>
         $"memory/{space.Id}";
 
@@ -377,7 +401,7 @@ else
     private RenderFragment Card(MemorySpaceView space) => @<div class="space-card" data-space-id="@space.Id">
         <div class="space-card-top">
             @KindBadge(space.Kind)
-            @Star(space)
+            <span class="space-card-tools">@Actions(space)@Star(space)</span>
         </div>
         <a class="space-card-name stretched-link" href="@Href(space)">@space.Name</a>
         <p class="space-card-desc">@space.Description</p>
@@ -392,6 +416,17 @@ else
             title="@(space.Starred ? "Starred: lists first" : "Star to list first")" @onclick="() => ToggleStar(space)">
         <span class="@(space.Starred ? "bi-star-fill" : "bi-star")" aria-hidden="true"></span>
     </button>;
+
+    // The personal spaces listed are always the caller's own, so whoever may add to spaces may rename and delete them.
+    private RenderFragment Actions(MemorySpaceView space) => @<text>@if (audience?.CanAdd == true)
+    {
+        <button type="button" class="space-action" aria-label="Rename @space.Name" title="Rename" @onclick="() => renaming = space">
+            <span class="bi-pencil" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="space-action space-action-delete" aria-label="Delete @space.Name" title="Delete" @onclick="() => deleting = space">
+            <span class="bi-trash" aria-hidden="true"></span>
+        </button>
+    }</text>;
 
     private static RenderFragment KindBadge(MemorySpaceKind kind) => kind switch
     {

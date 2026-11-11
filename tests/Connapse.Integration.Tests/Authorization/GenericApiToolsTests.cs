@@ -104,7 +104,7 @@ public class GenericApiToolsTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task ApiWrite_DestructiveOperation_WaitsForApprovalThenRunsOnce()
+    public async Task ApiWrite_DestructiveOperation_BecomesADeletionBatchThatConnapseRuns()
     {
         await using var agent = await ApprovalTokenAsync();
         string container = await CreateContainerAsync("generic-approval");
@@ -114,20 +114,20 @@ public class GenericApiToolsTests(SharedWebAppFixture fixture)
                 .Should().StartWith("201", "a write that isn't destructive runs without approval");
 
             var delete = Call("folders.delete", new() { ["containerId"] = container, ["path"] = "/kept/", ["cascade"] = true });
-            Text(await agent.CallToolAsync(McpApiTools.WriteName, delete)).Should().Contain("pending approval").And.Contain("folders.delete");
+            var held = await agent.CallToolAsync(McpApiTools.WriteName, delete);
+            held.IsError.Should().NotBe(true, Text(held));
+            Text(held).Should().Contain("pending approval").And.Contain("folders.delete").And.Contain("deletion batch");
 
-            McpApprovalItem pending;
-            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
-            {
-                var listed = await scope.ServiceProvider.GetRequiredService<ListMcpApprovals>().ExecuteAsync(Admin());
-                pending = listed.Result!.Should().ContainSingle(a => a.ToolName == McpApiTools.WriteName && a.ArgumentsSummary.Contains(container)).Subject;
-                (await scope.ServiceProvider.GetRequiredService<DecideMcpApproval>().ExecuteAsync(Admin(), pending.Id, approve: true))
-                    .Succeeded.Should().BeTrue();
-            }
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            (await scope.ServiceProvider.GetRequiredService<ListMcpApprovals>().ExecuteAsync(Admin())).Result!
+                .Should().NotContain(a => a.ArgumentsSummary.Contains(container), "a held delete no longer waits for a repeated call");
+            var batch = (await scope.ServiceProvider.GetRequiredService<ListDeletionBatches>().ExecuteAsync(Admin())).Result!
+                .Should().ContainSingle(b => b.Items.Any(i => i.ContainerId == Guid.Parse(container))).Subject;
+            batch.Items.Should().ContainSingle().Which.Kind.Should().Be("folder");
 
-            string ran = Text(await agent.CallToolAsync(McpApiTools.WriteName, delete));
-            ran.Should().StartWith("2", "the approved call ran");
-            Text(await agent.CallToolAsync(McpApiTools.WriteName, delete)).Should().Contain("pending approval", "an approval runs one call");
+            var decided = await scope.ServiceProvider.GetRequiredService<DecideDeletionBatch>().ExecuteAsync(Admin(), batch.Id, approve: true, null, null);
+            decided.Succeeded.Should().BeTrue(decided.Detail);
+            decided.Result!.Items.Single().State.Should().Be("deleted", "Connapse deleted the folder without the agent repeating the call");
         }
         finally
         {

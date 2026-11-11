@@ -105,7 +105,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "container_delete", Destructive = true),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
-     Description("Delete a container. It must be emptied first, because deleting one deletes its stored files. External sources are not containers and cannot be deleted here.")]
+     Description("Delete a container. It must be emptied first, because deleting one deletes its stored files. External sources are not containers and cannot be deleted here." + HeldDeleteNote)]
     public static async Task<string> ContainerDelete(
         DeleteContainer delete,
         IHttpContextAccessor http,
@@ -334,7 +334,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "delete_file", Destructive = true),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
-     Description("Delete a file and all its chunks and vectors. To update a file, delete it first then re-upload with upload_file.")]
+     Description("Delete a file and all its chunks and vectors. To update a file, delete it first then re-upload with upload_file." + HeldDeleteNote)]
     public static async Task<string> DeleteFile(
         DeleteFile delete,
         GetContainer getContainer,
@@ -361,7 +361,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "bulk_delete", Destructive = true),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
-     Description("Delete up to 100 files in one call. Returns per-file success/failure results.")]
+     Description("Delete up to 100 files in one call. Returns per-file success/failure results." + HeldDeleteNote + " A held batch holds at most 50 files.")]
     public static async Task<string> BulkDelete(
         BulkDeleteFiles bulkDelete,
         GetContainer getContainer,

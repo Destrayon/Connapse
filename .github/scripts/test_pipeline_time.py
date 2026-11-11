@@ -49,9 +49,10 @@ def job(name: str, seconds: float) -> dict:
     return {"name": name, "conclusion": "success", "started_at": iso(0), "completed_at": iso(seconds)}
 
 
-def main(run: dict, baseline: list[dict], longest_job: float = 300, own: float = 20) -> tuple[int, str]:
+def main(run: dict, baseline: list[dict], longest_job: float = 300, own: float = 20,
+         base_ref: str = "") -> tuple[int, str]:
     """pipeline_time.main on these results, with GitHub mocked: the longest job ran this long and this
-    job has run this long."""
+    job has run this long. base_ref is the PR's base branch; empty, a push to main."""
     js = [job("integration (2)", longest_job), job("small", 100),
           {"name": "build-and-test", "started_at": iso(longest_job), "completed_at": None}]
     out = io.StringIO()
@@ -60,7 +61,8 @@ def main(run: dict, baseline: list[dict], longest_job: float = 300, own: float =
          mock.patch.object(pt, "base_commit", return_value="b" * 40), \
          mock.patch.object(pt, "jobs", return_value=js), \
          mock.patch.object(pt, "utcnow", return_value=T0 + timedelta(seconds=longest_job + own)), \
-         mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1", "GITHUB_STEP_SUMMARY": ""}), \
+         mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "1", "GITHUB_STEP_SUMMARY": "",
+                                      "GITHUB_BASE_REF": base_ref, "GITHUB_REF_NAME": "main"}), \
          contextlib.redirect_stdout(out):
         rc = pt.main(["--results", ".", "--max-added-seconds", str(LIMIT), "--max-drift-seconds", str(DRIFT_LIMIT),
                       "--max-wall-seconds", "360", "--current", "build-and-test"])
@@ -214,15 +216,23 @@ class Baseline(unittest.TestCase):
             {"id": 0, "head_sha": "8" * 40, "status": "completed"},
             {"id": -1, "head_sha": "7" * 40, "status": "completed"}]
 
-    def ids(self, base: str | None) -> tuple[list[str], str]:
+    # main's runs, one an hour back from 2026-11-10 12:00, and an epic's, from 09:05 on.
+    RUNS = [dict(r, created_at=f"2026-11-10T{12 - n:02d}:00:00Z") for n, r in enumerate(RUNS)]
+    EPIC =[{"id": 103, "head_sha": "3" * 40, "status": "completed", "created_at": "2026-11-10T09:30:00Z"},  # the base
+            {"id": 102, "head_sha": "2" * 40, "status": "completed", "created_at": "2026-11-10T09:20:00Z"},
+            {"id": 101, "head_sha": "1" * 40, "status": "completed", "created_at": "2026-11-10T09:10:00Z"},
+            {"id": 100, "head_sha": "0" * 40, "status": "completed", "created_at": "2026-11-10T09:05:00Z"}]
+
+    def ids(self, base: str | None, branch: str = "main", epic: list[dict] | None = None) -> tuple[list[str], str]:
         green = [{"name": t, "conclusion": "success"} for t in pt.TEST_JOBS]
+        lists = {"main": self.RUNS, "epic/con-e6-tables": self.EPIC if epic is None else epic}
         out = io.StringIO()
-        with mock.patch.object(pt, "main_runs", return_value=self.RUNS), \
+        with mock.patch.object(pt, "branch_runs", side_effect=lambda b="main": lists.get(b, [])), \
              mock.patch.object(pt, "jobs", return_value=green), \
              mock.patch.object(pt, "download"), \
              mock.patch.object(pt, "results", return_value={t: {"T": 1.0} for t in pt.TEST_JOBS}), \
              contextlib.redirect_stdout(out):
-            return [i for i, _, _ in pt.baseline_runs(exclude="", base=base)], out.getvalue()
+            return [i for i, _, _ in pt.baseline_runs(exclude="", base=base, branch=branch)], out.getvalue()
 
     def test_baseline_runs_StartsAtTheBaseCommitsRun(self):
         self.assertEqual(self.ids("d" * 40)[0], ["4", "3", "2", "1", "0"])
@@ -231,6 +241,51 @@ class Baseline(unittest.TestCase):
         ids, out = self.ids("f" * 40)
         self.assertEqual(ids, ["5", "4", "3", "2", "1"])
         self.assertIn("::notice::", out)
+
+    def test_baseline_runs_PrIntoMain_NeverReadsAnotherBranch(self):
+        with mock.patch.object(pt, "branch_runs", return_value=self.RUNS) as runs, \
+             mock.patch.object(pt, "jobs", return_value=[{"name": t, "conclusion": "success"} for t in pt.TEST_JOBS]), \
+             mock.patch.object(pt, "download"), \
+             mock.patch.object(pt, "results", return_value={t: {"T": 1.0} for t in pt.TEST_JOBS}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            pt.baseline_runs(exclude="", base="d" * 40)
+        self.assertEqual([c.args for c in runs.call_args_list], [("main",)])
+
+    def test_baseline_runs_EpicWithFiveRuns_IsTheEpicsOwnFromItsBase(self):
+        epic = [{"id": 104, "head_sha": "4" * 40, "status": "completed", "created_at": "2026-11-10T09:40:00Z"}] + \
+               self.EPIC + [{"id": 99, "head_sha": "9" * 40, "status": "completed", "created_at": "2026-11-10T09:01:00Z"}]
+        ids, out = self.ids("3" * 40, "epic/con-e6-tables", epic)
+        self.assertEqual(ids, ["103", "102", "101", "100", "99"])
+        self.assertNotIn("main's runs fill", out)
+
+    def test_baseline_runs_EpicWithFewerRuns_FillsWithMainsFromBeforeItsOldest(self):
+        # The epic's oldest run is 09:05: main's runs from 2 (09:00) back, not the newer ones it may lack.
+        ids, out = self.ids("3" * 40, "epic/con-e6-tables")
+        self.assertEqual(ids, ["103", "102", "101", "100", "2"])
+        self.assertIn("epic/con-e6-tables has 4 usable runs of its own; main's runs fill the other 1", out)
+
+    def test_baseline_runs_EpicWithNoRuns_IsMainsAsForAPrIntoMain(self):
+        ids, out = self.ids("3" * 40, "epic/con-e6-tables", epic=[])
+        self.assertEqual(ids, ["5", "4", "3", "2", "1"])
+        self.assertIn("epic/con-e6-tables has 0 usable runs of its own", out)
+
+    def test_baseline_runs_EpicWithNoRunsTakenFromMainsBase_StartsThere(self):
+        # An epic made from main's run 4 and not pushed since: main's runs from 4 back.
+        self.assertEqual(self.ids("d" * 40, "epic/con-e6-tables", epic=[])[0], ["4", "3", "2", "1", "0"])
+
+    def test_base_branch_PrIntoAnEpic_IsTheEpic(self):
+        with mock.patch.dict(os.environ, {"GITHUB_BASE_REF": "epic/con-e6-tables", "GITHUB_REF_NAME": "1208/merge"}):
+            self.assertEqual(pt.base_branch(), "epic/con-e6-tables")
+
+    def test_base_branch_PushToAnEpic_IsTheEpic(self):
+        with mock.patch.dict(os.environ, {"GITHUB_BASE_REF": "", "GITHUB_REF_NAME": "epic/con-e6-tables"}):
+            self.assertEqual(pt.base_branch(), "epic/con-e6-tables")
+
+    def test_branch_runs_EpicName_IsEscapedInTheQuery(self):
+        with mock.patch.object(pt, "gh_json", return_value={"workflow_runs": []}) as gh, \
+             mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_WORKFLOW_REF": "o/r/.github/workflows/ci.yml@x"}):
+            pt.branch_runs("epic/con-e6-tables")
+        self.assertIn("runs?branch=epic%2Fcon-e6-tables&event=push", gh.call_args.args[1])
 
     def test_base_commit_ShallowCheckout_ReadsTheFirstParent(self):
         raw = f"tree {'1' * 40}\nparent {'d' * 40}\nparent {'f' * 40}\nauthor x\n\nmerge\n"
@@ -251,6 +306,36 @@ class Gate(unittest.TestCase):
         rc, out = main(run, baseline[:4])
         self.assertEqual(rc, 1)
         self.assertIn("only 4 of main's recent runs", out)
+
+    @staticmethod
+    def tables_epic(run: dict, baseline: list[dict]) -> tuple[dict, list[dict]]:
+        """The tables epic's shape: its earlier PRs' tests add 50 s on a median runner, in every epic run, and
+        this PR's own test adds 1.9 s. Returns this run and the epic's own runs as its baseline."""
+        ref = pt.reference(baseline)
+        epic = {f"Connapse.Integration.Tests.Tables.EarlierEpicPr_{i}": 10.0 for i in range(5)}
+        f = pt.factor(run["integration (1)"], ref)[0]
+        run["integration (1)"].update({n: s * f for n, s in epic.items()})
+        run["integration (1)"]["Connapse.Integration.Tests.Tables.ThisPr"] = 1.9 * f
+        epic_runs = json.loads(json.dumps(baseline))
+        for b in epic_runs:
+            b["integration (1)"].update({n: s * pt.factor(b["integration (1)"], ref)[0] for n, s in epic.items()})
+        return run, epic_runs
+
+    def test_main_PrIntoAnEpicAgainstMain_FailsForTheEpicsEarlierTests(self):
+        run, baseline = replay("41535048861")
+        run, _ = self.tables_epic(run, baseline)
+        rc, out = main(run, baseline)
+        self.assertEqual(rc, 1, out)
+
+    def test_main_PrIntoAnEpicAgainstTheEpicsRuns_CountsOnlyItsOwnTests(self):
+        run, baseline = replay("41535048861")
+        run, epic_runs = self.tables_epic(run, baseline)
+        more, _, share, _ = pt.added(run, epic_runs)
+        self.assertLess(more, 10)
+        self.assertNotIn("Connapse.Integration.Tests.Tables.EarlierEpicPr_0", share)
+        rc, out = main(run, epic_runs, base_ref="epic/con-e6-tables")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("epic/con-e6-tables's usual", out)
 
     def test_wall_LongestJobPlusThisOne(self):
         js = [job("small", 100), job("integration (1)", 330), {"name": "build-and-test", "started_at": iso(330)}]

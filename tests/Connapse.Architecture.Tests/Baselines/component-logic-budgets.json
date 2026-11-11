@@ -1,4 +1,11 @@
 {
+  "Approvals/DeletionBatchList.razor": {
+    "CodeLines": 57,
+    "Injects": 3,
+    "Complexity": 14,
+    "MarkupLogic": 20,
+    "IsEmpty": false
+  },
   "Auth/RedirectToAccessDenied.razor": {
     "CodeLines": 4,
     "Injects": 1,
@@ -55,6 +62,13 @@
     "MarkupLogic": 12,
     "IsEmpty": false
   },
+  "Memory/DeleteMemorySpaceDialog.razor": {
+    "CodeLines": 36,
+    "Injects": 2,
+    "Complexity": 14,
+    "MarkupLogic": 8,
+    "IsEmpty": false
+  },
   "Memory/MemoryAuthor.razor": {
     "CodeLines": 1,
     "Injects": 0,
@@ -83,11 +97,25 @@
     "MarkupLogic": 2,
     "IsEmpty": false
   },
+  "Memory/MemorySpaceModal.razor": {
+    "CodeLines": 5,
+    "Injects": 0,
+    "Complexity": 0,
+    "MarkupLogic": 0,
+    "IsEmpty": false
+  },
   "Memory/NewMemorySpaceDialog.razor": {
     "CodeLines": 32,
     "Injects": 2,
     "Complexity": 9,
     "MarkupLogic": 17,
+    "IsEmpty": false
+  },
+  "Memory/RenameMemorySpaceDialog.razor": {
+    "CodeLines": 31,
+    "Injects": 2,
+    "Complexity": 14,
+    "MarkupLogic": 4,
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
@@ -105,10 +133,10 @@
     "IsEmpty": false
   },
   "Pages/Approvals.razor": {
-    "CodeLines": 43,
+    "CodeLines": 45,
     "Injects": 3,
     "Complexity": 9,
-    "MarkupLogic": 10,
+    "MarkupLogic": 13,
     "IsEmpty": false
   },
   "Pages/Auth/Login.razor": {
@@ -161,9 +189,9 @@
     "IsEmpty": false
   },
   "Pages/FileBrowser.razor": {
-    "CodeLines": 741,
+    "CodeLines": 752,
     "Injects": 8,
-    "Complexity": 169,
+    "Complexity": 173,
     "MarkupLogic": 84,
     "IsEmpty": false
   },
@@ -175,10 +203,10 @@
     "IsEmpty": false
   },
   "Pages/MemoryPage.razor": {
-    "CodeLines": 204,
+    "CodeLines": 228,
     "Injects": 3,
-    "Complexity": 77,
-    "MarkupLogic": 36,
+    "Complexity": 81,
+    "MarkupLogic": 40,
     "IsEmpty": false
   },
   "Pages/MemorySpacePage.razor": {
