@@ -212,6 +212,22 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
             .And.Contain("PostgreSQL 15").And.Contain("Ravi").And.Contain("Redis 7").And.Contain("eu-west-1");
     }
 
+    [Fact]
+    public async Task Recall_TextNamesOneSubject_ShowsOnlyThatOneWhole()
+    {
+        As(_writer);
+        await Remember("PostgreSQL 15");
+        await Remember("Ravi", attribute: "tech lead");
+        await Remember("Mina", subject: "Wicket", attribute: "tech lead");
+        await Remember("MySQL 8", subject: "Wicket");
+
+        string found = await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C,
+            "Halcyon tech lead");
+
+        found.Should().Contain("Ravi").And.Contain("PostgreSQL 15", "Halcyon is named, so it is shown whole");
+        found.Should().NotContain("MySQL 8", "Wicket matched only on the attribute, so it is not filled");
+    }
+
     /// <summary>The one value recall gives for Halcyon's database on <paramref name="asOf"/>; fails on none or several.</summary>
     private async Task<string?> OnlyValueAsync(string asOf) =>
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon", attribute: "database", asOf: asOf, detailed: true)).Should().ContainSingle().Subject;

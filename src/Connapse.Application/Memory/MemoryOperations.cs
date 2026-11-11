@@ -459,7 +459,7 @@ public sealed class RecallMemory(
             MemoryCaller caller = MemoryRules.Caller(context.User);
             IReadOnlyDictionary<string, long>? totals = await SubjectTotalsAsync(found, caller, ct);
             if (totals is not null)
-                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(await FillSmallSubjectsAsync(found, totals, caller, ct) with { SubjectTotals = totals });
+                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(await FillSmallSubjectsAsync(found, totals, request.Text, caller, ct) with { SubjectTotals = totals });
         }
 
         // A first search of one space that found nothing names the subjects nearest to what was asked, so the next call
@@ -485,17 +485,17 @@ public sealed class RecallMemory(
     public const int FilledSubjectMaxFacts = 12;
 
     /// <summary>
-    /// Adds the missing current facts of each of the first <see cref="FilledSubjects"/> subjects that
-    /// <paramref name="found"/> shows in part and that has at most <see cref="FilledSubjectMaxFacts"/> of them: agents
-    /// otherwise spend a second call listing a subject whose answer was already on screen.
+    /// Adds the missing current facts of each subject <see cref="SubjectsToFill"/> picks that <paramref name="found"/>
+    /// shows in part and that has at most <see cref="FilledSubjectMaxFacts"/> of them: agents otherwise spend a second
+    /// call listing a subject whose answer was already on screen.
     /// </summary>
     private async Task<SpacedRecall> FillSmallSubjectsAsync(SpacedRecall found, IReadOnlyDictionary<string, long> totals,
-        MemoryCaller caller, CancellationToken ct)
+        string? text, MemoryCaller caller, CancellationToken ct)
     {
         Guid space = found.Spaces.Keys.Single();
         List<RecalledFact> facts = [.. found.Facts];
         HashSet<Guid> shown = [.. facts.Select(f => f.Fact.Id)];
-        foreach (string subject in found.Facts.Select(f => f.Fact.Subject).DistinctBy(s => s.ToLowerInvariant()).Take(FilledSubjects))
+        foreach (string subject in SubjectsToFill(found.Facts.Select(f => f.Fact.Subject), text))
         {
             string key = subject.ToLowerInvariant();
             int current = found.Facts.Count(f => string.Equals(f.Fact.Subject.ToLowerInvariant(), key, StringComparison.Ordinal));
@@ -509,6 +509,32 @@ public sealed class RecallMemory(
                 && shown.Add(f.Fact.Id)));
         }
         return facts.Count == found.Facts.Count ? found : found with { Facts = facts };
+    }
+
+    /// <summary>
+    /// The subjects to show whole, at most <see cref="FilledSubjects"/>: those the search text names, when it names any
+    /// of the subjects shown, since the answer is in them and filling another only adds lines; otherwise the leading ones.
+    /// </summary>
+    public static IReadOnlyList<string> SubjectsToFill(IEnumerable<string> subjectsInOrder, string? text)
+    {
+        List<string> subjects = [.. subjectsInOrder.DistinctBy(s => s.ToLowerInvariant())];
+        List<string> named = string.IsNullOrWhiteSpace(text) ? [] : [.. subjects.Where(s => Names(text, s))];
+        return [.. (named.Count > 0 ? named : subjects).Take(FilledSubjects)];
+    }
+
+    /// <summary>Whether <paramref name="text"/> holds <paramref name="subject"/> as whole words, ignoring case.</summary>
+    private static bool Names(string text, string subject)
+    {
+        if (string.IsNullOrWhiteSpace(subject))
+            return false;
+        for (int at = text.IndexOf(subject, StringComparison.OrdinalIgnoreCase); at >= 0;
+            at = text.IndexOf(subject, at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            int end = at + subject.Length;
+            if ((at == 0 || !char.IsLetterOrDigit(text[at - 1])) && (end == text.Length || !char.IsLetterOrDigit(text[end])))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

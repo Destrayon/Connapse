@@ -14,6 +14,23 @@ namespace Connapse.Core.Tests.Application;
 public class MemorySearchRankingTests
 {
     [Fact]
+    public void SubjectsToFill_TextNamesASubject_FillsOnlyTheNamedOnes() =>
+        RecallMemory.SubjectsToFill(["on-call", "Tessera", "Plinth"], "Tessera tech lead").Should().Equal("Tessera");
+
+    [Fact]
+    public void SubjectsToFill_TextNamesNoSubject_FillsTheLeadingOnes() =>
+        RecallMemory.SubjectsToFill(["fleet", "Tessera", "Plinth"], "van routing engine repository")
+            .Should().Equal("fleet", "Tessera");
+
+    [Theory]
+    [InlineData("release 5.2 manager", "release 5.2")]
+    [InlineData("who leads ELM?", "Elm")]
+    [InlineData("helmet colour", null)]
+    public void SubjectsToFill_NamesOnlyWholeWords(string text, string? expected) =>
+        RecallMemory.SubjectsToFill(["release 5.2", "Elm", "workers"], text).Should()
+            .Equal(expected is null ? ["release 5.2", "Elm"] : [expected]);
+
+    [Fact]
     public void Idf_ARareWord_WeighsMoreThanACommonOne() =>
         PostgresMemoryStore.Idf(100, 1).Should().BeGreaterThan(PostgresMemoryStore.Idf(100, 60));
 
