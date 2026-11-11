@@ -32,6 +32,9 @@ public enum TableStatus
 
     [Failure(503, "tables-access-unchecked", "Access could not be checked")]
     AccessUnchecked,
+
+    [Failure(400, "invalid-table-request", "Invalid table request")]
+    InvalidRequest,
 }
 
 /// <summary>One page of a container's tables, by name, with how many it holds in all and whether another page follows.</summary>
@@ -89,7 +92,8 @@ public static class TableRules
 /// <summary>
 /// Lists a container's tables a page at a time (CON-319): a documents container holds any number of them beside its
 /// files. Open to viewers and reading agent keys. Only tables built from documents the caller may read are listed,
-/// each trimmed to what the caller may see (CON-304); when that can't be checked, nothing is.
+/// each trimmed to what the caller may see (CON-304); when that can't be checked, nothing is. A search keeps the tables
+/// whose name, description or a visible column's header contains it, ignoring case (CON-305).
 /// </summary>
 [Operation("tables.list", Scope = "knowledge:read", Risk = RiskTier.Read, Mcp = McpExposure.Generic)]
 public sealed class ListTables(
@@ -103,7 +107,7 @@ public sealed class ListTables(
     public const int MaxTake = 200;
 
     public async Task<Attempt<TableListing, TableStatus>> RunAsync(
-        OperationContext context, Guid containerId, int skip, int take, CancellationToken ct = default)
+        OperationContext context, Guid containerId, int skip, int take, string? search = null, CancellationToken ct = default)
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
             return Attempt<TableListing, TableStatus>.Fail(TableStatus.Forbidden, "You don't have permission to view tables.");
@@ -123,7 +127,8 @@ public sealed class ListTables(
         if (!readable.Checked)
             return Attempt<TableListing, TableStatus>.Fail(TableStatus.AccessUnchecked, TableAccess.UncheckedMessage);
 
-        List<TableInfo> visible = all.Where(readable.CanRead).ToList();
+        string? term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        List<TableInfo> visible = all.Where(readable.CanRead).Where(t => term is null || Matches(t, term)).ToList();
         bool admin = await authorizer.AllowsAsync(context.User, Policies.Admin);
         var items = new List<TableInfo>();
         foreach (TableInfo table in visible.Skip(skip).Take(take))
@@ -145,6 +150,12 @@ public sealed class ListTables(
 
         return Attempt<TableListing, TableStatus>.Succeed(new TableListing(items, visible.Count, skip + take < visible.Count));
     }
+
+    /// <summary>Whether the table's name, description or a visible column's header contains <paramref name="term"/>.</summary>
+    private static bool Matches(TableInfo table, string term) =>
+        table.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+        || table.Description?.Contains(term, StringComparison.OrdinalIgnoreCase) == true
+        || table.VisibleColumns.Any(c => c.Name.Contains(term, StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>

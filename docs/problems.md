@@ -137,6 +137,11 @@ documents is failing.
 
 The container has no table with that id.
 
+## invalid-table-request
+
+Connapse won't run the table read or aggregate as written: a column, a filter, an order, a join or a page is
+wrong. The detail says what to fix, such as the columns the table does have. Fix the request and send it again.
+
 ## invalid-column
 
 A column to hide isn't one of the table's columns. Name columns by their headers, as the table lists them.

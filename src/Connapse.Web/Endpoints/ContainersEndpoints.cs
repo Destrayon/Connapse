@@ -160,11 +160,12 @@ public static class ContainersEndpoints
             Guid containerId,
             [FromQuery] int? skip,
             [FromQuery] int? take,
+            [FromQuery] string? search,
             [FromServices] ListTables list,
             HttpContext http,
             CancellationToken ct) =>
         {
-            var listed = await list.RunAsync(Rest(http), containerId, skip ?? 0, take ?? 50, ct);
+            var listed = await list.RunAsync(Rest(http), containerId, skip ?? 0, take ?? 50, search, ct);
             if (!listed.Succeeded)
                 return OperationProblems.Result(listed);
             var page = listed.Result!;
@@ -177,7 +178,7 @@ public static class ContainersEndpoints
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("tables.list")
-        .WithDescription("List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.")
+        .WithDescription("List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). ?search= keeps the tables whose name, description or a visible column's header contains it, ignoring case. totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.")
         .RequireAuthorization("RequireViewer");
 
         // PUT /api/containers/{containerId}/tables/{tableId}/hidden-columns - Hide a table's columns from every caller
