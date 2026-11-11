@@ -1,8 +1,8 @@
 # CON-307 results: does the tables container beat text search?
 
 **tables answers 179 of the 180 `test` questions (99.4%) against rag's 51 (28.3%).** That passes bars 1–4 and the
-cost part of bar 7 in `eval/pass-bars.md` ("Tables container (CON-E6)"). Bars 6 and 7 pass, and bar 5 passes on the two suites that were run (v1 and
-pdfqa-v1); enterprise-v1 and links-v1 are on hold pending the user's decision.
+cost part of bar 7 in `eval/pass-bars.md` ("Tables container (CON-E6)"). Bars 5, 6 and 7 pass, bar 5 on v1 and pdfqa-v1, the
+scope the user approved (enterprise-v1 and links-v1 skipped; reasons under bar 5).
 
 The deciding run is `tables-fresh`: one complete, conforming held-out run, one attempt per question. An earlier
 complete run (`tables`) had 77 API refusals; it and its retry are reported below and don't count toward the bar.
@@ -15,7 +15,7 @@ complete run (`tables`) had 77 API refusals; it and its retry are reported below
 | 2. Absolute accuracy | ≥ 70% | 99.4% | **Pass** |
 | 3. Every family | no family below rag | every family 30/30 except sum_avg 29/30 (table below) | **Pass** |
 | 4. Mixed set | both ≥ rag on the 30 mixed | both 26/30, rag 1/30 | **Pass** |
-| 5. No harm to text search | no Holm-significant drop, nDCG@10 −0.01 at most, on v1, enterprise-v1, pdfqa-v1, links-v1 | v1 identical on all 15 scored datasets; pdfqa-v1 −0.008, not significant; enterprise-v1 and links-v1 not run | **Pass on v1 and pdfqa-v1**; enterprise-v1 and links-v1 on hold |
+| 5. No harm to text search | no Holm-significant drop, nDCG@10 −0.01 at most, on v1, enterprise-v1, pdfqa-v1, links-v1 | v1 identical on all 15 scored datasets; pdfqa-v1 −0.008, not significant; enterprise-v1 and links-v1 skipped | **Pass** (scope v1 and pdfqa-v1, approved by the user) |
 | 6. Leaks | CON-31 leak suite and table leak tests, 0 failures | 64 of 64 pass: 42 link tests (CON-31 reader contract and leak canaries), 6 memory, 16 table permission trimming | **Pass** |
 | 7. Cost and speed | 0 server AI tokens; `table_aggregate` p95 < 500 ms on 100k rows; agent cost ≤ 1.5x rag | no AI provider anywhere in the table code; p95 120 ms; cost 0.26x | **Pass** |
 
@@ -107,8 +107,8 @@ are in `search-suites/` (each run's `report.json` and the `compare` output).
 |---|---|---|---|---|
 | v1 | 15 (nanobeir-scidocs not scored on either build) | 0.000: all 15 identical | 0 | Pass |
 | pdfqa-v1 | 1 (92 questions) | −0.008 (Holm p = 1) | 0 | Pass |
-| enterprise-v1 | — | not run | — | On hold |
-| links-v1 | — | not run | — | On hold |
+| enterprise-v1 | — | not run | — | Skipped (user-approved scope) |
+| links-v1 | — | not run | — | Skipped (user-approved scope) |
 
 - **v1** scored exactly the same on both builds, every metric on every dataset. nanobeir-scidocs is unscored on both
   because 344 of its 2,210 documents fail to ingest, the same count the 2026-10-24 baseline recorded.
@@ -116,9 +116,10 @@ are in `search-suites/` (each run's `report.json` and the `compare` output).
   below the base and the second exactly equal to it, so the 0.008 is run-to-run noise in the PDF suite, not the
   tables code; either run passes. The first is the one compared above (`pdfqa-v1-compare.json`); the second is
   `pdfqa-v1-compare-duplicate.json`.
-- **enterprise-v1 and links-v1** were not run. Without the GPU each takes about 15.5 hours per build, and the
-  EnterpriseRAG-Bench data isn't on this machine. Narrowing bar 5 to v1 and pdfqa-v1 is the user's decision, asked on
-  the board through ClaudePM; no answer had come back when this report was written.
+- **enterprise-v1 and links-v1** were skipped. The user narrowed bar 5 to v1 and pdfqa-v1 for three reasons: the
+  tables work changed only how CSVs are loaded, not search; those suites hold almost no CSVs; and a full run needs a
+  several-GB EnterpriseRAG-Bench download and about a week (measured at about 15.5 hours per suite per build without
+  the GPU).
 - **Why no change is expected.** Table containers are kept out of search, and a CSV in a documents container is
   indexed as text exactly as before, except a large CSV (`CsvTextDigest.IsLarge`), whose text becomes a digest
   (CON-319). The suites load only `.txt`, `.md` and `.pdf` files, so neither change reaches them.
