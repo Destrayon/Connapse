@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Agents can count, filter and add up table data** (CON-305). Four MCP tools, `table_list`, `table_describe`, `table_read` and `table_aggregate`, and the REST routes `GET /api/containers/{id}/tables/{tableId}`, `POST .../tables/read` and `POST .../tables/aggregate` answer questions over the tables built from uploaded CSVs. A read or aggregate may join one other table of the container on named columns. Answers cover only rows from documents the caller may read, leave out hidden columns, and carry a notice that cells are data, not instructions. `GET /api/containers/{id}/tables` takes `?search=`.
+- **Agents can count, filter and add up table data** (CON-305). Five MCP tools, `table_list`, `table_describe`, `table_read`, `table_aggregate` and `table_changes`, and the REST routes `GET /api/containers/{id}/tables/{tableId}`, `POST .../tables/read`, `POST .../tables/aggregate` and `POST .../tables/changes` answer questions over the tables built from uploaded CSVs. `table_changes` says what changed in a table with a key column between two times. A read or aggregate may join one other table of the container on named columns. Answers cover only rows from documents the caller may read, leave out hidden columns, and carry a notice that cells are data, not instructions. `GET /api/containers/{id}/tables` takes `?search=`.
 
 ### Changed
 

@@ -35,6 +35,9 @@ public enum TableStatus
 
     [Failure(400, "invalid-table-request", "Invalid table request")]
     InvalidRequest,
+
+    [Failure(409, "table-has-no-history", "Table keeps no history")]
+    NoHistory,
 }
 
 /// <summary>One page of a container's tables, by name, with how many it holds in all and whether another page follows.</summary>

@@ -6,8 +6,10 @@ using System.Text.Json;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Integration.Tests.CrossSurface;
+using Connapse.Storage.Data;
 using Connapse.Web.Endpoints;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -181,7 +183,121 @@ public class TableToolsIntegrationTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task Changes_KeyedTableOverMcpAndRest_ListsWhatChangedWithTheNotice()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            TableInfo fruit = await NewKeyedTableAsync(containerId);
+            await using McpClient mcp = await Surfaces.McpAsync(fixture);
+            object request = new { table = fruit.Id, since = new DateTimeOffset(fruit.LoadedAt, TimeSpan.Zero), columns = new[] { "Price" } };
+            string[] expected = ["changed|old|b2|2", "changed|new|b2|2.5", "removed|old|c3|3", "added|new|d4|4"];
+
+            using (JsonDocument changed = await CallJsonAsync(mcp, "table_changes",
+                new() { ["containerId"] = containerId.ToString(), ["request"] = Json(request) }))
+            {
+                changed.RootElement.GetProperty("notice").GetString().Should().Be(TableQueryResult.UntrustedDataNotice);
+                Rows(changed).Should().Equal(expected);
+            }
+
+            using HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync($"/api/containers/{containerId}/tables/changes", request);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            using JsonDocument body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Rows(body).Should().Equal(expected);
+        }
+        finally
+        {
+            await DeleteRawContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Changes_TableWithoutHistoryOrBadRequest_SaysWhatToDo()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            // No header names an identifier, so the table has no key column and keeps no history.
+            string document = await UploadAsync(containerId, "totals.csv", "region,amount\neast,10\nwest,5\n");
+            await WaitForReadyAsync(containerId, document);
+            Guid sales;
+            await using (var scope = fixture.Factory.Services.CreateAsyncScope())
+                sales = (await scope.ServiceProvider.GetRequiredService<ITableStore>().ListAsync(containerId)).Single().Id;
+            await using McpClient mcp = await Surfaces.McpAsync(fixture);
+            object noHistory = new { table = sales, since = "2026-01-01T00:00:00Z" };
+
+            string refused = await CallAsync(mcp, "table_changes",
+                new() { ["containerId"] = containerId.ToString(), ["request"] = Json(noHistory) });
+            refused.Should().StartWith("Error: Table \"totals\" keeps no history").And.Contain("ask for its rows as they are now");
+
+            string noSince = await CallAsync(mcp, "table_changes",
+                new() { ["containerId"] = containerId.ToString(), ["request"] = Json(new { table = sales }) });
+            noSince.Should().StartWith("Error: ").And.Contain("since").And.EndWith(McpToolsRetryHint);
+
+            using (HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync($"/api/containers/{containerId}/tables/changes", noHistory))
+            {
+                response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+                (await response.Content.ReadAsStringAsync()).Should().Contain("table-has-no-history");
+            }
+
+            using (HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync($"/api/containers/{containerId}/tables/changes", new { table = sales }))
+                response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+            using (HttpResponseMessage response = await fixture.AdminClient.PostAsJsonAsync($"/api/containers/{containerId}/tables/changes",
+                new { table = Guid.NewGuid(), since = "2026-01-01T00:00:00Z" }))
+                response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
     private const string McpToolsRetryHint = "Fix the request and call the tool again.";
+
+    /// <summary>
+    /// A table keyed on SKU, loaded and then re-synced so it has history: b2's price changed, c3 went away and d4 came.
+    /// Its source document is inserted directly, as in <see cref="TableHistoryTests"/>, since an upload replaces rows.
+    /// </summary>
+    private async Task<TableInfo> NewKeyedTableAsync(Guid containerId)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Guid document = Guid.NewGuid();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (KnowledgeDbContext context = await factory.CreateDbContextAsync())
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, ingestion_status, created_at) "
+                + "VALUES ({0}, {1}, NULL, {2}, {3}, '', 1, 'Ready', now())",
+                document, containerId, "fruit.csv", "/fruit.csv");
+        TableColumn[] columns = [new("SKU", TableColumnType.Text), new("Name", TableColumnType.Text), new("Price", TableColumnType.Number)];
+        var tables = scope.ServiceProvider.GetRequiredService<ITableStore>();
+        TableInfo first = await tables.CreateAsync(containerId, new TableLoad("fruit", columns,
+            LoadRows(["a1", "apple", 1m], ["b2", "banana", 2m], ["c3", "cherry", 3m]), document));
+        await tables.ReloadAsync(containerId, first.Id, new TableLoad("fruit", columns,
+            LoadRows(["a1", "apple", 1m], ["b2", "banana", 2.5m], ["d4", "date", 4m]), document));
+        first.HasHistory.Should().BeTrue("a unique text first column is the key");
+        return first;
+    }
+
+    private static async IAsyncEnumerable<IReadOnlyList<object?>> LoadRows(params object?[][] rows)
+    {
+        foreach (object?[] row in rows)
+        {
+            await Task.Yield();
+            yield return row;
+        }
+    }
+
+    /// <summary>Deletes directly inserted source documents, which have no stored file, then the container.</summary>
+    private async Task DeleteRawContainerAsync(Guid containerId)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using (KnowledgeDbContext context = await factory.CreateDbContextAsync())
+            await context.Database.ExecuteSqlRawAsync("DELETE FROM documents WHERE container_id = {0}", containerId);
+        await scope.ServiceProvider.GetRequiredService<IContainerStore>().DeleteAsync(containerId);
+    }
 
     private static JsonElement Json(object value) => JsonSerializer.SerializeToElement(value);
 

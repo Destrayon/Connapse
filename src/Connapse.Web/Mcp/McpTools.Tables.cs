@@ -149,6 +149,33 @@ public partial class McpTools
         return totals.Succeeded ? JsonSerializer.Serialize(totals.Result, MemoryJson) : TableRefused(totals);
     }
 
+    [McpServerTool(Name = "table_changes", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
+     Description("Say what changed in a table with history between two times, as Connapse saw it. `request` is a JSON object: {\"table\": \"<id>\", \"since\": \"2026-11-01T00:00:00Z\", \"until\": \"2026-11-08T00:00:00Z\", \"columns\": [\"amount\"], \"limit\": 100, \"offset\": 0}. \"table\" and \"since\" are required; \"until\" defaults to now, and \"columns\" limits which columns are compared (all by default; the key column is always returned). Each row has `change` (added, removed or changed) and `version` (old or new): a changed key gives its old and new row, an added key only new, a removed key only old, in key order. table_describe gives the key column and when history starts; a table without a key column keeps no history.")]
+    public static async Task<string> TableChanges(
+        ChangesTable changes,
+        GetContainer getContainer,
+        IHttpContextAccessor http,
+        [Description("Container ID or name")] string containerId,
+        [Description("The changes request, as a JSON object")] JsonElement request,
+        CancellationToken ct = default)
+    {
+        var (id, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
+        if (id is null)
+            return missing!;
+        TableChangesRequest parsed;
+        try
+        {
+            parsed = TableRequestJson.ParseChanges(TableRequestObject(request));
+        }
+        catch (TableQueryException ex)
+        {
+            return $"Error: {ex.Message} {TableRetryHint}";
+        }
+        var changed = await changes.RunAsync(Mcp(http), id.Value, parsed, ct);
+        return changed.Succeeded ? JsonSerializer.Serialize(changed.Result, MemoryJson) : TableRefused(changed);
+    }
+
     /// <summary>
     /// The request object, also when an agent sent it as a JSON string; anything else is left for the parser to refuse
     /// with what it expected.

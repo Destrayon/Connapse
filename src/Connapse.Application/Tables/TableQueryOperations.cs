@@ -20,9 +20,16 @@ public sealed record TableDetails(TableDescription Description, string? Key, Dat
 internal sealed class TableQueryGate(
     IContainerStore containers, ITableStore tables, IDocumentStore documents, IDocumentAccess access, IOperationAuthorizer authorizer)
 {
-    public async Task<Attempt<T, TableStatus>> RunAsync<T>(
+    public Task<Attempt<T, TableStatus>> RunAsync<T>(
         OperationContext context, Guid containerId, IReadOnlyList<Guid> tableIds,
-        Func<IReadOnlyList<TableInfo>, TableAccess, Task<T>> run, CancellationToken ct)
+        Func<IReadOnlyList<TableInfo>, TableAccess, Task<T>> run, CancellationToken ct) =>
+        AttemptAsync(context, containerId, tableIds,
+            async (found, readable) => Attempt<T, TableStatus>.Succeed(await run(found, readable)), ct);
+
+    /// <summary>As <see cref="RunAsync{T}"/>, for a run that may itself refuse once the tables are known readable.</summary>
+    public async Task<Attempt<T, TableStatus>> AttemptAsync<T>(
+        OperationContext context, Guid containerId, IReadOnlyList<Guid> tableIds,
+        Func<IReadOnlyList<TableInfo>, TableAccess, Task<Attempt<T, TableStatus>>> run, CancellationToken ct)
     {
         if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
             return Attempt<T, TableStatus>.Fail(TableStatus.Forbidden, "You don't have permission to read tables.");
@@ -47,7 +54,7 @@ internal sealed class TableQueryGate(
 
         try
         {
-            return Attempt<T, TableStatus>.Succeed(await run(found, readable));
+            return await run(found, readable);
         }
         catch (TableQueryException ex)
         {
@@ -137,4 +144,35 @@ public sealed class AggregateTable(
             ReadTable.TableIds(request.TableId, request.Join),
             (_, readable) => queries.AggregateAsync(containerId, readable, request, ct), ct);
     }
+}
+
+/// <summary>
+/// What changed in one table with history between two times (CON-305 over CON-306): each added, removed or changed
+/// key with its old and new row, as Connapse saw them. Only rows from documents the caller may read are compared, and
+/// hidden columns don't exist. A table without a key column keeps no history, which is refused only once the caller
+/// may read the table, so the refusal never shows that an unreadable table is there.
+/// </summary>
+[Operation("tables.changes", Scope = "knowledge:read", Risk = RiskTier.Read)]
+public sealed class ChangesTable(
+    IContainerStore containers,
+    ITableStore tables,
+    ITableQueryService queries,
+    IDocumentStore documents,
+    IDocumentAccess access,
+    IOperationAuthorizer authorizer)
+{
+    public Task<Attempt<TableQueryResult, TableStatus>> RunAsync(
+        OperationContext context, Guid containerId, TableChangesRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return new TableQueryGate(containers, tables, documents, access, authorizer).AttemptAsync(context, containerId,
+            [request.TableId],
+            async (found, readable) => found[0].HasHistory
+                ? Attempt<TableQueryResult, TableStatus>.Succeed(await queries.ChangesAsync(containerId, readable, request, ct))
+                : Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.NoHistory, NoHistory(found[0])), ct);
+    }
+
+    internal static string NoHistory(TableInfo table) =>
+        $"Table \"{table.Name}\" keeps no history: it has no key column, so each sync replaces its rows. "
+        + "There is nothing to compare, so ask for its rows as they are now instead.";
 }

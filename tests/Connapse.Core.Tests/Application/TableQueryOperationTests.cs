@@ -24,6 +24,7 @@ public class TableQueryOperationTests
 {
     private static readonly OperationContext Caller = new(new ClaimsPrincipal(new ClaimsIdentity("test")), OperationSurface.Mcp);
     private static readonly DateTime Epoch = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTimeOffset Since = new(Epoch);
     private static readonly TableQueryResult Answer = new(["a"], [["x"]], false, null);
 
     private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
@@ -44,7 +45,10 @@ public class TableQueryOperationTests
                 .Select(d => d.Id).Where(id => !_unreadable.Contains(Guid.Parse(id))).ToHashSet());
         _queries.ReadAsync(default, default!, default!, default).ReturnsForAnyArgs(Answer);
         _queries.AggregateAsync(default, default!, default!, default).ReturnsForAnyArgs(Answer);
+        _queries.ChangesAsync(default, default!, default!, default).ReturnsForAnyArgs(Answer);
     }
+
+    private ChangesTable Changes => new(_containers, _tables, _queries, _documents, _access, _authorizer);
 
     private DescribeTable Describe => new(_containers, _tables, _queries, _documents, _access, _authorizer);
 
@@ -284,6 +288,63 @@ public class TableQueryOperationTests
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
+    [Fact]
+    public async Task Changes_ReadableTableWithHistory_PassesRequestAndAccessToTheQuery()
+    {
+        TableInfo table = Holds(key: "id", historyFrom: Epoch);
+        var request = new TableChangesRequest(table.Id, Since, null, null, null, null);
+
+        var changed = await Changes.RunAsync(Caller, _containerId, request);
+
+        changed.Status.Should().Be(TableStatus.Success);
+        changed.Result.Should().BeSameAs(Answer);
+        await _queries.Received(1).ChangesAsync(_containerId, Arg.Is<TableAccess>(a => a.CanRead(table)), request, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Changes_TableWithoutHistory_IsNoHistoryAndQueriesNothing()
+    {
+        TableInfo table = Holds("orders");
+
+        var changed = await Changes.RunAsync(Caller, _containerId, new TableChangesRequest(table.Id, Since, null, null, null, null));
+
+        changed.Status.Should().Be(TableStatus.NoHistory);
+        changed.Detail.Should().Contain("\"orders\" keeps no history").And.Contain("no key column");
+        _queries.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Changes_UnreadableTableWithoutHistory_IsTableNotFoundNotNoHistory()
+    {
+        TableInfo table = Holds();
+        _unreadable.Add(table.DocumentId!.Value);
+
+        var changed = await Changes.RunAsync(Caller, _containerId, new TableChangesRequest(table.Id, Since, null, null, null, null));
+
+        changed.Status.Should().Be(TableStatus.TableNotFound);
+        _queries.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Changes_RefusedRequest_IsInvalidRequest()
+    {
+        TableInfo table = Holds(key: "id", historyFrom: Epoch);
+        _queries.ChangesAsync(default, default!, default!, default).ThrowsAsyncForAnyArgs(new TableQueryException("until can't be earlier than since."));
+
+        var changed = await Changes.RunAsync(Caller, _containerId, new TableChangesRequest(table.Id, Since, null, null, null, null));
+
+        changed.Status.Should().Be(TableStatus.InvalidRequest);
+        changed.Detail.Should().Be("until can't be earlier than since.");
+    }
+
+    [Fact]
+    public async Task Changes_NullRequest_Throws()
+    {
+        Func<Task> act = () => Changes.RunAsync(Caller, _containerId, null!);
+
+        await act.Should().ThrowAsync<ArgumentNullException>();
+    }
+
     [Theory]
     [InlineData("SALES", "sales")]
     [InlineData("quarter", "costs")]
@@ -332,11 +393,15 @@ public class TableQueryOperationTests
         public readonly Guid TableId = Guid.NewGuid();
         public readonly Guid JoinedId = Guid.NewGuid();
         private readonly HashSet<string> _readable = [];
+        private readonly bool _history;
 
         /// <param name="table">Whether the queried table exists, and whether it's readable.</param>
         /// <param name="joined">The same for the joined table.</param>
-        public World(bool reader, ContainerKind? kind, (bool Exists, bool Readable) table, (bool Exists, bool Readable) joined, bool checkFails)
+        /// <param name="history">Whether the queried table has a key column and so keeps history.</param>
+        public World(bool reader, ContainerKind? kind, (bool Exists, bool Readable) table, (bool Exists, bool Readable) joined, bool checkFails,
+            bool history = false)
         {
+            _history = history;
             Authorizer = new PolicyAuthorizer(policy => policy == Policies.Reader && reader);
             Containers.GetAsync(ContainerId, Arg.Any<CancellationToken>())
                 .Returns(kind is { } k ? new Container(ContainerId.ToString(), "c", null, Epoch, Epoch, Kind: k) : null);
@@ -348,6 +413,7 @@ public class TableQueryOperationTests
                 Access.ReadableAsync(default!, default!, default).ReturnsForAnyArgs(_readable);
             Queries.ReadAsync(default, default!, default!, default).ReturnsForAnyArgs(Answer);
             Queries.AggregateAsync(default, default!, default!, default).ReturnsForAnyArgs(Answer);
+            Queries.ChangesAsync(default, default!, default!, default).ReturnsForAnyArgs(Answer);
             Queries.DescribeAsync(default, default!, default, default)
                 .ReturnsForAnyArgs(new TableDescription(TableId, "t", null, [], 1, Answer, false, []));
         }
@@ -358,7 +424,8 @@ public class TableQueryOperationTests
                 return;
             Guid document = Guid.NewGuid();
             Tables.GetAsync(ContainerId, id, Arg.Any<CancellationToken>()).Returns(new TableInfo(id, ContainerId, "t", null, document,
-                [new TableColumn("a", TableColumnType.Text)], 1, false, [], "tables_x", "t_x", 1, Epoch, Epoch));
+                [new TableColumn("a", TableColumnType.Text)], 1, false, [], "tables_x", "t_x", 1, Epoch, Epoch,
+                _history ? "a" : null, _history ? Epoch : null));
             Documents.GetAsync(document.ToString(), Arg.Any<CancellationToken>())
                 .Returns(new Document(document.ToString(), ContainerId.ToString(), "t.csv", null, "/t.csv", 1, Epoch, []));
             if (state.Readable)
@@ -436,5 +503,21 @@ public class TableQueryOperationTests
                 .RunAsync(Caller, world.ContainerId, request);
 
             Check(world, world.Expected(t.Reader, t.Kind, t.Table, join ? t.Joined : null, t.CheckFails), aggregated.Status);
+        }, iter: 1000);
+
+    [Fact]
+    [Trait("Size", "Medium")]
+    [RandomInputTestOf(typeof(ChangesTable))]
+    public Task Changes_AnyCallerContainerTableAndHistory_ComparesOnlyAReadableTableWithHistoryOrSaysTheFirstRuleItBreaks() =>
+        Gen.Select(Situation, Gen.Bool).SampleAsync(async s =>
+        {
+            var (t, history) = s;
+            var world = new World(t.Reader, t.Kind, t.Table, t.Joined, t.CheckFails, history);
+
+            var changed = await new ChangesTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer)
+                .RunAsync(Caller, world.ContainerId, new TableChangesRequest(world.TableId, Since, null, null, null, null));
+
+            TableStatus expected = world.Expected(t.Reader, t.Kind, t.Table, null, t.CheckFails);
+            Check(world, expected == TableStatus.Success && !history ? TableStatus.NoHistory : expected, changed.Status);
         }, iter: 1000);
 }

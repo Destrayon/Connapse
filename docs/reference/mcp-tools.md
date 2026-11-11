@@ -49,6 +49,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `table_describe` | `knowledge:read` | Read | Describes one table: its columns, readable row count, sample rows, rows that couldn't be loaded, key column and history start. |
 | `table_read` | `knowledge:read` | Read | Reads a table's rows with a JSON request: columns, filters (`where`), ordering and paging, optionally joined to one other table of the container. |
 | `table_aggregate` | `knowledge:read` | Read | Counts, sums, averages and finds the least and greatest values of a table's rows, overall or by group, over every row the caller may read. |
+| `table_changes` | `knowledge:read` | Read | Says what changed in a table with history between two times: each added, removed or changed key with its old and new row. A table without a key column keeps no history and is refused with `table-has-no-history`. |
 | `code_find_symbol` | `knowledge:read` | Read | Finds where a function, class or other symbol is defined in indexed code (C#, Python, TypeScript), by name, by words of its name, or by meaning. |
 | `code_references` | `knowledge:read` | Read | Lists the files that use a symbol, best evidence first: calls, base types and imports with their lines, then files whose text names it. |
 | `code_impact` | `knowledge:read` | Read | Lists what a change to a symbol could affect, up to three hops through callers and subtypes, with the tests among them. |

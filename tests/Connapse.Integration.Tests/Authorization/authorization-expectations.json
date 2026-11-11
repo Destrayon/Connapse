@@ -320,6 +320,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "POST /api/containers/{containerId:guid}/tables/changes": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/memory/facts": {
       "requires": "viewer",
       "risk": "read",
@@ -1218,6 +1223,11 @@
       "risk": "read"
     },
     "table_aggregate": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_changes": {
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"

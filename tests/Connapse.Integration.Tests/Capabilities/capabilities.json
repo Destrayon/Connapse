@@ -84,6 +84,14 @@
       "mcp": "table_aggregate"
     },
     {
+      "id": "tables.changes",
+      "capability": "Say what changed in a table with history between two times",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/tables/changes"
+      ],
+      "mcp": "table_changes"
+    },
+    {
       "id": "tables.hideColumns",
       "capability": "Hide a table's columns from every caller",
       "routes": [
