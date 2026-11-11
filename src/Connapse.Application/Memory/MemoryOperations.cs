@@ -456,9 +456,10 @@ public sealed class RecallMemory(
         if (read.Succeeded && read.Result is { Facts.Count: > 0, Spaces.Count: 1 } found && !request.History
             && string.IsNullOrWhiteSpace(request.Cursor))
         {
-            IReadOnlyDictionary<string, long>? totals = await SubjectTotalsAsync(found, MemoryRules.Caller(context.User), ct);
+            MemoryCaller caller = MemoryRules.Caller(context.User);
+            IReadOnlyDictionary<string, long>? totals = await SubjectTotalsAsync(found, caller, ct);
             if (totals is not null)
-                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(found with { SubjectTotals = totals });
+                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(await FillSmallSubjectsAsync(found, totals, caller, ct) with { SubjectTotals = totals });
         }
 
         // A first search of one space that found nothing names the subjects nearest to what was asked, so the next call
@@ -476,6 +477,39 @@ public sealed class RecallMemory(
 
     /// <summary>The most subjects one answer counts the current facts of.</summary>
     public const int SubjectTotalsCount = 5;
+
+    /// <summary>How many of the leading subjects an answer may show whole.</summary>
+    public const int FilledSubjects = 2;
+
+    /// <summary>The most current facts a subject may have to be shown whole when a search found only some of them.</summary>
+    public const int FilledSubjectMaxFacts = 12;
+
+    /// <summary>
+    /// Adds the missing current facts of each of the first <see cref="FilledSubjects"/> subjects that
+    /// <paramref name="found"/> shows in part and that has at most <see cref="FilledSubjectMaxFacts"/> of them: agents
+    /// otherwise spend a second call listing a subject whose answer was already on screen.
+    /// </summary>
+    private async Task<SpacedRecall> FillSmallSubjectsAsync(SpacedRecall found, IReadOnlyDictionary<string, long> totals,
+        MemoryCaller caller, CancellationToken ct)
+    {
+        Guid space = found.Spaces.Keys.Single();
+        List<RecalledFact> facts = [.. found.Facts];
+        HashSet<Guid> shown = [.. facts.Select(f => f.Fact.Id)];
+        foreach (string subject in found.Facts.Select(f => f.Fact.Subject).DistinctBy(s => s.ToLowerInvariant()).Take(FilledSubjects))
+        {
+            string key = subject.ToLowerInvariant();
+            int current = found.Facts.Count(f => string.Equals(f.Fact.Subject.ToLowerInvariant(), key, StringComparison.Ordinal));
+            if (!totals.TryGetValue(key, out long total) || total <= current || total > FilledSubjectMaxFacts)
+                continue;
+            MemoryFactPage? page = await memory.ListAsync(space, new MemoryFactFilter(Subject: subject, Status: MemoryFactStatus.Current),
+                MemoryFactSort.Recorded, null, MemoryPaging.MaxLimit, caller, ct);
+            if (page is not { Denied: false })
+                return found;
+            facts.AddRange(page.Facts.Where(f => string.Equals(f.Fact.Subject.ToLowerInvariant(), key, StringComparison.Ordinal)
+                && shown.Add(f.Fact.Id)));
+        }
+        return facts.Count == found.Facts.Count ? found : found with { Facts = facts };
+    }
 
     /// <summary>
     /// How many current facts the caller can see under each of the first <see cref="SubjectTotalsCount"/> subjects in

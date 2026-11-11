@@ -609,6 +609,13 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
                     ["note"] = score.Note,
                     ["toolCalls"] = run.Calls.Count,
                     ["costUsd"] = run.Usage.CostUsd,
+                    ["tokens"] = new JsonObject
+                    {
+                        ["input"] = run.Usage.Input,
+                        ["cacheWrite"] = run.Usage.CacheWrite,
+                        ["cacheRead"] = run.Usage.CacheRead,
+                        ["output"] = run.Usage.Output,
+                    },
                     ["answer"] = run.Answer,
                     ["cited"] = new JsonArray([.. run.Cited.Select(c => (JsonNode?)c)]),
                     ["calls"] = new JsonArray([.. run.Calls.Select(c => (JsonNode?)new JsonObject

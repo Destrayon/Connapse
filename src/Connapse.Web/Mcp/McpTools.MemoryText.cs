@@ -104,7 +104,7 @@ public partial class McpTools
                 whole = current >= total;
                 text.Append(whole
                     ? total == 1 ? " - its only current fact" : string.Create(CultureInfo.InvariantCulture, $" - all {total} current facts")
-                    : string.Create(CultureInfo.InvariantCulture, $" - {current} of {total} current facts; subject=\"{Line(first.Subject)}\" lists them all"));
+                    : string.Create(CultureInfo.InvariantCulture, $" - {current} of {total} current facts"));
             }
             else if (result.SubjectTotals is not null)
             {

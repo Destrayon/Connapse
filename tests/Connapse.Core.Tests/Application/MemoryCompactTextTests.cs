@@ -58,7 +58,7 @@ public class MemoryCompactTextTests
     }
 
     [Fact]
-    public void CompactText_SubjectShownInPart_NamesHowToListItWhole()
+    public void CompactText_SubjectShownInPart_CountsItsFacts()
     {
         MemoryFact database = Fact("Halcyon", "database", "PostgreSQL 15");
         SpacedRecall recall = Recall(database) with
@@ -69,7 +69,7 @@ public class MemoryCompactTextTests
 
         string text = McpTools.CompactText(recall, new Dictionary<Guid, Guid>(), new Dictionary<Guid, int>(), null, Now);
 
-        text.Should().Contain("Halcyon (space pm-desk, team) - 1 of 6 current facts; subject=\"Halcyon\" lists them all\n");
+        text.Should().Contain("Halcyon (space pm-desk, team) - 1 of 6 current facts\n");
         text.Should().Contain("More facts: pass cursor=\"abc\" for the next page.");
     }
 

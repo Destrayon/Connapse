@@ -197,6 +197,21 @@ public class MemoryToolsTests(SharedWebAppFixture fixture) : IAsyncLifetime
         found.Should().NotContain("Nothing matched", "a search that found facts adds no hint");
     }
 
+    [Fact]
+    public async Task Recall_ASmallSubjectFoundInPart_ShowsItWhole()
+    {
+        As(_writer);
+        await Remember("PostgreSQL 15");
+        foreach ((string attribute, string value) in new[] { ("owner", "Ravi"), ("cache", "Redis 7"), ("region", "eu-west-1") })
+            await Remember(value, attribute: attribute);
+
+        string found = await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C,
+            "Halcyon database", limit: 1);
+
+        found.Should().Contain("Halcyon (space").And.Contain("- all 4 current facts")
+            .And.Contain("PostgreSQL 15").And.Contain("Ravi").And.Contain("Redis 7").And.Contain("eu-west-1");
+    }
+
     /// <summary>The one value recall gives for Halcyon's database on <paramref name="asOf"/>; fails on none or several.</summary>
     private async Task<string?> OnlyValueAsync(string asOf) =>
         Values(await McpTools.MemoryRecall(Sp.GetRequiredService<RecallMemory>(), Sp.GetRequiredService<IHttpContextAccessor>(), C, subject: "Halcyon", attribute: "database", asOf: asOf, detailed: true)).Should().ContainSingle().Subject;
