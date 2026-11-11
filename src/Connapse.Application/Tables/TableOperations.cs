@@ -38,6 +38,12 @@ public enum TableStatus
 
     [Failure(409, "table-has-no-history", "Table keeps no history")]
     NoHistory,
+
+    [Failure(403, "agent-sql-off", "Agent SQL is off")]
+    AgentSqlOff,
+
+    [Failure(400, "query-not-run", "Query not run")]
+    QueryNotRun,
 }
 
 /// <summary>One page of a container's tables, by name, with how many it holds in all and whether another page follows.</summary>
@@ -189,6 +195,52 @@ public sealed class HideTableColumns(IContainerStore containers, ITableStore tab
         catch (ArgumentException ex)
         {
             return Attempt<TableInfo, TableStatus>.Fail(TableStatus.InvalidColumn, ex.Message);
+        }
+    }
+}
+
+/// <summary>
+/// Runs a read-only query an agent wrote itself over a container's tables (CON-326). Off until an administrator turns
+/// on the container's <c>Tables.AgentSql</c> setting. Open to viewers and reading agent keys, but the query sees only
+/// the tables whose source document the caller may read, by the same check search runs on each hit; the database's
+/// row-level security enforces that set again (docs/research/rls-raw-sql-agents-2026-11-10.md).
+/// </summary>
+[Operation("tables.sql", Scope = "knowledge:read", Risk = RiskTier.Read)]
+public sealed class RunTableSql(
+    IContainerStore containers,
+    ITableStore tables,
+    IDocumentStore documents,
+    IDocumentAccess access,
+    IContainerSettingsResolver settings,
+    ITableSqlService sql,
+    IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<TableQueryResult, TableStatus>> RunAsync(
+        OperationContext context, Guid containerId, string? query, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
+            return Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.Forbidden, "You don't have permission to query tables.");
+        if (string.IsNullOrWhiteSpace(query))
+            return Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.QueryNotRun, "sql is required", "sql");
+        if (await containers.GetAsync(containerId, ContainerRules.Viewer(context), ct) is not { } container)
+            return Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.ContainerNotFound, $"Container {containerId} not found");
+        if (container.Kind == ContainerKind.Memory)
+            return Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
+        if (!(await settings.GetTableSettingsAsync(containerId, ct)).AgentSql)
+            return Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.AgentSqlOff,
+                $"Agents can't write their own SQL in '{container.Name}'. An administrator can turn on Tables.AgentSql in its settings.");
+
+        IReadOnlyList<TableInfo> all = await tables.ListAsync(containerId, ct);
+        TableAccess readable = await TableRules.AccessAsync(documents, access, context.User, containerId, all, ct);
+        if (!readable.Checked)
+            return Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.AccessUnchecked, TableAccess.UncheckedMessage);
+        try
+        {
+            return Attempt<TableQueryResult, TableStatus>.Succeed(await sql.RunAsync(containerId, readable, query, ct));
+        }
+        catch (TableQueryException ex)
+        {
+            return Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.QueryNotRun, ex.Message, "sql");
         }
     }
 }

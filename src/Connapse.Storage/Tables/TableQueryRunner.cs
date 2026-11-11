@@ -84,7 +84,8 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
                 "SELECT pg_catalog.set_config('statement_timeout', $1, true), pg_catalog.set_config('lock_timeout', $2, true), "
                 + "pg_catalog.set_config('idle_in_transaction_session_timeout', $3, true), pg_catalog.set_config('work_mem', $4, true), "
                 + "pg_catalog.set_config('max_parallel_workers_per_gather', $5, true), "
-                + "pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true), "
+                + "pg_catalog.set_config('search_path', $7, true), "
+                + "pg_catalog.set_config('standard_conforming_strings', 'on', true), "
                 + "pg_catalog.set_config('tables_auth.token', $6, true)")
             {
                 Parameters =
@@ -95,6 +96,7 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
                     new NpgsqlParameter { Value = TableReaderLogin.WorkMem },
                     new NpgsqlParameter { Value = MaxParallelWorkersPerGather },
                     new NpgsqlParameter { Value = token },
+                    new NpgsqlParameter { Value = SearchPath(query.Schema) },
                 },
             });
             await setup.ExecuteNonQueryAsync(ct);
@@ -140,6 +142,13 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
         await transaction.RollbackAsync(ct);
         return new TableQueryResult(columns, rows, truncated is not null, truncated);
     }
+
+    /// <summary>
+    /// The query's <c>search_path</c>: the catalog first, so a name in the container can never shadow a built-in one, then
+    /// the container's schema when the query names its tables unqualified (docs/research/con-326-table-sql-runner-2026-11-10.md).
+    /// </summary>
+    internal static string SearchPath(string? schema) =>
+        schema is null ? "pg_catalog, pg_temp" : $"pg_catalog, {TableDdl.Quote(schema)}, pg_temp";
 
     /// <summary>A cell's size in the answer: its UTF-8 bytes, with null counted as the four letters agents see.</summary>
     internal static int Size(object? value) => value switch

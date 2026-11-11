@@ -171,6 +171,7 @@ public static class ServiceCollectionExtensions
             dataSource, connectionString, configuration, sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Tables.TableReaderLogin>>()));
         services.AddSingleton(sp => new Tables.TableQueryRunner(sp.GetRequiredService<Tables.TableReaderLogin>()));
         services.AddScoped<ITableQueryService, Tables.TableQueryService>();
+        services.AddScoped<ITableSqlService, Tables.TableSqlService>();
 
         // Folder store
         services.AddScoped<IFolderStore, PostgresFolderStore>();

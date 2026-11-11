@@ -157,6 +157,19 @@ The container is an agent memory container: it holds memory facts, not documents
 folders, search, reindexing, syncing and document settings don't apply to it. Use the memory tools
 (`memory_remember`, `memory_recall`) on it instead, or pick a documents container.
 
+## agent-sql-off
+
+Agents can't send their own SQL over this container's tables: its `Tables.AgentSql` setting is off, which is the
+default. An administrator can turn it on in the container's settings (`PUT /api/containers/{id}/settings` with
+`"tables": { "agentSql": true }`). Until then, read tables through the structured table requests.
+
+## query-not-run
+
+The table SQL query didn't run, or the database stopped it. The `detail` says why: the query wasn't one read-only
+`SELECT` over the listed tables (the detail then lists the tables you can query by their generated names, `t_...`
+with columns `c_1`, `c_2`, ..., and their original headers), it named something that doesn't exist, it couldn't be
+computed (for example a division by zero), or it ran longer than 5 seconds. Fix the query and send it again.
+
 ## memory-fact-not-found
 
 No fact in any space the caller can see has that id, or the caller can't see it. A fact is visible only

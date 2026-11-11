@@ -325,6 +325,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "POST /api/containers/{containerId:guid}/tables/sql": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/memory/facts": {
       "requires": "viewer",
       "risk": "read",
@@ -1228,6 +1233,11 @@
       "risk": "read"
     },
     "table_changes": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_sql": {
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"

@@ -487,6 +487,19 @@ public record LlmSettings
 }
 
 /// <summary>
+/// A container's table settings (CON-326). They exist only per container, have no global value, and only an
+/// administrator may change them.
+/// </summary>
+public record TableSettings
+{
+    /// <summary>
+    /// Whether agents may send their own read-only SQL over the container's tables (<c>table_sql</c>). Off unless an
+    /// administrator turns it on.
+    /// </summary>
+    public bool AgentSql { get; set; }
+}
+
+/// <summary>
 /// Upload and ingestion settings.
 /// </summary>
 public record UploadSettings

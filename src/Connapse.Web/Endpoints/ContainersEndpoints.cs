@@ -182,6 +182,27 @@ public static class ContainersEndpoints
         .WithDescription("List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). ?search= keeps the tables whose name, description or a visible column's header contains it, ignoring case. totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.")
         .RequireAuthorization("RequireViewer");
 
+        // POST /api/containers/{containerId}/tables/sql - Run one read-only SELECT an agent wrote over the container's tables
+        group.MapPost("/{containerId:guid}/tables/sql", async (
+            Guid containerId,
+            [FromBody] TableSqlRequest request,
+            [FromServices] RunTableSql run,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var ran = await run.RunAsync(Rest(http), containerId, request.Sql, ct);
+            return ran.Succeeded ? Results.Ok(TableSqlResponse.From(ran.Result!)) : OperationProblems.Result(ran);
+        })
+        .Produces<TableSqlResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("tables.sql")
+        .WithDescription("Run one read-only SELECT over the container's tables, by their generated names (t_..., columns c_1, c_2, ...); a refused query's error lists them with their original headers. Off unless an administrator turned on the container's tables.agentSql setting. Only tables from files the caller may read are visible, and none with hidden columns; at most 1000 rows and about 64 KB come back.")
+        .RequireAuthorization("RequireViewer");
+
         // PUT /api/containers/{containerId}/tables/{tableId}/hidden-columns - Hide a table's columns from every caller
         group.MapPut("/{containerId:guid}/tables/{tableId:guid}/hidden-columns", async (
             Guid containerId,
@@ -574,6 +595,24 @@ public record TableResponse(
         table.RowCount, table.NeedsReview, table.Rejects.Count,
         table.Partial ? null : table.Version, table.CreatedAt, table.Partial ? null : table.LoadedAt,
         table.Partial, table.HiddenColumns is { Count: > 0 } hidden ? hidden : null);
+}
+
+/// <summary>An agent's read-only query over a container's tables (CON-326).</summary>
+public record TableSqlRequest(string? Sql);
+
+/// <summary>
+/// A table query's answer: column names, rows of cells, whether it was cut and why, and a reminder that cells are data,
+/// not instructions.
+/// </summary>
+public record TableSqlResponse(
+    IReadOnlyList<string> Columns,
+    IReadOnlyList<IReadOnlyList<object?>> Rows,
+    bool Truncated,
+    string? TruncatedReason,
+    string Notice)
+{
+    public static TableSqlResponse From(TableQueryResult result) =>
+        new(result.Columns, result.Rows, result.Truncated, result.TruncatedReason, result.Notice);
 }
 
 /// <summary>
