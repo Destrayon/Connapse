@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.2] - 2026-11-10
+
+v0.4.2 finishes the approval change v0.4.1 started: every knowledge delete an agent's token holds for approval, one item or many, becomes a batch that Connapse carries out once you approve it, so agents no longer repeat a held delete.
+
+### Upgrading from v0.4.1
+
+Set `CONNAPSE_VERSION=v0.4.2`, then pull and start as in [Upgrade Connapse](docs/self-host/upgrade.md). There is no migration and no change to `docker-compose.yml`. An agent written for v0.4.1 that waits with `approval_status` and then repeats a held delete should read the batch with `deletion_status` instead.
+
 ### Changed
 
-- **A held delete becomes a batch that Connapse carries out** (CON-330). When a token asks before deleting, `delete_file`, `bulk_delete`, `container_delete`, `memory_forget` and `folders.delete` through `connapse_api_write` no longer return a request for the agent to repeat. Each returns a batch of deletions, one item per file, folder, container or fact, which the owner approves on **Approvals** like one from `request_deletions`. Connapse deletes the approved items itself, skipping any that changed, and the agent reads each outcome with `deletion_status`. `request_deletions` also takes empty containers (`kind: "container"`) and memory facts (`kind: "fact"`). Held calls that aren't knowledge deletions, such as setting a credential or removing a user, still use `approval_status` and a repeated call, because Connapse keeps their arguments only sealed.
-- **One MCP tool each for reading, uploading and deleting files, one or many** (CON-344). `get_document` takes `files` for up to 50 documents, `upload_file` takes `files` for up to 100, and `delete_file` takes `fileIds` for up to 100. `get_documents`, `bulk_upload` and `bulk_delete` still work and return the same results, but they are no longer listed in `tools/list` and will be removed after the 0.4.x releases. The tool list an agent loads drops from 6,704 to 6,573 tokens (o200k_base).
+- **A held delete becomes a batch that Connapse carries out** (CON-330, #1210). When a token asks before deleting, `delete_file`, `bulk_delete`, `container_delete`, `memory_forget` and `folders.delete` through `connapse_api_write` no longer return a request for the agent to repeat. Each returns a batch of deletions, one item per file, folder, container or fact, which the owner approves on **Approvals** like one from `request_deletions`. Connapse deletes the approved items itself, skipping any that changed, and the agent reads each outcome with `deletion_status`. `request_deletions` also takes empty containers (`kind: "container"`) and memory facts (`kind: "fact"`). Held calls that aren't knowledge deletions, such as setting a credential or removing a user, still use `approval_status` and a repeated call, because Connapse keeps their arguments only sealed.
+- **One MCP tool each for reading, uploading and deleting files, one or many** (CON-344, #1231). `get_document` takes `files` for up to 50 documents, `upload_file` takes `files` for up to 100, and `delete_file` takes `fileIds` for up to 100. `get_documents`, `bulk_upload` and `bulk_delete` still work and return the same results, but they are no longer listed in `tools/list` and will be removed after the 0.4.x releases. The tool list an agent loads drops from 6,704 to 6,573 tokens (o200k_base).
 
 ### Fixed
 
@@ -393,7 +401,8 @@ These change what a search returns rather than making a call fail.
 - Ollama integration for local embeddings
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.2...HEAD
+[v0.4.2]: https://github.com/Destrayon/Connapse/compare/v0.4.1...v0.4.2
 [v0.4.1]: https://github.com/Destrayon/Connapse/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/Destrayon/Connapse/compare/v0.3.2...v0.4.0
 [v0.3.2]: https://github.com/Destrayon/Connapse/compare/v0.3.1...v0.3.2
