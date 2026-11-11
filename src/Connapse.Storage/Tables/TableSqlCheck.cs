@@ -48,8 +48,9 @@ internal sealed record TableSqlScope(string Schema, IReadOnlySet<string> Tables)
 /// section 2): it stops what grants can't, such as turning read-only off, raising limits, forging the request token or
 /// cancelling other sessions, while grants, row-level security and the runner's limits still stand behind it.
 /// The runner that sends an allowed query must (a) send this exact text as one command, (b) keep
-/// <c>standard_conforming_strings</c> on, as libpg_query assumes, and (c) pin <c>search_path</c> to the container's
-/// schema followed by <c>pg_catalog, pg_temp</c>, so an unqualified name resolves to the container before the catalog.
+/// <c>standard_conforming_strings</c> on, as libpg_query assumes, and (c) pin <c>search_path</c> to
+/// <c>pg_catalog</c>, the container's schema and <c>pg_temp</c>, so an unqualified name finds the container's tables
+/// and can never shadow a built-in (CON-326 changed the order; see docs/research/con-326-table-sql-runner-2026-11-10.md).
 /// </summary>
 internal static class TableSqlCheck
 {

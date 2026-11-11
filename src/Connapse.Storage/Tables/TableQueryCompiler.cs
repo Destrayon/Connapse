@@ -11,13 +11,15 @@ namespace Connapse.Storage.Tables;
 /// One compiled table query: a single <c>SELECT</c> whose only identifiers are the catalog's generated names and whose
 /// every value is a positional (<c>$n</c>) parameter. <see cref="Columns"/> names the output columns as the agent knows
 /// them; when it is null the runner takes the names the database returns. The query fetches <see cref="Limit"/> + 1
-/// rows so the runner can tell the answer was cut.
+/// rows so the runner can tell the answer was cut. <see cref="Schema"/>, when set, is searched after <c>pg_catalog</c>
+/// so the query can name that schema's tables unqualified; agent-written SQL uses it (CON-326).
 /// </summary>
 internal sealed record CompiledTableQuery(
     string Sql,
     IReadOnlyList<NpgsqlParameter> Parameters,
     IReadOnlyList<string>? Columns,
-    int Limit);
+    int Limit,
+    string? Schema = null);
 
 /// <summary>
 /// Compiles structured table requests to SQL (CON-303). Agents never write SQL: a request names columns by their

@@ -60,6 +60,15 @@
       "mcp": "generic"
     },
     {
+      "id": "tables.sql",
+      "capability": "Run an agent's read-only SQL over a container's tables",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/tables/sql"
+      ],
+      "mcp": "table_sql",
+      "note": "Off unless an administrator turns on the container's Tables.AgentSql setting. Only tables from files the caller may read are visible."
+    },
+    {
       "id": "containers.settings.get",
       "capability": "Read a container's settings overrides",
       "routes": [

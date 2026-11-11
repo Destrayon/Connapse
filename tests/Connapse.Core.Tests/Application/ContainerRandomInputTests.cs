@@ -433,7 +433,9 @@ public class ContainerRandomInputTests
                     world.Wrote.Should().BeFalse();
                     return;
                 }
-                await world.Containers.Received(1).SaveSettingsOverridesAsync(id, new ContainerSettingsOverrides(), Arg.Any<CancellationToken>());
+                await world.Containers.Received(1).UpdateSettingsOverridesAsync(
+                    id, Arg.Is<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(f => f(null) == new ContainerSettingsOverrides()),
+                    Arg.Any<CancellationToken>());
                 await world.Audit.Received(1).LogAsync("container.settings_reset", "container", container.Id, Arg.Any<object?>(), Arg.Any<CancellationToken>());
             }, iter: 2000);
 

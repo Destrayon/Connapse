@@ -3254,6 +3254,114 @@
         }
       }
     },
+    "/api/containers/{containerId}/tables/sql": {
+      "post": {
+        "tags": [
+          "Containers"
+        ],
+        "description": "Run one read-only SELECT over the container's tables, by their generated names (t_..., columns c_1, c_2, ...); a refused query's error lists them with their original headers. Off unless an administrator turned on the container's tables.agentSql setting. Only tables from files the caller may read are visible; at most 1000 rows and about 64 KB come back.",
+        "operationId": "tables.sql",
+        "parameters": [
+          {
+            "name": "containerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TableSqlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableSqlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "tables.sql",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
+        }
+      }
+    },
     "/api/containers/{containerId}/settings": {
       "get": {
         "tags": [
@@ -17548,6 +17656,16 @@
                 "$ref": "#/components/schemas/UploadSettings"
               }
             ]
+          },
+          "tables": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TableSettings"
+              }
+            ]
           }
         }
       },
@@ -22695,6 +22813,64 @@
           "loadedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "TableSettings": {
+        "type": "object",
+        "properties": {
+          "agentSql": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TableSqlRequest": {
+        "required": [
+          "sql"
+        ],
+        "type": "object",
+        "properties": {
+          "sql": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TableSqlResponse": {
+        "required": [
+          "columns",
+          "rows",
+          "truncated",
+          "truncatedReason",
+          "notice"
+        ],
+        "type": "object",
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "array"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "truncatedReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "notice": {
+            "type": "string"
           }
         }
       },
