@@ -89,12 +89,28 @@ public partial class McpTools
         if (result.Facts.Count == 0 && note is null)
             text.Append("\nNo facts found.\n");
 
+        // Whether every subject shown is shown whole, so what a next page holds is only weaker matches.
+        bool complete = true;
         foreach (IGrouping<(Guid, string), RecalledFact> subject in result.Facts.GroupBy(f => (f.Fact.ContainerId, f.Fact.Subject.ToLowerInvariant())))
         {
             MemoryFact first = subject.First().Fact;
             text.Append('\n').Append(Line(first.Subject));
             if (result.Spaces.GetValueOrDefault(first.ContainerId) is { } space)
                 text.Append(CultureInfo.InvariantCulture, $" (space {space.Name}, {SpaceKind(space)})");
+            bool whole = true;
+            if (result.SubjectTotals?.TryGetValue(subject.Key.Item2, out long total) == true)
+            {
+                int current = subject.Count(f => !Ended(f.Fact, at) && (f.Fact.ValidFrom is null || f.Fact.ValidFrom <= at));
+                whole = current >= total;
+                text.Append(whole
+                    ? total == 1 ? " - its only current fact" : string.Create(CultureInfo.InvariantCulture, $" - all {total} current facts")
+                    : string.Create(CultureInfo.InvariantCulture, $" - {current} of {total} current facts; subject=\"{Line(first.Subject)}\" lists them all"));
+            }
+            else if (result.SubjectTotals is not null)
+            {
+                whole = false;
+            }
+            complete &= whole;
             text.Append('\n');
             foreach (RecalledFact f in subject)
                 text.Append(FactLine(f, now, handles, result.Spaces.GetValueOrDefault(f.Fact.ContainerId), at)).Append('\n');
@@ -103,7 +119,9 @@ public partial class McpTools
         if (note is not null)
             text.Append('\n').Append(note).Append('\n');
         if (result.NextCursor is not null)
-            text.Append(CultureInfo.InvariantCulture, $"\nMore facts: pass cursor=\"{result.NextCursor}\" for the next page.\n");
+            text.Append(complete && result.SubjectTotals is not null
+                ? $"\nOnly weaker matches remain: pass cursor=\"{result.NextCursor}\" to see them.\n"
+                : $"\nMore facts: pass cursor=\"{result.NextCursor}\" for the next page.\n");
         return text.ToString();
     }
 

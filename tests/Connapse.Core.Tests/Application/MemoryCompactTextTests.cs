@@ -41,6 +41,39 @@ public class MemoryCompactTextTests
     }
 
     [Fact]
+    public void CompactText_SubjectShownWhole_SaysSo_AndTheCursorOffersOnlyWeakerMatches()
+    {
+        MemoryFact database = Fact("Halcyon", "database", "PostgreSQL 15");
+        MemoryFact owner = Fact("Halcyon", "owner", "Platform team");
+        SpacedRecall recall = Recall(database, owner) with
+        {
+            NextCursor = "abc",
+            SubjectTotals = new Dictionary<string, long> { ["halcyon"] = 2 },
+        };
+
+        string text = McpTools.CompactText(recall, new Dictionary<Guid, Guid>(), new Dictionary<Guid, int>(), null, Now);
+
+        text.Should().Contain("Halcyon (space pm-desk, team) - all 2 current facts\n");
+        text.Should().Contain("Only weaker matches remain: pass cursor=\"abc\"");
+    }
+
+    [Fact]
+    public void CompactText_SubjectShownInPart_NamesHowToListItWhole()
+    {
+        MemoryFact database = Fact("Halcyon", "database", "PostgreSQL 15");
+        SpacedRecall recall = Recall(database) with
+        {
+            NextCursor = "abc",
+            SubjectTotals = new Dictionary<string, long> { ["halcyon"] = 6 },
+        };
+
+        string text = McpTools.CompactText(recall, new Dictionary<Guid, Guid>(), new Dictionary<Guid, int>(), null, Now);
+
+        text.Should().Contain("Halcyon (space pm-desk, team) - 1 of 6 current facts; subject=\"Halcyon\" lists them all\n");
+        text.Should().Contain("More facts: pass cursor=\"abc\" for the next page.");
+    }
+
+    [Fact]
     public void FactLine_AnEndedFact_SaysWhatReplacedIt()
     {
         MemoryFact old = Fact("Halcyon", "database", "MySQL", new(2023, 1, 10, 0, 0, 0, TimeSpan.Zero), new(2025, 3, 1, 0, 0, 0, TimeSpan.Zero));

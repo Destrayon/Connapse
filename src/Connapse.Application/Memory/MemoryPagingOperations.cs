@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -34,6 +35,9 @@ internal static class MemoryCursor
     // Text stays raw UTF-8 (the cursor is base64url, never markup), so a CJK subject costs 3 bytes a character, not 6.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
+    // A key leaves out the sort values it doesn't use, which keeps a cursor short enough for an agent to copy whole.
+    private static readonly JsonSerializerOptions KeyJson = new(Json) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };
+
     private sealed record Envelope<T>(string F, T K);
 
     /// <summary>A short hash of the request's parts, in order.</summary>
@@ -44,7 +48,7 @@ internal static class MemoryCursor
     }
 
     public static string Encode<T>(T key, string fingerprint) =>
-        Base64Url.EncodeToString(JsonSerializer.SerializeToUtf8Bytes(new Envelope<T>(fingerprint, key), Json));
+        Base64Url.EncodeToString(JsonSerializer.SerializeToUtf8Bytes(new Envelope<T>(fingerprint, key), KeyJson));
 
     /// <summary>
     /// The key in <paramref name="cursor"/>: default with true for no cursor, the key with true for one this request

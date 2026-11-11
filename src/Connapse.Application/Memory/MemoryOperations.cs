@@ -453,6 +453,14 @@ public sealed class RecallMemory(
                 new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
         }
 
+        if (read.Succeeded && read.Result is { Facts.Count: > 0, Spaces.Count: 1 } found && !request.History
+            && string.IsNullOrWhiteSpace(request.Cursor))
+        {
+            IReadOnlyDictionary<string, long>? totals = await SubjectTotalsAsync(found, MemoryRules.Caller(context.User), ct);
+            if (totals is not null)
+                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(found with { SubjectTotals = totals });
+        }
+
         // A first search of one space that found nothing names the subjects nearest to what was asked, so the next call
         // can go straight to one of them rather than guessing at other words.
         string asked = string.Join(' ', new[] { request.Text, request.Subject }.Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -464,6 +472,37 @@ public sealed class RecallMemory(
                 read = Attempt<SpacedRecall, MemoryStatus>.Succeed(empty with { Nearest = nearest });
         }
         return read;
+    }
+
+    /// <summary>The most subjects one answer counts the current facts of.</summary>
+    public const int SubjectTotalsCount = 5;
+
+    /// <summary>
+    /// How many current facts the caller can see under each of the first <see cref="SubjectTotalsCount"/> subjects in
+    /// <paramref name="found"/>, keyed by the subject in lower case; null when access could not be checked.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, long>?> SubjectTotalsAsync(SpacedRecall found, MemoryCaller caller, CancellationToken ct)
+    {
+        Guid space = found.Spaces.Keys.Single();
+        Dictionary<string, long> totals = new(StringComparer.Ordinal);
+        foreach (string subject in found.Facts.Select(f => f.Fact.Subject).DistinctBy(s => s.ToLowerInvariant()).Take(SubjectTotalsCount))
+        {
+            string key = subject.ToLowerInvariant();
+            // The subject filter matches every subject holding the text, so the one named exactly is picked out; a
+            // subject inside many others may need a few pages.
+            string? after = null;
+            for (int pages = 0; pages < 3 && !totals.ContainsKey(key); pages++)
+            {
+                MemorySubjectPage? page = await memory.SubjectsAsync(space, subject, MemoryFactStatus.Current, after, MemoryPaging.MaxLimit, caller, ct);
+                if (page is not { Denied: false })
+                    return null;
+                if (page.Subjects.FirstOrDefault(s => string.Equals(s.Subject.ToLowerInvariant(), key, StringComparison.Ordinal)) is { } match)
+                    totals[key] = match.Facts;
+                if ((after = page.Next) is null)
+                    break;
+            }
+        }
+        return totals;
     }
 
     /// <summary>How many subjects an empty search names.</summary>
@@ -632,11 +671,13 @@ public sealed record MemoryTimelineRequest(
 /// Facts read from one or more spaces, with the spaces they came from for labelling, and how many spaces an unnamed
 /// read left out for being past <see cref="RecallMemory.MaxSpaces"/>. <paramref name="NextCursor"/> continues a paged
 /// read of one space, and is null on its last page and for every other read. <paramref name="Nearest"/> names the
-/// subjects closest to a search of one space that found nothing, and is null otherwise.
+/// subjects closest to a search of one space that found nothing, and is null otherwise. <paramref name="SubjectTotals"/>
+/// holds, for the first page of a search of one space, how many current facts the caller can see under each subject
+/// shown (keyed by the subject in lower case), so an answer can say when a subject is shown whole; it is null otherwise.
 /// </summary>
 public sealed record SpacedRecall(
     IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null,
-    IReadOnlyList<string>? Nearest = null);
+    IReadOnlyList<string>? Nearest = null, IReadOnlyDictionary<string, long>? SubjectTotals = null);
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
 public sealed class MemoryOperations(
