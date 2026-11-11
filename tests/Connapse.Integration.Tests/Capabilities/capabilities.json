@@ -57,7 +57,31 @@
       "routes": [
         "GET /api/containers/{containerId:guid}/tables"
       ],
-      "mcp": "generic"
+      "mcp": "table_list"
+    },
+    {
+      "id": "tables.describe",
+      "capability": "Describe a table's columns, readable rows and samples",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/tables/{tableId:guid}"
+      ],
+      "mcp": "table_describe"
+    },
+    {
+      "id": "tables.read",
+      "capability": "Read a table's rows, optionally joined to another table",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/tables/read"
+      ],
+      "mcp": "table_read"
+    },
+    {
+      "id": "tables.aggregate",
+      "capability": "Count, sum and average a table's rows",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/tables/aggregate"
+      ],
+      "mcp": "table_aggregate"
     },
     {
       "id": "tables.hideColumns",

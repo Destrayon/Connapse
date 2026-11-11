@@ -95,7 +95,7 @@ public static class TableRules
 /// each trimmed to what the caller may see (CON-304); when that can't be checked, nothing is. A search keeps the tables
 /// whose name, description or a visible column's header contains it, ignoring case (CON-305).
 /// </summary>
-[Operation("tables.list", Scope = "knowledge:read", Risk = RiskTier.Read, Mcp = McpExposure.Generic)]
+[Operation("tables.list", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class ListTables(
     IContainerStore containers,
     ITableStore tables,
