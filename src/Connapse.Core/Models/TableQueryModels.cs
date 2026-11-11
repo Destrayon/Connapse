@@ -144,15 +144,22 @@ public sealed record TableAccess(IReadOnlySet<Guid> ReadableDocuments)
     /// <summary>An access for a request whose permissions couldn't be worked out (fail closed).</summary>
     public static TableAccess Unchecked { get; } = new(new HashSet<Guid>()) { Checked = false };
 
+    /// <summary>
+    /// Who is reading memory and which sources they can read, for a memory container's <see cref="MemoryTable"/>
+    /// (CON-309). Null for any other request, which then can't read the memory table.
+    /// </summary>
+    public MemoryViewer? Memory { get; init; }
+
     public bool CanRead(TableInfo table) =>
-        Checked && (table.DocumentId is Guid document
+        MemoryTable.Is(table) ? Checked && Memory is not null
+        : Checked && (table.DocumentId is Guid document
             ? ReadableDocuments.Contains(document)
             : table.SourceDocuments is { Count: > 0 } sources && sources.Any(ReadableDocuments.Contains));
 
     /// <summary>The source documents of <paramref name="table"/> the caller may read.</summary>
     public IReadOnlyList<Guid> ReadableSources(TableInfo table)
     {
-        if (!Checked)
+        if (!Checked || MemoryTable.Is(table))
             return [];
         if (table.DocumentId is Guid document)
             return ReadableDocuments.Contains(document) ? [document] : [];
@@ -161,7 +168,8 @@ public sealed record TableAccess(IReadOnlySet<Guid> ReadableDocuments)
 
     /// <summary>True when the caller may read every row of <paramref name="table"/>.</summary>
     public bool SeesAll(TableInfo table) =>
-        CanRead(table) && (table.DocumentId is not null || table.SourceDocuments!.All(ReadableDocuments.Contains));
+        CanRead(table) && !MemoryTable.Is(table)
+        && (table.DocumentId is not null || table.SourceDocuments!.All(ReadableDocuments.Contains));
 
     /// <summary>
     /// The rejected rows of <paramref name="table"/> the caller may see: in a merged table only those from readable

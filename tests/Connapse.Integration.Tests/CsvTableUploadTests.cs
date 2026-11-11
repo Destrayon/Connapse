@@ -124,7 +124,7 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task ListTablesRoute_BadPageMissingOrMemoryContainer_AnswersAProblem()
+    public async Task ListTablesRoute_BadPageOrMissingContainer_AnswersAProblemAndAMemoryContainerListsItsMemory()
     {
         Guid documents = await NewContainerAsync(ContainerKind.Documents);
         Guid memory = await NewContainerAsync(ContainerKind.Memory);
@@ -133,7 +133,11 @@ public class CsvTableUploadTests(SharedWebAppFixture fixture)
             (await fixture.AdminClient.GetAsync($"/api/containers/{documents}/tables?take=0")).StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
             (await fixture.AdminClient.GetAsync($"/api/containers/{documents}/tables?take=201")).StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
             (await fixture.AdminClient.GetAsync($"/api/containers/{Guid.NewGuid()}/tables")).StatusCode.Should().Be(System.Net.HttpStatusCode.NotFound);
-            (await fixture.AdminClient.GetAsync($"/api/containers/{memory}/tables")).StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict);
+            using (JsonDocument facts = await GetJsonAsync($"/api/containers/{memory}/tables"))
+            {
+                facts.RootElement.GetProperty("totalCount").GetInt32().Should().Be(1);
+                facts.RootElement.GetProperty("items")[0].GetProperty("id").GetGuid().Should().Be(MemoryTable.Id);
+            }
 
             using JsonDocument empty = await GetJsonAsync($"/api/containers/{documents}/tables");
             empty.RootElement.GetProperty("totalCount").GetInt32().Should().Be(0);

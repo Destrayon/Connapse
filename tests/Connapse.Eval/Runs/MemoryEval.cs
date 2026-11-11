@@ -96,7 +96,7 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
             foreach (Op op in ops[code])
             {
                 var fact = new NewMemoryFact(op.Subject ?? "", op.Attribute ?? "", op.Value, Date(op.ValidFrom), null,
-                    [new MemorySource(MemorySourceKind.Document, documentOf[op.Session])], op.Reason);
+                    [new MemorySource(MemorySourceKind.Document, documentOf[op.Session])], op.Reason, MemoryScope.Personal);
                 var timer = Stopwatch.StartNew();
                 MemoryWriteResult result = op.Verb == "remember"
                     ? await memory.RememberAsync(container, fact, caller, ct)

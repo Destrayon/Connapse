@@ -39,7 +39,18 @@ public class TableOperationTests
                 .Select(d => d.Id).Where(id => !_unreadable.Contains(Guid.Parse(id))).ToHashSet());
     }
 
-    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer);
+    private readonly IMemoryService _memory = Viewing();
+
+    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer, _memory);
+
+    /// <summary>A memory service that lets any caller view any container's memory, seeing no sources.</summary>
+    private static IMemoryService Viewing()
+    {
+        var memory = Substitute.For<IMemoryService>();
+        memory.ViewerOfAsync(default, default!, default)
+            .ReturnsForAnyArgs(c => new MemoryViewer(c.ArgAt<MemoryCaller>(1), new HashSet<MemorySource>()));
+        return memory;
+    }
 
     private HideTableColumns Hide => new(_containers, _tables, _authorizer);
 
@@ -47,6 +58,8 @@ public class TableOperationTests
     {
         Guid id = Guid.NewGuid();
         _containers.GetAsync(id, Arg.Any<CancellationToken>())
+            .Returns(new Container(id.ToString(), "c", null, Epoch, Epoch, Kind: kind));
+        _containers.GetAsync(id, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
             .Returns(new Container(id.ToString(), "c", null, Epoch, Epoch, Kind: kind));
         return id;
     }
@@ -102,11 +115,16 @@ public class TableOperationTests
     }
 
     [Fact]
-    public async Task List_MemoryContainer_IsRefusedAndReadsNoTables()
+    public async Task List_MemoryContainer_ListsOnlyItsMemoryTableAndReadsNoCatalog()
     {
-        var listed = await List.RunAsync(Caller, ContainerOfKind(ContainerKind.Memory), 0, 10);
+        Guid memory = ContainerOfKind(ContainerKind.Memory);
+        _queries.CountAsync(memory, Arg.Any<TableAccess>(), MemoryTable.Id, Arg.Any<CancellationToken>()).Returns(3);
 
-        listed.Status.Should().Be(TableStatus.MemoryContainer);
+        var listed = await List.RunAsync(Caller, memory, 0, 10);
+
+        listed.Status.Should().Be(TableStatus.Success);
+        listed.Result!.Items.Should().ContainSingle().Which.Should().Match<TableInfo>(t => t.Id == MemoryTable.Id && t.RowCount == 3);
+        listed.Result.TotalCount.Should().Be(1);
         _tables.ReceivedCalls().Should().BeEmpty();
     }
 
@@ -266,10 +284,12 @@ public class TableOperationTests
                 var tables = Substitute.For<ITableStore>();
                 var documents = Substitute.For<IDocumentStore>();
                 var access = Substitute.For<IDocumentAccess>();
-                var authorizer = new PolicyAuthorizer(policy => policy == Policies.Reader && reader);
+                var authorizer = new PolicyAuthorizer(policy => (policy == Policies.Reader || policy == Policies.KnowledgeRead) && reader);
                 Guid id = Guid.NewGuid();
                 containers.GetAsync(id, Arg.Any<CancellationToken>())
                     .Returns(kind is { } k ? new Container(id.ToString(), "c", null, Epoch, Epoch, Kind: k) : null);
+                containers.GetAsync(id, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                    .Returns(kind is { } m ? new Container(id.ToString(), "c", null, Epoch, Epoch, Kind: m) : null);
                 var all = readable.Select((_, i) => Table(id, $"t{i}")).ToList();
                 tables.ListAsync(id, Arg.Any<CancellationToken>()).Returns(all);
                 documents.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -278,18 +298,23 @@ public class TableOperationTests
                 access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
                     .Returns(open);
 
-                var listed = await new ListTables(containers, tables, Substitute.For<ITableQueryService>(), documents, access, authorizer)
+                var listed = await new ListTables(containers, tables, Substitute.For<ITableQueryService>(), documents, access, authorizer, Viewing())
                     .RunAsync(Caller, id, skip, take);
 
                 TableStatus expected = !reader ? TableStatus.Forbidden
                     : skip < 0 || take is < 1 or > 200 ? TableStatus.InvalidPage
                     : kind is null ? TableStatus.ContainerNotFound
-                    : kind == ContainerKind.Memory ? TableStatus.MemoryContainer
                     : TableStatus.Success;
                 listed.Status.Should().Be(expected);
-                if (expected != TableStatus.Success)
+                if (expected != TableStatus.Success || kind == ContainerKind.Memory)
                 {
                     tables.ReceivedCalls().Should().BeEmpty();
+                    if (expected == TableStatus.Success)
+                    {
+                        // A memory container lists just its memory table (CON-309), on the first page.
+                        listed.Result!.Items.Select(x => x.Id).Should().Equal(skip == 0 ? [MemoryTable.Id] : []);
+                        listed.Result.TotalCount.Should().Be(1);
+                    }
                     return;
                 }
                 var visible = all.Where((_, i) => readable[i]).ToList();

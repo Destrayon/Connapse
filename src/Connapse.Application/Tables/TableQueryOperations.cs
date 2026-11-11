@@ -18,7 +18,8 @@ public sealed record TableDetails(TableDescription Description, string? Key, Dat
 /// never shows that an unreadable table is there.
 /// </summary>
 internal sealed class TableQueryGate(
-    IContainerStore containers, ITableStore tables, IDocumentStore documents, IDocumentAccess access, IOperationAuthorizer authorizer)
+    IContainerStore containers, ITableStore tables, IDocumentStore documents, IDocumentAccess access, IOperationAuthorizer authorizer,
+    IMemoryService memory)
 {
     public Task<Attempt<T, TableStatus>> RunAsync<T>(
         OperationContext context, Guid containerId, IReadOnlyList<Guid> tableIds,
@@ -35,18 +36,34 @@ internal sealed class TableQueryGate(
             return Attempt<T, TableStatus>.Fail(TableStatus.Forbidden, "You don't have permission to read tables.");
         if (await containers.GetAsync(containerId, ct) is not { } container)
             return Attempt<T, TableStatus>.Fail(TableStatus.ContainerNotFound, $"Container {containerId} not found");
+        List<TableInfo> found = [];
+        TableAccess readable;
         if (container.Kind == ContainerKind.Memory)
-            return Attempt<T, TableStatus>.Fail(TableStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
-
-        var found = new List<TableInfo>();
-        foreach (Guid id in tableIds)
         {
-            if (await tables.GetAsync(containerId, id, ct) is not { } table)
-                return NotFound<T>(id);
-            found.Add(table);
+            // A memory container's only table is its memory (CON-309), read by memory's own rules.
+            foreach (Guid id in tableIds)
+            {
+                if (id != MemoryTable.Id)
+                    return NotFound<T>(id);
+            }
+            Attempt<TableAccess, TableStatus> memoryAccess =
+                await TableRules.MemoryAccessAsync(containers, memory, authorizer, context.User, containerId, ct);
+            if (!memoryAccess.Succeeded)
+                return Attempt<T, TableStatus>.Fail(memoryAccess.Status, memoryAccess.Detail!);
+            readable = memoryAccess.Result!;
+            found.AddRange(tableIds.Select(_ => MemoryTable.For(containerId)));
+        }
+        else
+        {
+            foreach (Guid id in tableIds)
+            {
+                if (await tables.GetAsync(containerId, id, ct) is not { } table)
+                    return NotFound<T>(id);
+                found.Add(table);
+            }
+            readable = await TableRules.AccessAsync(documents, access, context.User, containerId, found, ct);
         }
 
-        TableAccess readable = await TableRules.AccessAsync(documents, access, context.User, containerId, found, ct);
         if (!readable.Checked)
             return Attempt<T, TableStatus>.Fail(TableStatus.AccessUnchecked, TableAccess.UncheckedMessage);
         if (found.FirstOrDefault(t => !readable.CanRead(t)) is { } unreadable)
@@ -79,11 +96,12 @@ public sealed class DescribeTable(
     ITableQueryService queries,
     IDocumentStore documents,
     IDocumentAccess access,
-    IOperationAuthorizer authorizer)
+    IOperationAuthorizer authorizer,
+    IMemoryService memory)
 {
     public Task<Attempt<TableDetails, TableStatus>> RunAsync(
         OperationContext context, Guid containerId, Guid tableId, CancellationToken ct = default) =>
-        new TableQueryGate(containers, tables, documents, access, authorizer).RunAsync(context, containerId, [tableId],
+        new TableQueryGate(containers, tables, documents, access, authorizer, memory).RunAsync(context, containerId, [tableId],
             async (found, readable) =>
             {
                 TableInfo table = found[0];
@@ -107,13 +125,14 @@ public sealed class ReadTable(
     ITableQueryService queries,
     IDocumentStore documents,
     IDocumentAccess access,
-    IOperationAuthorizer authorizer)
+    IOperationAuthorizer authorizer,
+    IMemoryService memory)
 {
     public Task<Attempt<TableQueryResult, TableStatus>> RunAsync(
         OperationContext context, Guid containerId, TableReadRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return new TableQueryGate(containers, tables, documents, access, authorizer).RunAsync(context, containerId,
+        return new TableQueryGate(containers, tables, documents, access, authorizer, memory).RunAsync(context, containerId,
             TableIds(request.TableId, request.Join),
             (_, readable) => queries.ReadAsync(containerId, readable, request, ct), ct);
     }
@@ -134,13 +153,14 @@ public sealed class AggregateTable(
     ITableQueryService queries,
     IDocumentStore documents,
     IDocumentAccess access,
-    IOperationAuthorizer authorizer)
+    IOperationAuthorizer authorizer,
+    IMemoryService memory)
 {
     public Task<Attempt<TableQueryResult, TableStatus>> RunAsync(
         OperationContext context, Guid containerId, TableAggregateRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return new TableQueryGate(containers, tables, documents, access, authorizer).RunAsync(context, containerId,
+        return new TableQueryGate(containers, tables, documents, access, authorizer, memory).RunAsync(context, containerId,
             ReadTable.TableIds(request.TableId, request.Join),
             (_, readable) => queries.AggregateAsync(containerId, readable, request, ct), ct);
     }
@@ -159,15 +179,16 @@ public sealed class ChangesTable(
     ITableQueryService queries,
     IDocumentStore documents,
     IDocumentAccess access,
-    IOperationAuthorizer authorizer)
+    IOperationAuthorizer authorizer,
+    IMemoryService memory)
 {
     public Task<Attempt<TableQueryResult, TableStatus>> RunAsync(
         OperationContext context, Guid containerId, TableChangesRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return new TableQueryGate(containers, tables, documents, access, authorizer).AttemptAsync(context, containerId,
+        return new TableQueryGate(containers, tables, documents, access, authorizer, memory).AttemptAsync(context, containerId,
             [request.TableId],
-            async (found, readable) => found[0].HasHistory
+            async (found, readable) => found[0].HasHistory || MemoryTable.Is(found[0])
                 ? Attempt<TableQueryResult, TableStatus>.Succeed(await queries.ChangesAsync(containerId, readable, request, ct))
                 : Attempt<TableQueryResult, TableStatus>.Fail(TableStatus.NoHistory, NoHistory(found[0])), ct);
     }

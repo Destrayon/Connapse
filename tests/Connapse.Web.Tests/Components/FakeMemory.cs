@@ -209,6 +209,9 @@ internal sealed class FakeMemory(Guid space) : IMemoryService
             return Task.FromResult(facts.FirstOrDefault(f => f.Id == factId) is { } fact ? fact.ContainerId : (Guid?)null);
     }
 
+    public Task<MemoryViewer?> ViewerOfAsync(Guid containerId, MemoryCaller caller, CancellationToken ct = default) =>
+        Task.FromResult<MemoryViewer?>(new MemoryViewer(caller, new HashSet<MemorySource>()));
+
     /// <summary>The fact each history read asked about.</summary>
     public List<Guid> HistoryReads { get; } = [];
 

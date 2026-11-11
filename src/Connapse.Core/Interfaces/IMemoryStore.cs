@@ -137,4 +137,10 @@ public interface IMemoryService
     /// caller must check access to that container and answer as for a missing fact when it can't.
     /// </summary>
     Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The caller with the sources it can read among those the container cites, for reading the container's memory
+    /// table (CON-309) by memory's own rule. Null when access can't be checked, which then shows nothing.
+    /// </summary>
+    Task<MemoryViewer?> ViewerOfAsync(Guid containerId, MemoryCaller caller, CancellationToken ct = default);
 }

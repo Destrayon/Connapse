@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Connapse.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -124,8 +125,6 @@ public sealed partial class TableReaderLogin : IAsyncDisposable
             await ProvisionAsync(ct);
 
         string login = TableDdl.Quote(RoleName);
-        string roleName = ContainerRoleName(containerId);
-        string role = TableDdl.Quote(roleName);
         string quotedSchema = TableDdl.Quote(schema);
         await using NpgsqlConnection connection = await _admin.OpenConnectionAsync(ct);
         await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
@@ -134,27 +133,7 @@ public sealed partial class TableReaderLogin : IAsyncDisposable
         await TableDdl.LockContainerAsync(connection, containerId, shared: true, ct);
         await ExecuteAsync(connection, transaction, "SELECT pg_catalog.pg_advisory_xact_lock($1, pg_catalog.hashtext($2))", ct, LockClass, schema);
 
-        bool exists = false;
-        await using (NpgsqlCommand check = new(
-            "SELECT r.rolcanlogin OR r.rolsuper OR r.rolreplication OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb, "
-            + "EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid) "
-            + "FROM pg_catalog.pg_roles r WHERE r.rolname = $1", connection, transaction))
-        {
-            check.Parameters.Add(new NpgsqlParameter { Value = roleName });
-            await using NpgsqlDataReader row = await check.ExecuteReaderAsync(ct);
-            if (await row.ReadAsync(ct))
-            {
-                if (row.GetBoolean(0) || row.GetBoolean(1))
-                    throw new InvalidOperationException(
-                        $"Role {roleName} exists with more rights than reading one container's tables; Connapse won't use it.");
-                exists = true;
-            }
-        }
-
-        if (!exists)
-            await ExecuteAsync(connection, transaction,
-                $"CREATE ROLE {role} WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS", ct);
-        await ExecuteAsync(connection, transaction, $"GRANT {role} TO {login} WITH SET TRUE, INHERIT FALSE", ct);
+        string role = await EnsureContainerRoleAsync(connection, transaction, containerId, ct);
         await ExecuteAsync(connection, transaction, $"GRANT USAGE ON SCHEMA {quotedSchema} TO {role}", ct);
         await ExecuteAsync(connection, transaction, $"GRANT SELECT ON ALL TABLES IN SCHEMA {quotedSchema} TO {role}", ct);
         await ExecuteAsync(connection, transaction, $"ALTER DEFAULT PRIVILEGES IN SCHEMA {quotedSchema} GRANT SELECT ON TABLES TO {role}", ct);
@@ -187,6 +166,113 @@ public sealed partial class TableReaderLogin : IAsyncDisposable
 
         await transaction.CommitAsync(ct);
         _grantedSchemas[schema] = true;
+    }
+
+    /// <summary>
+    /// Gives a memory container its reader role (CON-309), once per container per process: the same NOLOGIN role a
+    /// documents container gets, granted to the login for <c>SET ROLE</c> only, with <c>SELECT</c> on the memory view
+    /// and nothing on <c>memory_facts</c> itself. The view shows only what the request's memory token allows.
+    /// </summary>
+    public async Task EnsureMemoryGrantsAsync(Guid containerId, CancellationToken ct)
+    {
+        string key = MemoryGrantKey(containerId);
+        if (_grantedSchemas.ContainsKey(key))
+            return;
+        if (_reader is null)
+            await ProvisionAsync(ct);
+
+        string memory = TableDdl.Quote(TableDdl.MemorySchema);
+        await using NpgsqlConnection connection = await _admin.OpenConnectionAsync(ct);
+        await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(ct);
+        await TableDdl.LockContainerAsync(connection, containerId, shared: true, ct);
+        // Every memory container's grants change the one view's privileges, so they take one lock between them.
+        await ExecuteAsync(connection, transaction, "SELECT pg_catalog.pg_advisory_xact_lock($1, pg_catalog.hashtext($2))", ct, LockClass, TableDdl.MemorySchema);
+
+        string role = await EnsureContainerRoleAsync(connection, transaction, containerId, ct);
+        await ExecuteAsync(connection, transaction, $"GRANT USAGE ON SCHEMA {memory} TO {role}", ct);
+        await ExecuteAsync(connection, transaction, $"GRANT SELECT ON {memory}.{TableDdl.Quote(TableDdl.MemoryView)} TO {role}", ct);
+        await ExecuteAsync(connection, transaction, $"GRANT USAGE ON SCHEMA {TableDdl.Quote(TableDdl.AuthSchema)} TO {role}", ct);
+        await ExecuteAsync(connection, transaction, $"GRANT EXECUTE ON FUNCTION {TableDdl.ReadableDocumentsFunction} TO {role}", ct);
+        await transaction.CommitAsync(ct);
+        _grantedSchemas[key] = true;
+    }
+
+    /// <summary>The grant cache's key for a memory container; it never equals a tables schema's name.</summary>
+    public static string MemoryGrantKey(Guid containerId) => TableDdl.MemorySchema + ":" + containerId.ToString("N");
+
+    /// <summary>
+    /// Creates the container's NOLOGIN reader role, or refuses one of that name with any other rights or memberships,
+    /// and grants it to the login for <c>SET ROLE</c> only. Returns the quoted role name.
+    /// </summary>
+    private async Task<string> EnsureContainerRoleAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, Guid containerId, CancellationToken ct)
+    {
+        string login = TableDdl.Quote(RoleName);
+        string roleName = ContainerRoleName(containerId);
+        string role = TableDdl.Quote(roleName);
+        bool exists = false;
+        await using (NpgsqlCommand check = new(
+            "SELECT r.rolcanlogin OR r.rolsuper OR r.rolreplication OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb, "
+            + "EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid) "
+            + "FROM pg_catalog.pg_roles r WHERE r.rolname = $1", connection, transaction))
+        {
+            check.Parameters.Add(new NpgsqlParameter { Value = roleName });
+            await using NpgsqlDataReader row = await check.ExecuteReaderAsync(ct);
+            if (await row.ReadAsync(ct))
+            {
+                if (row.GetBoolean(0) || row.GetBoolean(1))
+                    throw new InvalidOperationException(
+                        $"Role {roleName} exists with more rights than reading one container's tables; Connapse won't use it.");
+                exists = true;
+            }
+        }
+
+        if (!exists)
+            await ExecuteAsync(connection, transaction,
+                $"CREATE ROLE {role} WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS", ct);
+        await ExecuteAsync(connection, transaction, $"GRANT {role} TO {login} WITH SET TRUE, INHERIT FALSE", ct);
+        return role;
+    }
+
+    /// <summary>
+    /// Writes a memory request token (CON-309) for one memory container: the document and link-node refs
+    /// <paramref name="viewer"/> can read and who the caller is, kept in <c>tables_auth.memory_requests</c>. The memory
+    /// view shows the container's facts by memory's own rule against it; the table lookup knows nothing of it.
+    /// </summary>
+    internal async Task<string> IssueMemoryTokenAsync(Guid containerId, MemoryViewer viewer, TimeSpan lifetime, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(viewer);
+        if (_reader is null)
+            await ProvisionAsync(ct);
+
+        string[] documents = [.. viewer.Readable.Where(s => s.Kind == MemorySourceKind.Document).Select(s => s.Ref).Distinct(StringComparer.Ordinal)];
+        string[] nodes = [.. viewer.Readable.Where(s => s.Kind == MemorySourceKind.Node).Select(s => s.Ref).Distinct(StringComparer.Ordinal)];
+        string token = RandomNumberGenerator.GetHexString(32, lowercase: true);
+        await using NpgsqlConnection connection = await _admin.OpenConnectionAsync(ct);
+        await using NpgsqlBatch batch = new(connection)
+        {
+            BatchCommands =
+            {
+                new NpgsqlBatchCommand("DELETE FROM tables_auth.memory_requests WHERE expires_at < pg_catalog.statement_timestamp()"),
+                new NpgsqlBatchCommand(
+                    "INSERT INTO tables_auth.memory_requests (token, container_id, documents, nodes, user_id, agent_id, expires_at) "
+                    + "VALUES ($1, $2, $3, $4, $5, $6, pg_catalog.statement_timestamp() + $7)")
+                {
+                    Parameters =
+                    {
+                        new NpgsqlParameter { Value = token },
+                        new NpgsqlParameter { Value = containerId },
+                        new NpgsqlParameter { Value = documents },
+                        new NpgsqlParameter { Value = nodes },
+                        new NpgsqlParameter { Value = (object?)viewer.Caller.UserId ?? DBNull.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid },
+                        new NpgsqlParameter { Value = (object?)viewer.Caller.AgentId ?? DBNull.Value, NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Uuid },
+                        new NpgsqlParameter { Value = lifetime },
+                    },
+                },
+            },
+        };
+        await batch.ExecuteNonQueryAsync(ct);
+        return token;
     }
 
     /// <summary>
@@ -230,7 +316,15 @@ public sealed partial class TableReaderLogin : IAsyncDisposable
         try
         {
             await using NpgsqlConnection connection = await _admin.OpenConnectionAsync(CancellationToken.None);
-            await ExecuteAsync(connection, null, "DELETE FROM tables_auth.requests WHERE token = $1", CancellationToken.None, token);
+            await using NpgsqlBatch batch = new(connection)
+            {
+                BatchCommands =
+                {
+                    new NpgsqlBatchCommand("DELETE FROM tables_auth.requests WHERE token = $1") { Parameters = { new NpgsqlParameter { Value = token } } },
+                    new NpgsqlBatchCommand("DELETE FROM tables_auth.memory_requests WHERE token = $1") { Parameters = { new NpgsqlParameter { Value = token } } },
+                },
+            };
+            await batch.ExecuteNonQueryAsync(CancellationToken.None);
         }
         catch (Exception ex) when (ex is NpgsqlException or InvalidOperationException)
         {
@@ -362,6 +456,8 @@ public sealed partial class TableReaderLogin : IAsyncDisposable
     {
         await TableDdl.LockTokenStoreAsync(connection, ct);
         foreach (string sql in TableDdl.TokenStoreSql)
+            await ExecuteAsync(connection, transaction, sql, ct);
+        foreach (string sql in TableDdl.MemoryStoreSql)
             await ExecuteAsync(connection, transaction, sql, ct);
     }
 
