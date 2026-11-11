@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Connapse.Core;
+using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
 
 namespace Connapse.Ingestion.Tables;
@@ -37,6 +38,12 @@ internal sealed record FoundTable(
 }
 
 /// <summary>
+/// Where a table sits in a passage: <see cref="Table"/> and <see cref="Chunk"/> index the lists given to
+/// <see cref="DocumentTables.Spans"/>, and <see cref="Start"/> and <see cref="Length"/> place it in the chunk's text.
+/// </summary>
+internal sealed record TableSpan(int Table, int Chunk, int Start, int Length);
+
+/// <summary>
 /// Finds the Markdown pipe tables every document parser writes (PDF, Word, PowerPoint, Excel, HTML, EPUB, email,
 /// Markdown) and decides which are clean enough to load as a table. Tables inside fenced code blocks are left alone.
 /// </summary>
@@ -53,6 +60,15 @@ internal static partial class DocumentTables
 
     /// <summary>The share of a table's data cells that must hold a value.</summary>
     public const double MinFilled = 0.5;
+
+    /// <summary>
+    /// The formats whose parsers can write a table: documents, slides, sheets, web pages, books, email and Markdown.
+    /// Plain text, code and CSV are left out; a CSV file loads as a table by its own path.
+    /// </summary>
+    public static readonly IReadOnlySet<string> Formats = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".epub", ".eml", ".msg", ".md", ".markdown",
+    };
 
     /// <summary>The longest table name, matching the catalog's limit for loaded files.</summary>
     private const int MaxName = 256;
@@ -164,7 +180,90 @@ internal static partial class DocumentTables
         IReadOnlyList<ValueReader> readers = CsvSniffer.InferTypes(table.Rows, width);
         IReadOnlyList<string> names = CsvSniffer.Names([.. table.Header], width);
         TableColumn[] columns = [.. names.Select((n, c) => new TableColumn(n, readers[c].Type, Format: readers[c].Format))];
-        return new TableLoad(name, columns, RowsAsync(table.Rows, readers), documentId, description);
+        return new TableLoad(name, columns, RowsAsync(table.Rows, readers), documentId, description,
+            Placement: new TablePlacement(table.Page, table.Number, table.HeaderHash));
+    }
+
+    /// <summary>
+    /// Where each table sits in each passage: for every chunk, the runs of its lines that are lines of one table.
+    /// A chunk can hold part of a table, or a row cut at its edge, so a run may be any stretch of the table's lines,
+    /// with a partial row allowed at the chunk's first or last line. A run that matches more than one table, as two
+    /// tables sharing a row would, goes to the table nearest the chunk in the document.
+    /// </summary>
+    public static IReadOnlyList<TableSpan> Spans(IReadOnlyList<FoundTable> tables, IReadOnlyList<ChunkInfo> chunks)
+    {
+        List<TableSpan> spans = [];
+        for (int c = 0; c < chunks.Count; c++)
+        {
+            ChunkInfo chunk = chunks[c];
+            List<(int Start, string Text)> lines = SplitLines(chunk.Content);
+            List<(int Table, int First, int Last)> runs = [];
+            for (int t = 0; t < tables.Count; t++)
+                runs.AddRange(Runs(tables[t], lines).Select(r => (t, r.First, r.Last)));
+
+            // Longest run first, then the table nearest the chunk; a run overlapping one already taken is dropped.
+            var taken = new List<(int First, int Last)>();
+            foreach (var run in runs
+                .OrderByDescending(r => r.Last - r.First)
+                .ThenBy(r => Distance(tables[r.Table], chunk))
+                .ThenBy(r => r.Table))
+            {
+                if (taken.Any(k => run.First <= k.Last && k.First <= run.Last))
+                    continue;
+                taken.Add((run.First, run.Last));
+                int start = lines[run.First].Start;
+                int end = lines[run.Last].Start + lines[run.Last].Text.Length;
+                spans.Add(new TableSpan(run.Table, c, start, end - start));
+            }
+        }
+        return [.. spans.OrderBy(s => s.Chunk).ThenBy(s => s.Start)];
+    }
+
+    private static IEnumerable<(int First, int Last)> Runs(FoundTable table, List<(int Start, string Text)> lines)
+    {
+        HashSet<string> whole = [.. table.Lines];
+        int i = 0;
+        while (i < lines.Count)
+        {
+            if (!IsPiece(i))
+            {
+                i++;
+                continue;
+            }
+            int j = i;
+            bool hasRow = false;
+            while (j < lines.Count && IsPiece(j))
+            {
+                string trimmed = lines[j].Text.Trim();
+                // A row cut at the chunk's edge counts when it still holds a cell boundary and some cell text.
+                hasRow |= !IsSeparator(trimmed) && (whole.Contains(trimmed) || (trimmed.Contains('|') && trimmed.Any(char.IsLetterOrDigit)));
+                j++;
+            }
+            if (hasRow)
+                yield return (i, j - 1);
+            i = j;
+        }
+
+        bool IsPiece(int k)
+        {
+            string trimmed = lines[k].Text.Trim();
+            if (trimmed.Length == 0)
+                return false;
+            if (whole.Contains(trimmed))
+                return true;
+            return (k == 0 && table.Lines.Any(l => l.EndsWith(trimmed, StringComparison.Ordinal)))
+                || (k == lines.Count - 1 && table.Lines.Any(l => l.StartsWith(trimmed, StringComparison.Ordinal)));
+        }
+    }
+
+    private static long Distance(FoundTable table, ChunkInfo chunk)
+    {
+        long tableEnd = (long)table.Start + table.Length;
+        if (chunk.EndOffset < table.Start)
+            return table.Start - (long)chunk.EndOffset;
+        if (chunk.StartOffset > tableEnd)
+            return chunk.StartOffset - tableEnd;
+        return 0;
     }
 
     private static async IAsyncEnumerable<IReadOnlyList<object?>> RowsAsync(

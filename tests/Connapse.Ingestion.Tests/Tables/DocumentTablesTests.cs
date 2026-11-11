@@ -197,4 +197,68 @@ public class DocumentTablesTests
         rows[0].Should().Equal("North", 12L, new DateOnly(2024, 3, 1));
         rows[1][1].Should().BeNull();
     }
+
+    [Fact]
+    public void ToLoad_SetsThePlacement()
+    {
+        FoundTable table = DocumentTables.Find("--- Page 4 ---\n| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |", ".pdf").Single();
+
+        DocumentTables.ToLoad(table, "t", Guid.NewGuid()).Placement.Should().Be(new TablePlacement(4, 1, table.HeaderHash));
+    }
+
+    private const string TwoTables =
+        "Intro text.\n\n| Region | Q1 |\n|---|---|\n| North | 12 |\n| South | 9 |\n\nMiddle text.\n\n| Name | Role |\n|---|---|\n| Ada | Lead |\n| Lin | Dev |\n\nEnd.";
+
+    private static ChunkInfo Chunk(string content, int start) => new(content, 0, 1, start, start + content.Length, []);
+
+    [Fact]
+    public void Spans_WholeDocumentInOneChunk_CoversEachTableExactly()
+    {
+        var tables = DocumentTables.Find(TwoTables, ".md");
+
+        var spans = DocumentTables.Spans(tables, [Chunk(TwoTables, 0)]);
+
+        spans.Should().HaveCount(2);
+        spans.Select(s => TwoTables.Substring(s.Start, s.Length)).Should().Equal(tables[0].Text, tables[1].Text);
+        spans.Select(s => s.Table).Should().Equal(0, 1);
+    }
+
+    [Fact]
+    public void Spans_TableSplitAcrossChunksWithACutRow_EachChunkLinksItsPart()
+    {
+        var tables = DocumentTables.Find(TwoTables, ".md");
+        int cut = TwoTables.IndexOf("| South", StringComparison.Ordinal) + 4;
+        string first = TwoTables[..cut];
+        string second = TwoTables[cut..];
+
+        var spans = DocumentTables.Spans(tables, [Chunk(first, 0), Chunk(second, cut)]);
+
+        spans.Where(s => s.Chunk == 0).Should().ContainSingle().Which.Table.Should().Be(0);
+        var head = spans.Single(s => s.Chunk == 0);
+        first.Substring(head.Start, head.Length).Should().StartWith("| Region").And.EndWith("| So");
+        var tail = spans.Where(s => s.Chunk == 1).ToList();
+        tail.Select(s => s.Table).Should().Equal(0, 1);
+        second.Substring(tail[0].Start, tail[0].Length).Should().Be("uth | 9 |");
+    }
+
+    [Fact]
+    public void Spans_SameTableTwice_EachChunkLinksTheNearestCopy()
+    {
+        string table = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |";
+        string doc = table + "\n\ntext between\n\n" + table;
+        var tables = DocumentTables.Find(doc, ".md");
+        int second = doc.LastIndexOf("| A", StringComparison.Ordinal);
+
+        var spans = DocumentTables.Spans(tables, [Chunk(doc[..second], 0), Chunk(doc[second..], second)]);
+
+        spans.Select(s => (s.Chunk, s.Table)).Should().Equal((0, 0), (1, 1));
+    }
+
+    [Fact]
+    public void Spans_ChunkWithoutTableRows_HasNone()
+    {
+        var tables = DocumentTables.Find(TwoTables, ".md");
+
+        DocumentTables.Spans(tables, [Chunk("Intro text.\n|---|---|\nnot a table", 0)]).Should().BeEmpty();
+    }
 }
