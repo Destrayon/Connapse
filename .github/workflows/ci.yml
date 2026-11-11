@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # Pushes to epic and release branches run too: their runs are the baseline for the test time of the PRs
+  # into them (pipeline_time.py, CON-333).
   push:
-    branches: [ main ]
+    branches: [ main, 'epic/**', 'release/**' ]
   pull_request:
     branches: [ main, 'epic/**', 'release/**' ]
 
@@ -395,8 +397,8 @@ jobs:
         git commit -m "Update test badge"
         git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
 
-    # Fails when the tests this change adds, slows or drops add over 45 s against main's five runs up to
-    # its base commit, read on a median runner, or the rest add over 120 s together (CON-223). The pipeline's wall time over 6 minutes depends on the runner
+    # Fails when the tests this change adds, slows or drops add over 45 s against its base branch's five runs
+    # up to its base commit (main's when an epic or release branch has none yet, CON-333), read on a median runner, or the rest add over 120 s together (CON-223). The pipeline's wall time over 6 minutes depends on the runner
     # GitHub hands out, so it is a warning with main's trend beside it, and fails nothing: wall time
     # failed eleven runs whose tests were no slower, through four patches that each discounted one cause.
     # Last, so the wall time includes this job's own steps.

@@ -262,6 +262,27 @@ this answer.
 The approval request was already approved or denied, or it expired. A request waits a day; an
 approval can be used once, within 15 minutes.
 
+## invalid-deletion-batch
+
+A request for a batch of deletions named an item that can't be deleted: an unknown kind, a missing
+reason, a file, folder or memory space that doesn't exist, one the caller isn't allowed to delete, a
+duplicate, or more than 50 items. Nothing is asked for until every item is valid; the detail names
+each bad item by its position.
+
+## deletion-batch-not-found
+
+No batch of deletions has this id, or it belongs to someone else. Only the token that asked for a
+batch can check it, and only that token's owner can decide it.
+
+## deletion-batch-not-pending
+
+The batch of deletions was already approved or denied, or it expired. A batch waits a day for its
+owner.
+
+## deletion-batch-nothing-selected
+
+Approve was chosen with no items of the batch ticked. Tick at least one item, or deny the batch.
+
 ## container-not-found
 
 No container has that id or name.

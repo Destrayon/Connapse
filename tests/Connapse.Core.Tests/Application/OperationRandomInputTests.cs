@@ -851,6 +851,178 @@ public class OperationRandomInputTests
         status.Result.Message.Should().Contain("still waiting");
     }
 
+    // ── approvals.batches.* (CON-315) ───────────────────────────────────────────────────────────
+
+    /// <summary>An item that fails its own checks before any lookup: an unknown kind, or a missing or overlong reason.</summary>
+    private static readonly Gen<DeletionRequestItem> AnyUnusableDeletionItem = Gen.OneOf(
+        Gen.String[0, 12].Where(k => DeletionTargets.ParseKind(k) is null).Select(k => new DeletionRequestItem(k, "c", "/a.md", "old")),
+        Gen.OneOf(Gen.Const("file"), Gen.Const("folder"), Gen.Const("memory_space")).Select(Gen.OneOf(Gen.Const(""), Gen.Const("   "),
+            Gen.Char.Array[DeletionBatchItemEntity.ReasonMaxLength + 1, DeletionBatchItemEntity.ReasonMaxLength + 40].Select(c => new string(c).Replace(' ', 'x'))),
+            (kind, reason) => new DeletionRequestItem(kind, "c", "/a.md", reason)));
+
+    [Fact]
+    [RandomInputTestOf(typeof(RequestDeletions))]
+    public Task RequestDeletions_AnyCallerAndBadItems_AsksForNothing() =>
+        Gen.Select(AnyStatusCaller, Gen.Bool, Gen.Bool, AnyUnusableDeletionItem.List[0, DeletionBatchEntity.MaxItems + 5])
+            .SampleAsync(async t =>
+            {
+                var (caller, writer, knowledgeWrite, items) = t;
+                var batches = Substitute.For<IDeletionBatchStore>();
+                var authorizer = new PolicyAuthorizer(policy => policy switch
+                {
+                    Policies.Writer => writer,
+                    Policies.KnowledgeWrite => knowledgeWrite,
+                    _ => false,
+                });
+                var audit = Substitute.For<IAuditLogger>();
+
+                var asked = await new RequestDeletions(batches, null!, null!, null!, null!, null!, null!, null!, authorizer, audit, new FixedClock(Epoch), null!)
+                    .ExecuteAsync(caller, items);
+
+                // Every item here is unusable, so whoever asks and however many, nothing is stored or audited.
+                batches.ReceivedCalls().Should().BeEmpty();
+                audit.ReceivedCalls().Should().BeEmpty();
+                if (caller.User.Identity?.IsAuthenticated != true)
+                {
+                    asked.Status.Should().Be(DeletionBatchOutcome.NotSignedIn);
+                    return;
+                }
+                asked.Status.Should().Be(DeletionBatchOutcome.Invalid);
+                asked.Field.Should().Be("items");
+                if (items.Count is > 0 and <= DeletionBatchEntity.MaxItems)
+                    asked.Detail.Should().Contain($"item {items.Count}:");
+            }, iter: 500);
+
+    private static DeletionBatchEntity DeletionBatch(DeletionBatchStatus status, int expiresInMinutes, string? reason, params DeletionItemState[] states)
+    {
+        var batch = new DeletionBatchEntity
+        {
+            Id = Guid.NewGuid(),
+            TokenKey = "pat:someone",
+            OwnerUserId = Guid.NewGuid(),
+            Status = status,
+            CreatedAt = Epoch.AddHours(-1),
+            ExpiresAt = Epoch.AddMinutes(expiresInMinutes),
+            DecisionReason = reason,
+        };
+        for (int i = 0; i < states.Length; i++)
+            batch.Items.Add(new DeletionBatchItemEntity { Id = Guid.NewGuid(), BatchId = batch.Id, Position = i, State = states[i], Label = $"c:/{i}.md" });
+        return batch;
+    }
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetDeletionBatchStatus))]
+    public Task DeletionStatus_AnyCallerAndBatch_ShowsOnlyTheCallersOwnBatchWithItsState() =>
+        Gen.Select(AnyStatusCaller, Gen.Bool, Gen.Enum<DeletionBatchStatus>(), Gen.Int[-120, 120],
+                Gen.OneOf(Gen.Const((string?)null), Gen.String[1, 40].Select(s => (string?)s)), Gen.Enum<DeletionItemState>().Array[1, 5])
+            .SampleAsync(async t =>
+            {
+                var (caller, own, stored, expiresInMinutes, reason, states) = t;
+                var batches = Substitute.For<IDeletionBatchStore>();
+                var batch = DeletionBatch(stored, expiresInMinutes, reason, states);
+                batches.GetForTokenAsync(batch.Id, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call => own ? batch : null);
+
+                var status = await new GetDeletionBatchStatus(batches, new FixedClock(Epoch)).ExecuteAsync(caller, batch.Id, TimeSpan.Zero);
+
+                if (caller.User.Identity?.IsAuthenticated != true)
+                {
+                    status.Status.Should().Be(DeletionBatchOutcome.NotFound);
+                    batches.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                // The store is asked only for the caller's own token's batch.
+                await batches.Received(1).GetForTokenAsync(batch.Id, McpApprovalClaims.TokenKey(caller.User), Arg.Any<CancellationToken>());
+                if (!own)
+                {
+                    status.Status.Should().Be(DeletionBatchOutcome.NotFound);
+                    return;
+                }
+
+                bool live = batch.ExpiresAt > Epoch;
+                status.Result!.State.Should().Be(stored switch
+                {
+                    DeletionBatchStatus.Pending => live ? "pending" : "expired",
+                    DeletionBatchStatus.Running => "running",
+                    DeletionBatchStatus.Denied => "denied",
+                    _ => "done",
+                });
+                status.Result.IsYours.Should().BeFalse("an agent's status never offers a decision");
+                status.Result.Items.Should().HaveCount(states.Length);
+                if (reason is not null && stored is DeletionBatchStatus.Denied or DeletionBatchStatus.Done)
+                    status.Result.Message.Should().Contain(reason);
+            }, iter: 2000);
+
+    private static DeletionBatchOutcome BatchRefusal(ApprovalCaller approver) =>
+        approver.Surface != OperationSurface.Ui ? DeletionBatchOutcome.NotFromUi : DeletionBatchOutcome.NotSignedIn;
+
+    [Fact]
+    [RandomInputTestOf(typeof(ListDeletionBatches))]
+    public Task ListDeletionBatches_AnyCaller_ListsOnlyForABrowserSignIn() =>
+        Gen.Select(AnyApprovalCaller, Gen.Int[0, 3])
+            .SampleAsync(async t =>
+            {
+                var (approver, count) = t;
+                var batches = Substitute.For<IDeletionBatchStore>();
+                var pending = Enumerable.Range(0, count).Select(i =>
+                {
+                    var batch = DeletionBatch(DeletionBatchStatus.Pending, 60, null, DeletionItemState.Pending);
+                    if (i % 2 == 0 && approver.Decider is var (own, _))
+                        batch.OwnerUserId = own;
+                    return batch;
+                }).ToList();
+                batches.ListPendingAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(pending);
+
+                var listed = await new ListDeletionBatches(batches, new FixedClock(Epoch)).ExecuteAsync(approver.Context);
+
+                if (approver.Decider is not var (userId, isAdmin))
+                {
+                    listed.Status.Should().Be(BatchRefusal(approver));
+                    batches.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                await batches.Received(1).ListPendingAsync(userId, isAdmin, Arg.Any<CancellationToken>());
+                listed.Result!.Select(b => (b.Id, b.IsYours)).Should().Equal(pending.Select(b => (b.Id, b.OwnerUserId == userId)));
+            }, iter: 2000);
+
+    [Fact]
+    [RandomInputTestOf(typeof(DecideDeletionBatch))]
+    public Task DecideDeletionBatch_AnyCaller_DecidesOnlyFromABrowserSignInAndHidesOthersBatches() =>
+        Gen.Select(AnyApprovalCaller, Gen.Bool, Gen.Enum<DeletionBatchDecision>(), Gen.OneOf(Gen.Const((string?)null), Gen.String.Select(s => (string?)s)))
+            .SampleAsync(async t =>
+            {
+                var (approver, approve, decision, reason) = t;
+                var batches = Substitute.For<IDeletionBatchStore>();
+                // Nothing left approved, so a decided batch completes without reaching any delete.
+                var batch = DeletionBatch(approve ? DeletionBatchStatus.Done : DeletionBatchStatus.Denied, 60, reason, DeletionItemState.NotApproved);
+                batches.DecideAsync(batch.Id, Arg.Any<Guid>(), approve, Arg.Any<IReadOnlyCollection<Guid>?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                    .Returns(decision);
+                batches.GetAsync(batch.Id, Arg.Any<CancellationToken>()).Returns(batch);
+
+                var decided = await new DecideDeletionBatch(batches, null!, null!, null!, null!, null!, null!, null!, null!,
+                    Substitute.For<IAuditLogger>(), new FixedClock(Epoch), NullLogger<DecideDeletionBatch>.Instance, null!, null!, null!)
+                    .ExecuteAsync(approver.Context, batch.Id, approve, null, reason);
+
+                if (approver.Decider is not var (userId, _))
+                {
+                    decided.Status.Should().Be(BatchRefusal(approver));
+                    batches.ReceivedCalls().Should().BeEmpty();
+                    return;
+                }
+                // Being an administrator never reaches the store as anyone but themselves: only the owner decides.
+                await batches.Received(1).DecideAsync(batch.Id, userId, approve, null, reason, Arg.Any<CancellationToken>());
+                decided.Status.Should().Be(decision switch
+                {
+                    DeletionBatchDecision.Decided => DeletionBatchOutcome.Success,
+                    DeletionBatchDecision.NotPending => DeletionBatchOutcome.NotPending,
+                    DeletionBatchDecision.NothingSelected => DeletionBatchOutcome.NothingSelected,
+                    _ => DeletionBatchOutcome.NotFound,
+                });
+                if (decision == DeletionBatchDecision.Decided && approve)
+                    await batches.Received(1).CompleteAsync(batch.Id, Arg.Any<CancellationToken>());
+                else
+                    await batches.DidNotReceive().CompleteAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+            }, iter: 2000);
+
     [Trait("Category", "Unit")]
     public class AccountLinks
     {

@@ -1,0 +1,16 @@
+.space-label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0.9rem 0 0.4rem;
+}
+
+.space-label-first {
+    margin-top: 0;
+}
+
+.space-hint {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 0.35rem;
+}
