@@ -150,7 +150,8 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
 
         if (options.Arms.Contains(TableArm.Sql))
         {
-            IContainerStore store = system.Services.GetRequiredService<IContainerStore>();
+            await using AsyncServiceScope scope = system.Services.CreateAsyncScope();
+            IContainerStore store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
             foreach (Guid id in new[] { container, restricted }.Where(id => id != Guid.Empty))
                 await TurnOnAgentSqlAsync(store, id, ct);
         }
