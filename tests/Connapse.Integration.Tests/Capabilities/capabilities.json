@@ -1215,6 +1215,24 @@
       ],
       "mcp": "approval_status",
       "note": "A token sees only the requests it made; anyone else's reads as not found. Deciding stays in the UI."
+    },
+    {
+      "id": "approvals.batches.request",
+      "capability": "Ask my owner to approve several deletions at once",
+      "routes": [
+        "POST /api/approvals/deletions"
+      ],
+      "mcp": "request_deletions",
+      "note": "Up to 50 files, folders or memory spaces, each with a reason. Nothing is deleted until the owner approves all, some or none on the /approvals page; Connapse then deletes the approved items itself."
+    },
+    {
+      "id": "approvals.batches.status",
+      "capability": "Check or wait for the outcome of my batch of deletions",
+      "routes": [
+        "GET /api/approvals/deletions/{id:guid}"
+      ],
+      "mcp": "deletion_status",
+      "note": "A token sees only the batches it asked for; anyone else's reads as not found. Deciding stays in the UI."
     }
   ],
   "plumbing": {

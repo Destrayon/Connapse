@@ -25,6 +25,8 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
     public DbSet<UserAtlassianIdentityLinkEntity> UserAtlassianIdentityLinks => Set<UserAtlassianIdentityLinkEntity>();
     public DbSet<UserAtlassianLinkRevocationEntity> UserAtlassianLinkRevocations => Set<UserAtlassianLinkRevocationEntity>();
     public DbSet<McpApprovalEntity> McpApprovals => Set<McpApprovalEntity>();
+    public DbSet<DeletionBatchEntity> DeletionBatches => Set<DeletionBatchEntity>();
+    public DbSet<DeletionBatchItemEntity> DeletionBatchItems => Set<DeletionBatchItemEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -806,6 +808,48 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             // The retried call looks itself up by token, tool and arguments.
             entity.HasIndex(e => new { e.TokenKey, e.ToolName, e.ArgumentsHash });
             entity.HasIndex(e => new { e.OwnerUserId, e.Status });
+        });
+
+        modelBuilder.Entity<DeletionBatchEntity>(entity =>
+        {
+            entity.ToTable("deletion_batches");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.TokenKey).HasColumnName("token_key").HasMaxLength(64);
+            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
+            entity.Property(e => e.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(16);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expires_at");
+            entity.Property(e => e.DecidedAt).HasColumnName("decided_at");
+            entity.Property(e => e.DecidedByUserId).HasColumnName("decided_by_user_id");
+            entity.Property(e => e.DecisionReason).HasColumnName("decision_reason").HasMaxLength(McpApprovalEntity.DecisionReasonMaxLength);
+            entity.Property(e => e.CompletedAt).HasColumnName("completed_at");
+
+            entity.HasMany(e => e.Items).WithOne().HasForeignKey(i => i.BatchId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.OwnerUserId, e.Status });
+            entity.HasIndex(e => e.TokenKey);
+        });
+
+        modelBuilder.Entity<DeletionBatchItemEntity>(entity =>
+        {
+            entity.ToTable("deletion_batch_items");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.BatchId).HasColumnName("batch_id");
+            entity.Property(e => e.Position).HasColumnName("position");
+            entity.Property(e => e.Kind).HasColumnName("kind").HasConversion<string>().HasMaxLength(16);
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.Target).HasColumnName("target").HasMaxLength(DeletionBatchItemEntity.TargetMaxLength);
+            entity.Property(e => e.Label).HasColumnName("label").HasMaxLength(DeletionBatchItemEntity.LabelMaxLength);
+            entity.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(DeletionBatchItemEntity.ReasonMaxLength);
+            entity.Property(e => e.Fingerprint).HasColumnName("fingerprint").HasMaxLength(64);
+            entity.Property(e => e.State).HasColumnName("state").HasConversion<string>().HasMaxLength(16);
+            entity.Property(e => e.Outcome).HasColumnName("outcome").HasMaxLength(DeletionBatchItemEntity.OutcomeMaxLength);
+            entity.Property(e => e.FinishedAt).HasColumnName("finished_at");
+
+            entity.HasIndex(e => new { e.BatchId, e.Position }).IsUnique();
         });
     }
 }

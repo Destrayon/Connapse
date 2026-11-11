@@ -97,7 +97,7 @@ Ask Claude:
 Delete retries.md from the agent-notes container.
 ```
 
-Notice that Claude doesn't delete anything yet. Connapse holds the call and Claude tells you to approve it at `/approvals`. Open **Approvals** in the navigation and approve the request. Claude checks the request with `approval_status`, sees it was approved, and repeats the call, which goes through. You don't have to tell it to try again.
+Notice that Claude doesn't delete anything yet. Connapse holds the delete as a one-item batch and Claude tells you to approve it at `/approvals`. Open **Approvals** in the navigation and approve the batch. Connapse deletes the file, and Claude checks the batch with `deletion_status` and sees it was deleted. Claude doesn't need to try again.
 
 ## What you built
 

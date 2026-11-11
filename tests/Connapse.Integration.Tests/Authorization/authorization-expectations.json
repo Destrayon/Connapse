@@ -185,6 +185,16 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/approvals/deletions/{id:guid}": {
+      "requires": "editor",
+      "risk": "read",
+      "scope": "knowledge:write"
+    },
+    "POST /api/approvals/deletions": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "GET /api/batches/{id}/status": {
       "requires": "viewer",
       "risk": "read",
@@ -1230,6 +1240,16 @@
     "approval_status": {
       "requires": "mcp",
       "scope": "none",
+      "risk": "read"
+    },
+    "request_deletions": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
+    "deletion_status": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
       "risk": "read"
     }
   }
