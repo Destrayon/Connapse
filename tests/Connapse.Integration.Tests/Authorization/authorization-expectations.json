@@ -305,6 +305,26 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/containers/{containerId:guid}/tables/{tableId:guid}": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "POST /api/containers/{containerId:guid}/tables/read": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "POST /api/containers/{containerId:guid}/tables/aggregate": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "POST /api/containers/{containerId:guid}/tables/changes": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/memory/facts": {
       "requires": "viewer",
       "risk": "read",
@@ -1183,6 +1203,31 @@
       "risk": "read"
     },
     "container_describe": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_list": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_describe": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_read": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_aggregate": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_changes": {
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"

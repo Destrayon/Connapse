@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agents can count, filter and add up table data** (CON-305). Five MCP tools, `table_list`, `table_describe`, `table_read`, `table_aggregate` and `table_changes`, and the REST routes `GET /api/containers/{id}/tables/{tableId}`, `POST .../tables/read`, `POST .../tables/aggregate` and `POST .../tables/changes` answer questions over the tables built from uploaded CSVs. `table_changes` says what changed in a table with a key column between two times. A read or aggregate may join one other table of the container on named columns. Answers cover only rows from documents the caller may read, leave out hidden columns, and carry a notice that cells are data, not instructions. `GET /api/containers/{id}/tables` takes `?search=`.
+
 ### Changed
 
 - **A held delete becomes a batch that Connapse carries out** (CON-330). When a token asks before deleting, `delete_file`, `bulk_delete`, `container_delete`, `memory_forget` and `folders.delete` through `connapse_api_write` no longer return a request for the agent to repeat. Each returns a batch of deletions, one item per file, folder, container or fact, which the owner approves on **Approvals** like one from `request_deletions`. Connapse deletes the approved items itself, skipping any that changed, and the agent reads each outcome with `deletion_status`. `request_deletions` also takes empty containers (`kind: "container"`) and memory facts (`kind: "fact"`). Held calls that aren't knowledge deletions, such as setting a credential or removing a user, still use `approval_status` and a repeated call, because Connapse keeps their arguments only sealed.

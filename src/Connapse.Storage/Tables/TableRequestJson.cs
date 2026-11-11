@@ -24,11 +24,19 @@ namespace Connapse.Storage.Tables;
 ///  "limit": 50, "offset": 0}</code>
 /// with <c>until</c> optional (now). Times are ISO 8601; one without an offset is UTC.
 /// </para>
+/// <para>
+/// A read or an aggregate can join one other table of the same container (CON-305) with
+/// <code>"join": {"table": "&lt;id&gt;", "as": "c", "column": "customer_id", "join_column": "id", "kind": "left"}</code>
+/// where <c>column</c> is the queried table's, <c>join_column</c> the joined table's, and <c>kind</c> is <c>inner</c>
+/// (the default) or <c>left</c>. The joined table's columns are then named <c>c.&lt;header&gt;</c>.
+/// </para>
 /// </summary>
 public static class TableRequestJson
 {
-    private static readonly string[] ReadKeys = ["table", "columns", "where", "order_by", "limit", "offset", "seen_as_of"];
-    private static readonly string[] AggregateKeys = ["table", "aggregates", "group_by", "where", "having", "order_by", "limit", "seen_as_of"];
+    private static readonly string[] ReadKeys = ["table", "columns", "where", "order_by", "limit", "offset", "seen_as_of", "join"];
+    private static readonly string[] AggregateKeys = ["table", "aggregates", "group_by", "where", "having", "order_by", "limit", "seen_as_of", "join"];
+    private static readonly string[] JoinKeys = ["table", "as", "column", "join_column", "kind"];
+    private const int MaxJoinAlias = 32;
     private static readonly string[] ChangesKeys = ["table", "since", "until", "columns", "limit", "offset"];
     private static readonly string[] FieldKeys = ["column", "aggregate"];
     private static readonly string[] OrderKeys = ["column", "aggregate", "direction"];
@@ -44,7 +52,8 @@ public static class TableRequestJson
             Optional(json, "order_by") is { } order ? Orders(order) : null,
             Optional(json, "limit") is { } limit ? Int(limit, "limit") : null,
             Optional(json, "offset") is { } offset ? Int(offset, "offset") : null,
-            Optional(json, "seen_as_of") is { } seen ? Time(seen, "seen_as_of") : null);
+            Optional(json, "seen_as_of") is { } seen ? Time(seen, "seen_as_of") : null,
+            Optional(json, "join") is { } join ? Join(join) : null);
     }
 
     public static TableAggregateRequest ParseAggregate(JsonElement json)
@@ -64,7 +73,8 @@ public static class TableRequestJson
             Optional(json, "having") is { } having ? Filter(having, 1) : null,
             Optional(json, "order_by") is { } order ? Orders(order) : null,
             Optional(json, "limit") is { } limit ? Int(limit, "limit") : null,
-            Optional(json, "seen_as_of") is { } seen ? Time(seen, "seen_as_of") : null);
+            Optional(json, "seen_as_of") is { } seen ? Time(seen, "seen_as_of") : null,
+            Optional(json, "join") is { } join ? Join(join) : null);
     }
 
     public static TableChangesRequest ParseChanges(JsonElement json)
@@ -80,6 +90,42 @@ public static class TableRequestJson
             Optional(json, "limit") is { } limit ? Int(limit, "limit") : null,
             Optional(json, "offset") is { } offset ? Int(offset, "offset") : null);
     }
+
+    /// <summary>
+    /// True when <paramref name="alias"/> can name a joined table: a letter, then letters, digits or <c>_</c>, at most
+    /// 32 characters. It never reaches the SQL; it only prefixes the joined table's headers in a request.
+    /// </summary>
+    public static bool IsJoinAlias(string alias) =>
+        alias.Length is >= 1 and <= MaxJoinAlias
+        && char.IsAsciiLetter(alias[0])
+        && alias.All(c => char.IsAsciiLetterOrDigit(c) || c == '_');
+
+    private static TableJoin Join(JsonElement json)
+    {
+        RequireObject(json, "\"join\"", JoinKeys);
+        Guid table = Optional(json, "table") is { ValueKind: JsonValueKind.String } t && Guid.TryParse(t.GetString(), out Guid id)
+            ? id
+            : throw new TableQueryException("\"join\" needs \"table\", the id of the table to join.");
+        string alias = Optional(json, "as") is { ValueKind: JsonValueKind.String } a && IsJoinAlias(a.GetString()!)
+            ? a.GetString()!
+            : throw new TableQueryException(
+                "\"join\" needs \"as\": a short name for the joined table, starting with a letter, with only letters, digits and _ (at most 32 characters), such as \"c\".");
+        string column = JoinColumn(json, "column", "the queried table's column to match");
+        string joinColumn = JoinColumn(json, "join_column", "the joined table's column it must equal");
+        TableJoinKind kind = Optional(json, "kind") switch
+        {
+            null => TableJoinKind.Inner,
+            { ValueKind: JsonValueKind.String } k when k.GetString() == "inner" => TableJoinKind.Inner,
+            { ValueKind: JsonValueKind.String } k when k.GetString() == "left" => TableJoinKind.Left,
+            _ => throw new TableQueryException("\"kind\" must be \"inner\" or \"left\"."),
+        };
+        return new TableJoin(table, alias, column, joinColumn, kind);
+    }
+
+    private static string JoinColumn(JsonElement json, string name, string what) =>
+        Optional(json, name) is { ValueKind: JsonValueKind.String } c && c.GetString() is { Length: > 0 } header
+            ? header
+            : throw new TableQueryException($"\"join\" needs \"{name}\", {what}.");
 
     private static Guid TableId(JsonElement json) =>
         Optional(json, "table") is { ValueKind: JsonValueKind.String } table && Guid.TryParse(table.GetString(), out Guid id)
