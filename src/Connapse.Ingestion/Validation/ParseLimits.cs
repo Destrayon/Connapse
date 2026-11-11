@@ -15,7 +15,7 @@ public static class ParseLimits
 
     private static readonly HashSet<string> ZipOfficeExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".docx", ".pptx", ".epub",
+        ".docx", ".pptx", ".xlsx", ".epub",
     };
 
     /// <summary>
