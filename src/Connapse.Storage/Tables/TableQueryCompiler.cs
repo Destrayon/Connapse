@@ -23,8 +23,8 @@ internal sealed record CompiledTableQuery(
 /// Compiles structured table requests to SQL (CON-303). Agents never write SQL: a request names columns by their
 /// original headers and picks operators and aggregates from fixed lists, and this class emits the SQL for them. Names
 /// are resolved against the table's catalog entry and only the generated <c>c_&lt;n&gt;</c> names, quoted, reach the
-/// SQL; values are bound as typed parameters. There are no function calls an agent can choose, no joins and no
-/// subqueries. Because every query binds at least its limit as a positional parameter, Npgsql sends the text unsplit,
+/// SQL; values are bound as typed parameters. There are no function calls an agent can choose and no subqueries; a
+/// read or an aggregate may join one other table on two named columns of the same type (CON-305). Because every query binds at least its limit as a positional parameter, Npgsql sends the text unsplit,
 /// so it can only ever be one statement.
 /// <para>
 /// Columns an admin hid (CON-304) are left out of the lookup altogether, so naming one anywhere fails exactly as a
@@ -53,21 +53,30 @@ internal static class TableQueryCompiler
     /// <summary>How many sample rows <see cref="CompileSample"/> returns.</summary>
     internal const int SampleRows = 3;
 
-    internal static CompiledTableQuery CompileRead(TableInfo table, TableReadRequest request, IReadOnlyList<Guid>? readableSources = null)
+    /// <summary>
+    /// Compiles a read. A request with a <see cref="TableReadRequest.Join"/> needs the joined table's catalog entry
+    /// (<paramref name="joined"/>) and, when it is merged, the caller's readable sources of it.
+    /// </summary>
+    internal static CompiledTableQuery CompileRead(
+        TableInfo table,
+        TableReadRequest request,
+        IReadOnlyList<Guid>? readableSources = null,
+        TableInfo? joined = null,
+        IReadOnlyList<Guid>? joinedSources = null)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(request);
-        var query = new QueryBuilder(table, readableSources);
+        var query = new QueryBuilder(table, readableSources, request.Join, joined, joinedSources);
 
-        IReadOnlyList<int> columns = request.Columns is null || request.Columns.Count == 0
-            ? table.VisibleColumnIndexes
+        IReadOnlyList<ColumnRef> columns = request.Columns is null || request.Columns.Count == 0
+            ? query.AllVisible()
             : request.Columns.Count <= TableDdl.MaxColumns
                 ? request.Columns.Select(query.Resolve).ToList()
                 : throw new TableQueryException($"A read can return at most {TableDdl.MaxColumns} columns.");
 
         var sql = new StringBuilder("SELECT ");
-        sql.AppendJoin(", ", columns.Select(i => Output(query.Column(i), table.Columns[i].Type)));
-        sql.Append(" FROM ").Append(query.Table);
+        sql.AppendJoin(", ", columns.Select(c => Output(c.Expression, c.Type)));
+        sql.Append(" FROM ").Append(query.From(request.SeenAsOf));
         query.AppendWhere(sql, request.Where, query.Seen(request.SeenAsOf));
 
         if (request.OrderBy is { Count: > 0 } orderBy)
@@ -77,7 +86,7 @@ internal static class TableQueryCompiler
             {
                 if (o.Field.Aggregate is not null)
                     throw new TableQueryException("A read can't order by an aggregate; use an aggregate request.");
-                return query.Column(query.Resolve(RequireColumn(o.Field))) + Direction(o.Direction);
+                return query.Resolve(RequireColumn(o.Field)).Expression + Direction(o.Direction);
             }));
         }
 
@@ -88,20 +97,26 @@ internal static class TableQueryCompiler
         sql.Append(" LIMIT ").Append(query.Parameter((long)limit + 1, NpgsqlDbType.Bigint));
         sql.Append(" OFFSET ").Append(query.Parameter((long)offset, NpgsqlDbType.Bigint));
 
-        return new CompiledTableQuery(sql.ToString(), query.Parameters, columns.Select(i => table.Columns[i].Name).ToList(), limit);
+        return new CompiledTableQuery(sql.ToString(), query.Parameters, columns.Select(c => c.Name).ToList(), limit);
     }
 
-    internal static CompiledTableQuery CompileAggregate(TableInfo table, TableAggregateRequest request, IReadOnlyList<Guid>? readableSources = null)
+    /// <summary>Compiles an aggregate; a join works as it does for <see cref="CompileRead"/>.</summary>
+    internal static CompiledTableQuery CompileAggregate(
+        TableInfo table,
+        TableAggregateRequest request,
+        IReadOnlyList<Guid>? readableSources = null,
+        TableInfo? joined = null,
+        IReadOnlyList<Guid>? joinedSources = null)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(request);
-        var query = new QueryBuilder(table, readableSources);
+        var query = new QueryBuilder(table, readableSources, request.Join, joined, joinedSources);
 
         if (request.Aggregates is null || request.Aggregates.Count == 0)
             throw new TableQueryException("An aggregate request needs at least one aggregate, such as {\"aggregate\": \"count\"}.");
         CheckCount(request.Aggregates.Count, "aggregates");
 
-        IReadOnlyList<int> groupBy = request.GroupBy is { Count: > 0 } names
+        IReadOnlyList<ColumnRef> groupBy = request.GroupBy is { Count: > 0 } names
             ? names.Count <= MaxListItems
                 ? names.Select(query.Resolve).Distinct().ToList()
                 : throw new TableQueryException($"A request can have at most {MaxListItems} group_by columns.")
@@ -109,10 +124,10 @@ internal static class TableQueryCompiler
 
         var outputs = new List<string>();
         var labels = new List<string>();
-        foreach (int i in groupBy)
+        foreach (ColumnRef column in groupBy)
         {
-            outputs.Add(Output(query.Column(i), table.Columns[i].Type));
-            labels.Add(table.Columns[i].Name);
+            outputs.Add(Output(column.Expression, column.Type));
+            labels.Add(column.Name);
         }
         foreach (TableField field in request.Aggregates)
         {
@@ -121,10 +136,10 @@ internal static class TableQueryCompiler
             labels.Add(Label(field));
         }
 
-        var sql = new StringBuilder("SELECT ").AppendJoin(", ", outputs).Append(" FROM ").Append(query.Table);
+        var sql = new StringBuilder("SELECT ").AppendJoin(", ", outputs).Append(" FROM ").Append(query.From(request.SeenAsOf));
         query.AppendWhere(sql, request.Where, query.Seen(request.SeenAsOf));
         if (groupBy.Count > 0)
-            sql.Append(" GROUP BY ").AppendJoin(", ", groupBy.Select(query.Column));
+            sql.Append(" GROUP BY ").AppendJoin(", ", groupBy.Select(c => c.Expression));
         if (request.Having is not null)
             sql.Append(" HAVING ").Append(query.Filter(request.Having, aggregates: true));
 
@@ -135,11 +150,11 @@ internal static class TableQueryCompiler
             {
                 if (o.Field.Aggregate is not null)
                     return query.Aggregate(o.Field).Expression + Direction(o.Direction);
-                int column = query.Resolve(RequireColumn(o.Field));
+                ColumnRef column = query.Resolve(RequireColumn(o.Field));
                 if (!groupBy.Contains(column))
                     throw new TableQueryException(
-                        $"Can't order by \"{table.Columns[column].Name}\": it isn't in group_by. Order by a group_by column or an aggregate.");
-                return query.Column(column) + Direction(o.Direction);
+                        $"Can't order by \"{column.Name}\": it isn't in group_by. Order by a group_by column or an aggregate.");
+                return column.Expression + Direction(o.Direction);
             }));
         }
 
@@ -167,7 +182,7 @@ internal static class TableQueryCompiler
         List<int> columns = request.Columns is null || request.Columns.Count == 0
             ? [.. table.VisibleColumnIndexes]
             : request.Columns.Count <= TableDdl.MaxColumns
-                ? request.Columns.Select(query.Resolve).Distinct().ToList()
+                ? request.Columns.Select(c => query.Resolve(c).Index).Distinct().ToList()
                 : throw new TableQueryException($"A changes request can return at most {TableDdl.MaxColumns} columns.");
         if (!columns.Contains(key) && !table.IsHidden(key))
             columns.Insert(0, key);
@@ -281,27 +296,88 @@ internal static class TableQueryCompiler
     private static string RequireColumn(TableField field) =>
         field.Column ?? throw new TableQueryException("Each entry needs a \"column\".");
 
-    /// <summary>Holds one query's table, its column lookup and the parameters bound so far.</summary>
+    /// <summary>
+    /// A column an agent named, as the SQL writes it (<see cref="Expression"/>) and as the answer labels it
+    /// (<see cref="Name"/>: the header, or <c>&lt;as&gt;.&lt;header&gt;</c> for a joined table's column).
+    /// </summary>
+    private readonly record struct ColumnRef(string Expression, TableColumnType Type, string Name, int Index);
+
+    /// <summary>
+    /// Holds one query's tables (the queried one and at most one joined one), their column lookups and the parameters
+    /// bound so far. Without a join the SQL names columns unqualified; with one, the queried table is <c>t</c> and the
+    /// joined table <c>j</c>.
+    /// </summary>
     private sealed class QueryBuilder
     {
-        private readonly TableInfo table;
-        private readonly IReadOnlyList<Guid>? readableSources;
+        private readonly TableSide _base;
+        private readonly TableSide? _joined;
+        private readonly TableJoin? _join;
         private readonly List<NpgsqlParameter> _parameters = [];
         private int _conditions;
 
-        internal QueryBuilder(TableInfo table, IReadOnlyList<Guid>? readableSources)
+        internal QueryBuilder(
+            TableInfo table,
+            IReadOnlyList<Guid>? readableSources,
+            TableJoin? join = null,
+            TableInfo? joined = null,
+            IReadOnlyList<Guid>? joinedSources = null)
         {
-            // A merged table compiled without the caller's readable sources would show every row: refuse it.
-            if (table.IsMerged && readableSources is null)
-                throw new InvalidOperationException($"Table {table.Id} is merged from several documents; its query needs the caller's readable sources.");
-            this.table = table;
-            this.readableSources = readableSources;
-            Table = TableDdl.Quote(table.StorageSchema) + "." + TableDdl.Quote(table.StorageName);
+            _base = new TableSide(this, table, readableSources, join is null ? null : "t", prefix: null);
+            if (join is not null)
+            {
+                if (joined is null || joined.Id != join.TableId)
+                    throw new InvalidOperationException($"A join to table {join.TableId} needs that table's catalog entry.");
+                if (join.As is null || !TableRequestJson.IsJoinAlias(join.As))
+                    throw new TableQueryException(
+                        "A join needs \"as\": a short name for the joined table, starting with a letter, with only letters, digits and _ (at most 32 characters), such as \"c\".");
+                _joined = new TableSide(this, joined, joinedSources, "j", join.As);
+                _join = join;
+                _base.Hint = $" Columns of the joined table \"{joined.Name}\" are named \"{join.As}.<header>\".";
+            }
+            Table = _base.Table;
         }
 
         internal IReadOnlyList<NpgsqlParameter> Parameters => _parameters;
 
         internal string Table { get; }
+
+        /// <summary>
+        /// The <c>FROM</c> clause's contents. With a join, the joined table's readable-source filter and the versions it
+        /// shows go in the <c>ON</c> clause, so in an inner join a row the caller can't read matches nothing and in a
+        /// left join it shows as empty, exactly as a row that isn't there.
+        /// </summary>
+        internal string From(DateTimeOffset? seenAsOf)
+        {
+            if (_join is null || _joined is null)
+                return Table;
+
+            ColumnRef left = _base.Resolve(_join.Column);
+            ColumnRef right = _joined.Resolve(_join.JoinColumn);
+            if (left.Type != right.Type)
+                throw new TableQueryException(
+                    $"Can't join \"{left.Name}\", a {TypeName(left.Type)} column, to \"{right.Name}\", a {TypeName(right.Type)} column: join columns must have the same type.");
+
+            var on = new List<string> { left.Expression + " = " + right.Expression };
+            if (_joined.Info.IsMerged)
+                on.Add(_joined.SourceFilter());
+            if (_joined.Seen(seenAsOf, strict: false) is { } seen)
+                on.Add(seen);
+            return _base.From
+                + (_join.Kind == TableJoinKind.Left ? " LEFT JOIN " : " INNER JOIN ")
+                + _joined.From + " ON " + string.Join(" AND ", on);
+        }
+
+        /// <summary>Every visible column: the queried table's, then the joined table's.</summary>
+        internal IReadOnlyList<ColumnRef> AllVisible()
+        {
+            List<ColumnRef> columns = [.. _base.AllVisible()];
+            if (_joined is not null)
+                columns.AddRange(_joined.AllVisible());
+            return columns.Count <= TableDdl.MaxColumns
+                ? columns
+                : throw new TableQueryException(
+                    $"The two tables have {columns.Count} visible columns together, more than a read can return ({TableDdl.MaxColumns}). Name the columns you want in \"columns\".");
+        }
 
         /// <summary>
         /// Appends the <c>WHERE</c> clause: a merged table's readable-source filter first, then the caller's filter,
@@ -310,8 +386,8 @@ internal static class TableQueryCompiler
         internal void AppendWhere(StringBuilder sql, TableFilter? where, string? seen = null)
         {
             var conditions = new List<string>();
-            if (table.IsMerged)
-                conditions.Add(SourceFilter());
+            if (_base.Info.IsMerged)
+                conditions.Add(_base.SourceFilter());
             if (seen is not null)
                 conditions.Add(seen);
             if (where is not null)
@@ -322,71 +398,38 @@ internal static class TableQueryCompiler
 
         /// <summary><paramref name="condition"/>, narrowed in a merged table to the rows the caller may read.</summary>
         internal string Readable(string condition) =>
-            table.IsMerged ? SourceFilter() + " AND (" + condition + ")" : condition;
+            _base.Info.IsMerged ? _base.SourceFilter() + " AND (" + condition + ")" : condition;
 
-        private string SourceFilter() =>
-            TableDdl.Quote(TableDdl.DocumentColumn) + " = ANY("
-            + Parameter(readableSources!.Distinct().ToArray(), NpgsqlDbType.Array | NpgsqlDbType.Uuid) + ")";
-
-        internal string Column(int index) => TableDdl.Quote(TableDdl.ColumnName(index));
+        internal string Column(int index) => _base.Column(index);
 
         /// <summary>
-        /// The index of the column an agent named: an exact header match, or else the one header equal to it ignoring
-        /// case. Anything else is an error listing the table's columns, so the agent can retry with a real one.
+        /// The column an agent named: the queried table's by its header, or with a join, the joined table's as
+        /// <c>&lt;as&gt;.&lt;header&gt;</c>. Anything else is an error listing the columns, so the agent can retry.
         /// </summary>
-        internal int Resolve(string name)
+        internal ColumnRef Resolve(string name)
         {
-            if (string.IsNullOrEmpty(name))
-                throw new TableQueryException("A column name can't be empty. " + ColumnList());
-
-            int[] exact = Matches(name, StringComparison.Ordinal);
-            if (exact.Length == 1)
-                return exact[0];
-            if (exact.Length > 1)
-                throw new TableQueryException($"Column \"{name}\" is ambiguous: the table has {exact.Length} columns with that header.");
-
-            int[] loose = Matches(name, StringComparison.OrdinalIgnoreCase);
-            return loose.Length switch
+            if (_joined is not null && name is not null
+                && name.Length > _joined.Prefix!.Length + 1
+                && name.StartsWith(_joined.Prefix + ".", StringComparison.OrdinalIgnoreCase))
             {
-                1 => loose[0],
-                0 => throw new TableQueryException($"Table \"{table.Name}\" has no column \"{name}\". " + ColumnList()),
-                _ => throw new TableQueryException(
-                    $"Column \"{name}\" is ambiguous: it matches {string.Join(", ", loose.Select(i => Quoted(table.Columns[i].Name)))}. Use the exact header."),
-            };
+                if (_base.HasExact(name))
+                    throw new TableQueryException(
+                        $"\"{name}\" is ambiguous: it is a column of \"{_base.Info.Name}\" and also names a column of the joined table. Pick a different \"as\" for the join.");
+                return _joined.Resolve(name[(_joined.Prefix.Length + 1)..]);
+            }
+            return _base.Resolve(name!);
         }
 
         /// <summary>
         /// Which versions a read sees: for a table with history, those current at <paramref name="asOf"/>, or the
         /// current ones when it is null. Null for a table without history, whose rows are all current.
         /// </summary>
-        internal string? Seen(DateTimeOffset? asOf)
-        {
-            if (asOf is not DateTimeOffset at)
-                return table.HasHistory ? Current() : null;
+        internal string? Seen(DateTimeOffset? asOf) => _base.Seen(asOf, strict: true);
 
-            HistoryKey("read it as seen at a time; leave out seen_as_of");
-            DateTime utc = at.UtcDateTime;
-            if (utc < table.HistoryFrom!.Value)
-                throw new TableQueryException(
-                    $"Table \"{table.Name}\" has history from {Time(table.HistoryFrom.Value)} on, when it last got a new key or new columns, so it can't be read as seen before then.");
-            string t = Parameter(utc, NpgsqlDbType.TimestampTz);
-            return $"{TableDdl.Quote(TableHistory.SeenFrom)} <= {t} AND {TableDdl.Quote(TableHistory.SeenUntil)} > {t}";
-        }
-
-        internal string Current() => $"{TableDdl.Quote(TableHistory.SeenUntil)} = 'infinity'";
+        internal string Current() => _base.Current();
 
         /// <summary>The key column of a table with history, or an error saying the table keeps none.</summary>
-        internal int HistoryKey(string what)
-        {
-            if (!table.HasHistory)
-                throw new TableQueryException(
-                    $"Table \"{table.Name}\" has no key column, so each sync replaces its rows and it keeps no history. It can't {what}.");
-            int key = table.Columns.Select((c, i) => (c, i)).FirstOrDefault(x => string.Equals(x.c.Name, table.Key, StringComparison.Ordinal), (null!, -1)).i;
-            return key >= 0 ? key : throw new InvalidOperationException($"Table {table.Id}'s key column is missing.");
-        }
-
-        private static string Time(DateTime utc) =>
-            DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
+        internal int HistoryKey(string what) => _base.HistoryKey(what);
 
         internal string Parameter(object value, NpgsqlDbType type)
         {
@@ -406,9 +449,9 @@ internal static class TableQueryCompiler
                     : throw new TableQueryException($"{FunctionName(function)} needs a \"column\".");
             }
 
-            int index = Resolve(field.Column);
-            string column = Column(index);
-            TableColumnType type = table.Columns[index].Type;
+            ColumnRef target = Resolve(field.Column);
+            string column = target.Expression;
+            TableColumnType type = target.Type;
             return function switch
             {
                 TableAggregateFunction.Count => ($"pg_catalog.count({column})", TableColumnType.WholeNumber),
@@ -418,7 +461,7 @@ internal static class TableQueryCompiler
                 TableAggregateFunction.Min or TableAggregateFunction.Max when type != TableColumnType.Boolean =>
                     ($"pg_catalog.{FunctionName(function)}({column})", type),
                 _ => throw new TableQueryException(
-                    $"{FunctionName(function)} doesn't work on \"{table.Columns[index].Name}\", a {TypeName(type)} column."),
+                    $"{FunctionName(function)} doesn't work on \"{target.Name}\", a {TypeName(type)} column."),
             };
         }
 
@@ -466,9 +509,9 @@ internal static class TableQueryCompiler
             {
                 if (aggregates)
                     throw new TableQueryException("\"having\" filters groups, so each condition needs an \"aggregate\"; filter rows in \"where\".");
-                int index = Resolve(RequireColumn(condition.Field));
-                expression = Column(index);
-                type = table.Columns[index].Type;
+                ColumnRef column = Resolve(RequireColumn(condition.Field));
+                expression = column.Expression;
+                type = column.Type;
                 subject = condition.Field.Column!;
             }
 
@@ -534,15 +577,129 @@ internal static class TableQueryCompiler
             type == TableColumnType.Text
                 ? ""
                 : throw new TableQueryException($"{op} only works on text columns, and \"{subject}\" is a {TypeName(type)} column.");
+    }
+
+    /// <summary>
+    /// One table in a query: its name in the SQL (qualified by <c>alias</c> when the query joins), its column lookup over
+    /// visible columns only, and its readable-source and history filters.
+    /// </summary>
+    private sealed class TableSide
+    {
+        private readonly QueryBuilder query;
+        private readonly IReadOnlyList<Guid>? readableSources;
+        private readonly string? alias;
+
+        internal TableSide(QueryBuilder query, TableInfo table, IReadOnlyList<Guid>? readableSources, string? alias, string? prefix)
+        {
+            // A merged table compiled without the caller's readable sources would show every row: refuse it.
+            if (table.IsMerged && readableSources is null)
+                throw new InvalidOperationException($"Table {table.Id} is merged from several documents; its query needs the caller's readable sources.");
+            this.query = query;
+            this.readableSources = readableSources;
+            this.alias = alias;
+            Info = table;
+            Prefix = prefix;
+            Table = TableDdl.Quote(table.StorageSchema) + "." + TableDdl.Quote(table.StorageName);
+        }
+
+        internal TableInfo Info { get; }
+
+        /// <summary>What a joined table's columns are prefixed with in a request; null for the queried table.</summary>
+        internal string? Prefix { get; }
+
+        /// <summary>Added to a missing-column error, to say how the joined table's columns are named.</summary>
+        internal string Hint { get; set; } = "";
+
+        internal string Table { get; }
+
+        internal string From => alias is null ? Table : Table + " AS " + alias;
+
+        private string Qualify(string column) => alias is null ? column : alias + "." + column;
+
+        internal string Column(int index) => Qualify(TableDdl.Quote(TableDdl.ColumnName(index)));
+
+        internal string SourceFilter() =>
+            Qualify(TableDdl.Quote(TableDdl.DocumentColumn)) + " = ANY("
+            + query.Parameter(readableSources!.Distinct().ToArray(), NpgsqlDbType.Array | NpgsqlDbType.Uuid) + ")";
+
+        internal IEnumerable<ColumnRef> AllVisible() => Info.VisibleColumnIndexes.Select(Ref);
+
+        private ColumnRef Ref(int index) =>
+            new(Column(index), Info.Columns[index].Type, Prefix is null ? Info.Columns[index].Name : Prefix + "." + Info.Columns[index].Name, index);
+
+        internal bool HasExact(string name) => Matches(name, StringComparison.Ordinal).Length > 0;
+
+        /// <summary>
+        /// The column an agent named: an exact header match, or else the one header equal to it ignoring case. Anything
+        /// else is an error listing the table's columns, so the agent can retry with a real one.
+        /// </summary>
+        internal ColumnRef Resolve(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+                throw new TableQueryException("A column name can't be empty. " + ColumnList());
+
+            int[] exact = Matches(name, StringComparison.Ordinal);
+            if (exact.Length == 1)
+                return Ref(exact[0]);
+            if (exact.Length > 1)
+                throw new TableQueryException($"Column \"{Named(name)}\" is ambiguous: the table has {exact.Length} columns with that header.");
+
+            int[] loose = Matches(name, StringComparison.OrdinalIgnoreCase);
+            return loose.Length switch
+            {
+                1 => Ref(loose[0]),
+                0 => throw new TableQueryException($"Table \"{Info.Name}\" has no column \"{Named(name)}\". " + ColumnList() + Hint),
+                _ => throw new TableQueryException(
+                    $"Column \"{Named(name)}\" is ambiguous: it matches {string.Join(", ", loose.Select(i => Quoted(Named(Info.Columns[i].Name))))}. Use the exact header."),
+            };
+        }
+
+        private string Named(string header) => Prefix is null ? header : Prefix + "." + header;
+
+        /// <summary>
+        /// Which versions a read sees: for a table with history, those current at <paramref name="asOf"/>, or the
+        /// current ones when it is null. Null for a table without history, whose rows are all current. A joined table
+        /// without history (<paramref name="strict"/> false) is read as it is now whatever <paramref name="asOf"/> says.
+        /// </summary>
+        internal string? Seen(DateTimeOffset? asOf, bool strict)
+        {
+            if (asOf is not DateTimeOffset at)
+                return Info.HasHistory ? Current() : null;
+            if (!strict && !Info.HasHistory)
+                return null;
+
+            HistoryKey("read it as seen at a time; leave out seen_as_of");
+            DateTime utc = at.UtcDateTime;
+            if (utc < Info.HistoryFrom!.Value)
+                throw new TableQueryException(
+                    $"Table \"{Info.Name}\" has history from {Time(Info.HistoryFrom.Value)} on, when it last got a new key or new columns, so it can't be read as seen before then.");
+            string t = query.Parameter(utc, NpgsqlDbType.TimestampTz);
+            return $"{Qualify(TableDdl.Quote(TableHistory.SeenFrom))} <= {t} AND {Qualify(TableDdl.Quote(TableHistory.SeenUntil))} > {t}";
+        }
+
+        internal string Current() => $"{Qualify(TableDdl.Quote(TableHistory.SeenUntil))} = 'infinity'";
+
+        /// <summary>The key column of a table with history, or an error saying the table keeps none.</summary>
+        internal int HistoryKey(string what)
+        {
+            if (!Info.HasHistory)
+                throw new TableQueryException(
+                    $"Table \"{Info.Name}\" has no key column, so each sync replaces its rows and it keeps no history. It can't {what}.");
+            int key = Info.Columns.Select((c, i) => (c, i)).FirstOrDefault(x => string.Equals(x.c.Name, Info.Key, StringComparison.Ordinal), (null!, -1)).i;
+            return key >= 0 ? key : throw new InvalidOperationException($"Table {Info.Id}'s key column is missing.");
+        }
+
+        private static string Time(DateTime utc) =>
+            DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
 
         /// <summary>The visible columns whose header matches; a hidden column never matches, so it reads as missing.</summary>
         private int[] Matches(string name, StringComparison comparison) =>
-            table.VisibleColumnIndexes.Where(i => string.Equals(table.Columns[i].Name, name, comparison)).ToArray();
+            Info.VisibleColumnIndexes.Where(i => string.Equals(Info.Columns[i].Name, name, comparison)).ToArray();
 
         private string ColumnList()
         {
-            IReadOnlyList<TableColumn> visible = table.VisibleColumns;
-            IEnumerable<string> names = visible.Take(MaxNamesInError).Select(c => Quoted(c.Name));
+            IReadOnlyList<TableColumn> visible = Info.VisibleColumns;
+            IEnumerable<string> names = visible.Take(MaxNamesInError).Select(c => Quoted(Named(c.Name)));
             string more = visible.Count > MaxNamesInError ? $", and {visible.Count - MaxNamesInError} more" : "";
             return "Its columns are: " + string.Join(", ", names) + more + ".";
         }

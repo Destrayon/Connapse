@@ -56,6 +56,28 @@ public sealed record TableCondition(TableField Field, TableFilterOperator Operat
 
 public sealed record TableOrder(TableField Field, TableSortDirection Direction = TableSortDirection.Ascending);
 
+public enum TableJoinKind
+{
+    /// <summary>Only rows with a match in the joined table.</summary>
+    Inner,
+
+    /// <summary>Every row, with the joined table's columns empty where nothing matches.</summary>
+    Left,
+}
+
+/// <summary>
+/// Joins one other table of the same container (CON-305): rows match where <see cref="Column"/> of the queried table
+/// equals <see cref="JoinColumn"/> of the joined one, and both columns must have the same type. The joined table's
+/// columns are named <c>&lt;As&gt;.&lt;header&gt;</c> everywhere else in the request. The joined table is trimmed to
+/// what the caller may read just as the queried one is, and its hidden columns read as missing.
+/// </summary>
+public sealed record TableJoin(
+    Guid TableId,
+    string As,
+    string Column,
+    string JoinColumn,
+    TableJoinKind Kind = TableJoinKind.Inner);
+
 /// <summary>
 /// Reads rows of one table: chosen columns (all when null), a filter, an order, a limit and an offset.
 /// <see cref="SeenAsOf"/> reads a table with history as Connapse saw it at that time instead of as it is now.
@@ -67,7 +89,8 @@ public sealed record TableReadRequest(
     IReadOnlyList<TableOrder>? OrderBy = null,
     int? Limit = null,
     int? Offset = null,
-    DateTimeOffset? SeenAsOf = null);
+    DateTimeOffset? SeenAsOf = null,
+    TableJoin? Join = null);
 
 /// <summary>
 /// Aggregates one table's rows, optionally grouped, with a row filter and a filter on the aggregates.
@@ -81,7 +104,8 @@ public sealed record TableAggregateRequest(
     TableFilter? Having = null,
     IReadOnlyList<TableOrder>? OrderBy = null,
     int? Limit = null,
-    DateTimeOffset? SeenAsOf = null);
+    DateTimeOffset? SeenAsOf = null,
+    TableJoin? Join = null);
 
 /// <summary>
 /// What changed in a table with history between <see cref="Since"/> and <see cref="Until"/> (now when null), as
