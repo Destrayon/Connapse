@@ -33,10 +33,13 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     public static readonly string[] WriteTools = [.. ReadTools, "memory_remember", "memory_correct"];
     public static readonly string[] Arms = ["all", "retrieval", "find", "save"];
 
-    /// <summary>How the agent reads memory: today's memory tools, or a regex grep over the facts as text (CON-321).</summary>
-    public static readonly string[] Searches = ["memory", "grep"];
+    /// <summary>
+    /// How the agent reads memory: today's memory tools, a regex grep over the facts as text (CON-321), or the real
+    /// ripgrep over the same text (CON-322).
+    /// </summary>
+    public static readonly string[] Searches = ["memory", "grep", "ripgrep"];
 
-    /// <summary>The save tools the grep arm keeps, so both arms write the same way.</summary>
+    /// <summary>The save tools the grep and ripgrep arms keep, so every arm writes the same way.</summary>
     public static readonly string[] GrepWriteTools = ["memory_remember", "memory_correct"];
 
     /// <summary>Find tasks whose question shares no content word with the fact, or names only part of one.</summary>
@@ -64,12 +67,17 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             "What a project manager keeps about Quorvane Logistics: projects, people, services and working rules", 76, 24),
         [SealedDataset2] = new("Tessaline Foods",
             "What a project manager keeps about Tessaline Foods: projects, people, services and working rules", 76, 24),
+        [SealedDataset3] = new("Kestrow Solar",
+            "What a project manager keeps about Kestrow Solar: projects, people, services and working rules", 76, 24),
     };
 
     public const string SealedDataset = "memory-agent-sealed-1";
 
     /// <summary>The second hidden set, built by the same rules for CON-322 by someone other than the engineer changing search.</summary>
     public const string SealedDataset2 = "memory-agent-sealed-2";
+
+    /// <summary>The third hidden set, built for CON-322's second round after the first failed on sealed-2; judged once.</summary>
+    public const string SealedDataset3 = "memory-agent-sealed-3";
 
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers,
         string? OutPath, string? AgentDir = null, string Arm = "all", string Search = "memory", string Dataset = DefaultDataset);
@@ -135,17 +143,20 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
 
     public static string SavePrompt(string company = "Orrin Systems", string search = "memory") =>
         $"You are a project manager's assistant at {company}, and you keep its memory accurate. Your memory is the "
-        + $"Connapse memory space named \"{SpaceName}\"{(search == "grep" ? $"; {ReadsWith(search)}" : "")}. "
+        + $"Connapse memory space named \"{SpaceName}\"{(search != "memory" ? $"; {ReadsWith(search)}" : "")}. "
         + "When the user tells you something, check what memory already holds, "
-        + $"then save it with memory_remember{(search == "grep" ? $" (space \"{SpaceName}\")" : "")} if memory lacks it, fix the fact with memory_correct if its value changed, and "
+        + $"then save it with memory_remember{(search != "memory" ? $" (space \"{SpaceName}\")" : "")} if memory lacks it, fix the fact with memory_correct if its value changed, and "
         + $"change nothing if memory already holds it. Today is {Today}. When you are done, call the answer tool with a "
         + "one-line summary and, in factIds, the id of every fact you saved or corrected (none if you changed nothing). "
         + $"You may make at most {AgentContract.MaxToolCalls} tool calls before answering.";
 
     /// <summary>How the prompt says to read memory; the rest of each prompt is the same in both arms.</summary>
-    private static string ReadsWith(string search) => search == "grep"
-        ? $"you see it as a text file with one fact per line ({FactGrepToolbox.Header}), which you search with grep and read"
-        : "read it with the memory tools";
+    private static string ReadsWith(string search) => search switch
+    {
+        "grep" => $"you see it as a text file with one fact per line ({FactGrepToolbox.Header}), which you search with grep and read",
+        "ripgrep" => $"you see it as a text file with one fact per line ({FactGrepToolbox.Header}), which you search with rg (ripgrep) and read",
+        _ => "read it with the memory tools",
+    };
 
     public async Task<int> RunAsync(Options options, CancellationToken ct)
     {
@@ -155,7 +166,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             throw new ArgumentException($"--search must be one of {string.Join(", ", Searches)}.");
         if (!Profiles.TryGetValue(options.Dataset, out DatasetProfile? profile))
             throw new ArgumentException($"--dataset must be one of {string.Join(", ", Profiles.Keys)}.");
-        bool grep = options.Search == "grep";
+        bool grep = options.Search != "memory";
 
         DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[options.Dataset];
         DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
@@ -204,7 +215,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             if (options.Arm is "all" or "find")
             {
                 IToolbox tools = grep
-                    ? new FactGrepToolbox(async token => await VersionsAsync(system.Services, seeded.Space, token))
+                    ? TextToolbox(options.Search, async token => await VersionsAsync(system.Services, seeded.Space, token))
                     : new McpToolbox(system.Services, McpToolbox.Reader(reader, "memory-agent-eval"), ReadTools);
                 string prompt = FindPrompt(profile.Company, options.Search);
                 List<TaskResult> results = await RunJobsAsync(find, options, agent, async (task, token) =>
@@ -225,7 +236,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
                     Guid user = Guid.NewGuid();
                     Seeded own = await SeedAsync(system.Services, user, facts, token, profile.SpaceDescription);
                     IToolbox tools = grep
-                        ? new FactGrepToolbox(async t => await VersionsAsync(system.Services, own.Space, t),
+                        ? TextToolbox(options.Search, async t => await VersionsAsync(system.Services, own.Space, t),
                             new McpToolbox(system.Services, Writer(user, "memory-agent-eval"), GrepWriteTools))
                         : new McpToolbox(system.Services, Writer(user, "memory-agent-eval"), WriteTools);
                     AgentRun run = await agent.RunAsync(tools, prompt, task.Question, token);
@@ -257,6 +268,10 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
         log.WriteLine(json);
         return 0;
     }
+
+    /// <summary>The grep or ripgrep arm's tools over a space's facts as text, with the save tools when given.</summary>
+    public static IToolbox TextToolbox(string search, Func<CancellationToken, Task<IReadOnlyList<MemoryFact>>> facts, IToolbox? writes = null) =>
+        search == "ripgrep" ? new FactRipgrepToolbox(facts, writes) : new FactGrepToolbox(facts, writes);
 
     private static List<AgentTask> Limit(List<AgentTask> tasks, int? limit) => limit is int n ? [.. tasks.Take(n)] : tasks;
 
@@ -381,7 +396,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
         bool citedOld = cited.Overlaps(seeded.Old.Values);
         bool right = task.Kind == "absent" ? answered && run.Cited.Count == 0 : answered && citedGold && !citedOld;
 
-        List<ToolTrace> reads = [.. run.Calls.Where(c => c.Name is "memory_recall" or "memory_timeline" or FactGrepToolbox.GrepTool or FactGrepToolbox.ReadTool)];
+        List<ToolTrace> reads = [.. run.Calls.Where(c => c.Name is "memory_recall" or "memory_timeline" or FactGrepToolbox.GrepTool or FactRipgrepToolbox.RgTool or FactGrepToolbox.ReadTool)];
         List<ToolTrace> recalls = [.. reads.Where(c => IsSearch(c.Name))];
         bool Shows(ToolTrace c) => gold.Any(g => seeded.Shows(c.Output, g));
         return new TaskScore(right ? 1 : 0, new Dictionary<string, double>
@@ -395,7 +410,7 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
         });
     }
 
-    private static bool IsSearch(string tool) => tool is "memory_recall" or FactGrepToolbox.GrepTool;
+    private static bool IsSearch(string tool) => tool is "memory_recall" or FactGrepToolbox.GrepTool or FactRipgrepToolbox.RgTool;
 
     /// <summary>
     /// A save run is scored on what memory holds afterwards. A fact is live when it is neither ended nor corrected; a
