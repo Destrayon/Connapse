@@ -176,6 +176,7 @@ public class MemoryAgentTests
     [InlineData(MemoryAgentEval.DefaultDataset, "")]
     [InlineData(MemoryAgentEval.SealedDataset, ".gz")]
     [InlineData(MemoryAgentEval.SealedDataset2, ".gz")]
+    [InlineData(MemoryAgentEval.SealedDataset3, ".gz")]
     public void Dataset_HasTheRegisteredTasksAndEveryKeyResolves(string dataset, string suffix)
     {
         string root = Path.Combine(RepoRoot(), "eval", "datasets", dataset);
