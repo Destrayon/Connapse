@@ -22,6 +22,10 @@ public class ReferenceImplementationTests
 
     public static TheoryData<int> BcaCases => Cases("bca");
 
+    public static TheoryData<int> McNemarCases => Cases("mcnemar");
+
+    public static TheoryData<int> WilcoxonCases => Cases("wilcoxon");
+
     private static TheoryData<int> Cases(string key)
     {
         TheoryData<int> data = [];
@@ -78,5 +82,41 @@ public class ReferenceImplementationTests
 
         low.Should().BeApproximately(fixture.GetProperty("low").GetDouble(), 1e-12);
         high.Should().BeApproximately(fixture.GetProperty("high").GetDouble(), 1e-12);
+    }
+
+    [Theory]
+    [MemberData(nameof(McNemarCases))]
+    public void McNemarExact_StatsmodelsFixture_MatchesStatsmodels(int index)
+    {
+        JsonElement fixture = Expected.GetProperty("mcnemar")[index];
+
+        double p = PairedTests.McNemarExact(fixture.GetProperty("b").GetInt32(), fixture.GetProperty("c").GetInt32());
+
+        p.Should().BeApproximately(fixture.GetProperty("p").GetDouble(), 1e-12);
+    }
+
+    [Theory]
+    [MemberData(nameof(WilcoxonCases))]
+    public void WilcoxonPValue_ScipyFixture_MatchesScipy(int index)
+    {
+        JsonElement fixture = Expected.GetProperty("wilcoxon")[index];
+
+        double p = PairedTests.WilcoxonPValue(Doubles(fixture.GetProperty("d")));
+
+        p.Should().BeApproximately(fixture.GetProperty("p").GetDouble(), 1e-12);
+    }
+
+    [Fact]
+    public void McNemarExact_NegativeCount_Throws()
+    {
+        Action act = () => PairedTests.McNemarExact(-1, 3);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void WilcoxonPValue_NoDifferences_IsNaN()
+    {
+        PairedTests.WilcoxonPValue([]).Should().Be(double.NaN);
     }
 }

@@ -63,4 +63,24 @@ for i, d in enumerate(bca_cases):
     out["bca"].append({"d": d.tolist(), "indices": idx.tolist(),
                        "low": float(r.confidence_interval.low), "high": float(r.confidence_interval.high)})
 
+# McNemar (statsmodels mcnemar, exact=True) on the discordant counts — compared exactly.
+from statsmodels.stats.contingency_tables import mcnemar
+mcnemar_cases = [(0, 0), (3, 0), (10, 2), (2, 10), (7, 7), (25, 12), (1, 40), (90, 60)]
+out["mcnemar"] = [{"b": b, "c": c, "p": float(mcnemar([[0, b], [c, 0]], exact=True).pvalue)} for b, c in mcnemar_cases]
+
+# Wilcoxon signed-rank (scipy wilcoxon with its defaults) on paired differences, covering every branch of
+# method="auto": exact (no ties, no zeros, n <= 50), permutation (ties or zeros, n <= 13), and the normal
+# approximation (ties or zeros with 13 < n <= 50, and n > 50).
+wilcoxon_cases = [
+    [3, -1, 4, 2, -6, 5, 9, 7],                                       # exact
+    [1.5, 2.25, -0.5, 3.75, 4.5, 6.0, -7.25, 8.5, 9.0, 10.25, 11.5],  # exact
+    [2, -1, 2, 3, 0, -2, 4, 1],                                       # permutation: ties and a zero
+    [1, 1, 1, 1, 1, 1, -1],                                           # permutation: all tied
+    [0, 0, 0, 3],                                                     # permutation: mostly zeros
+    [2, 1, -1, 3, 0, 2, 4, -2, 1, 5, 3, 2, 6, -1, 0, 2, 3, 1],         # asymptotic: ties, n = 18
+    [((i * 7) % 11) - 4 for i in range(60)],                           # asymptotic: n > 50
+    [(i % 9) - 3.5 + i / 100 for i in range(55)],                      # asymptotic: n > 50, no ties
+]
+out["wilcoxon"] = [{"d": d, "p": float(stats.wilcoxon(d).pvalue)} for d in wilcoxon_cases]
+
 json.dump(out, open("expected.json", "w"), separators=(",", ":"))

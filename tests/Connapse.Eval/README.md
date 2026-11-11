@@ -143,6 +143,28 @@ what the same tokens would cost at API list price. If the subscription limit is 
 - Tasks and corpus, and how they were made: `eval/datasets/memory-search/card.md` and
   `eval/datasets/memory-learned/card.md`.
 
+## Table approaches side by side
+
+`tables-arms` asks the same tables-v1 questions of two agents that differ only in their tools (CON-327), for the
+head-to-head in `docs/plans/con-320-raw-sql-rls.md`. Arm `structured` gets `table_list`, `table_describe`,
+`table_read` and `table_aggregate`; arm `sql` gets `table_sql` (the agent writes its own SELECT), `table_list` and
+`table_describe`. Both also get `search_knowledge` and `get_document`. Data, prompt, agent and grading are the
+`tables-rag` setup's. Each question runs 3 times per arm, interleaved, and counts as right for an arm when 2 of the 3
+runs are. The report gives each arm's accuracy (overall, per family, admin and restricted), tool calls, search calls,
+confident wrong answers, tokens, cost and wall time, then the pass bar's comparison: exact McNemar on the right
+answers, the per-family gaps, paired Wilcoxon on tool calls where both arms were right, and arm `sql`'s cost against
+arm `structured`'s. The run turns on `Tables.AgentSql` in its own containers, and stops before starting anything if
+the build has no `table_sql`. It needs Docker and Ollama for the search side. The tables-v1 CSVs are built locally,
+not downloaded, so build them once before the first run, then try a slice:
+
+    python eval/tools/tables/build_tables.py
+    dotnet run --project tests/Connapse.Eval -- tables-arms --split tune --limit-tasks 10 --out eval/runs/tables-arms-dry.json
+
+- Options: `--arms structured,sql` (default both), `--runs` (default 3), and the `tables-rag` options except
+  `--skip-mixed` (mixed questions are not asked). Anything but both arms, 3 runs and the 180 test questions is marked
+  diagnostic only. Every run lands in `<out>.runs.jsonl` with its arm, run number, calls, cost and wall time as soon
+  as it finishes, so a run that is cut short keeps what it measured; a finished run rewrites the file in schedule order.
+
 ## Files and reports
 
 - Datasets, versions and checksums: `eval/MANIFEST.json`; one card per dataset in `eval/datasets/`.

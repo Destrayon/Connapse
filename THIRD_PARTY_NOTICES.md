@@ -4,7 +4,7 @@ Connapse is MIT-licensed. The files listed below contain code ported from the fo
 
 ## SciPy
 
-Used in `tests/Connapse.Eval/Statistics/PairedStats.cs`: the paired permutation test and the BCa bootstrap interval, ported from SciPy 1.18.0, `scipy/stats/_resampling.py`.
+Used in `tests/Connapse.Eval/Statistics/PairedStats.cs`: the paired permutation test and the BCa bootstrap interval, ported from SciPy 1.18.0, `scipy/stats/_resampling.py`. Also `tests/Connapse.Eval/Statistics/PairedTests.cs`: the Wilcoxon signed-rank test, ported from SciPy 1.18.0, `scipy/stats/_wilcoxon.py` and `scipy/stats/_hypotests.py`.
 
 ```
 Copyright (c) 2001-2002 Enthought, Inc. 2003, SciPy Developers.
@@ -79,7 +79,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## statsmodels
 
-Used in `tests/Connapse.Eval/Statistics/Holm.cs`: the Holm step-down correction, ported from statsmodels 0.15.0, `statsmodels/stats/multitest.py`.
+Used in `tests/Connapse.Eval/Statistics/Holm.cs`: the Holm step-down correction, ported from statsmodels 0.15.0, `statsmodels/stats/multitest.py`. Also `tests/Connapse.Eval/Statistics/PairedTests.cs`: the exact McNemar test, ported from statsmodels 0.15.0, `statsmodels/stats/contingency_tables.py`.
 
 ```
 Copyright (C) 2006, Jonathan E. Taylor
