@@ -37,6 +37,7 @@ public class ContainerTablesTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<ITableQueryService>());
         ctx.Services.AddSingleton(documents);
         ctx.Services.AddSingleton(access);
+        ctx.Services.AddSingleton(Substitute.For<IMemoryService>());
         ctx.Services.AddSingleton<ListTables>();
         documents.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => new Document(call.ArgAt<string>(0), containerId.ToString(), "t.csv", null, "/t.csv", 1, Loaded, []));

@@ -186,6 +186,8 @@ public class PostgresContainerStore(
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
         if (entity.Kind == ContainerKind.Documents)
             await TableDdl.DropSchemaAsync(context.Database.GetDbConnection(), id, ct);
+        else
+            await TableDdl.DropMemoryRoleAsync(context.Database.GetDbConnection(), id, ct);
         context.Containers.Remove(entity);
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);

@@ -53,7 +53,11 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
         string? token = null;
         try
         {
-            token = await reader.IssueTokenAsync(access.ReadableDocuments, ClientTimeout + TokenGrace, deadline.Token);
+            // A memory read (CON-309) binds a memory token instead, which the memory view checks; the documents table
+            // policies see no matching request and show nothing, so the token can't widen a documents read.
+            token = access.Memory is MemoryViewer viewer
+                ? await reader.IssueMemoryTokenAsync(containerId, viewer, ClientTimeout + TokenGrace, deadline.Token)
+                : await reader.IssueTokenAsync(access.ReadableDocuments, ClientTimeout + TokenGrace, deadline.Token);
             return await ExecuteAsync(reader.ContainerRoleName(containerId), token, query, deadline.Token);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)

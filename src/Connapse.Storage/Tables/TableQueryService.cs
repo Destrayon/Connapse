@@ -104,9 +104,9 @@ public sealed class TableQueryService(
             TableInfo table = await ReadableAsync(containerId, access, tableId, ct);
             TableInfo? joined = joinedId is Guid id ? await ReadableAsync(containerId, access, id, ct) : null;
             CompiledTableQuery query = compile(table, joined);
-            await reader.EnsureGrantsAsync(containerId, table.StorageSchema, ct);
+            await EnsureGrantsAsync(containerId, table, ct);
             if (joined is not null && joined.StorageSchema != table.StorageSchema)
-                await reader.EnsureGrantsAsync(containerId, joined.StorageSchema, ct);
+                await EnsureGrantsAsync(containerId, joined, ct);
 
             Stopwatch elapsed = Stopwatch.StartNew();
             try
@@ -121,9 +121,9 @@ public sealed class TableQueryService(
                 retried = true;
                 if (ex.SqlState == PostgresErrorCodes.InsufficientPrivilege)
                 {
-                    reader.ForgetGrants(table.StorageSchema);
+                    reader.ForgetGrants(GrantKey(containerId, table));
                     if (joined is not null)
-                        reader.ForgetGrants(joined.StorageSchema);
+                        reader.ForgetGrants(GrantKey(containerId, joined));
                 }
             }
             catch (PostgresException ex)
@@ -137,9 +137,21 @@ public sealed class TableQueryService(
     /// <summary>The table, or the same missing-table error whether it doesn't exist or the caller can't read it.</summary>
     private async Task<TableInfo> ReadableAsync(Guid containerId, TableAccess access, Guid tableId, CancellationToken ct)
     {
-        TableInfo? table = await tables.GetAsync(containerId, tableId, ct);
+        // A memory container's memory table (CON-309) isn't in the catalog: it is the memory view, there only for an
+        // access that carries a memory viewer. A documents read never names it.
+        TableInfo? table = tableId == MemoryTable.Id
+            ? access.Memory is null ? null : MemoryTable.For(containerId)
+            : access.Memory is null ? await tables.GetAsync(containerId, tableId, ct) : null;
         return table is not null && access.CanRead(table)
             ? table
             : throw new TableQueryException($"There is no table with id {tableId} in this container.");
     }
+
+    private Task EnsureGrantsAsync(Guid containerId, TableInfo table, CancellationToken ct) =>
+        MemoryTable.Is(table)
+            ? reader.EnsureMemoryGrantsAsync(containerId, ct)
+            : reader.EnsureGrantsAsync(containerId, table.StorageSchema, ct);
+
+    private static string GrantKey(Guid containerId, TableInfo table) =>
+        MemoryTable.Is(table) ? TableReaderLogin.MemoryGrantKey(containerId) : table.StorageSchema;
 }

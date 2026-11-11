@@ -48,15 +48,15 @@ public class TableQueryOperationTests
         _queries.ChangesAsync(default, default!, default!, default).ReturnsForAnyArgs(Answer);
     }
 
-    private ChangesTable Changes => new(_containers, _tables, _queries, _documents, _access, _authorizer);
+    private ChangesTable Changes => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>());
 
-    private DescribeTable Describe => new(_containers, _tables, _queries, _documents, _access, _authorizer);
+    private DescribeTable Describe => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>());
 
-    private ReadTable Read => new(_containers, _tables, _queries, _documents, _access, _authorizer);
+    private ReadTable Read => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>());
 
-    private AggregateTable Aggregate => new(_containers, _tables, _queries, _documents, _access, _authorizer);
+    private AggregateTable Aggregate => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>());
 
-    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer);
+    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>());
 
     /// <summary>A table in the test's container from a document present in it, stored so it can be fetched and listed.</summary>
     private TableInfo Holds(string name = "sales", string? description = null, string? key = null, DateTime? historyFrom = null,
@@ -98,7 +98,7 @@ public class TableQueryOperationTests
     }
 
     [Fact]
-    public async Task Describe_MemoryContainer_IsRefusedAndReadsNoTables()
+    public async Task Describe_MemoryContainerOtherThanItsMemoryTable_IsNotFoundAndReadsNoTables()
     {
         Guid memory = Guid.NewGuid();
         _containers.GetAsync(memory, Arg.Any<CancellationToken>())
@@ -106,7 +106,7 @@ public class TableQueryOperationTests
 
         var described = await Describe.RunAsync(Caller, memory, Guid.NewGuid());
 
-        described.Status.Should().Be(TableStatus.MemoryContainer);
+        described.Status.Should().Be(TableStatus.TableNotFound);
         _tables.ReceivedCalls().Should().BeEmpty();
     }
 
@@ -388,10 +388,11 @@ public class TableQueryOperationTests
         public readonly ITableQueryService Queries = Substitute.For<ITableQueryService>();
         public readonly IDocumentStore Documents = Substitute.For<IDocumentStore>();
         public readonly IDocumentAccess Access = Substitute.For<IDocumentAccess>();
+        public readonly IMemoryService Memory = Substitute.For<IMemoryService>();
         public readonly PolicyAuthorizer Authorizer;
         public readonly Guid ContainerId = Guid.NewGuid();
-        public readonly Guid TableId = Guid.NewGuid();
-        public readonly Guid JoinedId = Guid.NewGuid();
+        public readonly Guid TableId;
+        public readonly Guid JoinedId;
         private readonly HashSet<string> _readable = [];
         private readonly bool _history;
 
@@ -402,9 +403,17 @@ public class TableQueryOperationTests
             bool history = false)
         {
             _history = history;
-            Authorizer = new PolicyAuthorizer(policy => policy == Policies.Reader && reader);
+            Authorizer = new PolicyAuthorizer(policy => (policy == Policies.Reader || policy == Policies.KnowledgeRead) && reader);
             Containers.GetAsync(ContainerId, Arg.Any<CancellationToken>())
                 .Returns(kind is { } k ? new Container(ContainerId.ToString(), "c", null, Epoch, Epoch, Kind: k) : null);
+            Containers.GetAsync(ContainerId, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                .Returns(kind is { } m ? new Container(ContainerId.ToString(), "c", null, Epoch, Epoch, Kind: m) : null);
+            // A memory container holds only its memory table (CON-309): a table "exists" there when it's asked for by that id.
+            bool memory = kind == ContainerKind.Memory;
+            TableId = memory && table.Exists ? MemoryTable.Id : Guid.NewGuid();
+            JoinedId = memory && joined.Exists ? MemoryTable.Id : Guid.NewGuid();
+            Memory.ViewerOfAsync(ContainerId, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+                .Returns(checkFails ? null : new MemoryViewer(new MemoryCaller(null, null, null), new HashSet<MemorySource>()));
             Add(TableId, table);
             Add(JoinedId, joined);
             if (checkFails)
@@ -438,8 +447,8 @@ public class TableQueryOperationTests
             (bool Exists, bool Readable)[] all = joined is { } j ? [table, j] : [table];
             return !reader ? TableStatus.Forbidden
                 : kind is null ? TableStatus.ContainerNotFound
-                : kind == ContainerKind.Memory ? TableStatus.MemoryContainer
                 : all.Any(t => !t.Exists) ? TableStatus.TableNotFound
+                : kind == ContainerKind.Memory ? (checkFails ? TableStatus.AccessUnchecked : TableStatus.Success)
                 : checkFails ? TableStatus.AccessUnchecked
                 : all.Any(t => !t.Readable) ? TableStatus.TableNotFound
                 : TableStatus.Success;
@@ -466,7 +475,7 @@ public class TableQueryOperationTests
         {
             var world = new World(t.Reader, t.Kind, t.Table, t.Joined, t.CheckFails);
 
-            var described = await new DescribeTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer)
+            var described = await new DescribeTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer, world.Memory)
                 .RunAsync(Caller, world.ContainerId, world.TableId);
 
             Check(world, world.Expected(t.Reader, t.Kind, t.Table, null, t.CheckFails), described.Status);
@@ -482,7 +491,7 @@ public class TableQueryOperationTests
             var world = new World(t.Reader, t.Kind, t.Table, t.Joined, t.CheckFails);
             var request = new TableReadRequest(world.TableId, Join: join ? new TableJoin(world.JoinedId, "j", "a", "a") : null);
 
-            var read = await new ReadTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer)
+            var read = await new ReadTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer, world.Memory)
                 .RunAsync(Caller, world.ContainerId, request);
 
             Check(world, world.Expected(t.Reader, t.Kind, t.Table, join ? t.Joined : null, t.CheckFails), read.Status);
@@ -499,7 +508,7 @@ public class TableQueryOperationTests
             var request = new TableAggregateRequest(world.TableId, [new TableField(null, TableAggregateFunction.Count)],
                 Join: join ? new TableJoin(world.JoinedId, "j", "a", "a") : null);
 
-            var aggregated = await new AggregateTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer)
+            var aggregated = await new AggregateTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer, world.Memory)
                 .RunAsync(Caller, world.ContainerId, request);
 
             Check(world, world.Expected(t.Reader, t.Kind, t.Table, join ? t.Joined : null, t.CheckFails), aggregated.Status);
@@ -514,10 +523,10 @@ public class TableQueryOperationTests
             var (t, history) = s;
             var world = new World(t.Reader, t.Kind, t.Table, t.Joined, t.CheckFails, history);
 
-            var changed = await new ChangesTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer)
+            var changed = await new ChangesTable(world.Containers, world.Tables, world.Queries, world.Documents, world.Access, world.Authorizer, world.Memory)
                 .RunAsync(Caller, world.ContainerId, new TableChangesRequest(world.TableId, Since, null, null, null, null));
 
             TableStatus expected = world.Expected(t.Reader, t.Kind, t.Table, null, t.CheckFails);
-            Check(world, expected == TableStatus.Success && !history ? TableStatus.NoHistory : expected, changed.Status);
+            Check(world, expected == TableStatus.Success && !history && t.Kind != ContainerKind.Memory ? TableStatus.NoHistory : expected, changed.Status);
         }, iter: 1000);
 }

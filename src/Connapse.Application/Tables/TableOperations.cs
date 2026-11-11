@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Connapse.Application.Containers;
+using Connapse.Application.Memory;
 using Connapse.Application.Ports;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -94,6 +95,27 @@ public static class TableRules
         Partial = readableRows is not null,
     };
 
+    /// <summary>
+    /// The access for reading a memory container's <see cref="MemoryTable"/> (CON-309), by memory's own rules: the
+    /// container must be one the caller may use as memory (a personal space only by its owner), and the caller sees
+    /// only facts whose sources it can all read, team facts or its own. Fails as a missing container or an unchecked
+    /// access, never with an access that could read more.
+    /// </summary>
+    public static async Task<Attempt<TableAccess, TableStatus>> MemoryAccessAsync(
+        IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, ClaimsPrincipal user, Guid containerId,
+        CancellationToken ct)
+    {
+        if (!await authorizer.AllowsAsync(user, Policies.KnowledgeRead))
+            return Attempt<TableAccess, TableStatus>.Fail(TableStatus.Forbidden, "Reading memory needs knowledge:read.");
+        MemoryCaller caller = MemoryRules.Caller(user);
+        (Guid? found, _) = await MemoryRules.ContainerAsync(containers, containerId.ToString(), caller, ct);
+        if (found != containerId)
+            return Attempt<TableAccess, TableStatus>.Fail(TableStatus.ContainerNotFound, $"Container {containerId} not found");
+        return await memory.ViewerOfAsync(containerId, caller, ct) is { } viewer
+            ? Attempt<TableAccess, TableStatus>.Succeed(new TableAccess(new HashSet<Guid>()) { Memory = viewer })
+            : Attempt<TableAccess, TableStatus>.Fail(TableStatus.AccessUnchecked, TableAccess.UncheckedMessage);
+    }
+
     private static IEnumerable<Guid> Sources(TableInfo table) =>
         table.DocumentId is Guid document ? [document] : table.SourceDocuments ?? [];
 }
@@ -111,7 +133,8 @@ public sealed class ListTables(
     ITableQueryService queries,
     IDocumentStore documents,
     IDocumentAccess access,
-    IOperationAuthorizer authorizer)
+    IOperationAuthorizer authorizer,
+    IMemoryService memory)
 {
     public const int MaxTake = 200;
 
@@ -129,7 +152,7 @@ public sealed class ListTables(
         if (await containers.GetAsync(containerId, ct) is not { } container)
             return Attempt<TableListing, TableStatus>.Fail(TableStatus.ContainerNotFound, $"Container {containerId} not found");
         if (container.Kind == ContainerKind.Memory)
-            return Attempt<TableListing, TableStatus>.Fail(TableStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
+            return await MemoryAsync(context, containerId, skip, take, search, ct);
 
         IReadOnlyList<TableInfo> all = await tables.ListAsync(containerId, ct);
         TableAccess readable = await TableRules.AccessAsync(documents, access, context.User, containerId, all, ct);
@@ -158,6 +181,37 @@ public sealed class ListTables(
         }
 
         return Attempt<TableListing, TableStatus>.Succeed(new TableListing(items, visible.Count, skip + take < visible.Count));
+    }
+
+    /// <summary>
+    /// A memory container holds one table, <see cref="MemoryTable"/> (CON-309), counted over the facts the caller can
+    /// see now.
+    /// </summary>
+    private async Task<Attempt<TableListing, TableStatus>> MemoryAsync(
+        OperationContext context, Guid containerId, int skip, int take, string? search, CancellationToken ct)
+    {
+        Attempt<TableAccess, TableStatus> readable =
+            await TableRules.MemoryAccessAsync(containers, memory, authorizer, context.User, containerId, ct);
+        if (!readable.Succeeded)
+            return Attempt<TableListing, TableStatus>.Fail(readable.Status, readable.Detail!);
+
+        TableInfo table = MemoryTable.For(containerId);
+        string? term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        if (term is not null && !Matches(table, term))
+            return Attempt<TableListing, TableStatus>.Succeed(new TableListing([], 0, false));
+        if (skip > 0)
+            return Attempt<TableListing, TableStatus>.Succeed(new TableListing([], 1, false));
+
+        long rows;
+        try
+        {
+            rows = await queries.CountAsync(containerId, readable.Result!, table.Id, ct);
+        }
+        catch (TableQueryException ex)
+        {
+            return Attempt<TableListing, TableStatus>.Fail(TableStatus.InvalidRequest, ex.Message);
+        }
+        return Attempt<TableListing, TableStatus>.Succeed(new TableListing([table with { RowCount = rows }], 1, false));
     }
 
     /// <summary>Whether the table's name, description or a visible column's header contains <paramref name="term"/>.</summary>

@@ -222,6 +222,19 @@ public sealed class MemoryService(
 
     public Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default) => store.SpaceOfAsync(factId, ct);
 
+    public async Task<MemoryViewer?> ViewerOfAsync(Guid containerId, MemoryCaller caller, CancellationToken ct = default)
+    {
+        try
+        {
+            return await ViewerAsync(containerId, null, caller, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check memory sources; showing nothing");
+            return null;
+        }
+    }
+
     /// <summary>The caller with the sources it can read among those the container (or one chain) cites. Throws when it cannot tell.</summary>
     private async Task<MemoryViewer> ViewerAsync(Guid containerId, Guid? chainId, MemoryCaller caller, CancellationToken ct) =>
         new(caller, await ReadableAsync(await store.CitedSourcesAsync(containerId, chainId, ct), caller.UserId, ct));

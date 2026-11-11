@@ -176,6 +176,8 @@ internal static class TableQueryCompiler
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(request);
+        if (MemoryTable.Is(table))
+            return CompileMemoryChanges(table, request);
         var query = new QueryBuilder(table, readableSources);
         int key = query.HistoryKey("ask what changed");
         if (request.Until is DateTimeOffset until && until < request.Since)
@@ -218,6 +220,53 @@ internal static class TableQueryCompiler
         sql.Append(" OFFSET ").Append(query.Parameter((long)offset, NpgsqlDbType.Bigint));
 
         var labels = new List<string> { "change", "version" };
+        labels.AddRange(columns.Select(i => table.Columns[i].Name));
+        return new CompiledTableQuery(sql.ToString(), query.Parameters, labels, limit);
+    }
+
+    /// <summary>
+    /// What changed in a memory table (CON-309), by memory's own rule: every version, corrected ones included, that
+    /// started or stopped being true between <see cref="TableChangesRequest.Since"/> and
+    /// <see cref="TableChangesRequest.Until"/> (or now), ordered as memory's own changes tool orders them. Each row says
+    /// its <c>change</c>: started, ended, or started and ended.
+    /// </summary>
+    private static CompiledTableQuery CompileMemoryChanges(TableInfo table, TableChangesRequest request)
+    {
+        if (request.Until is DateTimeOffset until && until < request.Since)
+            throw new TableQueryException("until can't be earlier than since.");
+        var query = new QueryBuilder(table, readableSources: null);
+
+        List<int> columns = request.Columns is null || request.Columns.Count == 0
+            ? [.. table.VisibleColumnIndexes]
+            : request.Columns.Count <= TableDdl.MaxColumns
+                ? request.Columns.Select(c => query.Resolve(c).Index).Distinct().ToList()
+                : throw new TableQueryException($"A changes request can return at most {TableDdl.MaxColumns} columns.");
+
+        string since = query.Parameter(request.Since.UtcDateTime, NpgsqlDbType.TimestampTz);
+        string to = request.Until is DateTimeOffset u
+            ? query.Parameter(u.UtcDateTime, NpgsqlDbType.TimestampTz)
+            : "pg_catalog.statement_timestamp()";
+        string from = TableDdl.Quote(TableDdl.MemoryValidFrom);
+        string end = TableDdl.Quote(TableDdl.MemoryValidTo);
+        string started = $"({from} >= {since} AND {from} <= {to})";
+        string ended = $"({end} >= {since} AND {end} <= {to})";
+
+        var sql = new StringBuilder("SELECT CASE WHEN ").Append(started).Append(" AND ").Append(ended)
+            .Append(" THEN 'started and ended' WHEN ").Append(started).Append(" THEN 'started' ELSE 'ended' END AS change");
+        foreach (int c in columns)
+            sql.Append(", ").Append(Output(query.Column(c), table.Columns[c].Type));
+        sql.Append(" FROM ").Append(query.Table).Append(" WHERE ").Append(started).Append(" OR ").Append(ended)
+            .Append(" ORDER BY ").Append(from).Append(" ASC NULLS LAST, ").Append(query.Column(7)).Append(" ASC, ")
+            .Append(query.Column(0)).Append(" ASC");
+
+        int limit = Limit(request.Limit);
+        int offset = request.Offset ?? 0;
+        if (offset < 0 || offset > MaxOffset)
+            throw new TableQueryException($"offset must be between 0 and {MaxOffset}.");
+        sql.Append(" LIMIT ").Append(query.Parameter((long)limit + 1, NpgsqlDbType.Bigint));
+        sql.Append(" OFFSET ").Append(query.Parameter((long)offset, NpgsqlDbType.Bigint));
+
+        var labels = new List<string> { "change" };
         labels.AddRange(columns.Select(i => table.Columns[i].Name));
         return new CompiledTableQuery(sql.ToString(), query.Parameters, labels, limit);
     }
@@ -601,8 +650,12 @@ internal static class TableQueryCompiler
             this.alias = alias;
             Info = table;
             Prefix = prefix;
+            IsMemory = MemoryTable.Is(table);
             Table = TableDdl.Quote(table.StorageSchema) + "." + TableDdl.Quote(table.StorageName);
         }
+
+        /// <summary>A memory table (CON-309), whose versions follow memory's own time rule instead of the table history's.</summary>
+        internal bool IsMemory { get; }
 
         internal TableInfo Info { get; }
 
@@ -665,6 +718,8 @@ internal static class TableQueryCompiler
         /// </summary>
         internal string? Seen(DateTimeOffset? asOf, bool strict)
         {
+            if (IsMemory)
+                return MemoryAsOf(asOf is DateTimeOffset m ? query.Parameter(m.UtcDateTime, NpgsqlDbType.TimestampTz) : null);
             if (asOf is not DateTimeOffset at)
                 return Info.HasHistory ? Current() : null;
             if (!strict && !Info.HasHistory)
@@ -679,7 +734,20 @@ internal static class TableQueryCompiler
             return $"{Qualify(TableDdl.Quote(TableHistory.SeenFrom))} <= {t} AND {Qualify(TableDdl.Quote(TableHistory.SeenUntil))} > {t}";
         }
 
-        internal string Current() => $"{Qualify(TableDdl.Quote(TableHistory.SeenUntil))} = 'infinity'";
+        internal string Current() =>
+            IsMemory ? MemoryAsOf(null) : $"{Qualify(TableDdl.Quote(TableHistory.SeenUntil))} = 'infinity'";
+
+        /// <summary>
+        /// Memory's own as-of rule: the facts not corrected and true at <paramref name="at"/> (a bound parameter), or
+        /// now when it is null.
+        /// </summary>
+        private string MemoryAsOf(string? at)
+        {
+            string t = at ?? "pg_catalog.statement_timestamp()";
+            string from = Qualify(TableDdl.Quote(TableDdl.MemoryValidFrom));
+            string to = Qualify(TableDdl.Quote(TableDdl.MemoryValidTo));
+            return $"{Qualify(TableDdl.Quote(TableDdl.MemorySupersededAt))} IS NULL AND ({from} IS NULL OR {from} <= {t}) AND ({to} IS NULL OR {to} > {t})";
+        }
 
         /// <summary>The key column of a table with history, or an error saying the table keeps none.</summary>
         internal int HistoryKey(string what)
