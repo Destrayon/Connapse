@@ -25,3 +25,6 @@ cost and wall time, with the pass bar's McNemar and Wilcoxon tests.
   overrides' JSON, and fails up front naming any tool the build lacks. `TablesRagEval` exposes `Select`, `IndexAsync`,
   `NonconformingTest` and `RunLine` for reuse. 31 tests in `TablesArmsEvalTests`; they and the rag tests pass. The live
   10-question dry run waits on CON-326. Next: ship.
+- Phase 4 done: Release build with `-warnaserror --no-incremental` is clean, `dotnet format --verify-no-changes` passes,
+  and all unit tests pass (3,701 in Connapse.Eval.Tests). PR #1215 is open into `epic/con-e6-tables`. Next: the
+  10-question dry run (`tables-arms --split tune --limit-tasks 10`) once CON-326 merges.
