@@ -1,0 +1,194 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using Connapse.Core;
+using Connapse.Core.Interfaces;
+using Connapse.Web.Endpoints;
+using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+using static Connapse.Ingestion.Tests.Tables.XlsxFixture;
+
+namespace Connapse.Integration.Tests;
+
+/// <summary>
+/// CON-308: an Excel workbook uploaded to a container loads one typed table per visible sheet, and a flat JSON array
+/// loads as one table; both stay searchable as text. Goes through the upload endpoint and the ingestion job.
+/// </summary>
+[Trait("Category", "Integration")]
+[Collection("Integration Tests")]
+public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
+{
+    private static byte[] Workbook(params SheetSpec[] sheets) => Build(sheets).ToArray();
+
+    [Fact]
+    public async Task Upload_Workbook_LoadsATablePerSheetAndIsFoundByTextSearch()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            byte[] book = Workbook(
+                new SheetSpec("Fruit", $"<sheetData>{Row(1, "Harvest 2024")}{Row(2, "name", "kilos")}{Row(3, "persimmon", 12)}{Row(4, "quince", 7.5)}</sheetData>"),
+                new SheetSpec("Totals",
+                    $"<sheetData>{Row(1, "a", "total")}<row r=\"2\"><c r=\"A2\"><v>1</v></c><c r=\"B2\"><f>A2*2</f></c></row>{Row(3, 2, 4)}</sheetData>"));
+            string id = await UploadAsync(containerId, "harvest.xlsx", book);
+            await WaitForReadyAsync(containerId, id);
+
+            var tables = await TablesAsync(containerId);
+            tables.Select(t => t.Name).Should().Equal("harvest - Fruit", "harvest - Totals");
+            var fruit = tables[0];
+            fruit.Columns.Select(c => (c.Name, c.Type)).Should().Equal(("name", TableColumnType.Text), ("kilos", TableColumnType.Number));
+            fruit.RowCount.Should().Be(2);
+            fruit.NeedsReview.Should().BeFalse();
+            var totals = tables[1];
+            totals.RowCount.Should().Be(1);
+            totals.NeedsReview.Should().BeTrue();
+            totals.Rejects.Should().ContainSingle().Which.Reason.Should().Contain("without a result");
+
+            var document = await DocumentAsync(id);
+            document.Metadata["TableId"].Should().Be(fruit.Id.ToString());
+            document.Metadata["TableIds"].Should().Be($"{fruit.Id},{totals.Id}");
+            document.Metadata["ParserWarnings"].Should().Contain("Open and save the file in Excel");
+            (await KeywordHitsAsync(containerId, "persimmon")).Should().Contain(id);
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Reupload_WorkbookWithASheetRemoved_KeepsTheOtherTableAndDropsTheRemovedOnes()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            SheetSpec sales = new("Sales", $"<sheetData>{Row(1, "id", "amount")}{Row(2, 1, 5)}</sheetData>");
+            SheetSpec costs = new("Costs", $"<sheetData>{Row(1, "item", "cost")}{Row(2, "pen", 2)}</sheetData>");
+            string id = await UploadAsync(containerId, "book.xlsx", Workbook(sales, costs));
+            await WaitForReadyAsync(containerId, id);
+            var before = await TablesAsync(containerId);
+            before.Should().HaveCount(2);
+
+            SheetSpec moreSales = new("Sales", $"<sheetData>{Row(1, "id", "amount")}{Row(2, 1, 5)}{Row(3, 2, 6)}</sheetData>");
+            (await UploadAsync(containerId, "book.xlsx", Workbook(moreSales))).Should().Be(id);
+            // Tables load before the document's metadata is written, and the upload clears the old metadata, so wait for both.
+            await WaitForAsync(async () => (await TablesAsync(containerId)) is [{ Version: 2 }]
+                && (await DocumentAsync(id)).Metadata.ContainsKey("TableId"));
+
+            var after = (await TablesAsync(containerId)).Single();
+            after.Id.Should().Be(before.Single(t => t.Name == "book - Sales").Id);
+            after.RowCount.Should().Be(2);
+            var document = await DocumentAsync(id);
+            document.Metadata["TableId"].Should().Be(after.Id.ToString());
+            document.Metadata.Should().NotContainKey("TableIds");
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Upload_FlatJsonArray_LoadsAsATableAndNestedJsonStaysText()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            string people = await UploadAsync(containerId, "people.json",
+                Encoding.UTF8.GetBytes("""[{"name": "Ann", "joined": "2024-01-31", "age": 41}, {"name": "Bob", "age": 7}]"""));
+            string nested = await UploadAsync(containerId, "nested.json",
+                Encoding.UTF8.GetBytes("""[{"name": "Cy", "tags": ["a", "b"]}]"""));
+            await WaitForReadyAsync(containerId, people);
+            await WaitForReadyAsync(containerId, nested);
+
+            var table = (await TablesAsync(containerId)).Single();
+            table.Name.Should().Be("people");
+            table.DocumentId.Should().Be(Guid.Parse(people));
+            table.Columns.Select(c => (c.Name, c.Type)).Should().Equal(
+                ("name", TableColumnType.Text), ("joined", TableColumnType.Date), ("age", TableColumnType.WholeNumber));
+            table.RowCount.Should().Be(2);
+            (await DocumentAsync(nested)).Metadata["ParserWarnings"].Should().Contain("only flat JSON arrays");
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    private async Task<List<string?>> KeywordHitsAsync(Guid containerId, string query)
+    {
+        using HttpResponseMessage response = await fixture.AdminClient.GetAsync(
+            $"/api/containers/{containerId}/search?q={Uri.EscapeDataString(query)}&mode=Keyword&topK=5");
+        response.EnsureSuccessStatusCode();
+        using JsonDocument found = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return found.RootElement.GetProperty("hits").EnumerateArray().Select(h => h.GetProperty("documentId").GetString()).ToList();
+    }
+
+    private async Task<Guid> NewContainerAsync()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var created = await scope.ServiceProvider.GetRequiredService<IContainerStore>()
+            .CreateAsync(new CreateContainerRequest($"xls-{Guid.NewGuid():N}"[..20], null, ContainerKind.Documents));
+        return Guid.Parse(created.Id);
+    }
+
+    private async Task DeleteContainerAsync(Guid containerId)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        foreach (var document in await scope.ServiceProvider.GetRequiredService<IDocumentStore>().ListAsync(containerId, take: int.MaxValue))
+            await fixture.AdminClient.DeleteAsync($"/api/containers/{containerId}/files/{document.Id}");
+        await scope.ServiceProvider.GetRequiredService<IContainerStore>().DeleteAsync(containerId);
+    }
+
+    private async Task<IReadOnlyList<TableInfo>> TablesAsync(Guid containerId)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<ITableStore>().ListAsync(containerId);
+    }
+
+    private async Task<Document> DocumentAsync(string documentId)
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        return (await scope.ServiceProvider.GetRequiredService<IDocumentStore>().GetAsync(documentId))!;
+    }
+
+    private async Task<string> UploadAsync(Guid containerId, string fileName, byte[] content)
+    {
+        using var form = new MultipartFormDataContent();
+        var part = new ByteArrayContent(content);
+        part.Headers.ContentType = new MediaTypeHeaderValue(fileName.EndsWith(".json")
+            ? "application/json"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        form.Add(part, "files", fileName);
+        form.Add(new StringContent("/data/"), "path");
+        using HttpResponseMessage response = await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", form);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<UploadResponse>())!.Documents.Single().DocumentId;
+    }
+
+    private async Task WaitForReadyAsync(Guid containerId, string documentId)
+    {
+        await WaitForAsync(async () =>
+        {
+            string body = await fixture.AdminClient.GetStringAsync($"/api/containers/{containerId}/files/{documentId}");
+            string? status = JsonDocument.Parse(body).RootElement.GetProperty("status").GetString();
+            if (status?.StartsWith("Failed", StringComparison.Ordinal) == true)
+                throw new InvalidOperationException($"Ingestion failed: {body}");
+            return status == "Ready";
+        });
+    }
+
+    private static async Task WaitForAsync(Func<Task<bool>> done)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (await done())
+                return;
+            await Task.Delay(250);
+        }
+        throw new TimeoutException("The condition wasn't met within 90 s");
+    }
+}

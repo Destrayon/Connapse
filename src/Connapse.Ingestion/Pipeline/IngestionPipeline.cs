@@ -133,6 +133,9 @@ public class IngestionPipeline : IKnowledgeIngester
     /// <summary>The table a CSV document loaded into (CON-302), in its container's tables.</summary>
     public const string MetadataKeyTableId = "TableId";
 
+    /// <summary>Every table a workbook's sheets loaded into (CON-308), comma-separated, when there are several.</summary>
+    public const string MetadataKeyTableIds = "TableIds";
+
     /// <summary>Keeps a page-by-page warning list from a long PDF from bloating the metadata column.</summary>
     private const int MaxParserWarningsLength = 4000;
 
@@ -318,11 +321,11 @@ public class IngestionPipeline : IKnowledgeIngester
 
             // The table loads before the text is chunked and embedded, so it can be queried while the text is still
             // indexing (CON-329). A large one is then searched by a summary and its first rows, not by every row.
-            TableInfo? table = null;
+            IReadOnlyList<TableInfo> tables = [];
             if (alsoTableIn is Guid alsoContainerId && !await IsStaleJobAsync(documentId, options.Generation, ct))
             {
-                table = await LoadTableAsync(workingStream, options.FileName ?? virtualPath, alsoContainerId, documentId, warnings, ct);
-                if (table is not null && CsvTextDigest.IsLarge(table))
+                tables = await LoadTablesAsync(workingStream, options.FileName ?? virtualPath, alsoContainerId, documentId, warnings, ct);
+                if (tables is [var table] && CsvTextDigest.IsLarge(table))
                     parsedDocument = parsedDocument with { Content = StorableText.Clean(CsvTextDigest.Build(table, parsedDocument.Content)) };
             }
 
@@ -400,10 +403,14 @@ public class IngestionPipeline : IKnowledgeIngester
             else
                 metadata.Remove(MetadataKeyReadWithoutLayout);
 
-            if (table is not null)
-                metadata[MetadataKeyTableId] = table.Id.ToString();
+            if (tables.Count > 0)
+                metadata[MetadataKeyTableId] = tables[0].Id.ToString();
             else
                 metadata.Remove(MetadataKeyTableId);
+            if (tables.Count > 1)
+                metadata[MetadataKeyTableIds] = string.Join(",", tables.Select(t => t.Id));
+            else
+                metadata.Remove(MetadataKeyTableIds);
 
             if (warnings.Count > 0)
                 metadata[MetadataKeyParserWarnings] = TruncateWarnings(warnings);
@@ -623,30 +630,33 @@ public class IngestionPipeline : IKnowledgeIngester
     /// is left to the text commit, which finds it gone. The table load runs outside the text's transaction, so a
     /// superseded job can reload the table before the newer job does.
     /// </summary>
-    private async Task<TableInfo?> LoadTableAsync(
+    private async Task<IReadOnlyList<TableInfo>> LoadTablesAsync(
         Stream file, string fileName, Guid containerId, Guid documentId, List<string> warnings, CancellationToken ct)
     {
         string name = Path.GetFileName(fileName);
-        TableInfo table;
+        IReadOnlyList<TableInfo> tables;
         try
         {
-            table = await StoreTableAsync(file, name, containerId, documentId, ct);
+            tables = await StoreTablesAsync(file, name, containerId, documentId, warnings, ct);
         }
         catch (Exception ex) when (IsUnreadableTable(ex))
         {
             warnings.Add($"Could not load {name} as a table: {StorableText.Clean(ex.Message)}");
-            return null;
+            return [];
         }
         catch (Exception ex) when (IsDocumentGone(ex))
         {
-            return null;
+            return [];
         }
 
-        if (RejectsWarning(table) is { } rejects)
-            warnings.Add(rejects);
-        _logger.LogInformation("Loaded document {DocumentId} as table {TableId} too: {Rows} rows, {Rejects} rejects",
-            documentId, table.Id, table.RowCount, table.Rejects.Count);
-        return table;
+        foreach (TableInfo table in tables)
+        {
+            if (RejectsWarning(table, tables.Count > 1) is { } rejects)
+                warnings.Add(rejects);
+            _logger.LogInformation("Loaded document {DocumentId} as table {TableId} too: {Rows} rows, {Rejects} rejects",
+                documentId, table.Id, table.RowCount, table.Rejects.Count);
+        }
+        return tables;
     }
 
     /// <summary>
@@ -694,7 +704,7 @@ public class IngestionPipeline : IKnowledgeIngester
 
         foreach (TableInfo table in tables)
         {
-            if (RejectsWarning(table) is { } rejects)
+            if (RejectsWarning(table, named: false) is { } rejects)
                 warnings.Add($"{table.Name}: {rejects}");
         }
         if (tables.Count > 0)
@@ -702,27 +712,48 @@ public class IngestionPipeline : IKnowledgeIngester
         return [.. clean.Zip(tables)];
     }
 
-    /// <summary>Reads a CSV into the document's own table: a new one on the first load, a reload after that.</summary>
-    private async Task<TableInfo> StoreTableAsync(Stream file, string fileName, Guid containerId, Guid documentId, CancellationToken ct)
+    /// <summary>
+    /// Reads a file into the document's own tables: new ones on the first load, reloads after that. A file with one
+    /// table reloads the document's first table whatever its name; a workbook's sheets reload the tables of the same
+    /// name (CON-308). A table whose sheet is gone is deleted, so the document's tables are always its file's.
+    /// </summary>
+    private async Task<IReadOnlyList<TableInfo>> StoreTablesAsync(
+        Stream file, string fileName, Guid containerId, Guid documentId, List<string> warnings, CancellationToken ct)
     {
         file.Position = 0;
-        TableLoad load = await CsvTableReader.ReadAsync(file, fileName, documentId, ct);
-        TableInfo? current = await _tableStore!.FindByDocumentAsync(containerId, documentId, ct);
-        return current is not null && await _tableStore.ReloadAsync(containerId, current.Id, load, ct) is { } reloaded
-            ? reloaded
-            : await _tableStore.CreateAsync(containerId, load, ct);
+        using TableFile read = await TableFiles.ReadAsync(file, fileName, documentId, ct);
+        warnings.AddRange(read.Warnings);
+        IReadOnlyList<TableInfo> existing = await _tableStore!.ListByDocumentAsync(containerId, documentId, ct);
+
+        var kept = new HashSet<Guid>();
+        List<TableInfo> stored = [];
+        foreach (TableLoad load in read.Tables)
+        {
+            TableInfo? current = read.Tables.Count == 1
+                ? existing.FirstOrDefault()
+                : existing.FirstOrDefault(t => !kept.Contains(t.Id) && string.Equals(t.Name, load.Name, StringComparison.Ordinal));
+            TableInfo table = current is not null && await _tableStore.ReloadAsync(containerId, current.Id, load, ct) is { } reloaded
+                ? reloaded
+                : await _tableStore.CreateAsync(containerId, load, ct);
+            kept.Add(table.Id);
+            stored.Add(table);
+        }
+        foreach (TableInfo gone in existing.Where(t => !kept.Contains(t.Id)))
+            await _tableStore.DeleteAsync(containerId, gone.Id, ct);
+        return stored;
     }
 
-    private static bool IsUnreadableTable(Exception ex) => ex is InvalidDataException or CsvFormatException or ArgumentException;
+    private static bool IsUnreadableTable(Exception ex) => ex is InvalidDataException or CsvFormatException or ArgumentException
+        or System.Text.Json.JsonException or DocumentFormat.OpenXml.Packaging.OpenXmlPackageException or System.Xml.XmlException;
 
     private static bool IsDocumentGone(Exception ex) =>
         ex is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation }
         || ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation };
 
-    private static string? RejectsWarning(TableInfo table) =>
+    private static string? RejectsWarning(TableInfo table, bool named) =>
         table.Rejects.Count == 0
             ? null
-            : $"{table.Rejects.Select(r => r.Row).Distinct().LongCount()} row(s) didn't fit their columns and were left out of the table; its rejects list them";
+            : $"{table.Rejects.Select(r => r.Row).Distinct().LongCount()} row(s) didn't fit their columns and were left out of the table{(named ? $" {table.Name}" : "")}; its rejects list them";
 
     private Task<DocumentEntity?> LoadExistingAsync(Guid documentId, CancellationToken ct) =>
         _context.Documents.AsNoTracking().FirstOrDefaultAsync(d => d.Id == documentId, ct);

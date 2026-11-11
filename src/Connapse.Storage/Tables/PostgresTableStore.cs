@@ -284,6 +284,16 @@ public class PostgresTableStore(
         return entity is null ? null : ToInfo(entity);
     }
 
+    public async Task<IReadOnlyList<TableInfo>> ListByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var entities = await context.ContainerTables.AsNoTracking()
+            .Where(t => t.ContainerId == containerId && t.DocumentId == documentId)
+            .OrderBy(t => t.CreatedAt).ThenBy(t => t.Id)
+            .ToListAsync(ct);
+        return entities.Select(ToInfo).ToList();
+    }
+
     public async Task<bool> DeleteAsync(Guid containerId, Guid tableId, CancellationToken ct = default)
     {
         await using var context = await factory.CreateDbContextAsync(ct);
