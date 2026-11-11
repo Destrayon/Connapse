@@ -2,6 +2,7 @@
 using Connapse.Application.Containers;
 using Connapse.Application.Sources;
 using Connapse.Application.Files;
+using Connapse.Application.Tables;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Storage.Data;
@@ -191,7 +192,7 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         string output = await McpTools.GetDocument(
-            scope.ServiceProvider.GetRequiredService<GetFile>(), scope.ServiceProvider.GetRequiredService<GetFileContent>(),
+            scope.ServiceProvider.GetRequiredService<GetFile>(), scope.ServiceProvider.GetRequiredService<GetFileContent>(), scope.ServiceProvider.GetRequiredService<GetFileTables>(),
             scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString(), fileId: "/anything.md");
 
         output.Should().Contain("not found");

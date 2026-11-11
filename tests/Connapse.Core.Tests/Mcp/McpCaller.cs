@@ -1,6 +1,7 @@
 using Connapse.Application.Containers;
 using Connapse.Application.Files;
 using Connapse.Application.Ports;
+using Connapse.Application.Tables;
 using Connapse.Core.Interfaces;
 using Connapse.Web.Services;
 using Connapse.Storage.Data;
@@ -72,7 +73,8 @@ internal static class McpCaller
             content,
             delete,
             new BulkDeleteFiles(containers, delete, Allowed),
-            new GetFileContents(containers, content, Allowed));
+            new GetFileContents(containers, content, Allowed),
+            new GetFileTables(containers, documents, access, Get<ITableStore>(), Allowed));
     }
 
     /// <summary>
@@ -110,5 +112,6 @@ internal static class McpCaller
     }
 
     public sealed record FileTools(
-        GetContainer Container, ListFiles List, GetFile Get, GetFileContent Content, DeleteFile Delete, BulkDeleteFiles BulkDelete, GetFileContents Contents);
+        GetContainer Container, ListFiles List, GetFile Get, GetFileContent Content, DeleteFile Delete, BulkDeleteFiles BulkDelete, GetFileContents Contents,
+        GetFileTables Tables);
 }

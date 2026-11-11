@@ -150,6 +150,7 @@ Generated from `docs/api/openapi.json`, grouped by its tags. "—" in **Scope** 
 | `POST` | `/api/containers/{containerId}/tables/read` | `knowledge:read` | Read a table's rows. The body is the same JSON request as the `table_read` MCP tool; a request that can't run answers `invalid-table-request` with what to fix |
 | `POST` | `/api/containers/{containerId}/tables/aggregate` | `knowledge:read` | Count, sum, average, min and max a table's rows, overall or by group. The body is the same JSON request as the `table_aggregate` MCP tool |
 | `POST` | `/api/containers/{containerId}/tables/changes` | `knowledge:read` | What changed in a table with history between `since` and `until` (now by default): each added, removed or changed key with its old and new row. The body is the same JSON request as the `table_changes` MCP tool; a table without a key column answers `table-has-no-history` |
+| `PUT` | `/api/containers/{containerId}/tables/{tableId}/hidden` | `admin:settings` | Hide a whole table from every caller, or show it again (`{"hidden": true}`). A hidden table stays hidden when its document is re-ingested, and its passages show their own text with no table note or link. Admins only |
 | `GET` | `/api/containers/{containerId}/settings` | `knowledge:read` | Get per-container settings overrides. `search` holds only the search settings the container chose; a missing one follows the global value. |
 | `PUT` | `/api/containers/{containerId}/settings` | `knowledge:write` | Save per-container settings overrides. Only the search settings named in the body are stored; see [Tune search](../guides/tune-search.md#5-set-one-container-apart). |
 | `DELETE` | `/api/containers/{containerId}/settings` | `knowledge:write` | Clear per-container settings overrides, so the container follows the global settings |
@@ -228,6 +229,7 @@ The same questions the `code_*` MCP tools answer, over indexed C#, Python and Ty
 | `GET` | `/api/containers/{containerId}/files` | `knowledge:read` | List files and folders at a path within a container (?skip=0&take=50) |
 | `GET` | `/api/containers/{containerId}/files/{fileId}` | `knowledge:read` | Get file details including indexing status |
 | `GET` | `/api/containers/{containerId}/files/{fileId}/links` | `knowledge:read` | List the files in this container that a file links to and that link to it, leaving out any the caller can't read. 503 `links-access-unchecked` when access can't be checked. |
+| `GET` | `/api/containers/{containerId}/files/{fileId}/tables` | `knowledge:read` | List the tables found in a file that the caller may read, each with its id, page and number. Admins also see hidden tables, marked `hidden`. 503 `links-access-unchecked` when access can't be checked. |
 | `DELETE` | `/api/containers/{containerId}/files/{fileId}` | `knowledge:write` | Delete a file and all associated chunks and vectors |
 | `POST` | `/api/containers/{containerId}/files/bulk-delete` | `knowledge:write` | Delete up to 100 files in one call. |
 | `GET` | `/api/containers/{containerId}/files/{fileId}/content` | `knowledge:read` | Get the full text content of a file. |

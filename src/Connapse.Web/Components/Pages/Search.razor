@@ -182,6 +182,16 @@
 
                             <div class="result-content">
                                 <div class="result-text">@hit.Content</div>
+                                @if (hit.Tables is { Count: > 0 } passageTables)
+                                {
+                                    <div class="result-tables">
+                                        <small class="text-muted"><strong>Tables:</strong></small>
+                                        @foreach (var table in passageTables)
+                                        {
+                                            <span class="source-badge" title="@table.Id">@table.Name</span>
+                                        }
+                                    </div>
+                                }
                             </div>
 
                             <div class="result-footer">

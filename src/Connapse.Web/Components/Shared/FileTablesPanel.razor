@@ -1,0 +1,58 @@
+@*
+    The Tables section of the file browser's File Details panel (CON-312): the tables found in this file that the
+    viewer may read, each with its page and id, to query with the table tools. An admin also sees the tables hidden
+    from everyone else, marked. The parent keys this component on the selected file, so each selection loads afresh.
+*@
+@using Connapse.Core
+@inject Connapse.Application.Tables.GetFileTables FileTables
+@inject AuthenticationStateProvider AuthStateProvider
+
+@if (tables is null && error is null)
+{
+    <span class="links-status text-muted">Loading tables…</span>
+}
+else if (error is not null)
+{
+    <span class="links-status text-muted">@error</span>
+}
+else if (tables!.Count == 0)
+{
+    <span class="links-status text-muted">No tables found in this file.</span>
+}
+else
+{
+    <ul class="link-list file-tables">
+        @foreach (var table in tables)
+        {
+            <li title="@table.Id">
+                <span class="link-name">@table.Name</span>
+                <span class="link-meta">@Where(table)@(table.Hidden ? " · hidden from everyone" : "")</span>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid ContainerId { get; set; }
+    [Parameter, EditorRequired] public string FileId { get; set; } = "";
+
+    private IReadOnlyList<PassageTable>? tables;
+    private string? error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var read = await FileTables.RunAsync(await AuthStateProvider.OperationContextAsync(), ContainerId, FileId);
+            (tables, error) = (read.Result, read.Succeeded ? null : "Tables couldn't be loaded right now.");
+        }
+        catch
+        {
+            error = "Tables couldn't be loaded right now.";
+        }
+    }
+
+    /// <summary>Where the table sits: "page 3, table 2", or "table 2" for a format without pages.</summary>
+    public static string Where(PassageTable table) =>
+        (table.Page is int page ? $"page {page}, " : "") + (table.Number is int number ? $"table {number}" : "own file");
+}

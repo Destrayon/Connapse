@@ -440,6 +440,10 @@
                 <span class="detail-label">Links</span>
                 <FileLinksPanel @key="selectedFile" ContainerId="Guid.Parse(ContainerId)" FileId="@selectedFile.Id" OnOpen="OpenLinkedFile" />
             </div>
+            <div class="detail-row links-section">
+                <span class="detail-label">Tables</span>
+                <FileTablesPanel @key="selectedFile" ContainerId="Guid.Parse(ContainerId)" FileId="@selectedFile.Id" />
+            </div>
         </div>
         @if (canEdit && selectedBrowseEntry is not null)
         {

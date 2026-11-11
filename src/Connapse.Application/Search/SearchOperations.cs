@@ -1,5 +1,6 @@
 using Connapse.Application.Containers;
 using Connapse.Application.Ports;
+using Connapse.Application.Tables;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -77,7 +78,7 @@ public sealed record SearchRequest(
 public sealed class SearchKnowledge(
     IContainerStore containers, ISourceStore sources, ISourceVisibility visibility, IKnowledgeSearch search,
     IOptionsMonitor<SearchSettings> settings, IOperationAuthorizer authorizer, ILocalModelMonitor? localModel = null,
-    IDocumentStore? documents = null)
+    IDocumentStore? documents = null, PassageTables? passageTables = null)
 {
     public const string Scope = "knowledge:read";
 
@@ -140,6 +141,8 @@ public sealed class SearchKnowledge(
         // Only for a scope the caller may know exists: a hidden source's backlog would say what is in it.
         if (discoverable)
             result = result with { PendingDocuments = await PendingAsync(ownerId, ct) };
+        if (passageTables is not null)
+            result = await passageTables.ApplyAsync(context.User, result, ct);
         return Attempt<SearchResult, SearchStatus>.Succeed(result);
     }
 

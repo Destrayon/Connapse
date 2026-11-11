@@ -15,6 +15,7 @@ public static class ServiceCollectionExtensions
         var assembly = typeof(ServiceCollectionExtensions).Assembly;
         foreach (Type type in Operations(assembly).Concat(Facades(assembly)))
             services.AddScoped(type);
+        services.AddScoped<Tables.PassageTables>();
         return services;
     }
 

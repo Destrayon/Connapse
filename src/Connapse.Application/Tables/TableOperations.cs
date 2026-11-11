@@ -160,13 +160,16 @@ public sealed class ListTables(
             return Attempt<TableListing, TableStatus>.Fail(TableStatus.AccessUnchecked, TableAccess.UncheckedMessage);
 
         string? term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
-        List<TableInfo> visible = all.Where(readable.CanRead).Where(t => term is null || Matches(t, term)).ToList();
         bool admin = await authorizer.AllowsAsync(context.User, Policies.Admin);
+        // An admin is also shown the tables hidden from everyone (CON-312), marked, to show them again.
+        List<TableInfo> visible = all
+            .Where(t => readable.CanRead(t) || admin && t.Hidden && readable.CanRead(t with { Hidden = false }))
+            .Where(t => term is null || Matches(t, term)).ToList();
         var items = new List<TableInfo>();
         foreach (TableInfo table in visible.Skip(skip).Take(take))
         {
             long? readableRows = null;
-            if (!readable.SeesAll(table))
+            if (!table.Hidden && !readable.SeesAll(table))
             {
                 try
                 {

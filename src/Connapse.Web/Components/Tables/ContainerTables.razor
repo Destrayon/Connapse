@@ -51,6 +51,10 @@
                             {
                                 <span class="badge bg-warning text-dark" title="Some rows didn't fit the column types and were left out">Needs review</span>
                             }
+                            @if (table.Hidden)
+                            {
+                                <span class="badge bg-secondary" title="Hidden from everyone; only admins see it here">Hidden</span>
+                            }
                         </td>
                         <td class="col-columns">@table.Columns.Count</td>
                         <td class="col-rows">@table.RowCount.ToString("N0")</td>

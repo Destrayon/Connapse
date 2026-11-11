@@ -80,7 +80,8 @@ public class AttemptTests
     {
         var services = new ServiceCollection().AddApplication();
         var assembly = typeof(OperationAttribute).Assembly;
-        var operations = ServiceCollectionExtensions.Operations(assembly).Concat(ServiceCollectionExtensions.Facades(assembly)).ToList();
+        var operations = ServiceCollectionExtensions.Operations(assembly).Concat(ServiceCollectionExtensions.Facades(assembly))
+            .Append(typeof(Connapse.Application.Tables.PassageTables)).ToList();
 
         services.Select(d => d.ServiceType).Should().BeEquivalentTo(operations);
         services.Should().OnlyContain(d => d.Lifetime == ServiceLifetime.Scoped);

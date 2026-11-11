@@ -4,6 +4,7 @@ using Connapse.Application.Files;
 using Microsoft.AspNetCore.Authorization;
 using Connapse.Application.Search;
 using Connapse.Application.Sources;
+using Connapse.Application.Tables;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -183,6 +184,7 @@ public partial class McpTools
             resultText += $"Path: {docPath ?? "/"}\n";
             resultText += $"Chunk: {chunkIndex ?? "0"}\n";
             resultText += $"DocumentId: {hit.DocumentId}\n";
+            resultText += TablesLine(hit.Tables);
             resultText += $"Content:\n{hit.Content}\n\n";
         }
 
@@ -193,6 +195,16 @@ public partial class McpTools
     /// Says that documents still waiting to be indexed can't be in a search's results yet (CON-277), so an agent
     /// doesn't read a miss as absence; empty when none are waiting.
     /// </summary>
+    /// <summary>
+    /// The tables found in a passage or document the caller may read (CON-312), one line naming each with its id, so an
+    /// agent queries their rows with the table tools; empty when there are none.
+    /// </summary>
+    internal static string TablesLine(IReadOnlyList<PassageTable>? tables) =>
+        tables is { Count: > 0 }
+            ? "Tables: " + string.Join("; ", tables.Select(t => $"\"{t.Name}\" (id {t.Id}{(t.Page is int page ? $", page {page}" : "")})"))
+              + " (query with table_read or table_sql)\n"
+            : "";
+
     internal static string PendingNote(int pendingDocuments) =>
         SearchNotes.Pending(pendingDocuments) is { } note ? $"\nNote: {note} Text files can already be read with get_document." : "";
 
@@ -531,6 +543,7 @@ public partial class McpTools
     public static async Task<string> GetDocument(
         GetFile getFile,
         GetFileContent getContent,
+        GetFileTables getTables,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
@@ -578,9 +591,18 @@ public partial class McpTools
                      $"Size: {document.SizeBytes:N0} bytes\n" +
                      $"Created: {document.CreatedAt:u}\n" +
                      (read.Result.AwaitingIndex ? "Indexing: still waiting, so search_knowledge can't find this document yet.\n" : "") +
+                     await DocumentTablesLineAsync(getTables, http, resolvedId.Value, document.Id, ct) +
                      $"---\n";
 
         return header + content;
+    }
+
+    /// <summary>The document's tables the caller may read (CON-312), as a line; empty when there are none or they can't be checked.</summary>
+    private static async Task<string> DocumentTablesLineAsync(
+        GetFileTables getTables, IHttpContextAccessor http, Guid containerId, string documentId, CancellationToken ct)
+    {
+        var found = await getTables.RunAsync(Mcp(http), containerId, documentId, ct);
+        return found.Succeeded ? TablesLine(found.Result!.Where(t => !t.Hidden).ToList()) : "";
     }
 
     [McpServerTool(Name = "get_documents", ReadOnly = true, Idempotent = true),

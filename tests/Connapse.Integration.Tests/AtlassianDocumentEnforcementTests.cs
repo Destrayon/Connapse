@@ -6,6 +6,7 @@ using System.Text.Json;
 using Connapse.Application.Containers;
 using Connapse.Application.Sources;
 using Connapse.Application.Files;
+using Connapse.Application.Tables;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Identity.Data;
@@ -372,7 +373,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
 
     /// <summary>MCP get_document as the caller on the scope's HTTP context.</summary>
     private static Task<string> GetDocumentAsync(IServiceProvider sp, string containerId, string fileId) =>
-        McpTools.GetDocument(sp.GetRequiredService<GetFile>(), sp.GetRequiredService<GetFileContent>(), sp.GetRequiredService<GetContainer>(),
+        McpTools.GetDocument(sp.GetRequiredService<GetFile>(), sp.GetRequiredService<GetFileContent>(), sp.GetRequiredService<GetFileTables>(), sp.GetRequiredService<GetContainer>(),
             sp.GetRequiredService<IHttpContextAccessor>(), containerId, fileId);
 
     /// <summary>Runs <paramref name="call"/> as a non-admin user linked to <paramref name="atlassianAccount"/>.</summary>

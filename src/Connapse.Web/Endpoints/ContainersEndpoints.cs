@@ -226,6 +226,29 @@ public static class ContainersEndpoints
         .WithDescription("Hide a table's columns, by header name, from every caller; replaces the ones hidden before, and an empty list shows them all. A hidden column can't be selected, filtered, grouped, ordered or joined on. Admins only.")
         .RequireAuthorization("RequireSettingsAdmin");
 
+        // PUT /api/containers/{containerId}/tables/{tableId}/hidden - Hide a whole table from every caller, or show it again (CON-312)
+        group.MapPut("/{containerId:guid}/tables/{tableId:guid}/hidden", async (
+            Guid containerId,
+            Guid tableId,
+            [FromBody] HideTableRequest request,
+            [FromServices] HideTable hide,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            if (request is null)
+                return ApiProblem.BadRequest("Request body must say whether the table is hidden");
+            var hidden = await hide.RunAsync(Rest(http), containerId, tableId, request.Hidden, ct);
+            return hidden.Succeeded ? Results.Ok(TableResponse.From(hidden.Result!)) : OperationProblems.Result(hidden);
+        })
+        .Produces<TableResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .WithName("tables.hide")
+        .WithDescription("Hide a whole table from every caller, or show it again. A hidden table isn't listed, described, read, queried or named in a search passage, and stays hidden when its document is re-ingested. Admins only.")
+        .RequireAuthorization("RequireSettingsAdmin");
+
         // GET /api/containers/{containerId}/tables/{tableId} - Describe one table
         group.MapGet("/{containerId:guid}/tables/{tableId:guid}", async (
             Guid containerId,
@@ -588,13 +611,14 @@ public record TableResponse(
     DateTime CreatedAt,
     DateTime? LoadedAt,
     bool Partial = false,
-    IReadOnlyList<string>? HiddenColumns = null)
+    IReadOnlyList<string>? HiddenColumns = null,
+    bool Hidden = false)
 {
     public static TableResponse From(TableInfo table) => new(
         table.Id, table.ContainerId, table.Name, table.Description, table.DocumentId, table.Columns,
         table.RowCount, table.NeedsReview, table.Rejects.Count,
         table.Partial ? null : table.Version, table.CreatedAt, table.Partial ? null : table.LoadedAt,
-        table.Partial, table.HiddenColumns is { Count: > 0 } hidden ? hidden : null);
+        table.Partial, table.HiddenColumns is { Count: > 0 } hidden ? hidden : null, table.Hidden);
 }
 
 /// <summary>An agent's read-only query over a container's tables (CON-326).</summary>
@@ -639,6 +663,8 @@ public record TableDetailsResponse(
 
 /// <summary>The columns of a table to hide, by header name; an empty list shows them all.</summary>
 public record HideTableColumnsRequest(IReadOnlyList<string> Columns);
+
+public record HideTableRequest(bool Hidden);
 
 public record ContainerReindexResponse(
     string BatchId,

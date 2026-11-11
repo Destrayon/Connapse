@@ -81,6 +81,12 @@ public sealed record TablePlacement(int? Page, int Number, string HeaderHash);
 public sealed record TablePassageLink(Guid TableId, Guid ChunkId, int Start, int Length);
 
 /// <summary>
+/// A table found in a passage or document (CON-312), as a reader is told of it: enough to query it with the table
+/// tools. <see cref="Hidden"/> is true only for an admin, who is shown a table hidden from everyone else.
+/// </summary>
+public sealed record PassageTable(Guid Id, Guid ContainerId, string Name, int? Page, int? Number, bool Hidden = false);
+
+/// <summary>
 /// A table's catalog entry. <see cref="StorageName"/> is the generated name of the PostgreSQL table holding its rows
 /// right now; a reload can change it, so a reader resolves it from the catalog each time. <see cref="Version"/>
 /// counts loads, starting at 1. <see cref="SourceDocuments"/> lists the documents of a table merged from several
