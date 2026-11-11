@@ -313,7 +313,7 @@ internal static class TableQueryCompiler
             if (table.IsMerged)
                 conditions.Add(SourceFilter());
             if (seen is not null)
-                conditions.Add("(" + seen + ")");
+                conditions.Add(seen);
             if (where is not null)
                 conditions.Add(conditions.Count > 0 ? "(" + Filter(where, aggregates: false) + ")" : Filter(where, aggregates: false));
             if (conditions.Count > 0)

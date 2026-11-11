@@ -301,6 +301,45 @@ public class TablePermissionTrimmingTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task MergedWithHistory_ReSync_KeepsEachRowsDocumentInEveryView()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        Merged merged = await NewMergedAsync(scope);
+        try
+        {
+            var tables = scope.ServiceProvider.GetRequiredService<ITableStore>();
+            TableColumn[] keyed = [new("Order ID", TableColumnType.Text), .. Columns];
+            TableLoad Load(object?[][] rows) =>
+                new("Orders", keyed, Rows(rows), SourceDocuments: [merged.Open, merged.Secret]);
+            TableInfo created = await tables.CreateAsync(merged.ContainerId,
+                Load([["o1", "north", 10m, merged.Open], ["o2", "secret", 999m, merged.Secret]]));
+            created.HasHistory.Should().BeTrue();
+
+            TableInfo? resynced = await tables.ReloadAsync(merged.ContainerId, created.Id, Load(
+                [["o1", "north", 11m, merged.Open], ["o2", "secret", 999m, merged.Secret], ["o3", "secret-new", 5m, merged.Secret]]));
+            resynced!.StorageName.Should().Be(created.StorageName, "the re-sync kept history in place");
+
+            var service = scope.ServiceProvider.GetRequiredService<ITableQueryService>();
+            TableAccess access = Readable(merged.Open);
+            TableQueryResult now = await service.ReadAsync(merged.ContainerId, access, new TableReadRequest(created.Id));
+            TableQueryResult then = await service.ReadAsync(merged.ContainerId, access,
+                new TableReadRequest(created.Id, SeenAsOf: new DateTimeOffset(created.LoadedAt, TimeSpan.Zero)));
+            TableQueryResult changes = await service.ChangesAsync(merged.ContainerId, access,
+                new TableChangesRequest(created.Id, new DateTimeOffset(created.LoadedAt, TimeSpan.Zero)));
+
+            now.Rows.Should().ContainSingle().Which.Should().Equal("o1", "north", 11m);
+            then.Rows.Should().ContainSingle().Which.Should().Equal("o1", "north", 10m);
+            changes.Rows.Select(r => (string)r[2]!).Should().Equal("o1", "o1");
+            (await CountUnderRoleAsync(merged with { Table = created }, await TokenAsync(merged.Secret))).Should().Be(2,
+                "the re-synced secret rows keep their document, so the row policy still shows them to its readers");
+        }
+        finally
+        {
+            await DeleteAsync(scope, merged.Containers, merged.ContainerId);
+        }
+    }
+
     private sealed record Merged(IContainerStore Containers, Guid ContainerId, Guid Open, Guid Secret, TableInfo Table);
 
     private TableReaderLogin Login => fixture.Factory.Services.GetRequiredService<TableReaderLogin>();

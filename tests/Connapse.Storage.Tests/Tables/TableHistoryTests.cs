@@ -99,6 +99,15 @@ public class TableHistoryTests
     }
 
     [Fact]
+    public void HistorySql_MergedTable_CarriesAndComparesTheSourceDocument()
+    {
+        TableHistory.CloseSql("E", "N", 0, 1, merged: true).Should().EndWith(
+            "AND ROW(i.\"c_1\", i.\"_document\") IS NOT DISTINCT FROM ROW(e.\"c_1\", e.\"_document\"))");
+        TableHistory.InsertSql("E", "N", 0, 1, merged: true).Should().StartWith(
+            "INSERT INTO E (\"c_1\", \"_document\", \"_seen_from\") SELECT i.\"c_1\", i.\"_document\", $1 FROM N AS i ");
+    }
+
+    [Fact]
     public void CreateTableSql_History_AddsSeenColumns()
     {
         TableDdl.CreateTableSql(ContainerId, Storage, Columns, history: true).Should().EndWith(
