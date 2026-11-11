@@ -55,3 +55,32 @@ $0.00586 vs $0.00559 (+5%, noise ±23%), duplicate 0.867 vs 1.000 at 1.13 vs 1.0
   so its fewer calls are not comparable. It ran from the older harness checkout in `E:\tmp\con-322\base2`.
 
 Per the bar's rules, sealed-3 is now spent and these are not tuned against it.
+
+## Against the user's bar (most questions)
+
+The user's bar (2026-11-10) is that memory search matches or beats grep and ripgrep on right answers, tries and cost
+for most questions. The user accepted the change "if this is better than other options".
+
+- **Grep:** change5 matches or beats it on score in 7 of 8 kinds, on calls in 7 of 8 and on cost in 8 of 8. It loses
+  only duplicate, by one task.
+- **Ripgrep:** change5 matches or beats it on score in 6 of 8 kinds, on calls in 8 of 8 and on cost in 8 of 8. It loses
+  absent and duplicate.
+- **Today's memory tools, answered runs only** (refused runs dropped, so today is flattered): change5 matches or beats
+  today on score in 7 of 8 kinds, on calls in 8 of 8 and on cost in 8 of 8. It loses only absent.
+
+| Kind | Today, answered (n, score, calls, cost) | Change5 |
+|---|---|---|
+| exact | 13, 1.000, 1.00, $0.0091 | 1.000, 1.00, $0.0062 |
+| reworded | 50, 0.980, 1.08, $0.0119 | 0.978, 1.04, $0.0072 |
+| indirect | 27, 0.778, 2.00, $0.0208 | 0.944, 1.22, $0.0081 |
+| partial | 11, 1.000, 1.82, $0.0110 | 1.000, 1.08, $0.0072 |
+| absent | 19, 0.947, 2.42, $0.0189 | 0.792, 1.79, $0.0095 |
+| new | 30, 1.000, 2.20, $0.0205 | 1.000, 2.07, $0.0128 |
+| update | 24, 0.917, 2.25, $0.0216 | 1.000, 2.00, $0.0128 |
+| duplicate | 18, 0.944, 1.06, $0.0143 | 0.944, 1.06, $0.0066 |
+
+On the earlier sets, where today's arm ran cleanly, change5 also beats today on find score, calls and cost: sealed-1
+0.947, 1.14, $0.0069 against 0.930, 1.38, $0.0138; sealed-2 0.987, 1.29, $0.0074 against 0.877, 1.56, $0.0151.
+
+No option beats memory search on most question kinds. The strict per-kind gates in `eval/pass-bars.md` still fail on
+duplicate and absent, as described above.
