@@ -172,6 +172,17 @@ public class MemoryAgentTests
         MemoryAgentEval.Percentile([1, 2, 3, 4], 0.5).Should().Be(2);
     }
 
+    [Fact]
+    public void Nonconforming_KindsLimited_IsDiagnosticOnly()
+    {
+        MemoryAgentEval.DatasetProfile profile = MemoryAgentEval.Profiles[MemoryAgentEval.DefaultDataset];
+        MemoryAgentEval.Options options = new(MemoryAgentEval.RegisteredConfig, "test", MemoryAgentEval.RegisteredModel,
+            MemoryAgentEval.RegisteredEffort, MemoryAgentEval.RegisteredRepetitions, null, 2, null, Kinds: ["exact", "reworded"]);
+
+        MemoryAgentEval.Nonconforming(options, profile.FindTasks, profile.SaveTasks, profile)
+            .Should().Equal("kinds limited to exact, reworded");
+    }
+
     [Theory]
     [InlineData(MemoryAgentEval.DefaultDataset, "")]
     [InlineData(MemoryAgentEval.SealedDataset, ".gz")]

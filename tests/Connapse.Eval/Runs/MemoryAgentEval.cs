@@ -80,7 +80,8 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
     public const string SealedDataset3 = "memory-agent-sealed-3";
 
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers,
-        string? OutPath, string? AgentDir = null, string Arm = "all", string Search = "memory", string Dataset = DefaultDataset);
+        string? OutPath, string? AgentDir = null, string Arm = "all", string Search = "memory", string Dataset = DefaultDataset,
+        IReadOnlyList<string>? Kinds = null, int? MinFreeMb = null);
 
     public sealed record SeedHistory(string Value, string ValidFrom, string ChangedOn);
 
@@ -174,7 +175,10 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
         string root = cache.DirectoryFor(options.Dataset, entry);
         string FileNamed(string stem) => Path.Combine(root, entry.Files.Single(f => f.Name.StartsWith(stem, StringComparison.Ordinal)).Name);
         List<SeedFact> facts = ReadFacts(FileNamed("facts.jsonl"));
-        List<AgentTask> all = [.. ReadTasks(FileNamed("tasks.jsonl")).Where(t => t.Split == options.Split)];
+        List<AgentTask> all = [.. ReadTasks(FileNamed("tasks.jsonl"))
+            .Where(t => t.Split == options.Split && (options.Kinds is not { Count: > 0 } kinds || kinds.Contains(t.Kind)))];
+        using FreeMemoryFloor floor = FreeMemoryFloor.Start(options.MinFreeMb, log, ct);
+        ct = floor.Token;
         List<AgentTask> find = Limit([.. all.Where(t => t.Type == "find")], options.LimitTasks);
         List<AgentTask> save = Limit([.. all.Where(t => t.Type == "save")], options.LimitTasks);
 
@@ -646,6 +650,8 @@ public sealed class MemoryAgentEval(RepoPaths paths, HttpClient http, TextWriter
             reasons.Add($"effort is {options.Effort}, not {RegisteredEffort}");
         if (options.LimitTasks is not null)
             reasons.Add("--limit-tasks was set");
+        if (options.Kinds is { Count: > 0 } kinds)
+            reasons.Add($"kinds limited to {string.Join(", ", kinds)}");
         if (findTasks != profile.FindTasks)
             reasons.Add($"{findTasks} find tasks, not {profile.FindTasks}");
         if (saveTasks != profile.SaveTasks)
