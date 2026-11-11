@@ -26,6 +26,12 @@ public class ContainerTableEntity
     public int Version { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime LoadedAt { get; set; }
+
+    /// <summary>The documents a merged table's rows came from (CON-304); null for a table from one document.</summary>
+    public Guid[]? SourceDocuments { get; set; }
+
+    /// <summary>The headers of the columns an admin hid from every caller (CON-304).</summary>
+    public string[] HiddenColumns { get; set; } = [];
 }
 
 /// <summary>

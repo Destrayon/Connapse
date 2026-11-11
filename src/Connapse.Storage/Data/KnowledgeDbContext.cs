@@ -74,6 +74,8 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.Version).HasColumnName("version");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("now()");
             entity.Property(e => e.LoadedAt).HasColumnName("loaded_at").HasDefaultValueSql("now()");
+            entity.Property(e => e.SourceDocuments).HasColumnName("source_documents");
+            entity.Property(e => e.HiddenColumns).HasColumnName("hidden_columns").HasDefaultValueSql("'{}'::text[]").IsRequired();
             entity.HasIndex(e => e.ContainerId).HasDatabaseName("ix_container_tables_container");
             entity.HasIndex(e => e.StorageName).IsUnique().HasDatabaseName("ix_container_tables_storage_name");
             entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);

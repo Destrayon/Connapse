@@ -15,6 +15,12 @@ namespace Connapse.Storage.Tables;
 /// role, row-level security and the runner's limits. Database errors come back as SQLSTATE class 22 and 42 messages
 /// and hints only, never the fields that can quote internal queries or values
 /// (docs/research/con-326-table-sql-runner-2026-11-10.md).
+/// <para>
+/// A table with columns an admin hid (CON-304) is left out of the scope altogether, so <see cref="TableSqlCheck"/>
+/// refuses any query that names it: the reader role's grant covers every column, and only the parser could keep a
+/// hidden one out of <c>SELECT *</c> or a whole-row reference. A merged table is in the scope when the caller may read
+/// any of its documents; row-level security then shows only the rows of those documents.
+/// </para>
 /// </summary>
 public sealed class TableSqlService(
     ITableStore tables,
@@ -45,9 +51,12 @@ public sealed class TableSqlService(
         bool retried = false;
         while (true)
         {
-            IReadOnlyList<TableInfo> readable = (await tables.ListAsync(containerId, ct)).Where(access.CanRead).ToList();
+            List<TableInfo> canRead = (await tables.ListAsync(containerId, ct)).Where(access.CanRead).ToList();
+            IReadOnlyList<TableInfo> readable = canRead.Where(t => t.HiddenColumns is not { Count: > 0 }).ToList();
             if (readable.Count == 0)
-                throw new TableQueryException("This container has no tables you can query.");
+                throw new TableQueryException(canRead.Count == 0
+                    ? "This container has no tables you can query."
+                    : "This container has no tables you can query with SQL: an administrator hid columns in each of its tables.");
             string schema = readable[0].StorageSchema;
 
             if (CheckQueries)
@@ -127,6 +136,8 @@ public sealed class TableSqlService(
                 .Append(" (").Append(table.RowCount).Append(" rows): ");
             line.AppendJoin(", ", table.Columns.Select((column, i) =>
                 $"{TableDdl.ColumnName(i)} {Quoted(column.Name)} {TableDdl.SqlType(column.Type)}"));
+            if (table.IsMerged)
+                line.Append($"; merged from several files, each row's file id in {TableDdl.DocumentColumn} (uuid)");
             if (table.HasHistory)
                 line.Append($"; with history in {TableHistory.SeenFrom} and {TableHistory.SeenUntil} (timestamptz), current rows have {TableHistory.SeenUntil} = 'infinity'");
 

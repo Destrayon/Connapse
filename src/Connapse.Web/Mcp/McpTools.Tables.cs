@@ -20,6 +20,7 @@ public partial class McpTools
         + "and a refusal lists every table you can query with its original name, row count and column headers. Tables with history have "
         + "_seen_from and _seen_until columns; current rows have _seen_until = 'infinity'. Plain SELECT, WITH, joins, aggregates and window "
         + "functions work; settings, catalog reads and writes don't. At most 1000 rows and about 64 KB come back, within 5 seconds. "
+        + "Tables an administrator hid columns in can't be queried this way. "
         + "Off unless an administrator turned on the container's Tables.AgentSql setting.")]
     public static async Task<string> TableSql(
         GetContainer getContainer,

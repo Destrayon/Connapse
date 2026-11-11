@@ -361,6 +361,81 @@ public class TableSqlTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task RunAsync_MergedTable_ReturnsOnlyTheReadableDocumentsRows()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, _) = await NewTableAsync(scope);
+        try
+        {
+            Guid open = await NewDocumentAsync(scope, containerId), secret = await NewDocumentAsync(scope, containerId);
+            TableInfo merged = await scope.ServiceProvider.GetRequiredService<ITableStore>().CreateAsync(containerId, new TableLoad(
+                "Merged", SecretColumns, Rows([["open-a", 1L, open], ["planted", 99L, secret], ["open-b", 2L, open]]),
+                SourceDocuments: [open, secret]));
+            TableAccess access = new(new HashSet<Guid> { open });
+            string[] queries =
+            [
+                $"SELECT * FROM {merged.StorageName}",
+                $"SELECT count(*), sum(c_2) FROM {merged.StorageName}",
+                $"SELECT c_1 FROM {merged.StorageName} WHERE c_1 = 'planted' OR c_2 = 99",
+            ];
+
+            foreach (TableSqlService service in new[] { (TableSqlService)scope.ServiceProvider.GetRequiredService<ITableSqlService>(), Unchecked(scope) })
+            {
+                TableQueryResult all = await service.RunAsync(containerId, access, queries[0]);
+                TableQueryResult totals = await service.RunAsync(containerId, access, queries[1]);
+                TableQueryResult planted = await service.RunAsync(containerId, access, queries[2]);
+
+                all.Rows.Select(r => r[0]).Should().BeEquivalentTo(["open-a", "open-b"]);
+                totals.Rows.Single().Should().Equal(2L, 3m);
+                planted.Rows.Should().BeEmpty();
+            }
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_TableWithHiddenColumns_IsRefusedWithoutNamingIt()
+    {
+        await using var scope = fixture.Factory.Services.CreateAsyncScope();
+        var (containers, containerId, table) = await NewTableAsync(scope);
+        try
+        {
+            var store = scope.ServiceProvider.GetRequiredService<ITableStore>();
+            TableInfo secret = await store.CreateAsync(containerId,
+                new TableLoad("Payroll", SecretColumns, Rows(SecretRows), await NewDocumentAsync(scope, containerId)));
+            secret = (await store.SetHiddenColumnsAsync(containerId, secret.Id, ["Salary"]))!;
+            var service = scope.ServiceProvider.GetRequiredService<ITableSqlService>();
+            TableAccess access = Access(table, secret);
+
+            foreach (string query in new[]
+            {
+                $"SELECT * FROM {secret.StorageName}",
+                $"SELECT c_1 FROM {secret.StorageName}",
+                $"SELECT p FROM {secret.StorageName} p",
+                $"SELECT s.c_1 FROM {table.StorageName} t JOIN {secret.StorageName} s ON true",
+            })
+            {
+                Func<Task> act = () => service.RunAsync(containerId, access, query);
+
+                string message = (await act.Should().ThrowAsync<TableQueryException>()).Which.Message;
+                message.Should().Contain(table.StorageName);
+                message.Should().NotContain("Payroll").And.NotContain("Salary").And.NotContain("not a number");
+            }
+            (await service.RunAsync(containerId, access, $"SELECT count(*) FROM {table.StorageName}")).Rows.Single().Should().Equal(5L);
+
+            Func<Task> onlyHidden = () => service.RunAsync(containerId, Access(secret), $"SELECT c_2 FROM {secret.StorageName}");
+            (await onlyHidden.Should().ThrowAsync<TableQueryException>()).Which.Message.Should().Contain("hid columns");
+        }
+        finally
+        {
+            await DeleteAsync(scope, containers, containerId);
+        }
+    }
+
     private TableSqlService Unchecked(AsyncServiceScope scope) => new(
         scope.ServiceProvider.GetRequiredService<ITableStore>(),
         fixture.Factory.Services.GetRequiredService<TableReaderLogin>(),

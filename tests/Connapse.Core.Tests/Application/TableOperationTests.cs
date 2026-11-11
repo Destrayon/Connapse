@@ -8,10 +8,16 @@ using Connapse.Core.Tests.Mcp;
 using CsCheck;
 using FluentAssertions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+using IDocumentAccess = Connapse.Application.Ports.IDocumentAccess;
 
 namespace Connapse.Core.Tests.Application;
 
-/// <summary>CON-319: a container's tables are paged through by name, for anyone who can read the container.</summary>
+/// <summary>
+/// CON-319: a container's tables are paged through by name, for anyone who can read the container. CON-304: only
+/// tables from documents the caller may read are listed, each trimmed to what the caller may see, and nothing is when
+/// that can't be checked; admins hide columns.
+/// </summary>
 [Trait("Category", "Unit")]
 public class TableOperationTests
 {
@@ -20,12 +26,22 @@ public class TableOperationTests
 
     private readonly IContainerStore _containers = Substitute.For<IContainerStore>();
     private readonly ITableStore _tables = Substitute.For<ITableStore>();
-    private readonly IOperationAuthorizer _authorizer = Substitute.For<IOperationAuthorizer>();
+    private readonly ITableQueryService _queries = Substitute.For<ITableQueryService>();
+    private readonly IDocumentStore _documents = Substitute.For<IDocumentStore>();
+    private readonly IDocumentAccess _access = Substitute.For<IDocumentAccess>();
+    private readonly PolicyAuthorizer _authorizer = new(_ => true);
+    private readonly HashSet<Guid> _unreadable = [];
 
-    public TableOperationTests() =>
-        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<string>()).Returns(true);
+    public TableOperationTests()
+    {
+        _access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+            .Returns(c => (IReadOnlySet<string>)c.ArgAt<IReadOnlyList<Document>>(1)
+                .Select(d => d.Id).Where(id => !_unreadable.Contains(Guid.Parse(id))).ToHashSet());
+    }
 
-    private ListTables List => new(_containers, _tables, _authorizer);
+    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer);
+
+    private HideTableColumns Hide => new(_containers, _tables, _authorizer);
 
     private Guid ContainerOfKind(ContainerKind kind)
     {
@@ -35,19 +51,34 @@ public class TableOperationTests
         return id;
     }
 
+    /// <summary>Stores <paramref name="tables"/> in the container, with each source document present in it.</summary>
+    private void Holds(Guid containerId, params TableInfo[] tables)
+    {
+        _tables.ListAsync(containerId, Arg.Any<CancellationToken>()).Returns(tables);
+        foreach (Guid document in tables.SelectMany(t => t.DocumentId is Guid d ? [d] : t.SourceDocuments!))
+            _documents.GetAsync(document.ToString(), Arg.Any<CancellationToken>())
+                .Returns(new Document(document.ToString(), containerId.ToString(), "t.csv", "text/csv", "/t.csv", 1, Epoch, []));
+    }
+
     private static TableInfo Table(Guid containerId, string name) =>
         new(Guid.NewGuid(), containerId, name, null, Guid.NewGuid(), [new TableColumn("a", TableColumnType.Text)], 1, false, [],
             "tables_x", "t_x", 1, Epoch, Epoch);
 
+    private static TableInfo Merged(Guid containerId, params Guid[] sources) =>
+        new(Guid.NewGuid(), containerId, "merged", null, null,
+            [new TableColumn("a", TableColumnType.Text), new TableColumn("b", TableColumnType.Text)], 10, false,
+            [.. sources.Select((s, i) => new TableReject(i + 2, 1, $"bad{i}", "not text", s))],
+            "tables_x", "t_x", 3, Epoch, Epoch.AddDays(1), SourceDocuments: sources);
+
     [Fact]
     public async Task List_NotAReader_IsForbiddenAndReadsNothing()
     {
-        _authorizer.AllowsAsync(Arg.Any<ClaimsPrincipal>(), Policies.Reader).Returns(false);
+        _authorizer.Allows = policy => policy != Policies.Reader;
 
         var listed = await List.RunAsync(Caller, Guid.NewGuid(), 0, 10);
 
         listed.Status.Should().Be(TableStatus.Forbidden);
-        await _tables.DidNotReceiveWithAnyArgs().ListAsync(default, default, default, default);
+        _tables.ReceivedCalls().Should().BeEmpty();
     }
 
     [Theory]
@@ -76,7 +107,7 @@ public class TableOperationTests
         var listed = await List.RunAsync(Caller, ContainerOfKind(ContainerKind.Memory), 0, 10);
 
         listed.Status.Should().Be(TableStatus.MemoryContainer);
-        await _tables.DidNotReceiveWithAnyArgs().ListAsync(default, default, default, default);
+        _tables.ReceivedCalls().Should().BeEmpty();
     }
 
     [Theory]
@@ -87,36 +118,168 @@ public class TableOperationTests
     public async Task List_DocumentsContainer_ReturnsThePageTheTotalAndWhetherMoreFollow(int skip, int take, int total, bool hasMore)
     {
         Guid id = ContainerOfKind(ContainerKind.Documents);
-        List<TableInfo> page = Enumerable.Range(skip, Math.Min(take, total - skip)).Select(i => Table(id, $"t{i}")).ToList();
-        _tables.ListAsync(id, skip, take, Arg.Any<CancellationToken>()).Returns(new TablePage(page, total));
+        TableInfo[] all = [.. Enumerable.Range(0, total).Select(i => Table(id, $"t{i}"))];
+        Holds(id, all);
 
         var listed = await List.RunAsync(Caller, id, skip, take);
 
         listed.Status.Should().Be(TableStatus.Success);
-        listed.Result!.Items.Should().Equal(page);
+        listed.Result!.Items.Select(x => x.Id).Should().Equal(all.Skip(skip).Take(take).Select(x => x.Id));
         listed.Result.TotalCount.Should().Be(total);
         listed.Result.HasMore.Should().Be(hasMore);
     }
 
     [Fact]
+    public async Task List_TableFromAnUnreadableDocument_IsNeitherListedNorCounted()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo open = Table(id, "open"), secret = Table(id, "secret");
+        Holds(id, open, secret);
+        _unreadable.Add(secret.DocumentId!.Value);
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        listed.Result!.Items.Select(x => x.Id).Should().Equal(open.Id);
+        listed.Result.TotalCount.Should().Be(1);
+        listed.Result.HasMore.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task List_SourceDocumentGoneOrInAnotherContainer_IsNotListed()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo gone = Table(id, "gone"), elsewhere = Table(id, "elsewhere");
+        _tables.ListAsync(id, Arg.Any<CancellationToken>()).Returns([gone, elsewhere]);
+        _documents.GetAsync(elsewhere.DocumentId!.Value.ToString(), Arg.Any<CancellationToken>())
+            .Returns(new Document(elsewhere.DocumentId.Value.ToString(), Guid.NewGuid().ToString(), "t.csv", null, "/t.csv", 1, Epoch, []));
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        listed.Result!.Items.Should().BeEmpty();
+        listed.Result.TotalCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task List_AccessCheckFails_ListsNothingAndSaysSo()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        Holds(id, Table(id, "t"));
+        _access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TimeoutException("permission source down"));
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        listed.Status.Should().Be(TableStatus.AccessUnchecked);
+        listed.Detail.Should().Be(TableAccess.UncheckedMessage);
+        listed.Result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task List_HiddenColumn_IsLeftOutForAViewer()
+    {
+        _authorizer.Allows = policy => policy != Policies.Admin;
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo table = Merged(id, Guid.NewGuid()) with { HiddenColumns = ["a"] };
+        Holds(id, table);
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        TableInfo item = listed.Result!.Items.Single();
+        item.Columns.Select(c => c.Name).Should().Equal("b");
+        item.HiddenColumns.Should().BeNull();
+        item.Rejects.Should().BeEmpty("the only reject is in the hidden column, and its value would show what it holds");
+    }
+
+    [Fact]
+    public async Task List_HiddenColumn_IsShownMarkedToAnAdmin()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo table = Table(id, "t") with { HiddenColumns = ["a"] };
+        Holds(id, table);
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        TableInfo item = listed.Result!.Items.Single();
+        item.Columns.Select(c => c.Name).Should().Equal("a");
+        item.HiddenColumns.Should().Equal("a");
+    }
+
+    [Fact]
+    public async Task List_MergedTableReadInPart_CountsOnlyReadableRowsAndNamesOnlyReadableSources()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        Guid open = Guid.NewGuid(), secret = Guid.NewGuid();
+        TableInfo table = Merged(id, open, secret);
+        Holds(id, table);
+        _unreadable.Add(secret);
+        _queries.CountAsync(id, Arg.Is<TableAccess>(a => a.ReadableDocuments.SetEquals(new[] { open })), table.Id, Arg.Any<CancellationToken>())
+            .Returns(4);
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        TableInfo item = listed.Result!.Items.Single();
+        item.Partial.Should().BeTrue();
+        item.RowCount.Should().Be(4);
+        item.SourceDocuments.Should().Equal(open);
+        item.Rejects.Select(r => r.DocumentId).Should().Equal(open);
+    }
+
+    [Fact]
+    public async Task List_MergedTableReadInFull_IsNotPartialAndRunsNoCount()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo table = Merged(id, Guid.NewGuid(), Guid.NewGuid());
+        Holds(id, table);
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        TableInfo item = listed.Result!.Items.Single();
+        item.Partial.Should().BeFalse();
+        item.RowCount.Should().Be(10);
+        _queries.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task List_MergedTableDeletedBeforeItsCount_IsLeftOut()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        Guid secret = Guid.NewGuid();
+        Holds(id, Merged(id, Guid.NewGuid(), secret));
+        _unreadable.Add(secret);
+        _queries.CountAsync(id, Arg.Any<TableAccess>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TableQueryException("There is no table with that id in this container."));
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        listed.Result!.Items.Should().BeEmpty();
+    }
+
+    [Fact]
     [Trait("Size", "Medium")]
     [RandomInputTestOf(typeof(ListTables))]
-    public Task List_AnyCallerContainerAndPage_AnswersThatSliceOrTheFirstRuleItBreaks() =>
-        Gen.Select(Gen.Bool, Gen.Enum<ContainerKind>().Nullable(), Gen.Int[-2, 6], Gen.Int[-1, 205], Gen.Int[0, 8])
+    public Task List_AnyCallerContainerPageAndReadableSet_AnswersTheReadableSliceOrTheFirstRuleItBreaks() =>
+        Gen.Select(Gen.Bool, Gen.Enum<ContainerKind>().Nullable(), Gen.Int[-2, 6], Gen.Int[-1, 205], Gen.Bool.Array[0, 8])
             .SampleAsync(async t =>
             {
-                var (reader, kind, skip, take, stored) = t;
+                var (reader, kind, skip, take, readable) = t;
                 var containers = Substitute.For<IContainerStore>();
                 var tables = Substitute.For<ITableStore>();
+                var documents = Substitute.For<IDocumentStore>();
+                var access = Substitute.For<IDocumentAccess>();
                 var authorizer = new PolicyAuthorizer(policy => policy == Policies.Reader && reader);
                 Guid id = Guid.NewGuid();
                 containers.GetAsync(id, Arg.Any<CancellationToken>())
                     .Returns(kind is { } k ? new Container(id.ToString(), "c", null, Epoch, Epoch, Kind: k) : null);
-                var all = Enumerable.Range(0, stored).Select(i => Table(id, $"t{i}")).ToList();
-                tables.ListAsync(id, Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-                    .Returns(c => new TablePage(all.Skip(c.ArgAt<int>(1)).Take(c.ArgAt<int>(2)).ToList(), all.Count));
+                var all = readable.Select((_, i) => Table(id, $"t{i}")).ToList();
+                tables.ListAsync(id, Arg.Any<CancellationToken>()).Returns(all);
+                documents.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+                    .Returns(c => new Document(c.ArgAt<string>(0), id.ToString(), "t.csv", null, "/t.csv", 1, Epoch, []));
+                HashSet<string> open = [.. all.Where((_, i) => readable[i]).Select(x => x.DocumentId!.Value.ToString())];
+                access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
+                    .Returns(open);
 
-                var listed = await new ListTables(containers, tables, authorizer).RunAsync(Caller, id, skip, take);
+                var listed = await new ListTables(containers, tables, Substitute.For<ITableQueryService>(), documents, access, authorizer)
+                    .RunAsync(Caller, id, skip, take);
 
                 TableStatus expected = !reader ? TableStatus.Forbidden
                     : skip < 0 || take is < 1 or > 200 ? TableStatus.InvalidPage
@@ -129,9 +292,10 @@ public class TableOperationTests
                     tables.ReceivedCalls().Should().BeEmpty();
                     return;
                 }
-                listed.Result!.Items.Should().Equal(all.Skip(skip).Take(take));
-                listed.Result.TotalCount.Should().Be(stored);
-                listed.Result.HasMore.Should().Be(stored - skip > take);
+                var visible = all.Where((_, i) => readable[i]).ToList();
+                listed.Result!.Items.Select(x => x.Id).Should().Equal(visible.Skip(skip).Take(take).Select(x => x.Id));
+                listed.Result.TotalCount.Should().Be(visible.Count);
+                listed.Result.HasMore.Should().Be(visible.Count - skip > take);
             }, iter: 2000);
 
     /// <summary>
@@ -143,10 +307,12 @@ public class TableOperationTests
     [RandomInputTestOf(typeof(RunTableSql))]
     public Task Sql_AnyCallerContainerSettingAndSources_RunsOverTheReadableTablesOrTheFirstRuleItBreaks() =>
         Gen.Select(Gen.Bool, Gen.Bool, Gen.Enum<ContainerKind>().Nullable(), Gen.Bool,
-                Gen.Select(Gen.Int[0, 2], Gen.Bool).Array[0, 5], Gen.Bool)
+                Gen.Select(Gen.Int[0, 2], Gen.Bool).Array[0, 5], Gen.Int[0, 2])
             .SampleAsync(async t =>
             {
-                var (reader, hasQuery, kind, agentSql, sources, refused) = t;
+                var (reader, hasQuery, kind, agentSql, sources, outcome) = t;
+                // outcome: 0 = the query runs, 1 = it is refused, 2 = the access check throws.
+                bool refused = outcome == 1, accessFails = outcome == 2 && sources.Any(s => s.Item1 == 0);
                 var containers = Substitute.For<IContainerStore>();
                 var tables = Substitute.For<ITableStore>();
                 var documents = Substitute.For<IDocumentStore>();
@@ -176,7 +342,9 @@ public class TableOperationTests
                 HashSet<string> readableIds = sources.Zip(all).Where(p => p.First.Item2).Select(p => p.Second.DocumentId!.Value.ToString()).ToHashSet();
                 tables.ListAsync(id, Arg.Any<CancellationToken>()).Returns(all);
                 access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
-                    .Returns(c => (IReadOnlySet<string>)c.ArgAt<IReadOnlyList<Document>>(1).Select(d => d.Id).Where(readableIds.Contains).ToHashSet());
+                    .Returns(c => accessFails
+                        ? throw new InvalidOperationException("access store down")
+                        : (IReadOnlySet<string>)c.ArgAt<IReadOnlyList<Document>>(1).Select(d => d.Id).Where(readableIds.Contains).ToHashSet());
                 TableQueryResult answer = new(["a"], [], false, null);
                 TableAccess? seen = null;
                 sql.RunAsync(id, Arg.Do<TableAccess>(a => seen = a), "SELECT 1", Arg.Any<CancellationToken>())
@@ -190,6 +358,7 @@ public class TableOperationTests
                     : kind is null ? TableStatus.ContainerNotFound
                     : kind == ContainerKind.Memory ? TableStatus.MemoryContainer
                     : !agentSql ? TableStatus.AgentSqlOff
+                    : accessFails ? TableStatus.AccessUnchecked
                     : refused ? TableStatus.QueryNotRun
                     : TableStatus.Success;
                 ran.Status.Should().Be(expected);
@@ -200,10 +369,96 @@ public class TableOperationTests
                     tables.ReceivedCalls().Should().BeEmpty();
                     return;
                 }
+                if (accessFails)
+                {
+                    sql.ReceivedCalls().Should().BeEmpty("an access check that failed reads nothing");
+                    return;
+                }
                 seen!.ReadableDocuments.Should().BeEquivalentTo(expectedReadable, "only this container's readable sources count");
                 if (refused)
                     ran.Detail.Should().Be("refused");
                 else
                     ran.Result.Should().BeSameAs(answer);
+            }, iter: 1000);
+
+    [Fact]
+    public async Task Hide_NotAnAdmin_IsForbiddenAndChangesNothing()
+    {
+        _authorizer.Allows = policy => policy != Policies.Admin;
+
+        var hidden = await Hide.RunAsync(Caller, ContainerOfKind(ContainerKind.Documents), Guid.NewGuid(), ["a"]);
+
+        hidden.Status.Should().Be(TableStatus.Forbidden);
+        _tables.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Hide_UnknownColumn_IsInvalidColumn()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents), table = Guid.NewGuid();
+        _tables.SetHiddenColumnsAsync(id, table, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ArgumentException("The table has no column \"z\"."));
+
+        var hidden = await Hide.RunAsync(Caller, id, table, ["z"]);
+
+        hidden.Status.Should().Be(TableStatus.InvalidColumn);
+        hidden.Detail.Should().Be("The table has no column \"z\".");
+    }
+
+    [Fact]
+    public async Task Hide_MissingTable_IsTableNotFound()
+    {
+        var hidden = await Hide.RunAsync(Caller, ContainerOfKind(ContainerKind.Documents), Guid.NewGuid(), ["a"]);
+
+        hidden.Status.Should().Be(TableStatus.TableNotFound);
+    }
+
+    [Fact]
+    public async Task Hide_KnownColumns_SavesThemAndReturnsTheTable()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo table = Table(id, "t") with { HiddenColumns = ["a"] };
+        _tables.SetHiddenColumnsAsync(id, table.Id, Arg.Is<IReadOnlyList<string>>(c => c.SequenceEqual(new[] { "a" })), Arg.Any<CancellationToken>())
+            .Returns(table);
+
+        var hidden = await Hide.RunAsync(Caller, id, table.Id, ["a"]);
+
+        hidden.Status.Should().Be(TableStatus.Success);
+        hidden.Result.Should().Be(table);
+    }
+
+    [Fact]
+    [Trait("Size", "Medium")]
+    [RandomInputTestOf(typeof(HideTableColumns))]
+    public Task Hide_AnyCallerContainerAndColumns_SavesOnlyForAnAdminOnADocumentsContainer() =>
+        Gen.Select(Gen.Bool, Gen.Enum<ContainerKind>().Nullable(), Gen.Bool, Gen.String[Gen.Char.AlphaNumeric, 0, 4].Array[0, 4])
+            .SampleAsync(async t =>
+            {
+                var (admin, kind, exists, columns) = t;
+                var containers = Substitute.For<IContainerStore>();
+                var tables = Substitute.For<ITableStore>();
+                Guid id = Guid.NewGuid(), tableId = Guid.NewGuid();
+                containers.GetAsync(id, Arg.Any<CancellationToken>())
+                    .Returns(kind is { } k ? new Container(id.ToString(), "c", null, Epoch, Epoch, Kind: k) : null);
+                bool known = columns.All(c => c.Length > 0);
+                tables.SetHiddenColumnsAsync(id, tableId, Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+                    .Returns(c => known
+                        ? exists ? Table(id, "t") with { HiddenColumns = c.ArgAt<IReadOnlyList<string>>(2) } : null
+                        : throw new ArgumentException("The table has no column \"\"."));
+
+                var hidden = await new HideTableColumns(containers, tables, new PolicyAuthorizer(p => p == Policies.Admin && admin))
+                    .RunAsync(Caller, id, tableId, columns);
+
+                TableStatus expected = !admin ? TableStatus.Forbidden
+                    : kind is null ? TableStatus.ContainerNotFound
+                    : kind == ContainerKind.Memory ? TableStatus.MemoryContainer
+                    : !known ? TableStatus.InvalidColumn
+                    : !exists ? TableStatus.TableNotFound
+                    : TableStatus.Success;
+                hidden.Status.Should().Be(expected);
+                if (expected is TableStatus.Forbidden or TableStatus.ContainerNotFound or TableStatus.MemoryContainer)
+                    tables.ReceivedCalls().Should().BeEmpty();
+                if (expected == TableStatus.Success)
+                    hidden.Result!.HiddenColumns.Should().Equal(columns);
             }, iter: 1000);
 }
