@@ -164,6 +164,7 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
 
         List<(TableQuestion Question, int Run, TableArm Arm)> schedule = Schedule(questions, options.Arms, options.Runs);
         ConcurrentDictionary<int, ArmRun> done = new();
+        RunJournal journal = new(b.OutPath is null ? null : Path.ChangeExtension(b.OutPath, ".runs.jsonl"));
         int finished = 0;
         await Parallel.ForEachAsync(Enumerable.Range(0, schedule.Count), new ParallelOptions { MaxDegreeOfParallelism = b.Workers, CancellationToken = ct }, async (i, token) =>
         {
@@ -174,6 +175,7 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
             wall.Stop();
             TableGrade grade = TableGrade.Of(q, result);
             done[i] = new ArmRun(q, arm.Name, run, asked, result, grade, wall.Elapsed);
+            await journal.AppendAsync(done[i], token);
             int n = Interlocked.Increment(ref finished);
             log.WriteLine($"[{n}/{schedule.Count}] {q.Id} {arm.Name} run {run + 1}: {result.Outcome} {(grade.Correct ? "right" : "wrong")}"
                 + $"{(grade.Leaked ? " LEAK" : "")} calls {result.Calls.Count} {wall.Elapsed.TotalSeconds:F0}s"
@@ -196,6 +198,7 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         if (b.OutPath is not null)
         {
             await File.WriteAllTextAsync(b.OutPath, json + "\n", ct);
+            // The journal holds every run in finishing order; rewrite it in schedule order now that all are in.
             await File.WriteAllLinesAsync(Path.ChangeExtension(b.OutPath, ".runs.jsonl"), RunLines(runs), ct);
         }
         log.WriteLine(json);
@@ -463,6 +466,39 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
                 ["output"] = r.Agent.Usage.Output,
             };
             yield return line.ToJsonString();
+        }
+    }
+}
+
+/// <summary>
+/// Writes each run's line to <c>&lt;out&gt;.runs.jsonl</c> the moment it finishes, so a run that is cut short keeps
+/// what it measured. Lines land in finishing order; the file is emptied when the journal is created.
+/// </summary>
+public sealed class RunJournal
+{
+    private readonly string? _path;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    public RunJournal(string? path)
+    {
+        _path = path;
+        if (path is not null)
+            File.WriteAllText(path, "");
+    }
+
+    public async Task AppendAsync(ArmRun run, CancellationToken ct)
+    {
+        if (_path is null)
+            return;
+        string line = TablesArmsEval.RunLines([run]).Single() + "\n";
+        await _gate.WaitAsync(ct);
+        try
+        {
+            await File.AppendAllTextAsync(_path, line, ct);
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 }

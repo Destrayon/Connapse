@@ -319,4 +319,38 @@ public class TablesArmsEvalTests
         node["wallSeconds"]!.GetValue<double>().Should().Be(11);
         node["tokens"]!["input"]!.GetValue<long>().Should().Be(10);
     }
+
+    [Fact]
+    public async Task RunJournal_AppendAsync_WritesEachRunAsItFinishes()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"runjournal-{Guid.NewGuid():N}.runs.jsonl");
+        await File.WriteAllTextAsync(path, "stale line\n");
+        try
+        {
+            RunJournal journal = new(path);
+            File.ReadAllLines(path).Should().BeEmpty();
+
+            await journal.AppendAsync(Run(Question("a"), "sql", 0, true), CancellationToken.None);
+            File.ReadAllLines(path).Should().ContainSingle();
+
+            await journal.AppendAsync(Run(Question("b"), "structured", 1, false), CancellationToken.None);
+            string[] lines = File.ReadAllLines(path);
+            lines.Select(l => JsonNode.Parse(l)!["id"]!.GetValue<string>()).Should().Equal("a", "b");
+            JsonNode.Parse(lines[1])!["arm"]!.GetValue<string>().Should().Be("structured");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task RunJournal_NoPath_WritesNothing()
+    {
+        RunJournal journal = new(null);
+
+        Func<Task> append = () => journal.AppendAsync(Run(Question("a"), "sql", 0, true), CancellationToken.None);
+
+        await append.Should().NotThrowAsync();
+    }
 }
