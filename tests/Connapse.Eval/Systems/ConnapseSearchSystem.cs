@@ -453,7 +453,7 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     // A titled text document is named after its title, as a user's file would be, in a folder of its own
     // so names never collide (an upload to an existing path replaces that document) (#671).
     public static string UploadName(EvalDocument doc, int index) =>
-        doc.Kind == DocumentKind.File ? $"{index:D7}{Path.GetExtension(doc.FilePath)}"
+        doc.Kind == DocumentKind.File ? SafeFileName(doc.FileName) ?? $"{index:D7}{Path.GetExtension(doc.FilePath)}"
         : SafeFileName(doc.FileName) is string fileName ? fileName
         : SafeFileName(doc.Title) is string name ? name + ".txt"
         : $"{index:D7}.txt";

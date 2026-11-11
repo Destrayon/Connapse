@@ -40,6 +40,18 @@ public class UploadNameTests
         ConnapseSearchSystem.UploadFolder(doc, 42).Should().Be("/src/billing");
     }
 
+    [Fact]
+    public void UploadName_FileWithFileName_IsThatName()
+    {
+        EvalDocument named = new("d1", DocumentKind.File, null, null, null, new Dictionary<string, string>(), "x/linked-fleet.docx")
+        {
+            FileName = "fleet.docx",
+        };
+
+        ConnapseSearchSystem.UploadName(named, 42).Should().Be("fleet.docx");
+        ConnapseSearchSystem.UploadName(named with { FileName = null }, 42).Should().Be("0000042.docx");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("  ")]

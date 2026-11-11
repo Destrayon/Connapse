@@ -1,0 +1,89 @@
+{
+  "tools": [
+    "search_knowledge",
+    "get_document",
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "config": "hybrid",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "setups": {
+    "both-linked": {
+      "questions": 30,
+      "correct": 28,
+      "tableCorrect": 20,
+      "proseCorrect": 8,
+      "followedLink": 0,
+      "usedTableList": 21,
+      "proseWithTableCall": 1,
+      "toolCalls": 2.1,
+      "costPerQuestionUsd": 0.0238,
+      "outcomes": {
+        "Answered": 30
+      }
+    },
+    "both-unlinked": {
+      "questions": 30,
+      "correct": 29,
+      "tableCorrect": 20,
+      "proseCorrect": 9,
+      "followedLink": 0,
+      "usedTableList": 21,
+      "proseWithTableCall": 1,
+      "toolCalls": 1.8,
+      "costPerQuestionUsd": 0.0318,
+      "outcomes": {
+        "Answered": 30
+      }
+    }
+  },
+  "bar": {
+    "1_followedLink": {
+      "followed": 0,
+      "tableQuestions": 20,
+      "rate": 0,
+      "pass": false
+    },
+    "2_helps": {
+      "allCorrectLinked": 28,
+      "allCorrectUnlinked": 29,
+      "tableGain": 0,
+      "pass": false
+    },
+    "3_noDistraction": {
+      "proseWithTableCall": 1,
+      "proseCorrectLinked": 8,
+      "proseCorrectUnlinked": 9,
+      "pass": false
+    },
+    "4_noLeak": "measured by tests, not this run: DocumentTableLinkTests and the PassageTables unit tests",
+    "5_cost": {
+      "linkedPerQuestionUsd": 0.0238,
+      "unlinkedPerQuestionUsd": 0.0318,
+      "ratio": 0.747,
+      "pass": true
+    }
+  },
+  "conforming": true,
+  "diagnosticOnly": [],
+  "tablesLoaded": [
+    "clinic-staffing-plan, page 1, table 1",
+    "customer-survey-2025, page 1, table 1",
+    "energy-usage-2025, table 1",
+    "fleet-maintenance-2025, table 1",
+    "it-asset-register, table 1",
+    "marketing-campaigns-2025, table 1",
+    "project-portfolio-q4, table 1",
+    "supplier-scorecard-2025, page 1, table 1",
+    "training-completion-2025, page 1, table 1",
+    "warehouse-audit-q3, page 1, table 1"
+  ],
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 66%)",
+    "atLastRun": "allowed (seven_day 66%)"
+  }
+}

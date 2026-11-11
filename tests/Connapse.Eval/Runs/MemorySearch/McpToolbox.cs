@@ -21,17 +21,23 @@ public sealed class McpToolbox : IToolbox
     private readonly ClaimsPrincipal _user;
     private readonly Dictionary<string, MethodInfo> _methods;
     private readonly IReadOnlyDictionary<string, string[]> _pinned;
+    private readonly IReadOnlyDictionary<Type, Func<IServiceProvider, object>> _overrides;
 
     /// <param name="pinned">
     /// Per tool, the parameters the protocol fixes at their defaults: the agent is not offered them, and a value it
     /// sends anyway is ignored.
     /// </param>
+    /// <param name="overrides">
+    /// Per injected service type, a factory that builds it from the call's scope instead of the container's own
+    /// registration, so one arm can run a tool on a variant of an operation (CON-312's unlinked arm).
+    /// </param>
     public McpToolbox(IServiceProvider services, ClaimsPrincipal user, IEnumerable<string> toolNames,
-        IReadOnlyDictionary<string, string[]>? pinned = null)
+        IReadOnlyDictionary<string, string[]>? pinned = null, IReadOnlyDictionary<Type, Func<IServiceProvider, object>>? overrides = null)
     {
         _services = services;
         _user = user;
         _pinned = pinned ?? new Dictionary<string, string[]>();
+        _overrides = overrides ?? new Dictionary<Type, Func<IServiceProvider, object>>();
         _methods = toolNames.ToDictionary(n => n, Find, StringComparer.Ordinal);
         Tools = [.. _methods.Select(m => Describe(m.Value, PinnedOf(m.Key)))];
     }
@@ -136,6 +142,7 @@ public sealed class McpToolbox : IToolbox
             {
                 args[i] = p.ParameterType == typeof(CancellationToken) ? ct
                     : p.ParameterType == typeof(IHttpContextAccessor) ? http
+                    : _overrides.TryGetValue(p.ParameterType, out Func<IServiceProvider, object>? build) ? build(scope.ServiceProvider)
                     : scope.ServiceProvider.GetRequiredService(p.ParameterType);
                 continue;
             }
