@@ -26,6 +26,12 @@ internal sealed record CompiledTableQuery(
 /// SQL; values are bound as typed parameters. There are no function calls an agent can choose, no joins and no
 /// subqueries. Because every query binds at least its limit as a positional parameter, Npgsql sends the text unsplit,
 /// so it can only ever be one statement.
+/// <para>
+/// Columns an admin hid (CON-304) are left out of the lookup altogether, so naming one anywhere fails exactly as a
+/// column that doesn't exist does, and <c>SELECT</c> of all columns returns only the visible ones. A table merged from
+/// several documents is always filtered to the rows of <c>readableSources</c>, the source documents the caller may
+/// read, ahead of the caller's own filter; row-level security checks the same thing again in the database.
+/// </para>
 /// </summary>
 internal static class TableQueryCompiler
 {
@@ -44,14 +50,17 @@ internal static class TableQueryCompiler
 
     private const int MaxNamesInError = 50;
 
-    internal static CompiledTableQuery CompileRead(TableInfo table, TableReadRequest request)
+    /// <summary>How many sample rows <see cref="CompileSample"/> returns.</summary>
+    internal const int SampleRows = 3;
+
+    internal static CompiledTableQuery CompileRead(TableInfo table, TableReadRequest request, IReadOnlyList<Guid>? readableSources = null)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(request);
-        var query = new QueryBuilder(table);
+        var query = new QueryBuilder(table, readableSources);
 
         IReadOnlyList<int> columns = request.Columns is null || request.Columns.Count == 0
-            ? Enumerable.Range(0, table.Columns.Count).ToList()
+            ? table.VisibleColumnIndexes
             : request.Columns.Count <= TableDdl.MaxColumns
                 ? request.Columns.Select(query.Resolve).ToList()
                 : throw new TableQueryException($"A read can return at most {TableDdl.MaxColumns} columns.");
@@ -59,7 +68,7 @@ internal static class TableQueryCompiler
         var sql = new StringBuilder("SELECT ");
         sql.AppendJoin(", ", columns.Select(i => Output(query.Column(i), table.Columns[i].Type)));
         sql.Append(" FROM ").Append(query.Table);
-        Where(sql, query.Seen(request.SeenAsOf), request.Where is null ? null : query.Filter(request.Where, aggregates: false));
+        query.AppendWhere(sql, request.Where, query.Seen(request.SeenAsOf));
 
         if (request.OrderBy is { Count: > 0 } orderBy)
         {
@@ -82,11 +91,11 @@ internal static class TableQueryCompiler
         return new CompiledTableQuery(sql.ToString(), query.Parameters, columns.Select(i => table.Columns[i].Name).ToList(), limit);
     }
 
-    internal static CompiledTableQuery CompileAggregate(TableInfo table, TableAggregateRequest request)
+    internal static CompiledTableQuery CompileAggregate(TableInfo table, TableAggregateRequest request, IReadOnlyList<Guid>? readableSources = null)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(request);
-        var query = new QueryBuilder(table);
+        var query = new QueryBuilder(table, readableSources);
 
         if (request.Aggregates is null || request.Aggregates.Count == 0)
             throw new TableQueryException("An aggregate request needs at least one aggregate, such as {\"aggregate\": \"count\"}.");
@@ -113,7 +122,7 @@ internal static class TableQueryCompiler
         }
 
         var sql = new StringBuilder("SELECT ").AppendJoin(", ", outputs).Append(" FROM ").Append(query.Table);
-        Where(sql, query.Seen(request.SeenAsOf), request.Where is null ? null : query.Filter(request.Where, aggregates: false));
+        query.AppendWhere(sql, request.Where, query.Seen(request.SeenAsOf));
         if (groupBy.Count > 0)
             sql.Append(" GROUP BY ").AppendJoin(", ", groupBy.Select(query.Column));
         if (request.Having is not null)
@@ -146,26 +155,26 @@ internal static class TableQueryCompiler
     /// keeping the keys that went away, came in, or differ in a chosen column. Each output row says its
     /// <c>change</c> (added, removed or changed) and <c>version</c> (old or new).
     /// </summary>
-    internal static CompiledTableQuery CompileChanges(TableInfo table, TableChangesRequest request)
+    internal static CompiledTableQuery CompileChanges(TableInfo table, TableChangesRequest request, IReadOnlyList<Guid>? readableSources = null)
     {
         ArgumentNullException.ThrowIfNull(table);
         ArgumentNullException.ThrowIfNull(request);
-        var query = new QueryBuilder(table);
+        var query = new QueryBuilder(table, readableSources);
         int key = query.HistoryKey("ask what changed");
         if (request.Until is DateTimeOffset until && until < request.Since)
             throw new TableQueryException("until can't be earlier than since.");
 
         List<int> columns = request.Columns is null || request.Columns.Count == 0
-            ? Enumerable.Range(0, table.Columns.Count).ToList()
+            ? [.. table.VisibleColumnIndexes]
             : request.Columns.Count <= TableDdl.MaxColumns
                 ? request.Columns.Select(query.Resolve).Distinct().ToList()
                 : throw new TableQueryException($"A changes request can return at most {TableDdl.MaxColumns} columns.");
-        if (!columns.Contains(key))
+        if (!columns.Contains(key) && !table.IsHidden(key))
             columns.Insert(0, key);
 
-        string old = query.Seen(request.Since)!;
-        string @new = query.Seen(request.Until) ?? query.Current();
-        string selected = string.Join(", ", columns.Select(query.Column));
+        string old = query.Readable(query.Seen(request.Since)!);
+        string @new = query.Readable(query.Seen(request.Until) ?? query.Current());
+        string selected = string.Join(", ", columns.Append(key).Distinct().Select(query.Column));
         string k = query.Column(key);
         string differs = $"ROW({string.Join(", ", columns.Select(i => "o." + query.Column(i)))}) IS DISTINCT FROM "
             + $"ROW({string.Join(", ", columns.Select(i => "n." + query.Column(i)))})";
@@ -196,13 +205,38 @@ internal static class TableQueryCompiler
         return new CompiledTableQuery(sql.ToString(), query.Parameters, labels, limit);
     }
 
-    /// <summary>Appends the WHERE clause: which versions to read, then the agent's filter.</summary>
-    private static void Where(StringBuilder sql, string? seen, string? filter)
+    /// <summary>
+    /// The count of the rows the caller may read, as a single <c>count</c> cell. Row-level security and, for a merged
+    /// table, the compiler's own filter both apply, so it never counts a row the caller can't read.
+    /// </summary>
+    internal static CompiledTableQuery CompileCount(TableInfo table, IReadOnlyList<Guid>? readableSources = null) =>
+        CompileAggregate(table, new TableAggregateRequest(table.Id, [new TableField(null, TableAggregateFunction.Count)]), readableSources);
+
+    /// <summary>
+    /// A few rows to show what the table holds (CON-304): visible columns only, from rows the caller may read, ordered
+    /// by their own contents (source document first in a merged table) so which rows are picked never depends on rows
+    /// the caller can't see. An unordered <c>LIMIT</c> would take whatever the scan reached first, which a hidden row
+    /// can change.
+    /// </summary>
+    internal static CompiledTableQuery CompileSample(TableInfo table, IReadOnlyList<Guid>? readableSources = null)
     {
-        if (seen is not null && filter is not null)
-            sql.Append(" WHERE ").Append(seen).Append(" AND (").Append(filter).Append(')');
-        else if (seen is not null || filter is not null)
-            sql.Append(" WHERE ").Append(seen ?? filter);
+        ArgumentNullException.ThrowIfNull(table);
+        var query = new QueryBuilder(table, readableSources);
+        IReadOnlyList<int> columns = table.VisibleColumnIndexes;
+
+        var sql = new StringBuilder("SELECT ");
+        sql.AppendJoin(", ", columns.Select(i => Output(query.Column(i), table.Columns[i].Type)));
+        sql.Append(" FROM ").Append(query.Table);
+        query.AppendWhere(sql, where: null);
+
+        IEnumerable<string> order = columns.Select(i => query.Column(i) + " ASC NULLS LAST");
+        if (table.IsMerged)
+            order = order.Prepend(TableDdl.Quote(TableDdl.DocumentColumn) + " ASC");
+        if (columns.Count > 0 || table.IsMerged)
+            sql.Append(" ORDER BY ").AppendJoin(", ", order);
+        sql.Append(" LIMIT ").Append(query.Parameter((long)SampleRows + 1, NpgsqlDbType.Bigint));
+
+        return new CompiledTableQuery(sql.ToString(), query.Parameters, columns.Select(i => table.Columns[i].Name).ToList(), SampleRows);
     }
 
     /// <summary>The answer column's name for an aggregate, such as <c>count</c> or <c>sum(amount)</c>.</summary>
@@ -248,14 +282,51 @@ internal static class TableQueryCompiler
         field.Column ?? throw new TableQueryException("Each entry needs a \"column\".");
 
     /// <summary>Holds one query's table, its column lookup and the parameters bound so far.</summary>
-    private sealed class QueryBuilder(TableInfo table)
+    private sealed class QueryBuilder
     {
+        private readonly TableInfo table;
+        private readonly IReadOnlyList<Guid>? readableSources;
         private readonly List<NpgsqlParameter> _parameters = [];
         private int _conditions;
 
+        internal QueryBuilder(TableInfo table, IReadOnlyList<Guid>? readableSources)
+        {
+            // A merged table compiled without the caller's readable sources would show every row: refuse it.
+            if (table.IsMerged && readableSources is null)
+                throw new InvalidOperationException($"Table {table.Id} is merged from several documents; its query needs the caller's readable sources.");
+            this.table = table;
+            this.readableSources = readableSources;
+            Table = TableDdl.Quote(table.StorageSchema) + "." + TableDdl.Quote(table.StorageName);
+        }
+
         internal IReadOnlyList<NpgsqlParameter> Parameters => _parameters;
 
-        internal string Table { get; } = TableDdl.Quote(table.StorageSchema) + "." + TableDdl.Quote(table.StorageName);
+        internal string Table { get; }
+
+        /// <summary>
+        /// Appends the <c>WHERE</c> clause: a merged table's readable-source filter first, then the caller's filter,
+        /// so the caller's filter can only narrow what the caller may read.
+        /// </summary>
+        internal void AppendWhere(StringBuilder sql, TableFilter? where, string? seen = null)
+        {
+            var conditions = new List<string>();
+            if (table.IsMerged)
+                conditions.Add(SourceFilter());
+            if (seen is not null)
+                conditions.Add(seen);
+            if (where is not null)
+                conditions.Add(conditions.Count > 0 ? "(" + Filter(where, aggregates: false) + ")" : Filter(where, aggregates: false));
+            if (conditions.Count > 0)
+                sql.Append(" WHERE ").AppendJoin(" AND ", conditions);
+        }
+
+        /// <summary><paramref name="condition"/>, narrowed in a merged table to the rows the caller may read.</summary>
+        internal string Readable(string condition) =>
+            table.IsMerged ? SourceFilter() + " AND (" + condition + ")" : condition;
+
+        private string SourceFilter() =>
+            TableDdl.Quote(TableDdl.DocumentColumn) + " = ANY("
+            + Parameter(readableSources!.Distinct().ToArray(), NpgsqlDbType.Array | NpgsqlDbType.Uuid) + ")";
 
         internal string Column(int index) => TableDdl.Quote(TableDdl.ColumnName(index));
 
@@ -464,13 +535,15 @@ internal static class TableQueryCompiler
                 ? ""
                 : throw new TableQueryException($"{op} only works on text columns, and \"{subject}\" is a {TypeName(type)} column.");
 
+        /// <summary>The visible columns whose header matches; a hidden column never matches, so it reads as missing.</summary>
         private int[] Matches(string name, StringComparison comparison) =>
-            table.Columns.Select((c, i) => (c, i)).Where(x => string.Equals(x.c.Name, name, comparison)).Select(x => x.i).ToArray();
+            table.VisibleColumnIndexes.Where(i => string.Equals(table.Columns[i].Name, name, comparison)).ToArray();
 
         private string ColumnList()
         {
-            IEnumerable<string> names = table.Columns.Take(MaxNamesInError).Select(c => Quoted(c.Name));
-            string more = table.Columns.Count > MaxNamesInError ? $", and {table.Columns.Count - MaxNamesInError} more" : "";
+            IReadOnlyList<TableColumn> visible = table.VisibleColumns;
+            IEnumerable<string> names = visible.Take(MaxNamesInError).Select(c => Quoted(c.Name));
+            string more = visible.Count > MaxNamesInError ? $", and {visible.Count - MaxNamesInError} more" : "";
             return "Its columns are: " + string.Join(", ", names) + more + ".";
         }
 

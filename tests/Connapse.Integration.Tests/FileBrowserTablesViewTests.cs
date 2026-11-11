@@ -2,8 +2,10 @@ using Bunit;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Integration.Tests.CrossSurface;
+using Connapse.Storage.Data;
 using Connapse.Web.Components.Pages;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -39,8 +41,10 @@ public class FileBrowserTablesViewTests(SharedWebAppFixture fixture)
         page.Find("#fileDropZone").GetAttribute("style").Should().Contain("display:none", "the files hide while the tables show");
         page.Find("#tables-range").TextContent.Should().Be($"1–25 of {count} tables");
 
+        // FileBrowser hears every container's status changes on the same dispatcher, so the click's render can trail it.
         page.Find(".table-row").Click();
-        page.FindAll(".schema-column .schema-name").Select(n => n.TextContent).Should().Equal("Region", "Units");
+        page.WaitForAssertion(() => page.FindAll(".schema-column .schema-name").Select(n => n.TextContent)
+            .Should().Equal("Region", "Units"), TimeSpan.FromSeconds(10));
         page.FindAll(".schema-column .schema-type").Select(n => n.TextContent).Should().Equal("Text", "Whole number");
         page.Find(".table-row .col-rows").TextContent.Trim().Should().Be("2");
 
@@ -53,16 +57,32 @@ public class FileBrowserTablesViewTests(SharedWebAppFixture fixture)
         page.Find("#fileDropZone").GetAttribute("style").Should().BeNullOrEmpty();
     }
 
-    /// <summary>A documents container holding a two-row table under each name.</summary>
+    /// <summary>
+    /// A documents container holding a two-row table under each name, each loaded from its own uploaded file, as every
+    /// real table is: a table is listed only to callers who may read its file (CON-304).
+    /// </summary>
     private async Task<string> SeedAsync(IEnumerable<string> names)
     {
         await using var scope = fixture.Factory.Services.CreateAsyncScope();
         var container = await scope.ServiceProvider.GetRequiredService<IContainerStore>()
             .CreateAsync(new CreateContainerRequest($"tview-{Guid.NewGuid():N}"[..20]));
+        Guid containerId = Guid.Parse(container.Id);
         var tables = scope.ServiceProvider.GetRequiredService<ITableStore>();
         foreach (string name in names)
-            await tables.CreateAsync(Guid.Parse(container.Id), new TableLoad(name, Columns, Rows()));
+            await tables.CreateAsync(containerId, new TableLoad(name, Columns, Rows(), await NewDocumentAsync(scope, containerId, name)));
         return container.Id;
+    }
+
+    private static async Task<Guid> NewDocumentAsync(AsyncServiceScope scope, Guid containerId, string name)
+    {
+        Guid id = Guid.NewGuid();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<KnowledgeDbContext>>();
+        await using KnowledgeDbContext context = await factory.CreateDbContextAsync();
+        await context.Database.ExecuteSqlRawAsync(
+            "INSERT INTO documents (id, container_id, source_id, file_name, path, content_hash, size_bytes, ingestion_status, created_at) "
+            + "VALUES ({0}, {1}, NULL, {2}, {3}, '', 1, 'Ready', now())",
+            id, containerId, $"{name}.csv", $"/{name}.csv");
+        return id;
     }
 
     private static async IAsyncEnumerable<IReadOnlyList<object?>> Rows()

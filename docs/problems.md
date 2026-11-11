@@ -127,6 +127,20 @@ guess. Try again; if it keeps happening, the source's permission check is failin
 Connapse couldn't check which linked files the caller may read, so it listed no links rather than
 guess. Try again; if it keeps happening, the permission check on the linked documents is failing.
 
+## tables-access-unchecked
+
+Connapse couldn't check which of the documents behind the container's tables the caller may read, so it
+listed no tables rather than guess. Try again; if it keeps happening, the permission check on those
+documents is failing.
+
+## table-not-found
+
+The container has no table with that id.
+
+## invalid-column
+
+A column to hide isn't one of the table's columns. Name columns by their headers, as the table lists them.
+
 ## memory-container
 
 The container is an agent memory container: it holds memory facts, not documents, so uploads, file listings,

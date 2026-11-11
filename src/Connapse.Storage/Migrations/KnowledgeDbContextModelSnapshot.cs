@@ -359,6 +359,13 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("document_id");
 
+                    b.PrimitiveCollection<string[]>("HiddenColumns")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasColumnName("hidden_columns")
+                        .HasDefaultValueSql("'{}'::text[]");
+
                     b.Property<DateTime>("LoadedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -388,6 +395,10 @@ namespace Connapse.Storage.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("schema");
+
+                    b.PrimitiveCollection<Guid[]>("SourceDocuments")
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("source_documents");
 
                     b.Property<string>("StorageName")
                         .IsRequired()

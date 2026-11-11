@@ -31,6 +31,13 @@ public interface ITableStore
     /// <summary>The table loaded from <paramref name="documentId"/>, or null when that document has none.</summary>
     Task<TableInfo?> FindByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Hides the named columns of a table from every caller (CON-304), replacing the ones hidden before; an empty list
+    /// shows them all. Names are the columns' original headers and stay hidden across reloads. Null when the table
+    /// doesn't exist; throws <see cref="ArgumentException"/> for a name the table has no column for.
+    /// </summary>
+    Task<TableInfo?> SetHiddenColumnsAsync(Guid containerId, Guid tableId, IReadOnlyList<string> columns, CancellationToken ct = default);
+
     /// <summary>Removes a table from the catalog at once; its rows are dropped a little later. False when it doesn't exist.</summary>
     Task<bool> DeleteAsync(Guid containerId, Guid tableId, CancellationToken ct = default);
 }

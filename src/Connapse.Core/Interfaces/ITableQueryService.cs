@@ -15,4 +15,13 @@ public interface ITableQueryService
 
     /// <summary>What changed in a table with history between two times (CON-306); see <see cref="TableChangesRequest"/>.</summary>
     Task<TableQueryResult> ChangesAsync(Guid containerId, TableAccess access, TableChangesRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// What the caller may know about a table (CON-304): its visible columns, and a row count, a few sample rows and the
+    /// rejected rows from only the rows it may read.
+    /// </summary>
+    Task<TableDescription> DescribeAsync(Guid containerId, TableAccess access, Guid tableId, CancellationToken ct = default);
+
+    /// <summary>How many of a table's rows the caller may read (CON-304).</summary>
+    Task<long> CountAsync(Guid containerId, TableAccess access, Guid tableId, CancellationToken ct = default);
 }

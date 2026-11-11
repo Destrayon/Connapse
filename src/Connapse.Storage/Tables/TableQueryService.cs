@@ -12,6 +12,11 @@ namespace Connapse.Storage.Tables;
 /// <see cref="TableAccess"/> is reported exactly as a missing table, and is checked before the request is compiled, so
 /// not even a compile error can name its columns. The request is then compiled to one parameterized <c>SELECT</c> and
 /// run by <see cref="TableQueryRunner"/>, which applies the limits and caps the answer.
+/// <para>
+/// Permission trimming (CON-304): an access that couldn't be checked answers nothing; a table merged from several
+/// documents shows only the rows of the readable ones; hidden columns read as missing; and
+/// <see cref="DescribeAsync"/> works out its count, sample rows and rejects from the readable rows alone.
+/// </para>
 /// </summary>
 public sealed class TableQueryService(
     ITableStore tables,
@@ -23,26 +28,65 @@ public sealed class TableQueryService(
     {
         ArgumentNullException.ThrowIfNull(access);
         ArgumentNullException.ThrowIfNull(request);
-        return RunAsync(containerId, access, request.TableId, table => TableQueryCompiler.CompileRead(table, request), ct);
+        return RunAsync(containerId, access, request.TableId,
+            table => TableQueryCompiler.CompileRead(table, request, access.ReadableSources(table)), ct);
     }
 
     public Task<TableQueryResult> AggregateAsync(Guid containerId, TableAccess access, TableAggregateRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(access);
         ArgumentNullException.ThrowIfNull(request);
-        return RunAsync(containerId, access, request.TableId, table => TableQueryCompiler.CompileAggregate(table, request), ct);
+        return RunAsync(containerId, access, request.TableId,
+            table => TableQueryCompiler.CompileAggregate(table, request, access.ReadableSources(table)), ct);
+    }
+
+    public async Task<TableDescription> DescribeAsync(Guid containerId, TableAccess access, Guid tableId, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(access);
+        TableInfo? described = null;
+        TableQueryResult count = await RunAsync(containerId, access, tableId, table =>
+        {
+            described = table;
+            return TableQueryCompiler.CompileCount(table, access.ReadableSources(table));
+        }, ct);
+        TableInfo table = described!;
+        // The sample must come from the same load as the count; a reload in between gets the new load's sample, which
+        // is still trimmed to the caller.
+        TableQueryResult sample = await RunAsync(containerId, access, tableId,
+            t => TableQueryCompiler.CompileSample(t, access.ReadableSources(t)), ct);
+
+        return new TableDescription(
+            table.Id,
+            table.Name,
+            table.Description,
+            table.VisibleColumns,
+            Convert.ToInt64(count.Rows[0][0], System.Globalization.CultureInfo.InvariantCulture),
+            sample,
+            table.NeedsReview,
+            access.VisibleRejects(table));
+    }
+
+    public async Task<long> CountAsync(Guid containerId, TableAccess access, Guid tableId, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(access);
+        TableQueryResult count = await RunAsync(containerId, access, tableId,
+            table => TableQueryCompiler.CompileCount(table, access.ReadableSources(table)), ct);
+        return Convert.ToInt64(count.Rows[0][0], System.Globalization.CultureInfo.InvariantCulture);
     }
 
     public Task<TableQueryResult> ChangesAsync(Guid containerId, TableAccess access, TableChangesRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(access);
         ArgumentNullException.ThrowIfNull(request);
-        return RunAsync(containerId, access, request.TableId, table => TableQueryCompiler.CompileChanges(table, request), ct);
+        return RunAsync(containerId, access, request.TableId, table => TableQueryCompiler.CompileChanges(table, request, access.ReadableSources(table)), ct);
     }
 
     private async Task<TableQueryResult> RunAsync(
         Guid containerId, TableAccess access, Guid tableId, Func<TableInfo, CompiledTableQuery> compile, CancellationToken ct)
     {
+        if (!access.Checked)
+            throw new TableQueryException(TableAccess.UncheckedMessage);
+
         bool retried = false;
         while (true)
         {

@@ -103,11 +103,56 @@ public sealed record TableChangesRequest(
 /// only when its source document is in the set, so a table with no source document is never readable (fail closed).
 /// The structured tools and <c>table_sql</c> take the same set, and row-level security (CON-324) checks it again in the
 /// database.
+/// <para>
+/// A table merged from several documents (CON-304) is readable when any of its source documents is, and then shows
+/// only the rows from the readable ones. <see cref="Unchecked"/> stands for a request whose permissions couldn't be
+/// worked out: it reads nothing, and the query service says access couldn't be checked rather than answer.
+/// </para>
 /// </summary>
 public sealed record TableAccess(IReadOnlySet<Guid> ReadableDocuments)
 {
+    /// <summary>The message for a request whose permissions couldn't be worked out. Nothing is shown.</summary>
+    public const string UncheckedMessage = "Access could not be checked, so nothing is shown. Try again later.";
+
+    /// <summary>False when the caller's permissions couldn't be worked out; such an access reads nothing.</summary>
+    public bool Checked { get; init; } = true;
+
+    /// <summary>An access for a request whose permissions couldn't be worked out (fail closed).</summary>
+    public static TableAccess Unchecked { get; } = new(new HashSet<Guid>()) { Checked = false };
+
     public bool CanRead(TableInfo table) =>
-        table.DocumentId is Guid document && ReadableDocuments.Contains(document);
+        Checked && (table.DocumentId is Guid document
+            ? ReadableDocuments.Contains(document)
+            : table.SourceDocuments is { Count: > 0 } sources && sources.Any(ReadableDocuments.Contains));
+
+    /// <summary>The source documents of <paramref name="table"/> the caller may read.</summary>
+    public IReadOnlyList<Guid> ReadableSources(TableInfo table)
+    {
+        if (!Checked)
+            return [];
+        if (table.DocumentId is Guid document)
+            return ReadableDocuments.Contains(document) ? [document] : [];
+        return table.SourceDocuments?.Where(ReadableDocuments.Contains).Distinct().ToList() ?? [];
+    }
+
+    /// <summary>True when the caller may read every row of <paramref name="table"/>.</summary>
+    public bool SeesAll(TableInfo table) =>
+        CanRead(table) && (table.DocumentId is not null || table.SourceDocuments!.All(ReadableDocuments.Contains));
+
+    /// <summary>
+    /// The rejected rows of <paramref name="table"/> the caller may see: in a merged table only those from readable
+    /// documents, and never one from a hidden column, whose value would show what the column holds.
+    /// </summary>
+    public IReadOnlyList<TableReject> VisibleRejects(TableInfo table)
+    {
+        if (!CanRead(table))
+            return [];
+        HashSet<Guid> readable = [.. ReadableSources(table)];
+        return table.Rejects
+            .Where(r => !table.IsMerged || (r.DocumentId is Guid d && readable.Contains(d)))
+            .Where(r => r.Column <= 0 || r.Column > table.Columns.Count || !table.IsHidden(r.Column - 1))
+            .ToList();
+    }
 }
 
 /// <summary>

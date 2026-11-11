@@ -60,6 +60,14 @@
       "mcp": "generic"
     },
     {
+      "id": "tables.hideColumns",
+      "capability": "Hide a table's columns from every caller",
+      "routes": [
+        "PUT /api/containers/{containerId:guid}/tables/{tableId:guid}/hidden-columns"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "containers.settings.get",
       "capability": "Read a container's settings overrides",
       "routes": [

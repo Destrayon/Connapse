@@ -42,9 +42,9 @@ internal static partial class TableHistory
     /// The columns that could be the table's key, in column order: identifier headers of text or whole-number columns
     /// that no other column shares. Whether their values are unique is checked once the rows are in.
     /// </summary>
-    internal static IReadOnlyList<int> KeyCandidates(IReadOnlyList<TableColumn> columns)
+    internal static IReadOnlyList<int> KeyCandidates(IReadOnlyList<TableColumn> columns, bool merged = false)
     {
-        if (columns.Count + ExtraColumns > TableDdl.MaxColumns)
+        if (columns.Count + ExtraColumns + (merged ? 1 : 0) > TableDdl.MaxColumns)
             return [];
         return columns
             .Select((c, i) => (c, i))
@@ -67,22 +67,26 @@ internal static partial class TableHistory
     /// <summary>
     /// Closes, at <c>$1</c>, each current version of <paramref name="existing"/> whose key isn't in
     /// <paramref name="incoming"/> or whose values differ there. Values compare null-safely, so empty to empty is no
-    /// change and empty to a value is one.
+    /// change and empty to a value is one. In a <paramref name="merged"/> table (CON-304) a row that moved to another
+    /// source document changed too, since who may read it did.
     /// </summary>
-    internal static string CloseSql(string existing, string incoming, int key, int columnCount) =>
+    internal static string CloseSql(string existing, string incoming, int key, int columnCount, bool merged = false) =>
         $"UPDATE {existing} AS e SET {Quote(SeenUntil)} = $1 WHERE e.{Quote(SeenUntil)} = 'infinity' "
         + $"AND NOT EXISTS (SELECT 1 FROM {incoming} AS i WHERE i.{Column(key)} = e.{Column(key)} "
-        + $"AND {Row("i", columnCount)} IS NOT DISTINCT FROM {Row("e", columnCount)})";
+        + $"AND {Row("i", columnCount, merged)} IS NOT DISTINCT FROM {Row("e", columnCount, merged)})";
 
     /// <summary>
     /// Inserts, seen from <c>$1</c>, each row of <paramref name="incoming"/> whose key has no current version left in
-    /// <paramref name="existing"/>: the new keys and, after <see cref="CloseSql"/>, the changed ones.
+    /// <paramref name="existing"/>: the new keys and, after <see cref="CloseSql"/>, the changed ones. A
+    /// <paramref name="merged"/> table's rows keep their source document.
     /// </summary>
-    internal static string InsertSql(string existing, string incoming, int key, int columnCount)
+    internal static string InsertSql(string existing, string incoming, int key, int columnCount, bool merged = false)
     {
-        string columns = string.Join(", ", Enumerable.Range(0, columnCount).Select(Column));
-        return $"INSERT INTO {existing} ({columns}, {Quote(SeenFrom)}) "
-            + $"SELECT {string.Join(", ", Enumerable.Range(0, columnCount).Select(i => "i." + Column(i)))}, $1 FROM {incoming} AS i "
+        var names = Enumerable.Range(0, columnCount).Select(Column).ToList();
+        if (merged)
+            names.Add(Quote(TableDdl.DocumentColumn));
+        return $"INSERT INTO {existing} ({string.Join(", ", names)}, {Quote(SeenFrom)}) "
+            + $"SELECT {string.Join(", ", names.Select(n => "i." + n))}, $1 FROM {incoming} AS i "
             + $"WHERE NOT EXISTS (SELECT 1 FROM {existing} AS e WHERE e.{Quote(SeenUntil)} = 'infinity' AND e.{Column(key)} = i.{Column(key)})";
     }
 
@@ -91,10 +95,12 @@ internal static partial class TableHistory
         $"CREATE UNIQUE INDEX {TableDdl.Quote(tableName + "_current")} ON {TableDdl.QualifiedName(containerId, tableName)} "
         + $"({Column(key)}) WHERE {Quote(SeenUntil)} = 'infinity'";
 
-    internal static string Row(string alias, int columnCount)
+    internal static string Row(string alias, int columnCount, bool merged = false)
     {
         var row = new StringBuilder("ROW(");
         row.AppendJoin(", ", Enumerable.Range(0, columnCount).Select(i => alias + "." + Column(i)));
+        if (merged)
+            row.Append(", ").Append(alias).Append('.').Append(Quote(TableDdl.DocumentColumn));
         return row.Append(')').ToString();
     }
 
