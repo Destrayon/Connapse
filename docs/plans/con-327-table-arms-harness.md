@@ -28,3 +28,6 @@ cost and wall time, with the pass bar's McNemar and Wilcoxon tests.
 - Phase 4 done: Release build with `-warnaserror --no-incremental` is clean, `dotnet format --verify-no-changes` passes,
   and all unit tests pass (3,701 in Connapse.Eval.Tests). PR #1215 is open into `epic/con-e6-tables`. Next: the
   10-question dry run (`tables-arms --split tune --limit-tasks 10`) once CON-326 merges.
+- Dry run done (2026-11-11), after merging the epic (CON-326's `table_sql`): 60/60 runs, both arms 10/10 right. Structured
+  2 calls, 0 searches, $0.0105 a run; SQL 3.07 calls, 0.37 searches, $0.0282 a run (2.69x, over the 1.2x bar). It found a
+  scope bug (fixed) and led to streaming `runs.jsonl`. All 10 tune questions are lookups. Report in `E:\tmp\con-327`.
