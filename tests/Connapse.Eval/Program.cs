@@ -50,6 +50,13 @@ internal static class EvalEntryPoint
                     cli.Option("effort") ?? "medium", cli.PositiveInt("limit-tasks"), cli.List("ids"), cli.Flag("skip-mixed"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tables"),
                     cli.PositiveInt("stall-minutes")), cts.Token),
+                "tables-arms" => await new TablesArmsEval(paths, http, Console.Out).RunAsync(new TablesArmsEval.Options(
+                    new TablesRagEval.Options(
+                        cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
+                        cli.Option("effort") ?? "medium", cli.PositiveInt("limit-tasks"), cli.List("ids"), SkipMixed: true,
+                        cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tables"),
+                        cli.PositiveInt("stall-minutes")),
+                    TableArm.Parse(cli.List("arms")), cli.PositiveInt("runs") ?? TablesArmsEval.RegisteredRuns), cts.Token),
                 "memory-learned" => await new MemoryLearnedEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
@@ -273,6 +280,7 @@ internal static class Commands
               memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: an agent answering the session-2 questions with search alone, after the late documents)
               tables-rag [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--skip-mixed] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (tables-v1 rag setup: an agent answering table questions over CSVs as documents; runs `claude -p` on your Claude subscription)
+              tables-arms [--arms structured,sql] [--runs 3] [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (CON-327: the structured table tools against table_sql on the same tables-v1 questions, with the CON-320 pass bar's McNemar and Wilcoxon; runs `claude -p` on your Claude subscription)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
 }

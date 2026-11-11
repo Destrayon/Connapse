@@ -502,6 +502,53 @@ public class MemorySearchTests
     }
 
     [Fact]
+    public void Describe_TableDescribe_OffersTheTableIdAsAString()
+    {
+        ToolSpec spec = McpToolbox.Describe(McpToolbox.Find("table_describe"));
+
+        spec.Properties.Keys.Should().BeEquivalentTo(["containerId", "tableId"]);
+        spec.Required.Should().Equal("containerId", "tableId");
+        spec.Properties["tableId"].GetProperty("type").GetString().Should().Be("string");
+    }
+
+    [Fact]
+    public void Describe_TableAggregate_OffersTheRequestAsAnObject()
+    {
+        ToolSpec spec = McpToolbox.Describe(McpToolbox.Find("table_aggregate"));
+
+        spec.Required.Should().Equal("containerId", "request");
+        spec.Properties["request"].GetProperty("type").GetString().Should().Be("object");
+    }
+
+    [Fact]
+    public void TryConvert_UuidString_GivesTheGuid()
+    {
+        Guid id = Guid.NewGuid();
+
+        McpToolbox.TryConvert(JsonSerializer.SerializeToElement(id.ToString()), typeof(Guid), out object? value).Should().BeTrue();
+
+        value.Should().Be(id);
+    }
+
+    [Fact]
+    public void TryConvert_NotAUuid_Fails()
+    {
+        McpToolbox.TryConvert(JsonSerializer.SerializeToElement("orders"), typeof(Guid), out _).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("""{"table":"t"}""")]
+    [InlineData("\"{\\\"table\\\":\\\"t\\\"}\"")]
+    public void TryConvert_JsonElementParameter_KeepsTheValueAsSent(string json)
+    {
+        JsonElement sent = JsonDocument.Parse(json).RootElement;
+
+        McpToolbox.TryConvert(sent, typeof(JsonElement), out object? value).Should().BeTrue();
+
+        ((JsonElement)value!).GetRawText().Should().Be(sent.GetRawText());
+    }
+
+    [Fact]
     public void Find_UnknownTool_Throws()
     {
         FluentActions.Invoking(() => McpToolbox.Find("no_such_tool")).Should().Throw<ArgumentException>();

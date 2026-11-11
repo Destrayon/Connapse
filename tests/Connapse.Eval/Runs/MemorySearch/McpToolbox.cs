@@ -84,8 +84,36 @@ public sealed class McpToolbox : IToolbox
         Type t when t == typeof(float) || t == typeof(double) => "number",
         Type t when t == typeof(bool) => "boolean",
         Type t when t == typeof(string[]) => "array",
+        Type t when t == typeof(Guid) => "string",
+        Type t when t == typeof(JsonElement) => "object",
         Type t => throw new NotSupportedException($"No JSON type for {t.Name}."),
     };
+
+    /// <summary>
+    /// The agent's value as the parameter's type, as the MCP server would bind it: a table id is a UUID string, and a
+    /// JSON-object parameter takes the value as sent (the tool itself refuses one that isn't an object).
+    /// </summary>
+    public static bool TryConvert(JsonElement value, Type type, out object? result)
+    {
+        result = null;
+        if (type == typeof(JsonElement))
+        {
+            result = value.Clone();
+            return true;
+        }
+        try
+        {
+            result = value.Deserialize(type);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string Expected(Type type) =>
+        (Nullable.GetUnderlyingType(type) ?? type) == typeof(Guid) ? "a UUID string" : JsonType(type);
 
     /// <summary>The agent's arguments without the pinned ones, so each pinned parameter takes its default.</summary>
     public static IReadOnlyDictionary<string, JsonElement> Unpinned(IReadOnlyDictionary<string, JsonElement> input, IReadOnlyCollection<string> pinned) =>
@@ -118,14 +146,8 @@ public sealed class McpToolbox : IToolbox
                 args[i] = p.DefaultValue;
                 continue;
             }
-            try
-            {
-                args[i] = value.Deserialize(p.ParameterType);
-            }
-            catch (JsonException)
-            {
-                return $"Error: Invalid argument '{p.Name}': expected {JsonType(p.ParameterType)}.";
-            }
+            if (!TryConvert(value, p.ParameterType, out args[i]))
+                return $"Error: Invalid argument '{p.Name}': expected {Expected(p.ParameterType)}.";
         }
 
         object? result = method.Invoke(null, args);

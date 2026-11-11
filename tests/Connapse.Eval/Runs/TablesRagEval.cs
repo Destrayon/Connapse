@@ -210,7 +210,7 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
         return 0;
     }
 
-    private static List<TableQuestion> Select(IEnumerable<TableQuestion> questions, Options options)
+    internal static List<TableQuestion> Select(IEnumerable<TableQuestion> questions, Options options)
     {
         if (options.Ids.Count > 0)
             questions = questions.Where(q => options.Ids.Contains(q.Id));
@@ -219,7 +219,7 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
         return options.LimitTasks is int limit ? [.. questions.Take(limit)] : [.. questions];
     }
 
-    private async Task IndexAsync(ConnapseSearchSystem system, string name, List<EvalDocument> corpus, Guid? into, CancellationToken ct)
+    internal async Task IndexAsync(ConnapseSearchSystem system, string name, List<EvalDocument> corpus, Guid? into, CancellationToken ct)
     {
         IndexReport report = await system.IndexAsync(new EvalDataset(name, "v1", [], corpus, [], new Qrels()), IngestionWait.ThrowOnStall, ct, into);
         MemorySearchEval.RequireCompleteIndex(report, corpus.Count, system.ContainerOf(name).DocMap.Count);
@@ -265,6 +265,15 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
     /// <summary>Why a run is diagnostic only: anything short of the pre-registered run. Empty when it conforms.</summary>
     public static List<string> Nonconforming(Options options, IReadOnlyList<QuestionResult> results, IReadOnlyList<QuestionResult> mixed)
     {
+        List<string> reasons = NonconformingTest(options, results.Count);
+        if (mixed.Count != RegisteredMixed)
+            reasons.Add($"{mixed.Count} mixed questions, not {RegisteredMixed}");
+        return reasons;
+    }
+
+    /// <summary>The test-question half of <see cref="Nonconforming"/>, shared with the arms run.</summary>
+    public static List<string> NonconformingTest(Options options, int questions)
+    {
         List<string> reasons = [];
         if (options.Split != "test")
             reasons.Add($"split is {options.Split}, not test");
@@ -278,10 +287,8 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
             reasons.Add("--ids was set");
         if (options.Tables is { Count: > 0 })
             reasons.Add("--tables was set");
-        if (results.Count != RegisteredTest)
-            reasons.Add($"{results.Count} questions, not {RegisteredTest}");
-        if (mixed.Count != RegisteredMixed)
-            reasons.Add($"{mixed.Count} mixed questions, not {RegisteredMixed}");
+        if (questions != RegisteredTest)
+            reasons.Add($"{questions} questions, not {RegisteredTest}");
         return reasons;
     }
 
@@ -354,10 +361,12 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
     /// <summary>A tool's output is cut to this many characters in the run log; a whole 100k-row table would swamp it.</summary>
     public const int LoggedOutputChars = 2000;
 
-    public static IEnumerable<string> RunLines(IEnumerable<QuestionResult> results)
-    {
-        foreach (QuestionResult r in results)
-            yield return new JsonObject
+    public static IEnumerable<string> RunLines(IEnumerable<QuestionResult> results) =>
+        results.Select(r => RunLine(r).ToJsonString());
+
+    /// <summary>One run as the run log records it.</summary>
+    public static JsonObject RunLine(QuestionResult r) =>
+            new()
             {
                 ["id"] = r.Question.Id,
                 ["family"] = r.Question.Family,
@@ -378,6 +387,5 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
                     ["output"] = c.Output.Length <= LoggedOutputChars ? c.Output : c.Output[..LoggedOutputChars],
                 })]),
                 ["error"] = r.Run.Error,
-            }.ToJsonString();
-    }
+            };
 }
