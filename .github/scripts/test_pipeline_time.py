@@ -331,6 +331,47 @@ class Baseline(unittest.TestCase):
                           str(DRIFT_LIMIT), "--max-wall-seconds", "360", "--current", "build-and-test"])
         self.assertEqual(rc, 0, out.getvalue())
 
+    def test_branch_runs_and_jobs_PlainEofDroppedConnection_AreRetried(self):
+        eof = 'Get "https://api.github.com/repos/o/r/actions/runs?sig=secret": EOF'
+        for call, body, want in [(lambda: pt.branch_runs(), {"workflow_runs": [{"id": 1}]}, [{"id": 1}]),
+                                 (lambda: pt.jobs(1), {"jobs": [{"name": "small"}]}, [{"name": "small"}])]:
+            with mock.patch.object(pt.subprocess, "run",
+                                   side_effect=[self.failed(eof), mock.Mock(stdout=json.dumps(body))]) as run, \
+                 mock.patch.object(pt.time, "sleep"), \
+                 mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                 contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(call(), want)
+            self.assertEqual(run.call_count, 2)
+            # gh's error text can carry a signed URL: the notice names the command only.
+            self.assertEqual(out.getvalue().strip(), f"::notice::gh api failed; retrying in {pt.RETRY_DELAYS[0]} s")
+
+    def test_download_FailedPartialAttempt_LeavesNothingBehindAndTheRetrySucceeds(self):
+        # Like gh, the fake refuses to overwrite a file: a retry into the first try's folder would fail.
+        tries = []
+
+        def gh_download(cmd, **_):
+            d = pathlib.Path(cmd[cmd.index("--dir") + 1])
+            tries.append(d)
+            (d / "test-results-small").mkdir(exist_ok=True)
+            f = d / "test-results-small" / "small.trx"
+            if f.exists():
+                raise self.failed(f"error downloading test-results-small: {f}: file exists")
+            f.write_text("x")
+            if len(tries) == 1:
+                raise self.failed("unexpected EOF")
+            return mock.Mock(stdout="")
+
+        with tempfile.TemporaryDirectory() as into, \
+             mock.patch.object(pt.subprocess, "run", side_effect=gh_download), \
+             mock.patch.object(pt.time, "sleep"), \
+             mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            pt.download(1, into)
+            got = sorted(str(p.relative_to(into)).replace(os.sep, "/") for p in pathlib.Path(into).rglob("*"))
+        self.assertEqual(len(tries), 2)
+        self.assertNotEqual(tries[0], tries[1])
+        self.assertEqual(got, ["test-results-small", "test-results-small/small.trx"])
+
     def test_gh_GitHubDownPastEveryRetry_Fails(self):
         with mock.patch.object(pt.subprocess, "run", side_effect=self.failed("HTTP 503: Service Unavailable")) as run, \
              mock.patch.object(pt.time, "sleep"), contextlib.redirect_stdout(io.StringIO()), \
