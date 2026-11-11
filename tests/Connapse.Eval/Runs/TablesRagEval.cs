@@ -99,7 +99,33 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
 
     public sealed record Options(
         string Config, string Split, string Model, string Effort, int? LimitTasks, IReadOnlyList<string> Ids, bool SkipMixed,
-        int Workers, string? OutPath, string? AgentDir = null, IReadOnlyList<string>? Tables = null, int? StallMinutes = null);
+        int Workers, string? OutPath, string? AgentDir = null, IReadOnlyList<string>? Tables = null, int? StallMinutes = null,
+        string Setup = RagSetup);
+
+    public const string RagSetup = "rag";
+    public const string TablesSetup = "tables";
+    public const string BothSetup = "both";
+
+    /// <summary>The pass bar's "four table tools" (CON-305). table_changes came later (CON-306) and is not one of them.</summary>
+    public static readonly string[] TableTools = ["table_list", "table_describe", "table_read", "table_aggregate"];
+
+    /// <summary>
+    /// The tools a setup offers on the test questions: rag the two search tools, tables the four table tools, both all six.
+    /// Anything else throws, so a typo can't run a setup the bar never named.
+    /// </summary>
+    public static string[] ToolsOf(string setup) => setup switch
+    {
+        RagSetup => MemorySearchEval.SearchTools,
+        TablesSetup => TableTools,
+        BothSetup => [.. MemorySearchEval.SearchTools, .. TableTools],
+        _ => throw new ArgumentException($"Unknown setup '{setup}': use {RagSetup}, {TablesSetup} or {BothSetup}.", nameof(setup)),
+    };
+
+    /// <summary>
+    /// The setup the mixed set is asked with. The bar compares "both" with rag there: a mixed question needs a policy
+    /// document, which the table tools alone can't read, so a tables run asks it with both.
+    /// </summary>
+    public static string MixedSetupOf(string setup) => setup == RagSetup ? RagSetup : BothSetup;
 
     /// <summary>The table a file holds: <c>orders.csv</c> is <c>orders</c>, both inventory loads are <c>inventory</c>.</summary>
     public static string TableOf(string file) =>
@@ -129,7 +155,9 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
 
     public async Task<int> RunAsync(Options options, CancellationToken ct)
     {
-        string agentDir = Path.GetFullPath(options.AgentDir ?? Path.Combine(Path.GetTempPath(), "connapse-tables-rag-agent"));
+        string[] testTools = ToolsOf(options.Setup);
+        string[] mixedTools = ToolsOf(MixedSetupOf(options.Setup));
+        string agentDir = Path.GetFullPath(options.AgentDir ?? Path.Combine(Path.GetTempPath(), $"connapse-tables-{options.Setup}-agent"));
         Directory.CreateDirectory(agentDir);
         MemorySearchEval.RequireNoProjectMemory(agentDir);
 
@@ -168,8 +196,9 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
             restricted = system.ContainerOf(Dataset + "-restricted").ContainerId;
         }
 
-        McpToolbox tools = new(system.Services, McpToolbox.Reader(Guid.NewGuid(), "tables-rag-eval"),
-            MemorySearchEval.SearchTools, MemorySearchEval.Pinned);
+        Guid reader = Guid.NewGuid();
+        McpToolbox tools = new(system.Services, McpToolbox.Reader(reader, $"tables-{options.Setup}-eval"), testTools, MemorySearchEval.Pinned);
+        McpToolbox bothTools = new(system.Services, McpToolbox.Reader(reader, $"tables-{options.Setup}-eval"), mixedTools, MemorySearchEval.Pinned);
         await using ToolBridge bridge = new();
         await bridge.StartAsync(ct);
         ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir, rules: Rules);
@@ -186,7 +215,7 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
                 .Select(n => new EvalDocument(n, DocumentKind.Text, n["policy-".Length..], File.ReadAllText(Path.Combine(root, n)), null,
                     new Dictionary<string, string>()) { FileName = n["policy-".Length..], Folder = "/docs" })];
             await IndexAsync(system, Dataset + "-policies", policies, container, ct);
-            mixedResults = await AnswerAsync(agent, tools, _ => BasePrompt(container), mixed, seen, options.Workers, ct);
+            mixedResults = await AnswerAsync(agent, bothTools, _ => BasePrompt(container), mixed, seen, options.Workers, ct);
         }
 
         JsonObject report = Report(options, results, mixedResults);
@@ -295,7 +324,9 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
 
         return new JsonObject
         {
-            ["setup"] = "rag",
+            ["setup"] = options.Setup,
+            ["mixedSetup"] = MixedSetupOf(options.Setup),
+            ["tools"] = new JsonArray([.. ToolsOf(options.Setup).Select(t => (JsonNode)t)]),
             ["config"] = options.Config,
             ["split"] = options.Split,
             ["model"] = options.Model,

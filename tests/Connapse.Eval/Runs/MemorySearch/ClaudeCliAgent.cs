@@ -265,11 +265,18 @@ public sealed class ClaudeCliAgent(
         if (!result.Tools.Contains($"mcp__{ToolBridge.ServerName}__{AgentContract.AnswerTool}"))
             return End(AgentOutcome.Error, $"the agent did not get the eval's tools ({string.Join(", ", result.Tools)})");
         if (result.StopReason == "refusal")
-            return End(AgentOutcome.Refused);
+            return End(AgentOutcome.Refused, RefusalEvents(process.Stdout));
         if (result.IsError)
             return End(AgentOutcome.Error, $"claude {result.Subtype}: {Tail(result.Text ?? "")}");
         return End(AgentOutcome.NoAnswer);
     }
+
+    /// <summary>
+    /// Every event a refused session printed except the init event's tool list, so the report can show what the API
+    /// returned; refused sessions are short.
+    /// </summary>
+    public static string RefusalEvents(IEnumerable<string> stdout) =>
+        string.Join("\n", stdout.Where(l => !string.IsNullOrWhiteSpace(l) && !l.Contains("\"subtype\":\"init\"", StringComparison.Ordinal)));
 
     private static string Tail(string text) => text.Length <= 300 ? text.Trim() : text[^300..].Trim();
 }

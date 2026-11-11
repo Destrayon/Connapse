@@ -84,6 +84,8 @@ public sealed class McpToolbox : IToolbox
         Type t when t == typeof(float) || t == typeof(double) => "number",
         Type t when t == typeof(bool) => "boolean",
         Type t when t == typeof(string[]) => "array",
+        Type t when t == typeof(Guid) => "string",
+        Type t when t == typeof(JsonElement) => "object",
         Type t => throw new NotSupportedException($"No JSON type for {t.Name}."),
     };
 
