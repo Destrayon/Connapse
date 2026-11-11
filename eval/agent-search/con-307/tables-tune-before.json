@@ -1,0 +1,117 @@
+{
+  "setup": "tables",
+  "mixedSetup": "both",
+  "tools": [
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "config": "hybrid",
+  "split": "tune",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "all": {
+    "questions": 60,
+    "correct": 54,
+    "accuracy": 0.9,
+    "toolCalls": 2.53
+  },
+  "families": {
+    "filter_count": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2.1
+    },
+    "group_topk": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2.2
+    },
+    "join": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2.6
+    },
+    "lookup": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2
+    },
+    "seen_as_of": {
+      "questions": 10,
+      "correct": 4,
+      "accuracy": 0.4,
+      "toolCalls": 3.9
+    },
+    "sum_avg": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2.4
+    }
+  },
+  "admin": {
+    "questions": 57,
+    "correct": 51,
+    "accuracy": 0.8947,
+    "toolCalls": 2.47
+  },
+  "restricted": {
+    "questions": 3,
+    "correct": 3,
+    "accuracy": 1,
+    "toolCalls": 3.67
+  },
+  "restrictedLeaks": 0,
+  "seenAsOf": {
+    "load1": {
+      "questions": 7,
+      "correct": 1,
+      "accuracy": 0.1429,
+      "toolCalls": 3.43
+    },
+    "load2": {
+      "questions": 3,
+      "correct": 3,
+      "accuracy": 1,
+      "toolCalls": 5
+    }
+  },
+  "mixed": {
+    "questions": 30,
+    "correct": 28,
+    "accuracy": 0.9333,
+    "toolCalls": 4.07
+  },
+  "outcomes": {
+    "Answered": 90
+  },
+  "tokens": {
+    "runs": 90,
+    "input": 796,
+    "cacheWrite": 691483,
+    "cacheRead": 2295820,
+    "output": 111262,
+    "apiListPriceUsd": 4.1097
+  },
+  "costPerQuestionUsd": 0.0258,
+  "conforming": false,
+  "diagnosticOnly": [
+    "split is tune, not test",
+    "60 questions, not 180"
+  ],
+  "inventorySeen": {
+    "load1": "2026-11-11 09:27:58 UTC",
+    "load2": "2026-11-11 09:28:00 UTC"
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 57%)",
+    "atLastRun": "allowed (seven_day 57%)"
+  }
+}

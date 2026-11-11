@@ -1,0 +1,114 @@
+{
+  "setup": "tables",
+  "mixedSetup": "both",
+  "tools": [
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "all": {
+    "questions": 180,
+    "correct": 179,
+    "accuracy": 0.9944,
+    "toolCalls": 2.49
+  },
+  "families": {
+    "filter_count": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.27
+    },
+    "group_topk": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.57
+    },
+    "join": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 3.23
+    },
+    "lookup": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.27
+    },
+    "seen_as_of": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.33
+    },
+    "sum_avg": {
+      "questions": 30,
+      "correct": 29,
+      "accuracy": 0.9667,
+      "toolCalls": 2.3
+    }
+  },
+  "admin": {
+    "questions": 168,
+    "correct": 167,
+    "accuracy": 0.994,
+    "toolCalls": 2.43
+  },
+  "restricted": {
+    "questions": 12,
+    "correct": 12,
+    "accuracy": 1,
+    "toolCalls": 3.42
+  },
+  "restrictedLeaks": 0,
+  "seenAsOf": {
+    "load1": {
+      "questions": 16,
+      "correct": 16,
+      "accuracy": 1,
+      "toolCalls": 2.44
+    },
+    "load2": {
+      "questions": 14,
+      "correct": 14,
+      "accuracy": 1,
+      "toolCalls": 2.21
+    }
+  },
+  "mixed": {
+    "questions": 30,
+    "correct": 26,
+    "accuracy": 0.8667,
+    "toolCalls": 4.3
+  },
+  "outcomes": {
+    "Answered": 210
+  },
+  "tokens": {
+    "runs": 210,
+    "input": 1828,
+    "cacheWrite": 1163392,
+    "cacheRead": 4552098,
+    "output": 186062,
+    "apiListPriceUsd": 6.9731
+  },
+  "costPerQuestionUsd": 0.0246,
+  "conforming": true,
+  "diagnosticOnly": [],
+  "inventorySeen": {
+    "load1": "2026-11-11 10:37:46 UTC",
+    "load2": "2026-11-11 10:37:48 UTC"
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 58%)",
+    "atLastRun": "allowed (seven_day 59%)"
+  }
+}

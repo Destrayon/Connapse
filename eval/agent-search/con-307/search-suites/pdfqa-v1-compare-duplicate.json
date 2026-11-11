@@ -1,0 +1,142 @@
+{
+  "baseline": "20261111-125625-unknown-pdfqa-v1-connapse-hybrid",
+  "candidate": "20261111-145752-302db0f-pdfqa-v1-connapse-hybrid",
+  "rows": [
+    {
+      "dataset": "pdfqa",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 92,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "pdfqa",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 92,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "pdfqa",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 92,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "pdfqa",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 92,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "pdfqa",
+      "metric": "P@5",
+      "stats": {
+        "n": 92,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "pdfqa",
+      "metric": "hit@1",
+      "stats": {
+        "n": 92,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "pdfqa",
+      "metric": "hit@3",
+      "stats": {
+        "n": 92,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    }
+  ],
+  "portfolioDelta": {
+    "MRR@10": 0,
+    "nDCG@10": 0,
+    "Recall@5": 0,
+    "Recall@10": 0,
+    "P@5": 0,
+    "hit@1": 0,
+    "hit@3": 0,
+    "judged@10": 0
+  },
+  "verdict": "No improvement: portfolio nDCG@10 0.000",
+  "datasetMismatches": [],
+  "unpairedDatasets": [],
+  "pairings": [
+    {
+      "dataset": "pdfqa",
+      "baselineQueries": 92,
+      "candidateQueries": 92,
+      "pairedQueries": 92,
+      "baselineJudgedAt10": 0.7630434782608697,
+      "candidateJudgedAt10": 0.7630434782608697
+    }
+  ],
+  "tooFewSharedQueries": []
+}

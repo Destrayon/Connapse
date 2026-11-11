@@ -244,7 +244,7 @@ internal static class TableQueryCompiler
         var sql = new StringBuilder("SELECT ");
         sql.AppendJoin(", ", columns.Select(i => Output(query.Column(i), table.Columns[i].Type)));
         sql.Append(" FROM ").Append(query.Table);
-        query.AppendWhere(sql, where: null);
+        query.AppendWhere(sql, where: null, query.Seen(asOf: null));
 
         IEnumerable<string> order = columns.Select(i => query.Column(i) + " ASC NULLS LAST");
         if (table.IsMerged)

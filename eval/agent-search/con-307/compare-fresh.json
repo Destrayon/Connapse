@@ -1,0 +1,69 @@
+{
+  "questions": 180,
+  "bar1Accuracy": {
+    "rag": 51,
+    "tables": 179,
+    "gainPoints": 71.11,
+    "onlyRagRight": 0,
+    "onlyTablesRight": 128,
+    "mcnemarP": 5.877471754111455E-39,
+    "pass": true
+  },
+  "bar2AbsoluteAccuracy": {
+    "accuracy": 0.9944,
+    "pass": true
+  },
+  "bar3EveryFamily": {
+    "families": {
+      "filter_count": {
+        "questions": 30,
+        "rag": 3,
+        "tables": 30,
+        "pass": true
+      },
+      "group_topk": {
+        "questions": 30,
+        "rag": 7,
+        "tables": 30,
+        "pass": true
+      },
+      "join": {
+        "questions": 30,
+        "rag": 1,
+        "tables": 30,
+        "pass": true
+      },
+      "lookup": {
+        "questions": 30,
+        "rag": 25,
+        "tables": 30,
+        "pass": true
+      },
+      "seen_as_of": {
+        "questions": 30,
+        "rag": 11,
+        "tables": 30,
+        "pass": true
+      },
+      "sum_avg": {
+        "questions": 30,
+        "rag": 4,
+        "tables": 29,
+        "pass": true
+      }
+    },
+    "pass": true
+  },
+  "bar4Mixed": {
+    "questions": 30,
+    "rag": 1,
+    "both": 26,
+    "pass": true
+  },
+  "bar7AgentCost": {
+    "ragPerQuestionUsd": 0.0931,
+    "tablesPerQuestionUsd": 0.0246,
+    "ratio": 0.265,
+    "pass": true
+  }
+}

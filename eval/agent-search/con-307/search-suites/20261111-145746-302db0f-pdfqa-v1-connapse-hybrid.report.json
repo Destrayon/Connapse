@@ -1,0 +1,1113 @@
+{
+  "runName": "20261111-145746-302db0f-pdfqa-v1-connapse-hybrid",
+  "manifest": {
+    "gitSha": "302db0fa82af342d95a31d5e23a830e9fc794d16",
+    "gitDirty": true,
+    "suite": "pdfqa-v1",
+    "system": "connapse",
+    "config": "hybrid",
+    "configHash": "4024734445998089",
+    "searchMode": "hybrid",
+    "settings": {},
+    "systemDescription": {
+      "embedding.provider": "Ollama",
+      "embedding.model": "nomic-embed-text",
+      "embedding.dimensions": "768",
+      "search.mode": "Hybrid",
+      "search.reranker": "None",
+      "search.crossEncoderModel": "Alibaba-NLP/gte-reranker-modernbert-base",
+      "search.fusionAlpha": "0.65",
+      "search.hybridCandidatePool": "30",
+      "search.keywordRanker": "Bm25",
+      "search.bm25K1": "1.2",
+      "search.bm25B": "0.75",
+      "chunking.strategy": "Semantic",
+      "chunking.maxChunkSize": "512",
+      "chunking.overlap": "50"
+    },
+    "machine": "DESKTOP-R1I9RUA",
+    "os": "Microsoft Windows 10.0.26300",
+    "processorCount": 32,
+    "startedUtc": "2026-11-11T14:57:46.4423587+00:00",
+    "finishedUtc": "2026-11-11T15:06:12.9902309+00:00",
+    "datasets": [
+      {
+        "name": "pdfqa",
+        "version": "1",
+        "fileSha256": {
+          "census-p60-279.pdf": "ce921ae1c54b000b3c1defbe52762a5358b9b597a6cd01aee5b84671fab598c5",
+          "irs-p15-2024.pdf": "3a15da95e39b24f2b6c61f4abc85298c897f57600c3508f9381fab7180a092e0",
+          "fr-2023-28800.pdf": "b7e23ceff132f02a32e2c225accb531db6400f625b4f6b8d9711363faa9e9788",
+          "crec-2024-01-11.pdf": "b018dc2e89011ab0435eee5476e0beb0d4f321fb822397099d24e740e8bf1fd4",
+          "ntrs-19930090935.pdf": "ce0107af2da864f8373a9e9936895fd4694c4e6bbfce27ff06393490984ee428",
+          "jfk-104-10059-10218.pdf": "0f03fd0c9377c36b7a160afa3cb9e77f9812f794ea03ffb53ae4af3a3b1de1b9",
+          "jfk-104-10130-10215.pdf": "45dbdc414c863cd9b81b0d252143d528ffeb2bc2a1fa1bc796ec04e22bd1fb1d",
+          "jfk-104-10103-10079.pdf": "80a14abf48236c4ffb1c525b7c5a00d2a9f1305ee47b9edf7b2defb01627de7f",
+          "jfk-104-10237-10120.pdf": "7fa4b0fa60d1b6df7aa2baaacf92f3517089df3ad2d29c9b5ffea5d19cc0531e",
+          "jfk-104-10074-10349.pdf": "5124b1c386ca4bc443350dcb96ba2dea0e99f92b78ee4f4156b536d55d5691ff",
+          "jfk-104-10169-10017.pdf": "27cbbdb8763578e59f1f039b32061b94b802d5be88b03160e57241aa6f326bd4",
+          "jfk-104-10221-10310.pdf": "6731277d1b4ceb38f81ba22fa574607c831ffe307d4f581e65d4e6cbd6d072fc",
+          "jfk-104-10185-10030.pdf": "ed3c587cd2868f4fb34491687b50708a504593acd97b846fbd8ecc0caafc37f6",
+          "questions.jsonl": "2925a40598e5a2957377f8ddcad7785afcb60814115aca47034a8fc96744c309"
+        },
+        "tags": [
+          "shape:pdf",
+          "source:pdfqa"
+        ],
+        "documents": 13,
+        "failedDocuments": 0,
+        "invalid": false,
+        "queries": 92
+      }
+    ],
+    "limitQueries": null,
+    "resumes": [],
+    "kind": null,
+    "indexCache": "saved 598f59d7a6dd3d543299ef77"
+  },
+  "datasets": [
+    {
+      "name": "pdfqa",
+      "tags": [
+        "shape:pdf",
+        "source:pdfqa"
+      ],
+      "invalid": false,
+      "testQueries": 92,
+      "noAnswerQueries": 0,
+      "errorQueries": 0,
+      "means": {
+        "MRR@10": 0.5063405797101449,
+        "nDCG@10": 0.5373098930326552,
+        "Recall@5": 0.6086956521739131,
+        "Recall@10": 0.6304347826086957,
+        "P@5": 0.12173913043478253,
+        "hit@1": 0.42391304347826086,
+        "hit@3": 0.5869565217391305,
+        "judged@10": 0.7630434782608697
+      },
+      "perQuery": {
+        "cen-t01": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-t02": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-t03": {
+          "MRR@10": 0.25,
+          "nDCG@10": 0.43067655807339306,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-t04": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-t05": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-t06": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-t07": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-t08": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-t09": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-c01": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-c02": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-c03": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-c04": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.8
+        },
+        "cen-c05": {
+          "MRR@10": 0.3333333333333333,
+          "nDCG@10": 0.5,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-c06": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-c07": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-h01": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-h02": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "cen-h03": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-h04": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-h05": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "cen-h06": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-t-01": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 0.9
+        },
+        "irs-t-02": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-t-03": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-t-04": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-t-05": {
+          "MRR@10": 0.3333333333333333,
+          "nDCG@10": 0.5,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-t-06": {
+          "MRR@10": 0.125,
+          "nDCG@10": 0.31546487678572877,
+          "Recall@5": 0,
+          "Recall@10": 1,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "irs-t-07": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-t-08": {
+          "MRR@10": 0.3333333333333333,
+          "nDCG@10": 0.5,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-t-09": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "irs-t-10": {
+          "MRR@10": 0.25,
+          "nDCG@10": 0.43067655807339306,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "irs-c-01": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-c-02": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-c-03": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-c-04": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-c-05": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-h-01": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "irs-h-02": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "irs-h-03": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-h-04": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "irs-h-05": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "fr-01": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "fr-02": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "fr-03": {
+          "MRR@10": 0.125,
+          "nDCG@10": 0.31546487678572877,
+          "Recall@5": 0,
+          "Recall@10": 1,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.7
+        },
+        "fr-04": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "fr-05": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "fr-06": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "fr-07": {
+          "MRR@10": 0.3333333333333333,
+          "nDCG@10": 0.5,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 0.8
+        },
+        "fr-08": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.9
+        },
+        "crec-01": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.4
+        },
+        "crec-02": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.7
+        },
+        "crec-03": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.6
+        },
+        "crec-04": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.7
+        },
+        "crec-05": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.6
+        },
+        "crec-06": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.1
+        },
+        "typ-01": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 0.4
+        },
+        "typ-02": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.3
+        },
+        "typ-03": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.3
+        },
+        "typ-04": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.4
+        },
+        "typ-05": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.3
+        },
+        "typ-06": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.3
+        },
+        "typ-07": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.3
+        },
+        "typ-08": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.2
+        },
+        "typ-09": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.1
+        },
+        "typ-10": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.2
+        },
+        "typ-11": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.1
+        },
+        "typ-12": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.2
+        },
+        "typ-13": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "typ-14": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.8
+        },
+        "typ-15": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "typ-16": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "typ-17": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 0.8
+        },
+        "typ-18": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.7
+        },
+        "deg-01": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.1
+        },
+        "deg-02": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.1
+        },
+        "deg-03": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.1
+        },
+        "deg-04": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0
+        },
+        "deg-05": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 0.2
+        },
+        "deg-06": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.2
+        },
+        "deg-07": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.6
+        },
+        "deg-08": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.6
+        },
+        "deg-09": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "deg-10": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 0.2
+        },
+        "deg-11": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.2
+        },
+        "deg-12": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 0.3
+        },
+        "deg-13": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "deg-14": {
+          "MRR@10": 1,
+          "nDCG@10": 1,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 1,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "deg-15": {
+          "MRR@10": 0.5,
+          "nDCG@10": 0.6309297535714575,
+          "Recall@5": 1,
+          "Recall@10": 1,
+          "P@5": 0.2,
+          "hit@1": 0,
+          "hit@3": 1,
+          "judged@10": 1
+        },
+        "deg-16": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "deg-17": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        },
+        "deg-18": {
+          "MRR@10": 0,
+          "nDCG@10": 0,
+          "Recall@5": 0,
+          "Recall@10": 0,
+          "P@5": 0,
+          "hit@1": 0,
+          "hit@3": 0,
+          "judged@10": 1
+        }
+      },
+      "latencyP50Ms": 32.9393,
+      "latencyP95Ms": 42.5959,
+      "notScoredReason": null,
+      "kinds": [
+        {
+          "kind": "kind:columns",
+          "queries": 24,
+          "means": {
+            "MRR@10": 0.8038194444444443,
+            "nDCG@10": 0.8420105890625043,
+            "Recall@5": 0.9166666666666666,
+            "Recall@10": 0.9583333333333334,
+            "P@5": 0.18333333333333338,
+            "hit@1": 0.7083333333333334,
+            "hit@3": 0.9166666666666666,
+            "judged@10": 0.8458333333333333
+          }
+        },
+        {
+          "kind": "kind:header-break",
+          "queries": 12,
+          "means": {
+            "MRR@10": 0.3333333333333333,
+            "nDCG@10": 0.3333333333333333,
+            "Recall@5": 0.3333333333333333,
+            "Recall@10": 0.3333333333333333,
+            "P@5": 0.06666666666666667,
+            "hit@1": 0.3333333333333333,
+            "hit@3": 0.3333333333333333,
+            "judged@10": 1
+          }
+        },
+        {
+          "kind": "kind:scan-degraded",
+          "queries": 18,
+          "means": {
+            "MRR@10": 0.3333333333333333,
+            "nDCG@10": 0.34788108373016197,
+            "Recall@5": 0.3888888888888889,
+            "Recall@10": 0.3888888888888889,
+            "P@5": 0.07777777777777778,
+            "hit@1": 0.2777777777777778,
+            "hit@3": 0.3888888888888889,
+            "judged@10": 0.5333333333333333
+          }
+        },
+        {
+          "kind": "kind:scan-typed",
+          "queries": 18,
+          "means": {
+            "MRR@10": 0.5555555555555556,
+            "nDCG@10": 0.5701033059523842,
+            "Recall@5": 0.6111111111111112,
+            "Recall@10": 0.6111111111111112,
+            "P@5": 0.1222222222222222,
+            "hit@1": 0.5,
+            "hit@3": 0.6111111111111112,
+            "judged@10": 0.4666666666666667
+          }
+        },
+        {
+          "kind": "kind:table-borderless",
+          "queries": 9,
+          "means": {
+            "MRR@10": 0.19444444444444445,
+            "nDCG@10": 0.22906736796053895,
+            "Recall@5": 0.3333333333333333,
+            "Recall@10": 0.3333333333333333,
+            "P@5": 0.06666666666666668,
+            "hit@1": 0.1111111111111111,
+            "hit@3": 0.2222222222222222,
+            "judged@10": 1
+          }
+        },
+        {
+          "kind": "kind:table-ruled",
+          "queries": 11,
+          "means": {
+            "MRR@10": 0.5037878787878788,
+            "nDCG@10": 0.6035391541430449,
+            "Recall@5": 0.8181818181818182,
+            "Recall@10": 0.9090909090909091,
+            "P@5": 0.1636363636363636,
+            "hit@1": 0.2727272727272727,
+            "hit@3": 0.7272727272727273,
+            "judged@10": 0.990909090909091
+          }
+        }
+      ]
+    }
+  ],
+  "domains": {},
+  "portfolio": {
+    "MRR@10": 0.5063405797101449,
+    "nDCG@10": 0.5373098930326552,
+    "Recall@5": 0.6086956521739131,
+    "Recall@10": 0.6304347826086957,
+    "P@5": 0.12173913043478253,
+    "hit@1": 0.42391304347826086,
+    "hit@3": 0.5869565217391305,
+    "judged@10": 0.7630434782608697
+  }
+}
