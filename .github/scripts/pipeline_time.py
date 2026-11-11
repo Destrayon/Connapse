@@ -20,6 +20,11 @@ changed, it moved by at most 7 s, while the epic that added links and memory rea
 A median runner: each job's durations divided by its runner factor, the median ratio of its tests'
 durations to main's (CON-87's method for the Small tier).
 
+A PR into an epic or release branch is measured against that branch's own runs, which carry the tests
+its earlier PRs added: measured against main, each tables-epic PR passed alone, and the next one failed
+for the 48 s they had added together (CON-333). Until the branch has five runs, main's runs from before
+its oldest one fill the baseline; with none, the baseline is main's, as for a PR into main.
+
 Usage (in build-and-test, after downloading this run's test-results-* artifacts; GH_TOKEN set):
   pipeline_time.py --results . --max-added-seconds 45 --max-wall-seconds 360 --current build-and-test
 """
@@ -33,6 +38,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_budgets import durations  # noqa: E402
@@ -189,11 +195,17 @@ def jobs(run_id: str | int) -> list[dict]:
     return gh_json("api", f"repos/{repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")["jobs"]
 
 
-def main_runs() -> list[dict]:
-    """main's latest push runs of this workflow, newest first."""
+def branch_runs(branch: str = "main") -> list[dict]:
+    """The branch's latest push runs of this workflow, newest first."""
     repo, workflow = os.environ["GITHUB_REPOSITORY"], os.environ.get("GITHUB_WORKFLOW_REF", "")
     name = re.sub(r"@.*$", "", workflow).split("/")[-1] or "ci.yml"
-    return gh_json("api", f"repos/{repo}/actions/workflows/{name}/runs?branch=main&event=push&per_page=30")["workflow_runs"]
+    return gh_json("api", f"repos/{repo}/actions/workflows/{name}/runs?branch={quote(branch, safe='')}"
+                          f"&event=push&per_page=30")["workflow_runs"]
+
+
+def base_branch() -> str:
+    """The branch whose runs make the baseline: a PR's base branch, or the branch a push went to."""
+    return os.environ.get("GITHUB_BASE_REF") or os.environ.get("GITHUB_REF_NAME") or "main"
 
 
 def download(run_id: str | int, into: str) -> None:
@@ -202,8 +214,8 @@ def download(run_id: str | int, into: str) -> None:
 
 
 def base_commit() -> str | None:
-    """The main commit this run's code is built on: the first parent of the commit checked out, the
-    merge of a PR into main or a push's commit. Read from the commit itself, which a shallow checkout
+    """The base branch's commit this run's code is built on: the first parent of the commit checked out, the
+    merge of a PR into its base or a push's commit. Read from the commit itself, which a shallow checkout
     holds though not its parents."""
     try:
         raw = subprocess.run(["git", "cat-file", "-p", "HEAD"], check=True, capture_output=True, text=True).stdout
@@ -213,17 +225,43 @@ def base_commit() -> str | None:
     return parent.group(1) if parent else None
 
 
-def baseline_runs(exclude: str, base: str | None) -> list[tuple[str, dict[str, dict[str, float]], float | None]]:
-    """main's last BASELINE_RUNS runs whose test jobs all succeeded, from the run of `base` back: each
+def baseline_runs(exclude: str, base: str | None, branch: str = "main"
+                  ) -> list[tuple[str, dict[str, dict[str, float]], float | None]]:
+    """The branch's last BASELINE_RUNS runs whose test jobs all succeeded, from the run of `base` back: each
     one's id, test results and pipeline wall time. Not newer ones: a test merged since would read as
-    one this run dropped, and its time as saved."""
-    found = []
-    runs = main_runs()
+    one this run dropped, and its time as saved.
+
+    A branch other than main with fewer runs of its own is filled with main's from before its oldest one,
+    which don't carry what main got after the branch last took main in. A test's usual time is the median
+    of the runs it ran in, so the tests only the branch carries are timed by the branch's runs alone."""
+    runs = branch_runs(branch)
     start = next((i for i, r in enumerate(runs) if r.get("head_sha") == base), None)
     if start is None:
-        print(f"::notice::main's recent runs don't include the base commit {base}; the baseline is main's latest runs")
+        print(f"::notice::{branch}'s recent runs don't include the base commit {base}; the baseline is {branch}'s latest runs")
         start = 0
-    for r in runs[start:]:
+    found = usable(runs[start:], exclude, BASELINE_RUNS)
+    if branch != "main" and len(found) < BASELINE_RUNS:
+        mains = branch_runs("main")
+        if found:
+            oldest = found[-1][3]
+            mains = [r for r in mains if (r.get("created_at") or "") < oldest]
+        else:
+            # None of its own: main's, as for a PR into main, from the base commit's run if main ran it.
+            mains = mains[next((i for i, r in enumerate(mains) if r.get("head_sha") == base), 0):]
+        print(f"::notice::{branch} has {len(found)} usable runs of its own; main's runs fill the other"
+              f" {BASELINE_RUNS - len(found)} of the baseline's {BASELINE_RUNS}")
+        found += usable(mains, exclude, BASELINE_RUNS - len(found))
+    return [(i, run, w) for i, run, w, _ in found]
+
+
+def usable(runs: list[dict], exclude: str, want: int
+           ) -> list[tuple[str, dict[str, dict[str, float]], float | None, str]]:
+    """The first `want` of these runs whose test jobs all succeeded: each one's id, test results, pipeline
+    wall time and creation time."""
+    found = []
+    for r in runs:
+        if len(found) == want:
+            break
         if str(r["id"]) == exclude or r.get("status") != "completed":
             continue
         js = jobs(r["id"])
@@ -237,9 +275,7 @@ def baseline_runs(exclude: str, base: str | None) -> list[tuple[str, dict[str, d
             run = results(d)
         if not all(t in run for t in TEST_JOBS):
             continue
-        found.append((str(r["id"]), run, wall(js)))
-        if len(found) == BASELINE_RUNS:
-            break
+        found.append((str(r["id"]), run, wall(js), r.get("created_at") or ""))
     return found
 
 
@@ -281,16 +317,17 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"::error::no test results from {', '.join(missing)}; the test time can't be measured")
         return 1
-    baseline = baseline_runs(exclude=os.environ.get("GITHUB_RUN_ID", ""), base=base_commit())
+    branch = base_branch()
+    baseline = baseline_runs(exclude=os.environ.get("GITHUB_RUN_ID", ""), base=base_commit(), branch=branch)
     if len(baseline) < BASELINE_RUNS:
-        print(f"::error::only {len(baseline)} of main's recent runs have every test job's results, and the baseline"
+        print(f"::error::only {len(baseline)} of {branch}'s recent runs have every test job's results, and the baseline"
               f" needs {BASELINE_RUNS}; the test time can't be compared")
         return 1
 
     more, usual, share, factors = added(run, [b for _, b, _ in baseline])
     spread = drift(run, [b for _, b, _ in baseline])
     print(f"Test time on a median runner: {total(normalized(run, reference([b for _, b, _ in baseline]))):.0f} s;"
-          f" main's usual {usual:.0f} s (median of runs {', '.join(i for i, _, _ in baseline)})")
+          f" {branch}'s usual {usual:.0f} s (median of runs {', '.join(i for i, _, _ in baseline)})")
     for job in sorted(factors):
         print(f"  {job}: runner factor {factors[job]:.2f}")
     print(f"  {len(share)} tests are new, gone, or outside {BAND_RATIO:g}x + {BAND_SECONDS:g} s of their usual time;"
@@ -302,26 +339,26 @@ def main(argv: list[str] | None = None) -> int:
     mine = wall(jobs(os.environ["GITHUB_RUN_ID"]), a.current, now)
     trend = ", ".join(f"{w:.0f}" for _, _, w in reversed(baseline) if w is not None)
     if mine is not None:
-        line = f"pipeline wall time {mine:.0f} s of {a.max_wall_seconds:g} s; main's last runs, oldest first: {trend} s"
+        line = f"pipeline wall time {mine:.0f} s of {a.max_wall_seconds:g} s; {branch}'s last runs, oldest first: {trend} s"
         print(f"::warning::{line}, over the budget on this runner" if mine > a.max_wall_seconds else line)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
-            f.write(f"### Pipeline time\n\n| | This run | main's usual |\n|---|---|---|\n"
+            f.write(f"### Pipeline time\n\n| | This run | {branch}'s usual |\n|---|---|---|\n"
                     f"| Test time the changed tests add on a median runner (s) | {more:+.0f} | limit {a.max_added_seconds:g} |\n"
                     f"| Test time the other tests add together (s) | {spread:+.0f} | limit {a.max_drift_seconds:g} |\n"
                     f"| Wall time (s) | {'?' if mine is None else f'{mine:.0f}'} | {trend} |\n")
 
     rc = 0
     if more > a.max_added_seconds:
-        print(f"::error::PrPipeline_WallTimeUnder6Min: the changed tests add {more:.0f} s over main's on a median"
+        print(f"::error::PrPipeline_WallTimeUnder6Min: the changed tests add {more:.0f} s over {branch}'s on a median"
               f" runner, over the {a.max_added_seconds:g} s allowed; the tests above add the most")
         rc = 1
     else:
         print(f"PrPipeline_WallTimeUnder6Min: the changed tests add {more:+.0f} s of the {a.max_added_seconds:g} s allowed")
     if spread > a.max_drift_seconds:
         print(f"::error::PrPipeline_WallTimeUnder6Min: the tests each inside their usual time add {spread:.0f} s together"
-              f" over main's on a median runner, over the {a.max_drift_seconds:g} s allowed: a slowdown spread over many tests")
+              f" over {branch}'s on a median runner, over the {a.max_drift_seconds:g} s allowed: a slowdown spread over many tests")
         rc = 1
     else:
         print(f"PrPipeline_WallTimeUnder6Min: the other tests add {spread:+.0f} s together, of the {a.max_drift_seconds:g} s allowed")
