@@ -118,6 +118,75 @@ public class TableRequestJsonTests
     }
 
     [Fact]
+    public void ParseRead_Join_MapsEveryPart()
+    {
+        TableReadRequest request = TableRequestJson.ParseRead(Json($$$"""
+            {"table": "{{{Id}}}", "join": {"table": "{{{Id}}}", "as": "c_2", "column": "customer_id", "join_column": "id", "kind": "left"}}
+            """));
+
+        request.Join.Should().Be(new TableJoin(Guid.Parse(Id), "c_2", "customer_id", "id", TableJoinKind.Left));
+    }
+
+    [Theory]
+    [InlineData(null, TableJoinKind.Inner)]
+    [InlineData("\"inner\"", TableJoinKind.Inner)]
+    [InlineData("\"left\"", TableJoinKind.Left)]
+    public void ParseAggregate_Join_ReadsKind(string? kind, TableJoinKind expected)
+    {
+        string kindPart = kind is null ? "" : $", \"kind\": {kind}";
+        TableAggregateRequest request = TableRequestJson.ParseAggregate(Json($$$"""
+            {"table": "{{{Id}}}", "aggregates": [{"aggregate": "count"}],
+             "join": {"table": "{{{Id}}}", "as": "c", "column": "a", "join_column": "b"{{{kindPart}}}}}
+            """));
+
+        request.Join!.Kind.Should().Be(expected);
+        request.Join.As.Should().Be("c");
+    }
+
+    [Fact]
+    public void ParseRead_NoJoin_LeavesJoinNull()
+    {
+        TableRequestJson.ParseRead(Json($$$"""{"table": "{{{Id}}}", "join": null}""")).Join.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("""[]""", "*\"join\" must be a JSON object*")]
+    [InlineData("""{"table": "ID", "as": "c", "column": "a", "join_column": "b", "on": "x"}""", "*unknown key \"on\"*")]
+    [InlineData("""{"as": "c", "column": "a", "join_column": "b"}""", "*needs \"table\"*")]
+    [InlineData("""{"table": "nope", "as": "c", "column": "a", "join_column": "b"}""", "*needs \"table\"*")]
+    [InlineData("""{"table": "ID", "column": "a", "join_column": "b"}""", "*needs \"as\"*")]
+    [InlineData("""{"table": "ID", "as": "1c", "column": "a", "join_column": "b"}""", "*needs \"as\"*")]
+    [InlineData("""{"table": "ID", "as": 5, "column": "a", "join_column": "b"}""", "*needs \"as\"*")]
+    [InlineData("""{"table": "ID", "as": "c", "join_column": "b"}""", "*needs \"column\", the queried table's*")]
+    [InlineData("""{"table": "ID", "as": "c", "column": "", "join_column": "b"}""", "*needs \"column\"*")]
+    [InlineData("""{"table": "ID", "as": "c", "column": "a"}""", "*needs \"join_column\", the joined table's*")]
+    [InlineData("""{"table": "ID", "as": "c", "column": "a", "join_column": 3}""", "*needs \"join_column\"*")]
+    [InlineData("""{"table": "ID", "as": "c", "column": "a", "join_column": "b", "kind": "outer"}""", "*\"kind\" must be \"inner\" or \"left\"*")]
+    [InlineData("""{"table": "ID", "as": "c", "column": "a", "join_column": "b", "kind": 1}""", "*\"kind\" must be*")]
+    public void ParseRead_MalformedJoin_IsRejected(string join, string message)
+    {
+        Action act = () => TableRequestJson.ParseRead(Json($$$"""{"table": "{{{Id}}}", "join": {{{join.Replace("ID", Id, StringComparison.Ordinal)}}}}"""));
+
+        act.Should().Throw<TableQueryException>().WithMessage(message);
+    }
+
+    [Theory]
+    [InlineData("c", true)]
+    [InlineData("Cust_2", true)]
+    [InlineData("abcdefghijklmnopqrstuvwxyzabcdef", true)]
+    [InlineData("abcdefghijklmnopqrstuvwxyzabcdefg", false)]
+    [InlineData("", false)]
+    [InlineData("_c", false)]
+    [InlineData("2c", false)]
+    [InlineData("c.d", false)]
+    [InlineData("c d", false)]
+    [InlineData("é", false)]
+    public void IsJoinAlias_ChecksShape(string alias, bool expected)
+    {
+        TableRequestJson.IsJoinAlias(alias).Should().Be(expected);
+    }
+
+    [Fact]
     public void ParseRead_FilterDeeperThanLimit_IsRejected()
     {
         string filter = """{"column": "x", "op": "is_null"}""";
