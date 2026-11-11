@@ -26,7 +26,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "table_list", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("List the tables a container holds (built from its CSV and spreadsheet files) that you may read: id, name, description, columns with their types, and how many rows you may read. Use a table's id with table_describe, table_read and table_aggregate. `search` keeps the tables whose name, description or a column header contains it.")]
+     Description("List the tables a container holds (built from its CSV and spreadsheet files, and from tables found in its documents) that you may read: id, name, description, columns with their types, and how many rows you may read. Use a table's id with table_describe, table_read and table_aggregate. `search` keeps the tables whose name, description or a column header contains it.")]
     public static async Task<string> TableList(
         ListTables list,
         GetContainer getContainer,

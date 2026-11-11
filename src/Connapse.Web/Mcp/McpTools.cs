@@ -202,7 +202,7 @@ public partial class McpTools
     internal static string TablesLine(IReadOnlyList<PassageTable>? tables) =>
         tables is { Count: > 0 }
             ? "Tables: " + string.Join("; ", tables.Select(t => $"\"{t.Name}\" (id {t.Id}{(t.Page is int page ? $", page {page}" : "")})"))
-              + " (query with table_read or table_sql)\n"
+              + " (query with table_read or table_aggregate)\n"
             : "";
 
     internal static string PendingNote(int pendingDocuments) =>

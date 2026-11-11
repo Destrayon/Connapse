@@ -95,7 +95,8 @@ internal static class TestOffice
                 new S.Borders(new S.Border()) { Count = 1 },
                 new S.CellFormats(
                     new S.CellFormat { NumberFormatId = 0 },
-                    new S.CellFormat { NumberFormatId = 14, ApplyNumberFormat = true }) { Count = 2 });
+                    new S.CellFormat { NumberFormatId = 14, ApplyNumberFormat = true })
+                { Count = 2 });
             styles.Stylesheet.Save();
 
             uint sheetId = 1;
