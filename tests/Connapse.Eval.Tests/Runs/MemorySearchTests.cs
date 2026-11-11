@@ -323,7 +323,7 @@ public class MemorySearchTests
     [InlineData("timeout", AgentOutcome.Error, "timed out")]
     [InlineData("no-result", AgentOutcome.Error, "without a result")]
     [InlineData("no-tools", AgentOutcome.Error, "did not get the eval's tools")]
-    [InlineData("refusal", AgentOutcome.Refused, null)]
+    [InlineData("refusal", AgentOutcome.Refused, "\"type\":\"result\"")]
     [InlineData("is-error", AgentOutcome.Error, "error_max_turns")]
     [InlineData("stopped", AgentOutcome.NoAnswer, null)]
     public void Compose_WithoutAnAnswer_NamesHowTheSessionEnded(string shape, AgentOutcome expected, string? error)
@@ -334,7 +334,7 @@ public class MemorySearchTests
             "timeout" => (CliResult.None, new ProcessResult(-1, [], "", TimedOut: true)),
             "no-result" => (CliResult.None, new ProcessResult(1, [], "boom", TimedOut: false)),
             "no-tools" => (finished with { Tools = ["Read"] }, Printed()),
-            "refusal" => (finished with { StopReason = "refusal" }, Printed()),
+            "refusal" => (finished with { StopReason = "refusal" }, Printed(ResultLine)),
             "is-error" => (finished with { IsError = true, Subtype = "error_max_turns" }, Printed()),
             _ => (finished, Printed()),
         };
@@ -347,6 +347,17 @@ public class MemorySearchTests
         else
             run.Error.Should().Contain(error);
         run.Usage.Should().Be(result.Usage);
+    }
+
+    [Fact]
+    public void Compose_Refusal_KeepsWhatTheApiReturnedWithoutTheToolList()
+    {
+        CliResult refused = CliResult.Parse([InitLine, ResultLine]) with { StopReason = "refusal" };
+
+        AgentRun run = ClaudeCliAgent.Compose(new BridgeSession(new FakeTools()), refused, Printed(InitLine, "", ResultLine));
+
+        run.Outcome.Should().Be(AgentOutcome.Refused);
+        run.Error.Should().Be(ResultLine);
     }
 
     [Fact]

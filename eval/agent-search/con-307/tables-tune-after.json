@@ -1,0 +1,118 @@
+{
+  "setup": "tables",
+  "mixedSetup": "both",
+  "tools": [
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "config": "hybrid",
+  "split": "tune",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "all": {
+    "questions": 60,
+    "correct": 57,
+    "accuracy": 0.95,
+    "toolCalls": 2.48
+  },
+  "families": {
+    "filter_count": {
+      "questions": 10,
+      "correct": 9,
+      "accuracy": 0.9,
+      "toolCalls": 2.3
+    },
+    "group_topk": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2.3
+    },
+    "join": {
+      "questions": 10,
+      "correct": 9,
+      "accuracy": 0.9,
+      "toolCalls": 2.9
+    },
+    "lookup": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2
+    },
+    "seen_as_of": {
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1,
+      "toolCalls": 2.9
+    },
+    "sum_avg": {
+      "questions": 10,
+      "correct": 9,
+      "accuracy": 0.9,
+      "toolCalls": 2.5
+    }
+  },
+  "admin": {
+    "questions": 57,
+    "correct": 57,
+    "accuracy": 1,
+    "toolCalls": 2.39
+  },
+  "restricted": {
+    "questions": 3,
+    "correct": 0,
+    "accuracy": 0,
+    "toolCalls": 4.33
+  },
+  "restrictedLeaks": 0,
+  "seenAsOf": {
+    "load1": {
+      "questions": 7,
+      "correct": 7,
+      "accuracy": 1,
+      "toolCalls": 2.86
+    },
+    "load2": {
+      "questions": 3,
+      "correct": 3,
+      "accuracy": 1,
+      "toolCalls": 3
+    }
+  },
+  "mixed": {
+    "questions": 30,
+    "correct": 30,
+    "accuracy": 1,
+    "toolCalls": 4.23
+  },
+  "outcomes": {
+    "Answered": 88,
+    "NoAnswer": 2
+  },
+  "tokens": {
+    "runs": 90,
+    "input": 824,
+    "cacheWrite": 705778,
+    "cacheRead": 2524382,
+    "output": 105686,
+    "apiListPriceUsd": 4.1341
+  },
+  "costPerQuestionUsd": 0.0274,
+  "conforming": false,
+  "diagnosticOnly": [
+    "split is tune, not test",
+    "60 questions, not 180"
+  ],
+  "inventorySeen": {
+    "load1": "2026-11-11 09:43:27 UTC",
+    "load2": "2026-11-11 09:43:29 UTC"
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 57%)",
+    "atLastRun": "allowed (seven_day 57%)"
+  }
+}

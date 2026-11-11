@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Connapse.Eval.Cli;
 using Connapse.Eval.Datasets;
 using Connapse.Eval.Model;
@@ -34,6 +35,7 @@ internal static class EvalEntryPoint
                 "pool" => Commands.PoolUnjudged(cli),
                 "datasets" => await Commands.DatasetsAsync(cli, paths, http, cts.Token),
                 "compare" => Commands.Compare(cli),
+                "tables-compare" => Commands.TablesCompare(cli),
                 "vector-index" => cli.Option("scale") is string scale
                     ? await new VectorIndexScaleProbe(paths, Console.Out).RunAsync(scale, cli.PositiveInt("limit-queries") ?? 50, cli.Flag("strategy"), cli.Flag("insert-bench"), cts.Token)
                     : await new VectorIndexProbe(paths, Console.Out, http)
@@ -49,7 +51,7 @@ internal static class EvalEntryPoint
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("limit-tasks"), cli.List("ids"), cli.Flag("skip-mixed"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tables"),
-                    cli.PositiveInt("stall-minutes")), cts.Token),
+                    cli.PositiveInt("stall-minutes"), cli.Option("setup") ?? TablesRagEval.RagSetup), cts.Token),
                 "tables-arms" => await new TablesArmsEval(paths, http, Console.Out).RunAsync(new TablesArmsEval.Options(
                     new TablesRagEval.Options(
                         cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
@@ -215,6 +217,18 @@ internal static class Commands
         return 0;
     }
 
+    public static int TablesCompare(CliArgs cli)
+    {
+        if (cli.Positionals.Count != 2)
+            throw new ArgumentException("tables-compare needs exactly two runs files: <rag.runs.jsonl> <tables.runs.jsonl>.");
+        JsonObject result = TablesProof.Compare(GradedRun.ReadAll(cli.Positionals[0]), GradedRun.ReadAll(cli.Positionals[1]));
+        string json = result.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        if (cli.Option("out") is string output)
+            File.WriteAllText(output, json + Environment.NewLine);
+        Console.WriteLine(json);
+        return 0;
+    }
+
     public static int Compare(CliArgs cli)
     {
         if (cli.Positionals.Count != 2)
@@ -279,7 +293,8 @@ internal static class Commands
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
               memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: an agent answering the session-2 questions with search alone, after the late documents)
-              tables-rag [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--skip-mixed] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (tables-v1 rag setup: an agent answering table questions over CSVs as documents; runs `claude -p` on your Claude subscription)
+              tables-rag [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--skip-mixed] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--setup rag|tables] [--out <file>]   (tables-v1: an agent answering table questions with search tools (rag) or the four table tools (tables, mixed questions get all six); runs `claude -p` on your Claude subscription)
+              tables-compare <rag.runs.jsonl> <tables.runs.jsonl> [--out <file>]   (scores a tables run against the rag baseline on the CON-E6 pass bar: McNemar, per family, mixed, cost)
               tables-arms [--arms structured,sql] [--runs 3] [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (CON-327: the structured table tools against table_sql on the same tables-v1 questions, with the CON-320 pass bar's McNemar and Wilcoxon; runs `claude -p` on your Claude subscription)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
