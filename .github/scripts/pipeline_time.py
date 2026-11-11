@@ -37,6 +37,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -185,8 +186,29 @@ def drift(run: dict[str, dict[str, float]], baseline: list[dict[str, dict[str, f
 
 # GitHub, through the gh CLI the runners ship with. Mocked in the tests.
 
+# A GitHub hiccup: a 5xx, a rate limit or a dropped connection, worth another try (CON-334). A 404 or an
+# expired artifact is not, and fails at once.
+TRANSIENT = re.compile(r"HTTP (5\d\d|429)|rate limit|timed? ?out|connection (reset|refused)|unexpected EOF"
+                       r"|TLS handshake|no such host|network is unreachable", re.I)
+RETRY_DELAYS = (2, 4, 8)  # seconds before each retry: four tries in all
+
+
+def gh(*args: str) -> str:
+    """The gh CLI's output, retried after a transient GitHub error so a brief outage doesn't fail the check."""
+    for delay in (*RETRY_DELAYS, None):
+        try:
+            return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+        except subprocess.CalledProcessError as e:
+            err = f"{e.stderr or ''}{e.stdout or ''}".strip()
+            if delay is None or not TRANSIENT.search(err):
+                raise
+            print(f"::notice::gh {args[0]} failed ({err.splitlines()[-1]}); retrying in {delay} s")
+            time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
 def gh_json(*args: str):
-    return json.loads(subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout)
+    return json.loads(gh(*args))
 
 
 def jobs(run_id: str | int) -> list[dict]:
@@ -209,8 +231,8 @@ def base_branch() -> str:
 
 
 def download(run_id: str | int, into: str) -> None:
-    subprocess.run(["gh", "run", "download", str(run_id), "--pattern", "test-results-*", "--dir", into,
-                    "--repo", os.environ["GITHUB_REPOSITORY"]], check=True, capture_output=True)
+    gh("run", "download", str(run_id), "--pattern", "test-results-*", "--dir", into,
+       "--repo", os.environ["GITHUB_REPOSITORY"])
 
 
 def base_commit() -> str | None:

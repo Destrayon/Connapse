@@ -292,6 +292,59 @@ class Baseline(unittest.TestCase):
         with mock.patch.object(pt.subprocess, "run", return_value=mock.Mock(stdout=raw)):
             self.assertEqual(pt.base_commit(), "d" * 40)
 
+    @staticmethod
+    def failed(stderr: str) -> pt.subprocess.CalledProcessError:
+        return pt.subprocess.CalledProcessError(1, ["gh"], output="", stderr=stderr)
+
+    def test_jobs_OneOffGitHubError_IsRetriedAndSucceeds(self):
+        ok = mock.Mock(stdout=json.dumps({"jobs": [{"name": "small"}]}))
+        with mock.patch.object(pt.subprocess, "run",
+                               side_effect=[self.failed("HTTP 502: Bad Gateway (https://api.github.com/...)"), ok]) as run, \
+             mock.patch.object(pt.time, "sleep") as sleep, \
+             mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pt.jobs(1), [{"name": "small"}])
+        self.assertEqual(run.call_count, 2)
+        sleep.assert_called_once_with(pt.RETRY_DELAYS[0])
+        self.assertIn("retrying", out.getvalue())
+
+    def test_main_OneOffGitHubErrorFetchingTheBaseline_Passes(self):
+        # The whole check, a rate limit hitting the first fetch of main's runs: the retry carries it through.
+        run, baseline = replay(REPLAYS[0]["run"])
+        green = {"jobs": [job(t, 100) for t in pt.TEST_JOBS] + [job("build-and-test", 50)]}
+        ok = [mock.Mock(stdout=json.dumps({"workflow_runs": [
+            {"id": i, "head_sha": str(i) * 40, "status": "completed", "created_at": iso(i)} for i in range(4, -1, -1)]}))]
+        ok += [mock.Mock(stdout=json.dumps(green)), mock.Mock(stdout="")] * 5
+        ok += [mock.Mock(stdout=json.dumps({"jobs": [job("integration (2)", 300),
+               {"name": "build-and-test", "started_at": iso(300), "completed_at": None}]}))]
+        results = iter([run] + baseline)
+        with mock.patch.object(pt.subprocess, "run",
+                               side_effect=[mock.Mock(stdout=f"tree {'1' * 40}\nparent {'4' * 40}\n"),
+                                            self.failed("API rate limit exceeded for installation"), *ok]), \
+             mock.patch.object(pt.time, "sleep"), \
+             mock.patch.object(pt, "results", side_effect=lambda _: next(results)), \
+             mock.patch.object(pt, "utcnow", return_value=T0 + timedelta(seconds=320)), \
+             mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "99", "GITHUB_BASE_REF": "",
+                                          "GITHUB_REF_NAME": "main", "GITHUB_STEP_SUMMARY": ""}), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = pt.main(["--results", ".", "--max-added-seconds", str(LIMIT), "--max-drift-seconds",
+                          str(DRIFT_LIMIT), "--max-wall-seconds", "360", "--current", "build-and-test"])
+        self.assertEqual(rc, 0, out.getvalue())
+
+    def test_gh_GitHubDownPastEveryRetry_Fails(self):
+        with mock.patch.object(pt.subprocess, "run", side_effect=self.failed("HTTP 503: Service Unavailable")) as run, \
+             mock.patch.object(pt.time, "sleep"), contextlib.redirect_stdout(io.StringIO()), \
+             self.assertRaises(pt.subprocess.CalledProcessError):
+            pt.gh("api", "x")
+        self.assertEqual(run.call_count, len(pt.RETRY_DELAYS) + 1)
+
+    def test_gh_NotFound_FailsWithoutARetry(self):
+        with mock.patch.object(pt.subprocess, "run", side_effect=self.failed("HTTP 404: Not Found")) as run, \
+             mock.patch.object(pt.time, "sleep") as sleep, self.assertRaises(pt.subprocess.CalledProcessError):
+            pt.gh("api", "x")
+        self.assertEqual(run.call_count, 1)
+        sleep.assert_not_called()
+
 
 class Gate(unittest.TestCase):
     def test_main_MissingJobResults_Fails(self):
