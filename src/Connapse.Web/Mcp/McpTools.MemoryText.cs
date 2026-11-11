@@ -118,10 +118,10 @@ public partial class McpTools
 
         if (note is not null)
             text.Append('\n').Append(note).Append('\n');
-        if (result.NextCursor is not null)
-            text.Append(complete && result.SubjectTotals is not null
-                ? $"\nOnly weaker matches remain: pass cursor=\"{result.NextCursor}\" to see them.\n"
-                : $"\nMore facts: pass cursor=\"{result.NextCursor}\" for the next page.\n");
+        // When every subject shown is whole, a next page holds only weaker matches, which cost more to offer than
+        // they are worth; the detailed form still carries the cursor.
+        if (result.NextCursor is not null && !(complete && result.SubjectTotals is not null))
+            text.Append($"\nMore facts: pass cursor=\"{result.NextCursor}\" for the next page.\n");
         return text.ToString();
     }
 

@@ -41,7 +41,7 @@ public class MemoryCompactTextTests
     }
 
     [Fact]
-    public void CompactText_SubjectShownWhole_SaysSo_AndTheCursorOffersOnlyWeakerMatches()
+    public void CompactText_SubjectShownWhole_SaysSo_AndOffersNoCursor()
     {
         MemoryFact database = Fact("Halcyon", "database", "PostgreSQL 15");
         MemoryFact owner = Fact("Halcyon", "owner", "Platform team");
@@ -54,7 +54,7 @@ public class MemoryCompactTextTests
         string text = McpTools.CompactText(recall, new Dictionary<Guid, Guid>(), new Dictionary<Guid, int>(), null, Now);
 
         text.Should().Contain("Halcyon (space pm-desk, team) - all 2 current facts\n");
-        text.Should().Contain("Only weaker matches remain: pass cursor=\"abc\"");
+        text.Should().NotContain("cursor", "only weaker matches remain");
     }
 
     [Fact]
