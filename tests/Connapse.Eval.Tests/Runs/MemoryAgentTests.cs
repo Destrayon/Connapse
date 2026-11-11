@@ -121,6 +121,26 @@ public class MemoryAgentTests
     }
 
     [Fact]
+    public void ScoreFind_CitesHandles_ScoresLikeIds()
+    {
+        MemoryAgentEval.Seeded seed = Seed with { Handles = new Dictionary<string, Guid> { ["f1"] = OldA, ["f2"] = HeadA, ["f12"] = HeadB } };
+        AgentRun Cite(params string[] cited) => new(AgentOutcome.Answered, "answer", cited, [], TokenUsage.Zero, 1, null);
+
+        MemoryAgentEval.ScoreFind(Find("reworded", "f001"), Cite("F2"), seed).Score.Should().Be(1);
+        MemoryAgentEval.ScoreFind(Find("reworded", "f001"), Cite("f2", "f1"), seed).Measures["citedOld"].Should().Be(1);
+        MemoryAgentEval.ScoreFind(Find("reworded", "f001"), Cite("f99"), seed).Score.Should().Be(0);
+    }
+
+    [Fact]
+    public void Shows_AHandleCountsOnlyAsAWholeWord()
+    {
+        MemoryAgentEval.Seeded seed = Seed with { Handles = new Dictionary<string, Guid> { ["f1"] = HeadA } };
+
+        seed.Shows("Harrow\n  f1 release branch: release/2.4", HeadA).Should().BeTrue();
+        seed.Shows("Harrow\n  f12 release branch: release/2.4", HeadA).Should().BeFalse();
+    }
+
+    [Fact]
     public void ScoreFind_AlsoCitesTheOldVersion_Scores0()
     {
         MemoryAgentEval.TaskScore score = MemoryAgentEval.ScoreFind(Find("reworded", "f001"), Run(AgentOutcome.Answered, HeadA, OldA), Seed);
@@ -152,9 +172,22 @@ public class MemoryAgentTests
         MemoryAgentEval.Percentile([1, 2, 3, 4], 0.5).Should().Be(2);
     }
 
+    [Fact]
+    public void Nonconforming_KindsLimited_IsDiagnosticOnly()
+    {
+        MemoryAgentEval.DatasetProfile profile = MemoryAgentEval.Profiles[MemoryAgentEval.DefaultDataset];
+        MemoryAgentEval.Options options = new(MemoryAgentEval.RegisteredConfig, "test", MemoryAgentEval.RegisteredModel,
+            MemoryAgentEval.RegisteredEffort, MemoryAgentEval.RegisteredRepetitions, null, 2, null, Kinds: ["exact", "reworded"]);
+
+        MemoryAgentEval.Nonconforming(options, profile.FindTasks, profile.SaveTasks, profile)
+            .Should().Equal("kinds limited to exact, reworded");
+    }
+
     [Theory]
     [InlineData(MemoryAgentEval.DefaultDataset, "")]
     [InlineData(MemoryAgentEval.SealedDataset, ".gz")]
+    [InlineData(MemoryAgentEval.SealedDataset2, ".gz")]
+    [InlineData(MemoryAgentEval.SealedDataset3, ".gz")]
     public void Dataset_HasTheRegisteredTasksAndEveryKeyResolves(string dataset, string suffix)
     {
         string root = Path.Combine(RepoRoot(), "eval", "datasets", dataset);

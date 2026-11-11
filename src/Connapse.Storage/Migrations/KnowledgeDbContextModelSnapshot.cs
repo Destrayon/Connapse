@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.7")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -809,7 +809,7 @@ namespace Connapse.Storage.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("tsvector")
                         .HasColumnName("search_vector")
-                        .HasComputedColumnSql("setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')", true);
+                        .HasComputedColumnSql("setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || setweight(to_tsvector('english', memory_date_words(value)), 'C') || setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')", true);
 
                     b.Property<string>("Subject")
                         .IsRequired()
@@ -855,6 +855,29 @@ namespace Connapse.Storage.Migrations
                         .HasDatabaseName("idx_memory_facts_key");
 
                     b.ToTable("memory_facts", (string)null);
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactHandleEntity", b =>
+                {
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<int>("Handle")
+                        .HasColumnType("integer")
+                        .HasColumnName("handle");
+
+                    b.Property<Guid>("FactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fact_id");
+
+                    b.HasKey("OwnerId", "Handle");
+
+                    b.HasIndex("OwnerId", "FactId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_memory_fact_handles_fact");
+
+                    b.ToTable("memory_fact_handles", (string)null);
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactSourceEntity", b =>

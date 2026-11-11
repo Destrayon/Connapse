@@ -85,10 +85,10 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
             {
                 foreach (var (subject, attribute, value, question) in Facts)
                 {
-                    if (Values(await CallAsync(agent, "memory_recall", new() { ["containerId"] = space, ["subject"] = subject }))
+                    if (Values(await CallAsync(agent, "memory_recall", new() { ["detailed"] = true, ["containerId"] = space, ["subject"] = subject }))
                         .Contains(value))
                         bySubject++;
-                    if (Values(await CallAsync(agent, "memory_recall", new() { ["containerId"] = space, ["query"] = question, ["limit"] = 3 }))
+                    if (Values(await CallAsync(agent, "memory_recall", new() { ["detailed"] = true, ["containerId"] = space, ["query"] = question, ["limit"] = 3 }))
                         .Contains(value))
                         byQuestion++;
                 }
@@ -109,7 +109,7 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
             // A read-only key of the same owner recalls but saves no memory, not even a personal fact.
             await using (var reader = await ConnectAsync(AuthzPrincipal.AgentRead))
             {
-                Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = space, ["subject"] = "team" }))
+                Values(await CallAsync(reader, "memory_recall", new() { ["detailed"] = true, ["containerId"] = space, ["subject"] = "team" }))
                     .Should().Contain(Facts[0].Value);
                 string written;
                 try
@@ -127,7 +127,7 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
                     written = ex.Message; // the tool isn't offered to a key without knowledge:write
                 }
                 written.Should().NotContain("remembered", "memory_remember needs knowledge:write");
-                Values(await CallAsync(reader, "memory_recall", new() { ["containerId"] = space, ["subject"] = "team" }))
+                Values(await CallAsync(reader, "memory_recall", new() { ["detailed"] = true, ["containerId"] = space, ["subject"] = "team" }))
                     .Should().NotContain("Thursdays");
             }
 
@@ -135,9 +135,9 @@ public class MemoryContainerEndToEndTests(SharedWebAppFixture fixture)
             // The personal space it went to doesn't exist for them at all.
             await using (var stranger = await ConnectAsync(await OtherUsersAgentKeyAsync()))
             {
-                Values(await CallAsync(stranger, "memory_recall", new() { ["containerId"] = id, ["subject"] = "team" }))
+                Values(await CallAsync(stranger, "memory_recall", new() { ["detailed"] = true, ["containerId"] = id, ["subject"] = "team" }))
                     .Should().BeEmpty();
-                (await CallAsync(stranger, "memory_recall", new() { ["containerId"] = space, ["subject"] = "team" }))
+                (await CallAsync(stranger, "memory_recall", new() { ["detailed"] = true, ["containerId"] = space, ["subject"] = "team" }))
                     .Should().Contain("not found");
                 (await CallAsync(stranger, "container_list", new())).Should().NotContain($"{name}-personal");
             }

@@ -153,8 +153,12 @@ internal static class MemoryRules
 /// Either scope needs write access; read-only callers can only recall.
 /// </summary>
 [Operation("memory.remember", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class RememberFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class RememberFact(
+    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that show them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     public Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
         OperationContext context, string containerId, NewMemoryFact fact, CancellationToken ct = default) =>
         RunAsync(context, MemoryTarget.Container(containerId), fact, ct);
@@ -223,8 +227,12 @@ public sealed class RememberFact(IContainerStore containers, IMemoryService memo
 /// A fact left in a document container reads as missing too, since those don't hold memory.
 /// </summary>
 [Operation("memory.correct", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
-public sealed class CorrectFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class CorrectFact(
+    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that accept them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     /// <param name="containerId">
     /// Ignored: the fact is found by id in every space and container the caller can see, so a fact moved into a space
     /// (CON-236) is still reached through the container it used to be in.
@@ -256,8 +264,11 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
 /// reads as missing, and nothing is deleted. Forgetting needs write access, whatever the scope.
 /// </summary>
 [Operation("memory.forget", Scope = MemoryRules.WriteScope, Risk = RiskTier.Destructive)]
-public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer authorizer)
+public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer authorizer, IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that accept them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     /// <param name="containerId">
     /// Ignored: the fact is found by id in every space and container the caller can see, so a fact moved into a space
     /// (CON-236) is still reached through the container it used to be in.
@@ -288,8 +299,12 @@ public sealed class ForgetFact(IMemoryService memory, IOperationAuthorizer autho
 /// </summary>
 [Operation("memory.recall", Scope = MemoryRules.ReadScope, Risk = RiskTier.Read)]
 public sealed class RecallMemory(
-    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemorySpaceStore? spaces = null)
+    IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer, IMemorySpaceStore? spaces = null,
+    IMemoryHandleStore? handles = null)
 {
+    /// <summary>The caller's short fact handles, for surfaces that show them.</summary>
+    public IMemoryHandleStore? Handles => handles;
+
     /// <summary>
     /// The most spaces one recall reads: an unnamed one reads the most recently changed first and counts the rest as
     /// skipped; a recall naming more is refused.
@@ -414,25 +429,198 @@ public sealed class RecallMemory(
     /// attribute is read a page at a time (by relevance when there is text, newest recorded first otherwise); any
     /// other read goes through <see cref="AcrossAsync"/>, and a cursor on it is refused, since it has no next page.
     /// </summary>
-    public Task<Attempt<SpacedRecall, MemoryStatus>> RecallAsync(
+    public async Task<Attempt<SpacedRecall, MemoryStatus>> RecallAsync(
         OperationContext context, MemoryRecallRequest request, CancellationToken ct = default)
     {
         IReadOnlyList<string> named = request.Named();
+        Attempt<SpacedRecall, MemoryStatus> read;
         if (named.Count == 1 && request.AsOf is null && string.IsNullOrWhiteSpace(request.Attribute))
         {
             MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject,
                 Status: request.History ? MemoryFactStatus.All : MemoryFactStatus.Current);
             MemoryFactSort sort = string.IsNullOrWhiteSpace(request.Text) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
-            return PageAsync(context, named[0],
+            read = await PageAsync(context, named[0],
                 new MemoryFactListing(filter, sort, request.Cursor, Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
         }
-        if (!string.IsNullOrWhiteSpace(request.Cursor))
-            return Task.FromResult(MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
-                "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor"));
+        else if (!string.IsNullOrWhiteSpace(request.Cursor))
+        {
+            return MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
+                "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor");
+        }
+        else
+        {
+            read = await AcrossAsync(context, named,
+                new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
+        }
 
-        return AcrossAsync(context, named,
-            new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
+        if (read.Succeeded && read.Result is { Facts.Count: > 0, Spaces.Count: 1 } found && !request.History
+            && string.IsNullOrWhiteSpace(request.Cursor))
+        {
+            MemoryCaller caller = MemoryRules.Caller(context.User);
+            IReadOnlyDictionary<string, long>? totals = await SubjectTotalsAsync(found, caller, ct);
+            if (totals is not null)
+                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(await FillSmallSubjectsAsync(found, totals, request.Text, caller, ct) with { SubjectTotals = totals });
+        }
+
+        // A first search of one space that found nothing names the subjects nearest to what was asked, so the next call
+        // can go straight to one of them rather than guessing at other words.
+        string asked = string.Join(' ', new[] { request.Text, request.Subject }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        if (read.Succeeded && read.Result is { Facts.Count: 0, Spaces.Count: 1 } empty && string.IsNullOrWhiteSpace(request.Cursor)
+            && asked.Length > 0)
+        {
+            IReadOnlyList<string> nearest = await NearestSubjectsAsync(empty.Spaces.Keys.Single(), asked, MemoryRules.Caller(context.User), ct);
+            if (nearest.Count > 0)
+                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(empty with { Nearest = nearest });
+        }
+        return read;
     }
+
+    /// <summary>The most subjects one answer counts the current facts of.</summary>
+    public const int SubjectTotalsCount = 5;
+
+    /// <summary>How many of the leading subjects an answer may show whole.</summary>
+    public const int FilledSubjects = 2;
+
+    /// <summary>The most current facts a subject may have to be shown whole when a search found only some of them.</summary>
+    public const int FilledSubjectMaxFacts = 12;
+
+    /// <summary>
+    /// Adds the missing current facts of each subject <see cref="SubjectsToFill"/> picks that <paramref name="found"/>
+    /// shows in part and that has at most <see cref="FilledSubjectMaxFacts"/> of them: agents otherwise spend a second
+    /// call listing a subject whose answer was already on screen.
+    /// </summary>
+    private async Task<SpacedRecall> FillSmallSubjectsAsync(SpacedRecall found, IReadOnlyDictionary<string, long> totals,
+        string? text, MemoryCaller caller, CancellationToken ct)
+    {
+        Guid space = found.Spaces.Keys.Single();
+        List<RecalledFact> facts = [.. found.Facts];
+        HashSet<Guid> shown = [.. facts.Select(f => f.Fact.Id)];
+        foreach (string subject in SubjectsToFill(found.Facts.Select(f => f.Fact.Subject), text))
+        {
+            string key = subject.ToLowerInvariant();
+            int current = found.Facts.Count(f => string.Equals(f.Fact.Subject.ToLowerInvariant(), key, StringComparison.Ordinal));
+            if (!totals.TryGetValue(key, out long total) || total <= current || total > FilledSubjectMaxFacts)
+                continue;
+            MemoryFactPage? page = await memory.ListAsync(space, new MemoryFactFilter(Subject: subject, Status: MemoryFactStatus.Current),
+                MemoryFactSort.Recorded, null, MemoryPaging.MaxLimit, caller, ct);
+            if (page is not { Denied: false })
+                return found;
+            facts.AddRange(page.Facts.Where(f => string.Equals(f.Fact.Subject.ToLowerInvariant(), key, StringComparison.Ordinal)
+                && shown.Add(f.Fact.Id)));
+        }
+        return facts.Count == found.Facts.Count ? found : found with { Facts = facts };
+    }
+
+    /// <summary>
+    /// The subjects to show whole, at most <see cref="FilledSubjects"/>: those the search text names, when it names any
+    /// of the subjects shown, since the answer is in them and filling another only adds lines; otherwise the leading ones.
+    /// </summary>
+    public static IReadOnlyList<string> SubjectsToFill(IEnumerable<string> subjectsInOrder, string? text)
+    {
+        List<string> subjects = [.. subjectsInOrder.DistinctBy(s => s.ToLowerInvariant())];
+        List<string> named = string.IsNullOrWhiteSpace(text) ? [] : [.. subjects.Where(s => Names(text, s))];
+        return [.. (named.Count > 0 ? named : subjects).Take(FilledSubjects)];
+    }
+
+    /// <summary>Whether <paramref name="text"/> holds <paramref name="subject"/> as whole words, ignoring case.</summary>
+    private static bool Names(string text, string subject)
+    {
+        if (string.IsNullOrWhiteSpace(subject))
+            return false;
+        for (int at = text.IndexOf(subject, StringComparison.OrdinalIgnoreCase); at >= 0;
+            at = text.IndexOf(subject, at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            int end = at + subject.Length;
+            if ((at == 0 || !char.IsLetterOrDigit(text[at - 1])) && (end == text.Length || !char.IsLetterOrDigit(text[end])))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// How many current facts the caller can see under each of the first <see cref="SubjectTotalsCount"/> subjects in
+    /// <paramref name="found"/>, keyed by the subject in lower case; null when access could not be checked.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, long>?> SubjectTotalsAsync(SpacedRecall found, MemoryCaller caller, CancellationToken ct)
+    {
+        Guid space = found.Spaces.Keys.Single();
+        Dictionary<string, long> totals = new(StringComparer.Ordinal);
+        foreach (string subject in found.Facts.Select(f => f.Fact.Subject).DistinctBy(s => s.ToLowerInvariant()).Take(SubjectTotalsCount))
+        {
+            string key = subject.ToLowerInvariant();
+            // The subject filter matches every subject holding the text, so the one named exactly is picked out; a
+            // subject inside many others may need a few pages.
+            string? after = null;
+            for (int pages = 0; pages < 3 && !totals.ContainsKey(key); pages++)
+            {
+                MemorySubjectPage? page = await memory.SubjectsAsync(space, subject, MemoryFactStatus.Current, after, MemoryPaging.MaxLimit, caller, ct);
+                if (page is not { Denied: false })
+                    return null;
+                if (page.Subjects.FirstOrDefault(s => string.Equals(s.Subject.ToLowerInvariant(), key, StringComparison.Ordinal)) is { } match)
+                    totals[key] = match.Facts;
+                if ((after = page.Next) is null)
+                    break;
+            }
+        }
+        return totals;
+    }
+
+    /// <summary>How many subjects an empty search names.</summary>
+    public const int NearestCount = 3;
+
+    /// <summary>How many of a space's subjects an empty search compares with the query.</summary>
+    private const int NearestScan = 1000;
+
+    /// <summary>
+    /// The space's current subjects the caller can see that are most like the query's words by trigram similarity, or,
+    /// when none is close, its subjects with the most facts, so an empty search still shows where memory has something.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> NearestSubjectsAsync(Guid space, string text, MemoryCaller caller, CancellationToken ct)
+    {
+        List<MemorySubject> subjects = [];
+        string? after = null;
+        do
+        {
+            MemorySubjectPage page = await memory.SubjectsAsync(space, null, MemoryFactStatus.Current, after, MemoryPaging.MaxLimit, caller, ct);
+            if (page.Denied)
+                return [];
+            subjects.AddRange(page.Subjects);
+            after = page.Next;
+        }
+        while (after is not null && subjects.Count < NearestScan);
+        return Nearest(text, subjects);
+    }
+
+    /// <summary>The least similarity at which a subject counts as near the query.</summary>
+    public const double NearSimilarity = 0.3;
+
+    /// <summary>
+    /// The <see cref="NearestCount"/> subjects with a word most like one of <paramref name="text"/>'s, or, when none is
+    /// at least <see cref="NearSimilarity"/> alike, the ones with the most facts.
+    /// </summary>
+    public static IReadOnlyList<string> Nearest(string text, IReadOnlyList<MemorySubject> subjects)
+    {
+        List<HashSet<string>> asked = [.. Words(text).Select(Trigrams.Of)];
+        if (asked.Count == 0 || subjects.Count == 0)
+            return [];
+        List<string> near = [.. subjects
+            .Select(s => (s.Subject, Score: Words(s.Subject).Select(Trigrams.Of)
+                .SelectMany(w => asked.Select(a => Trigrams.Similarity(a, w))).DefaultIfEmpty(0).Max()))
+            .Where(s => s.Score >= NearSimilarity)
+            .OrderByDescending(s => s.Score).ThenBy(s => s.Subject, StringComparer.OrdinalIgnoreCase)
+            .Take(NearestCount)
+            .Select(s => s.Subject)];
+        return near.Count > 0
+            ? near
+            : [.. subjects.OrderByDescending(s => s.Facts).ThenBy(s => s.Subject, StringComparer.OrdinalIgnoreCase).Take(NearestCount).Select(s => s.Subject)];
+    }
+
+    /// <summary>The words of three letters or more, lowercased.</summary>
+    private static IEnumerable<string> Words(string text) =>
+        text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .SelectMany(w => System.Text.RegularExpressions.Regex.Split(w, "[^\\p{L}\\p{N}]+"))
+            .Where(w => w.Length >= 3)
+            .Select(w => w.ToLowerInvariant());
 
     /// <summary>
     /// A timeline as the API and the memory_timeline tool both take it: facts in date order, ended and corrected ones
@@ -542,10 +730,14 @@ public sealed record MemoryTimelineRequest(
 /// <summary>
 /// Facts read from one or more spaces, with the spaces they came from for labelling, and how many spaces an unnamed
 /// read left out for being past <see cref="RecallMemory.MaxSpaces"/>. <paramref name="NextCursor"/> continues a paged
-/// read of one space, and is null on its last page and for every other read.
+/// read of one space, and is null on its last page and for every other read. <paramref name="Nearest"/> names the
+/// subjects closest to a search of one space that found nothing, and is null otherwise. <paramref name="SubjectTotals"/>
+/// holds, for the first page of a search of one space, how many current facts the caller can see under each subject
+/// shown (keyed by the subject in lower case), so an answer can say when a subject is shown whole; it is null otherwise.
 /// </summary>
 public sealed record SpacedRecall(
-    IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null);
+    IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null,
+    IReadOnlyList<string>? Nearest = null, IReadOnlyDictionary<string, long>? SubjectTotals = null);
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
 public sealed class MemoryOperations(

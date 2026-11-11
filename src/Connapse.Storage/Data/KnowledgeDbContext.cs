@@ -26,6 +26,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<MemoryFactEntity> MemoryFacts => Set<MemoryFactEntity>();
     public DbSet<MemoryFactSourceEntity> MemoryFactSources => Set<MemoryFactSourceEntity>();
     public DbSet<MemorySpaceStarEntity> MemorySpaceStars => Set<MemorySpaceStarEntity>();
+    public DbSet<MemoryFactHandleEntity> MemoryFactHandles => Set<MemoryFactHandleEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +50,21 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
         ConfigureLinks(modelBuilder);
         ConfigureMemory(modelBuilder);
         ConfigureMemorySpaceStars(modelBuilder);
+        ConfigureMemoryFactHandles(modelBuilder);
+    }
+
+    private static void ConfigureMemoryFactHandles(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MemoryFactHandleEntity>(entity =>
+        {
+            // No foreign key to memory_facts: the row stays after the fact is forgotten, so its number is never reused.
+            entity.ToTable("memory_fact_handles");
+            entity.HasKey(e => new { e.OwnerId, e.Handle });
+            entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.Handle).HasColumnName("handle");
+            entity.Property(e => e.FactId).HasColumnName("fact_id");
+            entity.HasIndex(e => new { e.OwnerId, e.FactId }).HasDatabaseName("ix_memory_fact_handles_fact").IsUnique();
+        });
     }
 
     private static void ConfigureMemorySpaceStars(ModelBuilder modelBuilder)
@@ -104,6 +120,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                     "setweight(to_tsvector('english', regexp_replace(subject, '[^[:alnum:]]+', ' ', 'g')), 'A') || "
                     + "setweight(to_tsvector('english', regexp_replace(attribute, '[^[:alnum:]]+', ' ', 'g')), 'B') || "
                     + "setweight(to_tsvector('english', regexp_replace(value, '[^[:alnum:]]+', ' ', 'g')), 'C') || "
+                    // A date in the value also reads as its month and year, so "January" finds 2027-01-19
+                    // (memory_date_words, from the MemoryDateWords migration).
+                    + "setweight(to_tsvector('english', memory_date_words(value)), 'C') || "
                     + "setweight(to_tsvector('english', regexp_replace(coalesce(reason, ''), '[^[:alnum:]]+', ' ', 'g')), 'D')",
                     stored: true);
             entity.HasIndex(e => new { e.ContainerId, e.Subject, e.Attribute }).HasDatabaseName("idx_memory_facts_key");

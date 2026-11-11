@@ -309,7 +309,7 @@ public class McpToolsMemorySpacesTests
         Container docs = new(Guid.NewGuid().ToString(), "handbook", null, Epoch, Epoch);
         _containers.GetByNameAsync("handbook", Arg.Any<CancellationToken>()).Returns(docs);
 
-        string result = await McpTools.MemoryRecall(Recall(), Signed, space: "handbook");
+        string result = await McpTools.MemoryRecall(Recall(), Signed, space: "handbook", detailed: true);
 
         result.Should().StartWith("Error: ");
         await _memory.DidNotReceive().RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
@@ -332,7 +332,7 @@ public class McpToolsMemorySpacesTests
             new MemoryRecall([.. c.Arg<MemoryQuery>().Containers.Select(id =>
                 new RecalledFact(Fact(id, id == Guid.Parse(mine.Id) ? MemoryScope.Personal : MemoryScope.Team), []))]));
 
-        JsonElement root = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed)).RootElement;
+        JsonElement root = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed, detailed: true)).RootElement;
 
         var facts = root.GetProperty("facts").EnumerateArray().ToList();
         facts.Select(f => (f.GetProperty("space").GetProperty("name").GetString(), f.GetProperty("space").GetProperty("kind").GetString(), f.GetProperty("scope").GetString()))
@@ -349,7 +349,7 @@ public class McpToolsMemorySpacesTests
         _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
             .Returns(new MemoryFactPage([new RecalledFact(Fact(id, MemoryScope.Team, minute: 9), []), new RecalledFact(Fact(id, MemoryScope.Team, minute: 1), [])], null));
 
-        JsonElement root = JsonDocument.Parse(await McpTools.MemoryTimeline(Recall(), Signed, subject: "Halcyon", containerId: "handbook")).RootElement;
+        JsonElement root = JsonDocument.Parse(await McpTools.MemoryTimeline(Recall(), Signed, subject: "Halcyon", containerId: "handbook", detailed: true)).RootElement;
 
         root.GetProperty("facts")[0].GetProperty("space").GetProperty("kind").GetString().Should().Be("team");
         root.GetProperty("facts").EnumerateArray().Select(f => f.GetProperty("recordedAt").GetDateTimeOffset().Minute).Should().Equal(1, 9);
@@ -366,7 +366,7 @@ public class McpToolsMemorySpacesTests
         _containers.GetByNameAsync("on-call", Arg.Any<CancellationToken>()).Returns(team);
         _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(new MemoryRecall([]));
 
-        await McpTools.MemoryTimeline(Recall(), Signed, space: "on-call", from: "2026-01-01");
+        await McpTools.MemoryTimeline(Recall(), Signed, space: "on-call", from: "2026-01-01", detailed: true);
 
         await _memory.Received(1).RecallAsync(Arg.Is<MemoryQuery>(q => q.ChangedFrom != null && !q.History), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
     }
@@ -377,7 +377,7 @@ public class McpToolsMemorySpacesTests
     [InlineData("on-call", null, "database")]
     public async Task MemoryTimeline_CursorWhenItCannotPage_IsRefusedAndReadsNothing(string? space, string? from, string? attribute)
     {
-        string result = await McpTools.MemoryTimeline(Recall(), Signed, space: space, from: from, attribute: attribute, cursor: "abc");
+        string result = await McpTools.MemoryTimeline(Recall(), Signed, space: space, from: from, attribute: attribute, cursor: "abc", detailed: true);
 
         result.Should().Be("Error: cursor works only when you name a `space` and leave out `from`, `to` and `attribute`.");
         _memory.ReceivedCalls().Should().BeEmpty();
@@ -389,7 +389,7 @@ public class McpToolsMemorySpacesTests
     [InlineData("on-call", null, "database")]
     public async Task MemoryRecall_CursorWhenItCannotPage_IsRefusedAndReadsNothing(string? space, string? asOf, string? attribute)
     {
-        string result = await McpTools.MemoryRecall(Recall(), Signed, space: space, asOf: asOf, attribute: attribute, cursor: "abc");
+        string result = await McpTools.MemoryRecall(Recall(), Signed, space: space, asOf: asOf, attribute: attribute, cursor: "abc", detailed: true);
 
         result.Should().Be("Error: cursor works only when you name a `space` and leave out `asOf` and `attribute`.");
         _memory.ReceivedCalls().Should().BeEmpty();
@@ -404,9 +404,9 @@ public class McpToolsMemorySpacesTests
         _memory.ListAsync(id, Arg.Any<MemoryFactFilter>(), Arg.Any<MemoryFactSort>(), Arg.Any<MemoryFactKey?>(), Arg.Any<int>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
             .Returns(_ => new MemoryFactPage([new RecalledFact(Fact(id, MemoryScope.Team), [])], new MemoryFactKey(Guid.NewGuid(), Recorded: DateTimeOffset.UnixEpoch)));
 
-        JsonElement first = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed, space: "on-call", query: query, includeHistory: history, limit: 500)).RootElement;
+        JsonElement first = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed, space: "on-call", query: query, includeHistory: history, limit: 500, detailed: true)).RootElement;
         string cursor = first.GetProperty("nextCursor").GetString()!;
-        JsonElement second = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed, space: "on-call", query: query, includeHistory: history, limit: 500, cursor: cursor)).RootElement;
+        JsonElement second = JsonDocument.Parse(await McpTools.MemoryRecall(Recall(), Signed, space: "on-call", query: query, includeHistory: history, limit: 500, cursor: cursor, detailed: true)).RootElement;
 
         second.GetProperty("facts").GetArrayLength().Should().Be(1);
         await _memory.Received(1).ListAsync(id, Arg.Is<MemoryFactFilter>(f => f.Text == query && f.Status == status), sort, null, 100, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
@@ -565,7 +565,7 @@ public class McpToolsMemorySpacesTests
 
         recalled.Result!.SkippedSpaces.Should().Be(3);
         recalled.Result.Spaces.Values.Select(s => s.Name).Should().NotContain(["team-100", "team-101", "team-102"]);
-        string json = await McpTools.MemoryRecall(Recall(), Signed);
+        string json = await McpTools.MemoryRecall(Recall(), Signed, detailed: true);
         JsonDocument.Parse(json).RootElement.GetProperty("note").GetString().Should().Be(
             "Read the 100 most recently changed spaces; 3 more were not read. Name a `space` to read one of them.");
     }
