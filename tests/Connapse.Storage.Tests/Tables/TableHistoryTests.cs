@@ -123,6 +123,24 @@ public class TableHistoryTests
     }
 
     [Fact]
+    public void CompileSample_History_SamplesCurrentVersionsOnly()
+    {
+        CompiledTableQuery query = TableQueryCompiler.CompileSample(Table());
+
+        query.Sql.Should().EndWith(
+            $"{From} WHERE \"_seen_until\" = 'infinity' "
+            + "ORDER BY \"c_1\" ASC NULLS LAST, \"c_2\" ASC NULLS LAST, \"c_3\" ASC NULLS LAST LIMIT $1");
+    }
+
+    [Fact]
+    public void CompileSample_NoHistory_HasNoVersionFilter()
+    {
+        CompiledTableQuery query = TableQueryCompiler.CompileSample(Table(key: null));
+
+        query.Sql.Should().NotContain("_seen_until");
+    }
+
+    [Fact]
     public void CompileRead_HistoryAsOfWithFilter_BindsTimeOnceAndWrapsFilter()
     {
         DateTimeOffset at = new(2026, 11, 5, 12, 0, 0, TimeSpan.FromHours(2));
