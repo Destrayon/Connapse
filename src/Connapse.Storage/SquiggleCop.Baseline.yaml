@@ -143,7 +143,8 @@
 - {Id: CA1859, Title: Use concrete types when possible for improved performance, Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
 - {Id: CA1860, Title: Avoid using 'Enumerable.Any()' extension method, Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1861, Title: Avoid constant arrays as arguments, Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
-- {Id: CA1862, Title: Use the 'StringComparison' method overloads to perform case-insensitive string comparisons, Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
+- {Id: CA1862, Title: Use the 'StringComparison' method overloads to perform case-insensitive string comparisons, Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: true}
+- {Id: CA1862, Title: Use the 'StringComparison' method overloads to perform case-insensitive string comparisons, Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: true}
 - {Id: CA1863, Title: Use 'CompositeFormat', Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error, Note], IsEverSuppressed: false}
 - {Id: CA1864, Title: "Prefer the 'IDictionary.TryAdd(TKey, TValue)' method", Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1865, Title: Use char overload, Category: Performance, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
