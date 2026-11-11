@@ -34,6 +34,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `container_list` | `knowledge:read` | Read | Lists every container and source with its description and document count. Each entry is `managed` (a container, browsable with `list_files`) or `source` (searchable, with no file listing). Memory spaces are not listed: `memory_spaces` lists them. |
 | `container_describe` | `knowledge:read` | Read | Describes one container or source: its description and document statistics. |
 | `container_stats` | `knowledge:read` | Read | A container's document, chunk and storage counts and its embedding model. |
+| `table_sql` | `knowledge:read` | Read | Runs one read-only SELECT over a container's tables by their generated names (`t_…`, columns `c_1`, `c_2`, …); a refusal lists the tables with their original headers. Off until an administrator turns on the container's `Tables.AgentSql` setting. Sees only tables from files the caller may read, and none with hidden columns; at most 1000 rows and about 64 KB, within 5 seconds. |
 | `container_create` | `knowledge:write` | Write | Creates a container. |
 | `container_delete` | `knowledge:write` | Destructive | Deletes an empty container. Sources can't be deleted here. |
 | `search_knowledge` | `knowledge:read` | Read | Searches a container or source and returns ranked passages with their document ids and scores. |
@@ -76,6 +77,8 @@ The `table_*` tools answer only from rows of documents the caller may read, and 
 | | `kind` | string | No | `documents` (default) or `memory`, for an agent memory container. Fixed once created |
 | `container_delete`, `container_stats` | `containerId` | string | Yes | Container id or name |
 | `container_describe` | `containerId` | string | Yes | Container or source id or name |
+| `table_sql` | `containerId` | string | Yes | Container id or name |
+| | `sql` | string | Yes | One SELECT statement |
 | `search_knowledge` | `query` | string | Yes | The search text |
 | | `containerId` | string | Yes | Container or source id or name |
 | | `mode` | string | No | `Semantic`, `Keyword` or `Hybrid` (default) |
