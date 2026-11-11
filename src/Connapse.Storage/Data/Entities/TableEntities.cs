@@ -32,6 +32,30 @@ public class ContainerTableEntity
 
     /// <summary>The headers of the columns an admin hid from every caller (CON-304).</summary>
     public string[] HiddenColumns { get; set; } = [];
+
+    /// <summary>For a table found inside its document (CON-312): its page, null for a format without pages.</summary>
+    public int? Page { get; set; }
+
+    /// <summary>For a table found inside its document (CON-312): its number among the document's tables.</summary>
+    public int? TableNumber { get; set; }
+
+    /// <summary>For a table found inside its document (CON-312): the hash of its header.</summary>
+    public string? HeaderHash { get; set; }
+
+    /// <summary>True when an admin hid the whole table from every caller (CON-312).</summary>
+    public bool Hidden { get; set; }
+}
+
+/// <summary>A passage holding all or part of a table found in its document (CON-312), and the span it takes up.</summary>
+public class TablePassageLinkEntity
+{
+    public long Id { get; set; }
+    public Guid ContainerId { get; set; }
+    public Guid DocumentId { get; set; }
+    public Guid TableId { get; set; }
+    public Guid ChunkId { get; set; }
+    public int Start { get; set; }
+    public int Length { get; set; }
 }
 
 /// <summary>

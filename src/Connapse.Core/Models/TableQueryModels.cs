@@ -150,9 +150,13 @@ public sealed record TableAccess(IReadOnlySet<Guid> ReadableDocuments)
     /// </summary>
     public MemoryViewer? Memory { get; init; }
 
+    /// <summary>
+    /// Whether the caller may read <paramref name="table"/>. A table an admin hid (CON-312) is read by no one, as a
+    /// hidden column is.
+    /// </summary>
     public bool CanRead(TableInfo table) =>
         MemoryTable.Is(table) ? Checked && Memory is not null
-        : Checked && (table.DocumentId is Guid document
+        : Checked && !table.Hidden && (table.DocumentId is Guid document
             ? ReadableDocuments.Contains(document)
             : table.SourceDocuments is { Count: > 0 } sources && sources.Any(ReadableDocuments.Contains));
 

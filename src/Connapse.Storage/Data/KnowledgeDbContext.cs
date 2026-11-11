@@ -28,6 +28,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<MemorySpaceStarEntity> MemorySpaceStars => Set<MemorySpaceStarEntity>();
     public DbSet<ContainerTableEntity> ContainerTables => Set<ContainerTableEntity>();
     public DbSet<RetiredTableEntity> RetiredTables => Set<RetiredTableEntity>();
+    public DbSet<TablePassageLinkEntity> TablePassageLinks => Set<TablePassageLinkEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -76,10 +77,36 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.LoadedAt).HasColumnName("loaded_at").HasDefaultValueSql("now()");
             entity.Property(e => e.SourceDocuments).HasColumnName("source_documents");
             entity.Property(e => e.HiddenColumns).HasColumnName("hidden_columns").HasDefaultValueSql("'{}'::text[]").IsRequired();
+            entity.Property(e => e.Page).HasColumnName("page");
+            entity.Property(e => e.TableNumber).HasColumnName("table_number");
+            entity.Property(e => e.HeaderHash).HasColumnName("header_hash").HasMaxLength(64);
+            entity.Property(e => e.Hidden).HasColumnName("hidden").HasDefaultValue(false);
             entity.HasIndex(e => e.ContainerId).HasDatabaseName("ix_container_tables_container");
             entity.HasIndex(e => e.StorageName).IsUnique().HasDatabaseName("ix_container_tables_storage_name");
+            entity.HasIndex(e => e.DocumentId).HasDatabaseName("ix_container_tables_document");
             entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<DocumentEntity>().WithMany().HasForeignKey(e => e.DocumentId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<TablePassageLinkEntity>(entity =>
+        {
+            entity.ToTable("table_passage_links", t => t.HasCheckConstraint("ck_table_passage_links_span",
+                "start >= 0 AND length > 0"));
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").UseIdentityAlwaysColumn();
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.DocumentId).HasColumnName("document_id");
+            entity.Property(e => e.TableId).HasColumnName("table_id");
+            entity.Property(e => e.ChunkId).HasColumnName("chunk_id");
+            entity.Property(e => e.Start).HasColumnName("start");
+            entity.Property(e => e.Length).HasColumnName("length");
+            entity.HasIndex(e => e.ChunkId).HasDatabaseName("ix_table_passage_links_chunk");
+            entity.HasIndex(e => e.DocumentId).HasDatabaseName("ix_table_passage_links_document");
+            entity.HasIndex(e => e.TableId).HasDatabaseName("ix_table_passage_links_table");
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<DocumentEntity>().WithMany().HasForeignKey(e => e.DocumentId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ContainerTableEntity>().WithMany().HasForeignKey(e => e.TableId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<ChunkEntity>().WithMany().HasForeignKey(e => e.ChunkId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RetiredTableEntity>(entity =>
