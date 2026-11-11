@@ -1,0 +1,1824 @@
+{
+  "baseline": "20261111-110533-unknown-v1-connapse-hybrid",
+  "candidate": "20261111-130458-302db0f-v1-connapse-hybrid",
+  "rows": [
+    {
+      "dataset": "nanobeir-arguana",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-arguana",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-arguana",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-arguana",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-arguana",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-arguana",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-arguana",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "metric": "P@5",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "metric": "hit@1",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "metric": "hit@3",
+      "stats": {
+        "n": 50,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 49,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 49,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 49,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 49,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "metric": "P@5",
+      "stats": {
+        "n": 49,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "metric": "hit@1",
+      "stats": {
+        "n": 49,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "metric": "hit@3",
+      "stats": {
+        "n": 49,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "cqadupstack-programmers",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 876,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "cqadupstack-programmers",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 876,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "cqadupstack-programmers",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 876,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "cqadupstack-programmers",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 876,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "cqadupstack-programmers",
+      "metric": "P@5",
+      "stats": {
+        "n": 876,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "cqadupstack-programmers",
+      "metric": "hit@1",
+      "stats": {
+        "n": 876,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "cqadupstack-programmers",
+      "metric": "hit@3",
+      "stats": {
+        "n": 876,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 132,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 132,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 132,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 132,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "metric": "P@5",
+      "stats": {
+        "n": 132,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "metric": "hit@1",
+      "stats": {
+        "n": 132,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "metric": "hit@3",
+      "stats": {
+        "n": 132,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "metric": "MRR@10",
+      "stats": {
+        "n": 66,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "metric": "nDCG@10",
+      "stats": {
+        "n": 66,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "metric": "Recall@5",
+      "stats": {
+        "n": 66,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "metric": "Recall@10",
+      "stats": {
+        "n": 66,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "metric": "P@5",
+      "stats": {
+        "n": 66,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "metric": "hit@1",
+      "stats": {
+        "n": 66,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "metric": "hit@3",
+      "stats": {
+        "n": 66,
+        "meanDifference": 0,
+        "ciLow": 0,
+        "ciHigh": 0,
+        "tTestP": 1,
+        "permutationP": 1,
+        "effectSizeDz": 0,
+        "minimumDetectableEffect": 0
+      },
+      "holmP": 1,
+      "significant": false
+    }
+  ],
+  "portfolioDelta": {
+    "MRR@10": 0,
+    "nDCG@10": 0,
+    "Recall@5": 0,
+    "Recall@10": 0,
+    "P@5": 0,
+    "hit@1": 0,
+    "hit@3": 0,
+    "judged@10": 0
+  },
+  "verdict": "No improvement: portfolio nDCG@10 0.000 \u2014 not compared: nanobeir-scidocs",
+  "datasetMismatches": [],
+  "unpairedDatasets": [
+    "nanobeir-scidocs"
+  ],
+  "pairings": [
+    {
+      "dataset": "cqadupstack-programmers",
+      "baselineQueries": 876,
+      "candidateQueries": 876,
+      "pairedQueries": 876,
+      "baselineJudgedAt10": 0.07123287671232938,
+      "candidateJudgedAt10": 0.07123287671232938
+    },
+    {
+      "dataset": "nanobeir-arguana",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.092,
+      "candidateJudgedAt10": 0.092
+    },
+    {
+      "dataset": "nanobeir-climatefever",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.10999999999999996,
+      "candidateJudgedAt10": 0.10999999999999996
+    },
+    {
+      "dataset": "nanobeir-dbpedia",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.554,
+      "candidateJudgedAt10": 0.554
+    },
+    {
+      "dataset": "nanobeir-fever",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.10799999999999996,
+      "candidateJudgedAt10": 0.10799999999999996
+    },
+    {
+      "dataset": "nanobeir-fiqa",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.14399999999999993,
+      "candidateJudgedAt10": 0.14399999999999993
+    },
+    {
+      "dataset": "nanobeir-hotpotqa",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.182,
+      "candidateJudgedAt10": 0.182
+    },
+    {
+      "dataset": "nanobeir-msmarco",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.07400000000000004,
+      "candidateJudgedAt10": 0.07400000000000004
+    },
+    {
+      "dataset": "nanobeir-nfcorpus",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.2779999999999999,
+      "candidateJudgedAt10": 0.2779999999999999
+    },
+    {
+      "dataset": "nanobeir-nq",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.092,
+      "candidateJudgedAt10": 0.092
+    },
+    {
+      "dataset": "nanobeir-quora",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.1399999999999999,
+      "candidateJudgedAt10": 0.1399999999999999
+    },
+    {
+      "dataset": "nanobeir-scifact",
+      "baselineQueries": 50,
+      "candidateQueries": 50,
+      "pairedQueries": 50,
+      "baselineJudgedAt10": 0.09999999999999998,
+      "candidateJudgedAt10": 0.09999999999999998
+    },
+    {
+      "dataset": "nanobeir-touche2020",
+      "baselineQueries": 49,
+      "candidateQueries": 49,
+      "pairedQueries": 49,
+      "baselineJudgedAt10": 0.6040816326530611,
+      "candidateJudgedAt10": 0.6040816326530611
+    },
+    {
+      "dataset": "ragbench-emanual",
+      "baselineQueries": 66,
+      "candidateQueries": 66,
+      "pairedQueries": 66,
+      "baselineJudgedAt10": 0.16060606060606053,
+      "candidateJudgedAt10": 0.16060606060606053
+    },
+    {
+      "dataset": "ragbench-techqa",
+      "baselineQueries": 132,
+      "candidateQueries": 132,
+      "pairedQueries": 132,
+      "baselineJudgedAt10": 0.11287878787878769,
+      "candidateJudgedAt10": 0.11287878787878769
+    }
+  ],
+  "tooFewSharedQueries": []
+}
