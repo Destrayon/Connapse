@@ -33,10 +33,12 @@ import glob
 import json
 import os
 import re
+import shutil
 import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -185,8 +187,35 @@ def drift(run: dict[str, dict[str, float]], baseline: list[dict[str, dict[str, f
 
 # GitHub, through the gh CLI the runners ship with. Mocked in the tests.
 
+# A GitHub hiccup: a 5xx, a rate limit or a dropped connection, worth another try (CON-334). A 404 or an
+# expired artifact is not, and fails at once.
+TRANSIENT = re.compile(r"HTTP (5\d\d|429)|rate limit|timed? ?out|connection (reset|refused)"
+                       r"|(unexpected |: )EOF\b|TLS handshake|no such host|network is unreachable", re.I)
+RETRY_DELAYS = (2, 4, 8)  # seconds before each retry: four tries in all
+
+
+def retried(name: str, attempt):
+    """attempt()'s result, retried after a transient GitHub error so a brief outage doesn't fail the check.
+    The notice leaves out gh's error text, which can carry a signed artifact URL."""
+    for delay in (*RETRY_DELAYS, None):
+        try:
+            return attempt()
+        except subprocess.CalledProcessError as e:
+            err = f"{e.stderr or ''}{e.stdout or ''}"
+            if delay is None or not TRANSIENT.search(err):
+                raise
+            print(f"::notice::gh {name} failed; retrying in {delay} s")
+            time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
+def gh(*args: str) -> str:
+    """The gh CLI's output, retried after a transient GitHub error."""
+    return retried(args[0], lambda: subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout)
+
+
 def gh_json(*args: str):
-    return json.loads(subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout)
+    return json.loads(gh(*args))
 
 
 def jobs(run_id: str | int) -> list[dict]:
@@ -209,8 +238,15 @@ def base_branch() -> str:
 
 
 def download(run_id: str | int, into: str) -> None:
-    subprocess.run(["gh", "run", "download", str(run_id), "--pattern", "test-results-*", "--dir", into,
-                    "--repo", os.environ["GITHUB_REPOSITORY"]], check=True, capture_output=True)
+    """The run's test-results artifacts, in `into`. Each try downloads to a fresh folder, moved into place
+    only once it succeeds: a dropped download leaves partial files that would fail the next try."""
+    def attempt() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["gh", "run", "download", str(run_id), "--pattern", "test-results-*", "--dir", tmp,
+                            "--repo", os.environ["GITHUB_REPOSITORY"]], check=True, capture_output=True, text=True)
+            for name in os.listdir(tmp):
+                shutil.move(os.path.join(tmp, name), os.path.join(into, name))
+    retried("run", attempt)
 
 
 def base_commit() -> str | None:
