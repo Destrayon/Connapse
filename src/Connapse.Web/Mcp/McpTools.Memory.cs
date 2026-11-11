@@ -38,7 +38,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_spaces", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("List the memory spaces you can use: your personal spaces (only you see them) and team spaces (everyone in this Connapse sees them). Each comes with its id, name, kind, description, whether you can add to it, and who sees it. Call this before saving to pick a `space` for memory_remember; if none fits, make one with memory_space_create. At most 100 are returned; pass `name` to find others.")]
+     Description("List the memory spaces you can use (personal: only you see it; team: everyone does), with whether you can add to each. Pick a `space` here before memory_remember, or make one with memory_space_create. Returns at most 100; `name` finds others.")]
     public static async Task<string> MemorySpaces(
         ListMemorySpaces spaces,
         IHttpContextAccessor http,
@@ -284,11 +284,11 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_recall", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, several in `spaces` to read them as one memory, or neither to read every space you can see. Filter by subject or attribute, or pass a question as `query`: put every other word for what you want (synonyms, abbreviations, the full name) in that one query rather than searching again. `subject` lists everything known about a subject. Facts come one per line under their subject, each led by a handle such as f12 that memory_correct and memory_forget accept, with its dates and sources; an ended fact says which fact replaced it. Answer from current facts only, unless the question asks about the past. Pass detailed=true for JSON with authors and record times. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\"). A subject's heading says when it shows all of that subject's current facts, so there is no need to list the subject again. Reading one named space without `asOf` or `attribute` returns a cursor when there are more facts: pass it back as `cursor` for the next page.")]
+     Description("Read facts from memory, as of now or `asOf` a past date, from one `space`, several `spaces`, or (neither) every space you can see. In `query` put every other word for what you want (synonyms, abbreviations, full names) in one search instead of searching again; `subject` lists a subject's facts. Facts come one per line under their subject, led by a handle (f12) for memory_correct and memory_forget; a heading says when it shows all the subject's current facts. Answer from current facts unless asked about the past; includeHistory adds ended and corrected ones (when or why X changed). Pass a returned cursor back as `cursor` for more.")]
     public static async Task<string> MemoryRecall(
         RecallMemory recall,
         IHttpContextAccessor http,
-        [Description("Space ID or name to read. Omit to read every space you can see")] string? space = null,
+        [Description("Space ID or name; omit for all")] string? space = null,
         [Description("Words to match against subject, attribute, value and reason")] string? query = null,
         [Description("Only this subject (exact, any case)")] string? subject = null,
         [Description("Only this attribute (exact, any case)")] string? attribute = null,
@@ -296,9 +296,9 @@ public partial class McpTools
         [Description("Also return ended and corrected facts")] bool includeHistory = false,
         [Description("At most this many facts (1-100). Default 10")] int limit = 10,
         [Description("Older name for `space`")] string? containerId = null,
-        [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
-        [Description("Several space IDs or names to read as one memory (up to 100)")] string[]? spaces = null,
-        [Description("Return JSON with every field (authors, record times) instead of one line per fact")] bool detailed = false,
+        [Description("Cursor from the previous page")] string? cursor = null,
+        [Description("Several space IDs or names (up to 100)")] string[]? spaces = null,
+        [Description("JSON with every field instead of lines")] bool detailed = false,
         CancellationToken ct = default)
     {
         if (ParseDates(asOf, null) is not { } at)
@@ -311,11 +311,11 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("A subject's facts in date order, ended and corrected ones included: how its values changed over time. Name a `space` to read one space, several in `spaces` to read them as one memory, or neither to read every space you can see; each fact says which space it is in. With `from`/`to`, only the facts that started or ended in that window (\"what changed between A and B\"). Reading one named space without `from`, `to` or `attribute` returns the newest facts first a page at a time, each page in date order, with `nextCursor` when older facts remain: pass it back as `cursor`. Facts come one per line, each led by a handle such as f12 that memory_correct and memory_forget accept; pass detailed=true for JSON.")]
+     Description("How a subject's facts changed over time: all of them in date order, ended and corrected ones included. `from`/`to` keep only facts that started or ended in that window. Spaces as in memory_recall; pass a returned cursor back as `cursor` for older facts.")]
     public static async Task<string> MemoryTimeline(
         RecallMemory recall,
         IHttpContextAccessor http,
-        [Description("Space ID or name to read. Omit to read every space you can see")] string? space = null,
+        [Description("Space ID or name; omit for all")] string? space = null,
         [Description("Only this subject (exact, any case)")] string? subject = null,
         [Description("Words to match, when the subject is not known exactly")] string? query = null,
         [Description("Only this attribute")] string? attribute = null,
@@ -323,9 +323,9 @@ public partial class McpTools
         [Description("Window end")] string? to = null,
         [Description("At most this many facts (1-100). Default 50")] int limit = 50,
         [Description("Older name for `space`")] string? containerId = null,
-        [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
-        [Description("Several space IDs or names to read as one memory (up to 100)")] string[]? spaces = null,
-        [Description("Return JSON with every field (authors, record times) instead of one line per fact")] bool detailed = false,
+        [Description("Cursor from the previous page")] string? cursor = null,
+        [Description("Several space IDs or names (up to 100)")] string[]? spaces = null,
+        [Description("JSON with every field instead of lines")] bool detailed = false,
         CancellationToken ct = default)
     {
         if (ParseDates(from, to) is not { } window)
