@@ -170,16 +170,15 @@ public static class ContainersEndpoints
             if (!listed.Succeeded)
                 return OperationProblems.Result(listed);
             var page = listed.Result!;
-            return Results.Ok(new PagedResponse<TableResponse>(
-                page.Items.Select(TableResponse.From).ToList(), page.TotalCount, page.HasMore));
+            return Results.Ok(TableListResponse.From(page));
         })
-        .Produces<PagedResponse<TableResponse>>()
+        .Produces<TableListResponse>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("tables.list")
-        .WithDescription("List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). ?search= keeps the tables whose name, description or a visible column's header contains it, ignoring case. totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.")
+        .WithDescription("List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). ?search= keeps the tables whose name, description or a visible column's header contains it, ignoring case; when the caller may read more than 50 tables it instead ranks all of them, best match first, by their names, descriptions and column headers and what those mean (mode is \"ranked\"; meaningUsed is false when embeddings were unavailable and only words counted; unembedded is how many tables weren't compared by meaning yet). mode is \"all\", \"filtered\" or \"ranked\". totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.")
         .RequireAuthorization("RequireViewer");
 
         // POST /api/containers/{containerId}/tables/sql - Run one read-only SELECT an agent wrote over the container's tables
@@ -595,6 +594,19 @@ public record ContainerStatsResponse(
 }
 
 public record ContainerDocumentCounts(int Total, int Ready, int Processing, int Failed);
+
+/// <summary>
+/// A page of a container's tables (CON-310): <see cref="Mode"/> says whether a search filtered them or ranked them, and
+/// a ranked page whether their meaning was compared with the search and how many weren't compared that way yet.
+/// </summary>
+public record TableListResponse(
+    IReadOnlyList<TableResponse> Items, int TotalCount, bool HasMore, string Mode, bool? MeaningUsed, int Unembedded)
+    : PagedResponse<TableResponse>(Items, TotalCount, HasMore)
+{
+    public static TableListResponse From(TableListing page) => new(
+        page.Items.Select(TableResponse.From).ToList(), page.TotalCount, page.HasMore,
+        page.Mode.ToString().ToLowerInvariant(), page.MeaningUsed, page.Unembedded);
+}
 
 /// <summary>A table a container holds: where it came from, its columns, and how its load went.</summary>
 public record TableResponse(
