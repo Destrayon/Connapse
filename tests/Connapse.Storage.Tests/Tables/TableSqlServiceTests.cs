@@ -97,14 +97,32 @@ public class TableSqlServiceTests
     }
 
     [Fact]
-    public void Listing_ManyTables_StopsAtTheCapAndSaysMoreExist()
+    public void Listing_MoreTablesThanTheColumnsFit_NamesEveryTable()
     {
-        TableInfo[] many = Enumerable.Range(0, 200).Select(i => Table(Guid.NewGuid(), $"t_{i:x32}")).ToArray();
+        // CON-328: the old listing stopped at 4,000 characters, so tables past it couldn't be named in SQL at all.
+        TableInfo[] many = Enumerable.Range(0, 300).Select(i => Table(Guid.NewGuid(), $"t_{i:x32}", $"Sheet {i}")).ToArray();
 
-        string listing = TableSqlService.Listing(many);
+        string[] lines = TableSqlService.Listing(many).Split('\n');
 
-        listing.Length.Should().BeLessThanOrEqualTo(TableSqlService.MaxListing + 40);
-        listing.Should().EndWith("- (more tables not shown)");
+        lines.Should().HaveCount(300);
+        lines.Select((line, i) => line.StartsWith($"- t_{i:x32} \"Sheet {i}\" (12 rows)", StringComparison.Ordinal))
+            .Should().AllBeEquivalentTo(true);
+        lines[0].Should().Contain("c_1 \"Region\" text, c_2 \"Amount\" numeric");
+        lines[^1].Should().Be($"- t_{299:x32} \"Sheet 299\" (12 rows), table id {many[^1].Id}: columns c_1, c_2, ... in the order table_describe lists them");
+        string.Join('\n', lines.TakeWhile(l => l.Contains("c_1 \"Region\"", StringComparison.Ordinal))).Length
+            .Should().BeLessThanOrEqualTo(TableSqlService.MaxListing);
+    }
+
+    [Fact]
+    public void Listing_MoreTablesThanTheCap_SaysHowManyMoreExist()
+    {
+        TableInfo[] many = Enumerable.Range(0, TableSqlService.MaxListedTables + 7)
+            .Select(i => Table(Guid.NewGuid(), $"t_{i:x32}")).ToArray();
+
+        string[] lines = TableSqlService.Listing(many).Split('\n');
+
+        lines.Should().HaveCount(TableSqlService.MaxListedTables + 1);
+        lines[^1].Should().Be("- (7 more tables not shown)");
     }
 
     [Theory]
