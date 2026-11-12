@@ -1020,6 +1020,11 @@
       "risk": "write",
       "scope": "admin:settings"
     },
+    "PUT /api/containers/{containerId:guid}/tables/{tableId:guid}/hidden": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:settings"
+    },
     "PATCH /api/containers/{containerId:guid}": {
       "requires": "editor",
       "risk": "write",
