@@ -71,6 +71,7 @@ public sealed partial class PostgresMemoryStore
             rows = rows.Where(f => f.RecordedAt >= from);
         if (filter.To is { } to)
             rows = rows.Where(f => f.RecordedAt <= to);
+        rows = Checked(rows, filter.Check, clock.GetUtcNow());
         return filter.Status == MemoryFactStatus.Current ? Current(rows) : rows;
     }
 
@@ -142,11 +143,11 @@ public sealed partial class PostgresMemoryStore
         }
     }
 
-    private static List<MemoryListedFact> Listed(List<MemoryFactEntity> page, Func<MemoryFactEntity, MemoryFactKey> key) =>
+    private List<MemoryListedFact> Listed(List<MemoryFactEntity> page, Func<MemoryFactEntity, MemoryFactKey> key) =>
         [.. page.Select(f => new MemoryListedFact(ToFact(f), key(f)))];
 
     /// <summary>Best match first, by (rank, id) descending, stopping at the best <see cref="IMemoryStore.MaxSearchResults"/>.</summary>
-    private static async Task<IReadOnlyList<MemoryListedFact>> RankedAsync(
+    private async Task<IReadOnlyList<MemoryListedFact>> RankedAsync(
         IQueryable<MemoryFactEntity> rows, string terms, MemoryFactKey? after, int take, CancellationToken ct)
     {
         int position = Math.Max(0, after?.Position ?? 0);

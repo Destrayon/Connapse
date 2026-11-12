@@ -148,6 +148,12 @@ public sealed record MemoryRecall(IReadOnlyList<RecalledFact> Facts, bool Denied
 /// <summary>The outcome of a write: the fact written (and the one it replaced), or why nothing was written.</summary>
 public sealed record MemoryWriteResult(MemoryFact? Fact, MemoryFact? Replaced, string? Error, MemoryWriteFailure Failure = MemoryWriteFailure.None)
 {
+    /// <summary>
+    /// The write confirmed <see cref="Fact"/>, an existing fact, instead of adding one: a confirm, or a save of a fact
+    /// memory already held as current (CON-340).
+    /// </summary>
+    public bool Confirmed { get; init; }
+
     public static MemoryWriteResult Failed(string error, MemoryWriteFailure failure = MemoryWriteFailure.Invalid) => new(null, null, error, failure);
 }
 

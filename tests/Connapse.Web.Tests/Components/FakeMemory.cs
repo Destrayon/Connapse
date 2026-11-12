@@ -234,4 +234,15 @@ internal sealed class FakeMemory(Guid space) : IMemoryService
         MemoryVersionKey? next = rest.Count > limit ? new MemoryVersionKey(page[^1].RecordedAt, page[^1].Id) : null;
         return new MemoryHistoryPage([.. page.Select(Shown)], chain.Count, next);
     }
+
+    public Task<MemoryWriteResult> ConfirmAsync(
+        Guid factId, MemoryCheckBy? check, MemoryCaller caller, bool teamWriter, CancellationToken ct = default) =>
+        throw new NotSupportedException("The UI does not confirm facts.");
+
+    public Task<IReadOnlyDictionary<string, int>> CheckDefaultsAsync(Guid containerId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<string, int>>(new Dictionary<string, int>());
+
+    public Task<string?> SetCheckDefaultsAsync(
+        Guid containerId, IReadOnlyDictionary<string, int> defaults, MemoryCaller caller, CancellationToken ct = default) =>
+        throw new NotSupportedException("The UI does not set check-by defaults.");
 }

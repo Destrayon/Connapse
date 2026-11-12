@@ -17,7 +17,9 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     public async Task<MemoryFact> AddAsync(Guid containerId, NewMemoryFact fact, MemoryCaller author, CancellationToken ct = default)
     {
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        MemoryFactEntity row = NewRow(containerId, fact, author, chainId: null, replaces: null);
+        DateTimeOffset now = clock.GetUtcNow();
+        MemoryFactEntity row = NewRow(containerId, fact, author, chainId: null, replaces: null, now,
+            await CheckDatesAsync(context, containerId, fact.Attribute, fact.Check, null, now, ct));
         context.MemoryFacts.Add(row);
         await context.SaveChangesAsync(ct);
         return ToFact(row);
@@ -71,8 +73,11 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             old.SupersededAt = clock.GetUtcNow();
         }
 
-        // The new version joins the chain where it is: a chain never spans two containers.
-        MemoryFactEntity row = NewRow(old.ContainerId, next, author, old.ChainId, old.Id);
+        // The new version joins the chain where it is: a chain never spans two containers. It starts its check period
+        // afresh: the one asked for, else the space's default for its attribute, else the old fact's.
+        DateTimeOffset recorded = clock.GetUtcNow();
+        MemoryFactEntity row = NewRow(old.ContainerId, next, author, old.ChainId, old.Id, recorded,
+            await CheckDatesAsync(context, old.ContainerId, next.Attribute, replacement.Check, old.CheckAfterDays, recorded, ct));
         context.MemoryFacts.Add(row);
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
@@ -233,6 +238,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
                 && (f.ValidFrom == null || f.ValidFrom <= at)
                 && (f.ValidTo == null || f.ValidTo > at));
         }
+        rows = Checked(rows, query.Check, clock.GetUtcNow());
 
         string? terms = TsQuery(await DistinctiveWordsAsync(context, query.ContainerId, QueryWords(query.Text), ct));
         IQueryable<MemoryFactEntity> ordered;
@@ -326,7 +332,9 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
     [GeneratedRegex(@"[\p{L}\p{N}]+")]
     private static partial Regex Words();
 
-    private MemoryFactEntity NewRow(Guid containerId, NewMemoryFact fact, MemoryCaller author, Guid? chainId, Guid? replaces)
+    private static MemoryFactEntity NewRow(
+        Guid containerId, NewMemoryFact fact, MemoryCaller author, Guid? chainId, Guid? replaces, DateTimeOffset now,
+        (DateTimeOffset? CheckBy, int? Days) check)
     {
         Guid id = Guid.CreateVersion7();
         return new MemoryFactEntity
@@ -339,7 +347,9 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
             Value = fact.Value,
             ValidFrom = fact.ValidFrom,
             ValidTo = fact.ValidTo,
-            RecordedAt = clock.GetUtcNow(),
+            RecordedAt = now,
+            CheckBy = check.CheckBy,
+            CheckAfterDays = check.Days,
             ReplacesId = replaces,
             Reason = fact.Reason,
             AuthorUserId = author.UserId,
@@ -350,10 +360,13 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         };
     }
 
-    private static MemoryFact ToFact(MemoryFactEntity row) => new(
+    /// <summary>The fact a row holds, unconfirmed when it is past its check-by date now.</summary>
+    private MemoryFact ToFact(MemoryFactEntity row) => new(
         row.Id, row.ChainId, row.ContainerId, row.Subject, row.Attribute, row.Value,
         row.ValidFrom, row.ValidTo, row.RecordedAt, row.SupersededAt, row.ReplacesId, row.Reason,
         new MemoryCaller(row.AuthorUserId, row.AuthorAgentId, row.AuthorName),
         [.. row.Sources.OrderBy(s => s.Ordinal).Select(s => new MemorySource((MemorySourceKind)s.Kind, s.Ref))],
-        (MemoryScope)row.Scope);
+        (MemoryScope)row.Scope,
+        row.CheckBy, row.CheckAfterDays, row.ConfirmedAt,
+        IsDue(row.SupersededAt, row.ValidTo, row.CheckBy, clock.GetUtcNow()));
 }

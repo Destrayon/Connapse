@@ -78,6 +78,21 @@ public interface IMemoryStore
     /// <summary>The container a fact is in, or null when there is no such fact. Says nothing about who may read it.</summary>
     Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Marks the fact as still true now and moves its check-by date on: by <paramref name="check"/> when given, else by
+    /// the fact's own period. Refused when the fact is superseded or ended, or with the error <paramref name="allow"/>
+    /// returns for the chain's versions, which it is given with the chain locked.
+    /// </summary>
+    Task<MemoryWriteResult> ConfirmAsync(
+        Guid factId, MemoryCheckBy? check, Func<IReadOnlyList<MemoryFact>, Task<MemoryWriteResult?>> allow,
+        CancellationToken ct = default);
+
+    /// <summary>A container's default check-by periods in days, by lower-cased attribute.</summary>
+    Task<IReadOnlyDictionary<string, int>> CheckDefaultsAsync(Guid containerId, CancellationToken ct = default);
+
+    /// <summary>Replaces a container's default check-by periods with <paramref name="defaults"/>, in one transaction.</summary>
+    Task SetCheckDefaultsAsync(Guid containerId, IReadOnlyDictionary<string, int> defaults, CancellationToken ct = default);
+
     /// <summary>The most matches a search lists.</summary>
     const int MaxSearchResults = 1000;
 }
@@ -134,4 +149,26 @@ public interface IMemoryService
     /// caller must check access to that container and answer as for a missing fact when it can't.
     /// </summary>
     Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Says the fact is still true: records when, and moves its check-by date on by <paramref name="check"/> or, without
+    /// one, by the fact's own period. The same rules as a correction: a fact the caller cannot see is missing, and a
+    /// team fact needs <paramref name="teamWriter"/>.
+    /// </summary>
+    Task<MemoryWriteResult> ConfirmAsync(
+        Guid factId, MemoryCheckBy? check, MemoryCaller caller, bool teamWriter, CancellationToken ct = default);
+
+    /// <summary>A container's default check-by periods in days, by lower-cased attribute.</summary>
+    Task<IReadOnlyDictionary<string, int>> CheckDefaultsAsync(Guid containerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces a container's default check-by periods. Returns an error and changes nothing when an attribute is blank
+    /// or too long, two differ only in case, a period is outside 1–<see cref="MemoryCheckBy.MaxDays"/> days, or there
+    /// are more than <see cref="MaxCheckDefaults"/>. The caller must have checked write access to the container.
+    /// </summary>
+    Task<string?> SetCheckDefaultsAsync(
+        Guid containerId, IReadOnlyDictionary<string, int> defaults, MemoryCaller caller, CancellationToken ct = default);
+
+    /// <summary>The most default check-by periods one space keeps.</summary>
+    const int MaxCheckDefaults = 100;
 }

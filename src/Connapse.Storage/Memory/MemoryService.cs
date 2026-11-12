@@ -18,7 +18,7 @@ namespace Connapse.Storage.Memory;
 /// <item>Every write is audited by id, never by content, so forgetting leaves no copy behind.</item>
 /// </list>
 /// </summary>
-public sealed class MemoryService(
+public sealed partial class MemoryService(
     IMemoryStore store,
     IDocumentAccess access,
     ILinkIndex links,
@@ -40,6 +40,10 @@ public sealed class MemoryService(
         fact = Clean(fact) with { Scope = fact.ScopeOrDefault };
         if (await UnreadableSourcesAsync(fact.Sources!, caller, ct) is { } refused)
             return refused;
+
+        // Saving a fact memory already holds as current confirms it instead of adding a copy (CON-340).
+        if (await ResavedAsync(containerId, fact, caller, ct) is { } confirmed)
+            return confirmed;
 
         MemoryFact written = await store.AddAsync(containerId, fact, caller, ct);
         await audit.LogAsync("memory.remembered", "memory_fact", written.Id.ToString(),
@@ -344,6 +348,8 @@ public sealed class MemoryService(
             return "Error: 'validTo' must be after 'validFrom'.";
         if (fact.Scope is { } scope && !Enum.IsDefined(scope))
             return "Error: scope must be \"personal\" or \"team\".";
+        if (CheckError(fact.Check) is { } check)
+            return check;
         IReadOnlyList<MemorySource> sources = fact.Sources ?? [];
         if (sources.Count > MaxSources)
             return $"Error: at most {MaxSources} sources.";
