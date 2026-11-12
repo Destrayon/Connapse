@@ -468,6 +468,52 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
             yield return line.ToJsonString();
         }
     }
+
+    /// <summary>
+    /// One <see cref="RunLines"/> line read back, with the grade it was given when it ran. The question carries only what
+    /// scoring reads (id, family, user, expected answer), and each call's output is the logged, possibly cut, text.
+    /// </summary>
+    public static ArmRun ReadRun(string line)
+    {
+        using JsonDocument doc = JsonDocument.Parse(line);
+        JsonElement r = doc.RootElement;
+        TableQuestion question = new(r.GetProperty("id").GetString()!, "", r.GetProperty("family").GetString()!, "",
+            r.GetProperty("question").GetString()!, r.GetProperty("user").GetString()!, "", r.GetProperty("expected").Clone(),
+            null, null, [], []);
+        List<ToolTrace> calls = [.. r.GetProperty("calls").EnumerateArray().Select(c => new ToolTrace(
+            c.GetProperty("tool").GetString()!,
+            c.GetProperty("input").ValueKind == JsonValueKind.Object
+                ? c.GetProperty("input").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
+                : new Dictionary<string, JsonElement>(),
+            c.GetProperty("output").GetString() ?? ""))];
+        JsonElement tokens = r.GetProperty("tokens");
+        TokenUsage usage = new(tokens.GetProperty("input").GetInt64(), tokens.GetProperty("output").GetInt64(),
+            tokens.GetProperty("cacheRead").GetInt64(), tokens.GetProperty("cacheWrite").GetInt64(), r.GetProperty("costUsd").GetDouble());
+        JsonElement? answer = r.TryGetProperty("answer", out JsonElement a) && a.ValueKind != JsonValueKind.Null ? a.Clone() : null;
+        string? error = r.TryGetProperty("error", out JsonElement e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+        AgentRun agent = new(Enum.Parse<AgentOutcome>(r.GetProperty("outcome").GetString()!), answer?.ToString(), [], calls, usage,
+            r.GetProperty("turns").GetInt32(), error, answer);
+        return new ArmRun(question, r.GetProperty("arm").GetString()!, r.GetProperty("run").GetInt32() - 1, question.Question, agent,
+            new TableGrade(r.GetProperty("correct").GetBoolean(), r.GetProperty("leaked").GetBoolean()),
+            TimeSpan.FromSeconds(r.GetProperty("wallSeconds").GetDouble()));
+    }
+
+    /// <summary>
+    /// Scores a finished run's <c>.runs.jsonl</c> without asking anything again, for a run whose report step failed. The
+    /// options are the ones the run was started with; each question counts once however many lines it has.
+    /// </summary>
+    public static async Task<int> ScoreAsync(Options options, string runsPath, TextWriter log, CancellationToken ct)
+    {
+        List<ArmRun> runs = [.. (await File.ReadAllLinesAsync(runsPath, ct)).Where(l => l.Length > 0).Select(ReadRun)];
+        int questions = runs.Select(r => r.Question.Id).Distinct(StringComparer.Ordinal).Count();
+        JsonObject report = Report(options, questions, runs);
+        report["scoredFrom"] = Path.GetFileName(runsPath);
+        string json = report.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        if (options.Base.OutPath is not null)
+            await File.WriteAllTextAsync(options.Base.OutPath, json + "\n", ct);
+        log.WriteLine(json);
+        return 0;
+    }
 }
 
 /// <summary>
