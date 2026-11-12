@@ -30,3 +30,7 @@ Base `epic/con-e6-tables` at e8adda0b (CON-328 merged). Scratch and eval output 
 - Phase 2: `TableSqlService.Listing` names every readable table; columns are listed up to 16,000 characters, and
   later tables by name and id, up to 500 tables. Two new tests replace the old cap test; all 31 TableSqlServiceTests
   pass. Commit cdbb8b9d.
+- Phase 3: `TableGraphQLService` (GraphQL-Parser 9.5.1, own validator, per-caller schema), `tables.graphql`
+  operation, REST route, MCP `table_graphql`, OpenAPI, capabilities and authz entries. 25 unit tests, the random-input
+  test, and 34 TableOperationTests pass; `TableGraphQLTests` (leak tests) compiles with CI flags but has not run yet,
+  because free memory was 6.1 GB. Next: run `TableGraphQLTests` when memory allows; meanwhile Phase 4.
