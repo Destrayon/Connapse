@@ -367,7 +367,7 @@ choice is written out as `/mcp/x/documents,memory,code`; no separate keyword is 
 **When an agent's needs change mid-task.** The list cannot grow during a session. MCP lets a server tell the
 client that its list changed (`notifications/tools/list_changed`), but the groups come from the token and the
 URL, and neither changes while the agent is connected. So the agent says the tool is missing (the server's
-instructions name the groups this connection lacks), the person widens the URL or the token setting, and the app
+instructions tell it that other groups exist), the person widens the URL or the token setting, and the app
 reconnects and fetches the new list. Claude Code, and other apps that load tool descriptions only when the agent
 searches for them, are the exception: for them, `all` costs little, so they need no narrow selection to begin
 with.
