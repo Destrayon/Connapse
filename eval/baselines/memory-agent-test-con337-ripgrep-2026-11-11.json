@@ -1,0 +1,111 @@
+{
+  "dataset": "memory-agent",
+  "search": "ripgrep",
+  "config": "keyword",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "arm": "all",
+  "facts": 245,
+  "find": {
+    "tasks": 8,
+    "all": {
+      "tasks": 8,
+      "score": 0.875,
+      "citedOld": 0,
+      "costUsd": 0.0091,
+      "firstRecallHit": 0,
+      "recallCalls": 1.875,
+      "sawGold": 0,
+      "toolCalls": 1.875
+    },
+    "kinds": {
+      "absent": {
+        "tasks": 8,
+        "score": 0.875,
+        "citedOld": 0,
+        "costUsd": 0.0091,
+        "firstRecallHit": 0,
+        "recallCalls": 1.875,
+        "sawGold": 0,
+        "toolCalls": 1.875
+      }
+    },
+    "hard": {
+      "tasks": 0,
+      "score": 0
+    },
+    "perTask": {
+      "find-a01": 1,
+      "find-a02": 1,
+      "find-a03": 0,
+      "find-a04": 1,
+      "find-a05": 1,
+      "find-a06": 1,
+      "find-a07": 1,
+      "find-a08": 1
+    },
+    "perTask_toolCalls": {
+      "find-a01": 2,
+      "find-a02": 2,
+      "find-a03": 1,
+      "find-a04": 2,
+      "find-a05": 2,
+      "find-a06": 2,
+      "find-a07": 2,
+      "find-a08": 2
+    },
+    "perTask_costUsd": {
+      "find-a01": 0.01139,
+      "find-a02": 0.008349,
+      "find-a03": 0.006726,
+      "find-a04": 0.007892,
+      "find-a05": 0.008317,
+      "find-a06": 0.006688,
+      "find-a07": 0.015867,
+      "find-a08": 0.007322
+    },
+    "outcomes": {
+      "Answered": 24
+    },
+    "tokens": {
+      "runs": 24,
+      "input": 186,
+      "cacheWrite": 23712,
+      "cacheRead": 227155,
+      "output": 9972,
+      "apiListPriceUsd": 0.2177
+    }
+  },
+  "save": {
+    "tasks": 0,
+    "all": {
+      "tasks": 0,
+      "score": 0
+    },
+    "kinds": {},
+    "perTask": {},
+    "perTask_toolCalls": {},
+    "perTask_costUsd": {},
+    "outcomes": {},
+    "tokens": {
+      "runs": 0,
+      "input": 0,
+      "cacheWrite": 0,
+      "cacheRead": 0,
+      "output": 0,
+      "apiListPriceUsd": 0
+    }
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 72%)",
+    "atLastRun": "allowed (seven_day 72%)"
+  },
+  "conforming": false,
+  "diagnosticOnly": [
+    "kinds limited to absent",
+    "8 find tasks, not 74",
+    "0 save tasks, not 24"
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "dataset": "memory-agent-sealed-2",
+  "search": "ripgrep",
+  "config": "keyword",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "arm": "all",
+  "facts": 252,
+  "find": {
+    "tasks": 8,
+    "all": {
+      "tasks": 8,
+      "score": 1,
+      "citedOld": 0,
+      "costUsd": 0.0115,
+      "firstRecallHit": 0,
+      "recallCalls": 2.125,
+      "sawGold": 0,
+      "toolCalls": 2.125
+    },
+    "kinds": {
+      "absent": {
+        "tasks": 8,
+        "score": 1,
+        "citedOld": 0,
+        "costUsd": 0.0115,
+        "firstRecallHit": 0,
+        "recallCalls": 2.125,
+        "sawGold": 0,
+        "toolCalls": 2.125
+      }
+    },
+    "hard": {
+      "tasks": 0,
+      "score": 0
+    },
+    "perTask": {
+      "find-a01": 1,
+      "find-a02": 1,
+      "find-a03": 1,
+      "find-a04": 1,
+      "find-a05": 1,
+      "find-a06": 1,
+      "find-a07": 1,
+      "find-a08": 1
+    },
+    "perTask_toolCalls": {
+      "find-a01": 2,
+      "find-a02": 3,
+      "find-a03": 2,
+      "find-a04": 2,
+      "find-a05": 2,
+      "find-a06": 2,
+      "find-a07": 2,
+      "find-a08": 2
+    },
+    "perTask_costUsd": {
+      "find-a01": 0.012035,
+      "find-a02": 0.011285,
+      "find-a03": 0.008808,
+      "find-a04": 0.008474,
+      "find-a05": 0.009073,
+      "find-a06": 0.007542,
+      "find-a07": 0.01756,
+      "find-a08": 0.017136
+    },
+    "outcomes": {
+      "Answered": 24
+    },
+    "tokens": {
+      "runs": 24,
+      "input": 198,
+      "cacheWrite": 34326,
+      "cacheRead": 243565,
+      "output": 11368,
+      "apiListPriceUsd": 0.2757
+    }
+  },
+  "save": {
+    "tasks": 0,
+    "all": {
+      "tasks": 0,
+      "score": 0
+    },
+    "kinds": {},
+    "perTask": {},
+    "perTask_toolCalls": {},
+    "perTask_costUsd": {},
+    "outcomes": {},
+    "tokens": {
+      "runs": 0,
+      "input": 0,
+      "cacheWrite": 0,
+      "cacheRead": 0,
+      "output": 0,
+      "apiListPriceUsd": 0
+    }
+  },
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 73%)",
+    "atLastRun": "allowed (seven_day 73%)"
+  },
+  "conforming": false,
+  "diagnosticOnly": [
+    "kinds limited to absent",
+    "8 find tasks, not 76",
+    "0 save tasks, not 24"
+  ]
+}
