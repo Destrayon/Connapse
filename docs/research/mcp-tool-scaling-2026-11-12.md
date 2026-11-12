@@ -243,10 +243,14 @@ The groups, for the 28 tools left after CON-344 (o200k tokens from today's list)
 | Toolset | Tools | Tokens |
 |---|---|---|
 | `search` (always included) | `container_list`, `search_knowledge`, `list_files`, `get_document` | about 900 |
-| `documents` | `container_describe`, `container_stats`, `container_create`, `container_delete`, `upload_file`, `delete_file`, `append_to_file` | about 1,000 |
+| `documents` | `container_describe`, `container_stats`, `container_create`, `container_delete`, `upload_file`, `delete_file`, `append_to_file`, `approval_status`, `deletion_status` | about 1,450 |
 | `memory` | `memory_spaces`, `memory_space_create`, `memory_remember`, `memory_correct`, `memory_forget`, `memory_recall`, `memory_timeline` | 2,313 |
 | `code` | `code_find_symbol`, `code_references`, `code_impact`, `code_repo_map` | 911 |
-| `admin` | `connapse_api_search/read/write`, `request_deletions`, `approval_status`, `deletion_status` | 1,122 |
+| `admin` | `connapse_api_search/read/write`, `request_deletions` | 689 |
+
+`approval_status` and `deletion_status` sit in `documents`, not `admin`, because a delete that needs a person's
+approval comes back as a held batch that the agent can only follow with those two tools (`McpApprovalGate.cs`).
+Without them, an agent allowed to delete files could start a delete it can never check on.
 
 `search` is part of every selection, even one that names only `code` or `memory`, so `search_knowledge` and
 `get_document` are always present for 4.2 to pin. The CON-344 merges may add a few dozen tokens to `documents`.
@@ -317,6 +321,68 @@ with the URL `https://connapse.example/mcp/x/code`.
 - **A request outside the groups:** the developer asks the agent to "remember that we moved to PostgreSQL 16". The
   agent has no memory tool, so it says this connection does not include memory. The developer changes the URL to
   `/mcp/x/code,memory` and reconnects, and the list grows to 15 tools, about 4,100 tokens.
+
+#### When an agent needs several groups
+
+An agent can have any combination of groups; picking more than one is the normal case, not an exception.
+
+**How to pick several.** In the URL, list the groups with commas: `/mcp/x/documents,memory`. On the token, tick
+more than one box. Both places also offer `all`: `/mcp/x/all` in the URL or an "All groups" box on the token.
+`all` differs from ticking every box in one way: it also takes in groups added in later releases, while a list
+stays fixed to what was named. Plain `/mcp` and an empty token setting both mean `all`.
+
+**What each combination costs.** These totals include `search`, which every selection gets (o200k tokens). The
+server's instructions add 273 tokens to every list.
+
+| Groups chosen | Tools | Tokens |
+|---|---|---|
+| `admin` | 8 | about 1,600 |
+| `code` | 8 | about 1,800 |
+| `documents` | 13 | about 2,400 |
+| `memory` | 11 | about 3,200 |
+| `documents,code` | 17 | about 3,300 |
+| `code,memory` | 15 | about 4,100 |
+| `documents,memory` | 20 | about 4,700 |
+| `documents,memory,code` (everything except `admin`) | 24 | about 5,600 |
+| `all` | 28 | about 6,300 |
+
+`memory` is the expensive group: any selection that includes it costs at least 3,200 tokens. Section 4.2's
+description cuts fall hardest on `memory`, so they shrink every row that has it.
+
+**Groups that ride together.** Two pairings are built in, and no others are needed:
+- `search` comes with every selection, because the other groups assume the agent can find documents. Memory facts
+  cite document IDs that the agent gets from `search_knowledge`; the code tools return file paths that the agent
+  opens with `get_document`.
+- The two approval tools live in `documents` (see the table above), so an agent that can delete can follow its
+  held deletes.
+
+`code` and `memory` do not depend on `documents` or on each other, so they stay separate.
+
+**A preset for "everything except admin".** The token page should offer this as a one-click choice, and it should
+be the suggested choice for agents shared by a team. It gives 24 tools for about 5,600 tokens and leaves out
+`connapse_api_write`, which can call any REST endpoint the token allows, and `request_deletions`, which deletes in
+bulk. Those are the two tools whose mistakes cost the most, and most agents never need them. In the URL the same
+choice is written out as `/mcp/x/documents,memory,code`; no separate keyword is needed.
+
+**When an agent's needs change mid-task.** The list cannot grow during a session. MCP lets a server tell the
+client that its list changed (`notifications/tools/list_changed`), but the groups come from the token and the
+URL, and neither changes while the agent is connected. So the agent says the tool is missing (the server's
+instructions name the groups this connection lacks), the person widens the URL or the token setting, and the app
+reconnects and fetches the new list. Claude Code, and other apps that load tool descriptions only when the agent
+searches for them, are the exception: for them, `all` costs little, so they need no narrow selection to begin
+with.
+
+**Example with three groups.** A team runs a shared assistant in Claude Desktop that files meeting notes, answers
+questions from past notes, and remembers decisions. It connects with `https://connapse.example/mcp/x/documents,memory`.
+- **It gets** `search`, `documents` and `memory`: 20 tools and about 4,700 tokens, against about 6,300 for all 28.
+  It can upload notes (`upload_file`), find them (`search_knowledge`), save a decision with the note's ID as its
+  source (`memory_remember`), and check on a held delete (`deletion_status`).
+- **It does not get** `code` or `admin`. It cannot call arbitrary REST endpoints or bulk-delete, which suits an
+  agent everyone on the team talks to.
+- **A new need.** A developer asks it which services call the billing API. That needs `code_references`, which
+  it lacks, so it says so. The team adds `code`: the URL becomes `/mcp/x/documents,memory,code`, the app
+  reconnects, and the list grows to 24 tools and about 5,600 tokens. That is still 700 tokens fewer than `all`,
+  and `connapse_api_write` and `request_deletions` stay out.
 
 ### 4.2 Shorter descriptions: how it works
 
