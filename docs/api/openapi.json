@@ -23278,14 +23278,7 @@
             ]
           },
           "default": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "description": "The value used when the caller leaves the parameter out, as JSON of the parameter's type; null when it has none."
           },
           "from_login": {
             "type": [
@@ -23363,14 +23356,7 @@
             ]
           },
           "default": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
+            "description": "The value used when the caller leaves the parameter out, as JSON of the parameter's type; null when it has none."
           },
           "from_login": {
             "type": [
