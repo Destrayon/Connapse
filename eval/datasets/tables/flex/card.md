@@ -20,4 +20,4 @@ byte.
 fills from the same records, independently of Connapse's loader. A ranked answer is dropped when its value ties a
 neighbour's, and questions say how to treat blank discounts and readings that aren't numbers.
 
-The pass bar is "Bar for the flexibility set" in `eval/pass-bars.md`, written before any run.
+The pass bar is "Bar for GraphQL and the flexibility set" in `eval/pass-bars.md`, written before any run.

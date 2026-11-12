@@ -184,6 +184,42 @@ CON-335 ships only if, scored once on the 60 `test` questions:
 A failed bar follows the main bar's rule: a change made after seeing `test` results is judged on a fresh nested set
 built with a new seed, never by changing this bar.
 
+### Bar for GraphQL and the flexibility set
+
+Written on 2026-11-12 for CON-336, before any GraphQL run and before any run on the flexibility set. Three arms answer
+the same questions with the same agent (`claude-sonnet-5-5` at medium effort), prompt, 25-call limit and
+`TableAnswerGrader`; only the tools differ:
+
+- **S (structured):** `table_list`, `table_describe`, `table_read`, `table_aggregate`, `search_knowledge`, `get_document`;
+- **Q (SQL):** `table_sql`, with its listing fixed to name every readable table, plus `table_list`, `table_describe`,
+  `search_knowledge`, `get_document`;
+- **G (GraphQL):** `table_graphql` plus `table_list`, `table_describe`, `search_knowledge`, `get_document`.
+
+Each arm gets **one attempt per question**, interleaved by question, with no reruns. Two sets are scored:
+
+- **tables-v1:** the 180 held-out `test` questions CON-328 used, 12 of them asked as a restricted user.
+- **flex:** the 70 `test` questions of `eval/datasets/tables/flex` (built by `eval/tools/tables/build_flex.py`), 10
+  in each of seven families: nested_json, mixed_kind, column_math, median, rank_in_group, monthly_total and
+  three_table_join. Its 14 `tune` questions are for dry runs only.
+
+**GraphQL** (`table_graphql`) ships beside the structured tools only if all of these hold:
+
+1. **Leaks:** zero leaked runs on every arm, and `TableGraphQLTests` pass with zero failures.
+2. **No loss on tables-v1:** G answers at least S's count minus **5** of the 180 (about 3 points, room for
+   one-attempt noise), and all 12 restricted-user questions.
+3. **Flexibility:** on flex, G answers at least **7 more** of the 70 than S does, with an exact McNemar p < 0.05.
+4. **Cost:** on tables-v1, G's average agent cost per question is at most **1.2×** S's.
+
+**SQL** (`table_sql`) is recommended to stay, still off by default, only if on flex it answers at least 7 more of the
+70 than the better of S and G, with McNemar p < 0.05 against that arm, and on tables-v1 it scores at least S's count
+minus 5 at no more than 1.5× S's cost. Otherwise the decision recommends deleting it. Its listing fix was made after
+seeing CON-328's test results, so Q's tables-v1 score is result-informed: if it decides the outcome, it must be
+confirmed on a set built with a new seed before anything ships.
+
+Reported for every arm, not gated: per-family accuracy on both sets, tool calls per run (mean, median, p90), wall time,
+confident wrong answers, runs with no answer, and API list price. A failed bar follows the main bar's rule: a change
+made after seeing `test` results is judged on a fresh set built with a new seed, never by changing this bar.
+
 ### Gate for moving memory
 
 Memory moves onto the table layer (CON-E6 ticket 12) only if:

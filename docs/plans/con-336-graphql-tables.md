@@ -38,3 +38,6 @@ Base `epic/con-e6-tables` at e8adda0b (CON-328 merged). Scratch and eval output 
 - Phase 4: `eval/tools/tables/build_flex.py` (seed 20261113) writes six files for one invented retailer and 84
   gold-SQL questions (7 families × 12; 14 tune, 70 test) to `eval/datasets/tables/flex/`, with a card and
   MANIFEST entries. Rerun is byte-identical. Next: bars for both sets in `eval/pass-bars.md`, then open the PR.
+- Phase 5: "Bar for GraphQL and the flexibility set" added to `eval/pass-bars.md` (three arms, one attempt each;
+  G ships on no loss within 5 on tables-v1, +7 on flex with McNemar p < 0.05, cost ≤ 1.2× S; SQL kept only if it
+  beats both by 7 on flex). The flex card now names that bar. Next: push and open the PR.
