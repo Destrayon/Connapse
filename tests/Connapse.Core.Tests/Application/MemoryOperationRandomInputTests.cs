@@ -74,7 +74,9 @@ public class MemoryOperationRandomInputTests
         }
 
         public MemoryWriteResult Answers(MemoryWriteFailure failure, Guid container) =>
-            failure == MemoryWriteFailure.None ? new MemoryWriteResult(Stored(container), null, null) : MemoryWriteResult.Failed("no", failure);
+            failure == MemoryWriteFailure.None
+                ? new MemoryWriteResult(Stored(container), null, null) { Matches = [new MemoryFactMatch(Stored(container), MemoryMatchKind.SameSubject)] }
+                : MemoryWriteResult.Failed("no", failure);
     }
 
     // ── memory.remember ───────────────────────────────────────────────────────────────────────────
@@ -150,7 +152,10 @@ public class MemoryOperationRandomInputTests
                 {
                     await world.Memory.Received(1).RememberAsync(savedTo, fact with { Scope = expected.Scope }, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
                     if (written.Succeeded)
+                    {
                         written.Result!.SavedTo!.Id.Should().Be(savedTo.ToString());
+                        written.Result.Matches.Should().ContainSingle("the facts a save may repeat pass through unchanged (CON-332)");
+                    }
                 }
                 else
                     world.Memory.ReceivedCalls().Should().BeEmpty();

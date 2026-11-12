@@ -35,7 +35,11 @@ public enum MemoryStatus
 /// A fact written, and the one it replaced when it was a correction. <see cref="SavedTo"/> is the space a new fact went
 /// into, which for an old-style save without sources is the caller's own personal space rather than the space named.
 /// </summary>
-public sealed record MemoryWritten(MemoryFact Fact, MemoryFact? Replaced, Container? SavedTo = null);
+public sealed record MemoryWritten(MemoryFact Fact, MemoryFact? Replaced, Container? SavedTo = null)
+{
+    /// <summary>For a new fact, the current facts it may repeat or contradict, closest first; see <see cref="MemoryWriteResult.Matches"/>.</summary>
+    public IReadOnlyList<MemoryFactMatch> Matches { get; init; } = [];
+}
 
 /// <summary>
 /// Where a save is aimed. <see cref="IsSpace"/>: named as a space, so the space alone decides personal or team.
@@ -135,7 +139,7 @@ internal static class MemoryRules
 
     public static Attempt<MemoryWritten, MemoryStatus> Written(MemoryWriteResult result, Container? savedTo = null) =>
         result.Error is not { } error
-            ? Attempt<MemoryWritten, MemoryStatus>.Succeed(new MemoryWritten(result.Fact!, result.Replaced, savedTo))
+            ? Attempt<MemoryWritten, MemoryStatus>.Succeed(new MemoryWritten(result.Fact!, result.Replaced, savedTo) { Matches = result.Matches })
             : Fail<MemoryWritten>(result.Failure switch
             {
                 MemoryWriteFailure.NotFound => MemoryStatus.FactNotFound,

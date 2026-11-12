@@ -228,7 +228,7 @@ public static class MemoryFactsEndpoints
             var written = await remember.RunAsync(Rest(http), MemoryTarget.Space(id), fact, ct);
             return written.Succeeded
                 ? Results.Created($"/api/memory/facts/{written.Result!.Fact.Id}/history",
-                    new MemoryRememberedResponse(written.Result.Fact, Space(written.Result.SavedTo!)))
+                    new MemoryRememberedResponse(written.Result.Fact, Space(written.Result.SavedTo!), written.Result.Matches))
                 : OperationProblems.Result(written);
         })
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
@@ -408,8 +408,11 @@ public sealed record CorrectMemoryFactRequest(
 /// <summary>A memory space a fact is in: its id, name, and whether it is personal (only its owner sees it) or team.</summary>
 public sealed record MemorySpaceRef(string Id, string Name, MemoryScope Audience);
 
-/// <summary>The fact stored and the space it went into.</summary>
-public sealed record MemoryRememberedResponse(MemoryFact Fact, MemorySpaceRef SavedTo);
+/// <summary>
+/// The fact stored, the space it went into, and the current facts it may repeat or contradict, closest first (at most
+/// three, empty when none is close). Nothing was changed because of them: correct one if the new fact replaces it.
+/// </summary>
+public sealed record MemoryRememberedResponse(MemoryFact Fact, MemorySpaceRef SavedTo, IReadOnlyList<MemoryFactMatch> Matches);
 
 /// <summary>The new version of the fact and the one it replaced, which history keeps.</summary>
 public sealed record MemoryCorrectedResponse(MemoryFact Fact, MemoryFact Replaced);
