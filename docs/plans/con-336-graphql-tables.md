@@ -23,3 +23,10 @@ Base `epic/con-e6-tables` at e8adda0b (CON-328 merged). Scratch and eval output 
    pushed.
 
 ## Progress
+
+- Phase 1: four research agents (generated schemas, .NET libraries, safety and scoping, GraphQL for agents) merged
+  into `docs/research/con-336-graphql-for-agents-2026-11-12.md`. Decision: GraphQL-Parser plus our own validator over
+  a per-caller schema, every read through `ITableQueryService`. Next: build `table_graphql`.
+- Phase 2: `TableSqlService.Listing` names every readable table; columns are listed up to 16,000 characters, and
+  later tables by name and id, up to 500 tables. Two new tests replace the old cap test; all 31 TableSqlServiceTests
+  pass. Commit cdbb8b9d.
