@@ -51,7 +51,7 @@ public sealed class MemoryLearnedEval(RepoPaths paths, HttpClient http, TextWrit
         Dictionary<string, string> allDocs = docMap.Concat(lateMap).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         log.WriteLine($"{corpus.Count} documents, then {late.Count} late documents indexed");
 
-        McpToolbox tools = new(system.Services, McpToolbox.Reader(Guid.NewGuid(), "memory-learned-eval"), MemorySearchEval.SearchTools, MemorySearchEval.Pinned);
+        McpToolbox tools = new(system.Services, McpToolbox.Reader(Guid.NewGuid(), "memory-learned-eval"), options.ToolSet, MemorySearchEval.Pinned);
         await using ToolBridge bridge = new();
         await bridge.StartAsync(ct);
         ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir);

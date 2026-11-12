@@ -108,6 +108,8 @@ public class CliArgsTests
     [InlineData("vector-index")]
     [InlineData("report")]
     [InlineData("memory")]
+    [InlineData("memory-search")]
+    [InlineData("memory-search-compare")]
     [InlineData("code")]
     public void AllowedOptions_EveryCommand_HasAnEntry(string command)
     {

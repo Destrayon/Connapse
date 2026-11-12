@@ -1,9 +1,11 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Connapse.Eval.Cli;
 using Connapse.Eval.Datasets;
 using Connapse.Eval.Model;
 using Connapse.Eval.Reports;
 using Connapse.Eval.Runs;
+using Connapse.Eval.Runs.MemorySearch;
 using Connapse.Eval.Systems;
 
 namespace Connapse.Eval;
@@ -44,11 +46,12 @@ internal static class EvalEntryPoint
                 "memory-search" => await new MemorySearchEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
-                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tools")), cts.Token),
+                "memory-search-compare" => Commands.MemorySearchCompare(cli),
                 "memory-learned" => await new MemoryLearnedEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
-                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tools")), cts.Token),
                 "code" => await new CodeEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "code", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
@@ -231,6 +234,20 @@ internal static class Commands
         return 0;
     }
 
+    public static int MemorySearchCompare(CliArgs cli)
+    {
+        if (cli.Positionals.Count != 2)
+            throw new ArgumentException("memory-search-compare needs two run logs: <baseline.runs.jsonl> <candidate.runs.jsonl>.");
+        double margin = MemorySearchComparison.DefaultMargin;
+        if (cli.Option("margin") is string m && !double.TryParse(m, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out margin))
+            throw new ArgumentException("--margin must be a number, such as 0.05.");
+        JsonObject result = MemorySearchComparison.Compare(
+            MemorySearchComparison.TaskScores(File.ReadLines(cli.Positionals[0])),
+            MemorySearchComparison.TaskScores(File.ReadLines(cli.Positionals[1])), margin);
+        Console.WriteLine(result.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        return 0;
+    }
+
     public static int Report(CliArgs cli)
     {
         RunFolder run = RunFolder.Open(cli.Positionals.FirstOrDefault()
@@ -265,7 +282,8 @@ internal static class Commands
               pool     <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
-              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
+              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--tools a,b] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
+              memory-search-compare <baseline.runs.jsonl> <candidate.runs.jsonl> [--margin 0.05]   (paired per-task scores; PASS when the 90% interval's low end is above -margin)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: an agent answering the session-2 questions with search alone, after the late documents)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
