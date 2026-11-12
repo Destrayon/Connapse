@@ -225,23 +225,161 @@ APIs' `defer_loading`).
 core search tools pinned; keep the existing `connapse_api_*` tools as the long-tail escape hatch and do not add
 mid-session tool loading.**
 
-1. **Toolsets per token or connection.** Extend the per-token trimming Connapse already does (#846: `tools/list`
-   is filtered by the caller's authorization and marked `cacheScope: private`) with a toolset choice: `search`
-   (search and read documents), `documents` (writes), `memory`, `code`, `admin`. The choice is made when a token is
-   minted (a checkbox list beside the scopes) and can be narrowed per connection with a URL path, as GitHub does
-   with `/x/{toolset}`. A default "search" toolset of `container_list`, `search_knowledge`, `list_files` and
-   `get_document` costs about 900 tokens today, a seventh of the full list. The `search` toolset is always
-   included: a token or URL that names only `code` or `memory` still gets `search` too, so `search_knowledge` and
-   `get_document` are in every connection and pick 2 can always pin them. Strongest reason: it is the only option that
-   cuts tokens and choices in all seven clients without touching per-tool permission prompts, and most of the
-   plumbing exists.
-2. **Shorter, search-ready descriptions with core tools pinned.** Cut description and parameter text toward a
-   budget (memory tools first: 330 tokens per tool against 171 for search), start each description with what the
-   tool is for in words a user would search with, keep area prefixes consistent (`code_`, `memory_`; documents
-   currently have none), and mark `search_knowledge` and `get_document` with `_meta["anthropic/alwaysLoad"]` so
-   Claude Code never has to search for them. Strongest reason: in the four clients that defer tools themselves,
-   the description *is* the search index, and Codex has open bugs where search misses tools; elsewhere it is a
-   straight token cut.
+1. **Toolsets per token or connection** (4.1). Every tool belongs to one group, and each connection gets only the
+   groups it asks for. Strongest reason: it is the only option that cuts tokens and choices in all seven clients
+   without touching per-tool permission prompts, and the per-token trimming it builds on already exists.
+2. **Shorter, search-ready descriptions with core tools pinned** (4.2). Strongest reason: in the four clients that
+   defer tools themselves, the description *is* the search index, and Codex has open bugs where search misses
+   tools; everywhere else it is a straight token cut.
+
+### 4.1 Toolsets: how it works
+
+**In short: each tool belongs to one group (a toolset); a token and a connection URL each say which groups they
+want, and `tools/list` returns only the tools in those groups. Toolsets decide what an agent sees; scopes
+(`knowledge:read`, `knowledge:write`) still decide what it may do.**
+
+The groups, for the 28 tools left after CON-344 (o200k tokens from today's list):
+
+| Toolset | Tools | Tokens |
+|---|---|---|
+| `search` (always included) | `container_list`, `search_knowledge`, `list_files`, `get_document` | about 900 |
+| `documents` | `container_describe`, `container_stats`, `container_create`, `container_delete`, `upload_file`, `delete_file`, `append_to_file` | about 1,000 |
+| `memory` | `memory_spaces`, `memory_space_create`, `memory_remember`, `memory_correct`, `memory_forget`, `memory_recall`, `memory_timeline` | 2,313 |
+| `code` | `code_find_symbol`, `code_references`, `code_impact`, `code_repo_map` | 911 |
+| `admin` | `connapse_api_search/read/write`, `request_deletions`, `approval_status`, `deletion_status` | 1,122 |
+
+`search` is part of every selection, even one that names only `code` or `memory`, so `search_knowledge` and
+`get_document` are always present for 4.2 to pin. The CON-344 merges may add a few dozen tokens to `documents`.
+
+**How a connection picks its groups.** The choice can be made in two places, and the server uses the groups that
+both allow:
+1. **On the token.** Personal access tokens and agent keys get a `Toolsets` setting next to `Scopes`: checkboxes on
+   the token pages and a `toolsets` field on the REST create calls. A new token starts with only `search` ticked.
+   An empty setting means all groups, so every token that exists today keeps its full list.
+2. **In the URL.** A connection can narrow its list with a path, as GitHub's server does with `/x/{toolset}`:
+   `https://connapse.example/mcp/x/code,memory`. Plain `/mcp` means all groups. This is the only way to choose
+   for the apps that sign in with OAuth (Claude Desktop and claude.ai, ChatGPT, Cursor, VS Code), because their
+   users never see Connapse's token page; they paste the URL when they add the connector. The OAuth flow already
+   accepts a path under `/mcp`: discovery metadata is served for any sub-path
+   (`/.well-known/oauth-protected-resource/{**resourcePath}`), and the access-token audience check accepts any URL
+   on the same host.
+
+**Where it is stored and checked.**
+- **Stored:** a new `Toolsets` text column on `PersonalAccessTokenEntity` and `AgentApiKeyEntity` (one Identity
+  migration), a comma list like `Scopes`. OAuth grants store nothing new, because the URL carries the choice on
+  every request.
+- **Carried:** `ApiKeyAuthenticationHandler` already turns a token's `Scopes` into `scope` claims, and it would turn
+  `Toolsets` into `toolset` claims the same way.
+- **Checked:** every tool already has an `[Authorize(Policy = "Scope:…")]` attribute. `AddAuthorizationFilters()` in
+  `Program.cs` uses those attributes to leave tools out of `tools/list` and to refuse `tools/call` for them, which
+  is how a read-only key gets 17 tools today. Each tool gets a second attribute, such as
+  `[Authorize(Policy = "Toolset:memory")]`. A new `ToolsetAuthorizationHandler` passes it when the group is `search`,
+  or when the group is allowed both by the `toolset` claims (none means all) and by the URL path (none means all).
+  Both attributes must pass, so a tool is listed only when the token may use it and the connection asked for it.
+
+**What the server sends to the agent's app.** The same `tools/list` response as today, only shorter. Each tool's
+name, description, input schema and annotations are unchanged; `search_knowledge` and `get_document` also carry
+`_meta: {"anthropic/alwaysLoad": true}` (4.2). The list already differs by caller and is marked
+`cacheScope: private` (#846), so a list that differs by URL needs no new caching rules. The server instructions
+get one fixed sentence: tools come in groups (search, documents, memory, code, admin), and if a tool the user needs
+is missing, this connection does not include its group, which a person can add on the token page or in the URL.
+
+**When an agent needs a tool outside its groups.** The agent cannot see the tool, and calling it by name is
+refused the same way a call outside the token's scopes is refused today. Nothing loads mid-session, because that
+fails in every client (section 2). The agent tells the user what is missing, prompted by the sentence in the
+instructions. A person then widens the choice by ticking the group on the token page or changing the URL, and the
+app picks it up on its next fetch of the tool list, which for most apps means reconnecting or starting a new
+session. For one-off admin operations, the `connapse_api_*` tools in `admin` still reach every REST operation.
+
+**What changes in Connapse's code.**
+- `Connapse.Identity`:
+  - the `Toolsets` column on the two token entities, plus a migration;
+  - `toolset` claims in `ApiKeyAuthenticationHandler`;
+  - `ToolsetRequirement`, `ToolsetAuthorizationHandler` and five `Toolset:*` policies, beside the `Scope:*`
+    policies in `IdentityServiceExtensions`.
+- `Connapse.Web`:
+  - a `Toolset:*` attribute on every tool in `Mcp/McpTools*.cs` and `Mcp/McpApiTools.cs`;
+  - a second route, `/mcp/x/{toolsets}`, beside `app.MapMcp("/mcp")` with the same authorization and rate limit;
+  - the `toolsets` field on the token create endpoints and the checkboxes on the token pages;
+  - the sentence in `McpServerConfig`.
+- **Tests:**
+  - extend `McpPerTokenToolListTests` to cover the choice on the token, the choice in the URL, the overlap of
+    the two, and `search` always being present;
+  - add a test that every tool has exactly one `Toolset:*` attribute, so no new tool can skip its group.
+
+**Example.** A developer adds Connapse to Claude Desktop to get help with a codebase. They sign in as an Editor
+with the URL `https://connapse.example/mcp/x/code`.
+- **Today:** Claude Desktop loads all 28 tools, about 6,300–6,500 tokens, on every message. That includes seven
+  memory tools and six admin tools this person never uses.
+- **With toolsets:** it loads `search` and `code`: `container_list`, `search_knowledge`, `list_files`,
+  `get_document`, `code_find_symbol`, `code_references`, `code_impact` and `code_repo_map`. That is 8 tools and
+  about 1,800 tokens (900 + 911): roughly 70% fewer tokens, and 8 choices instead of 28.
+- **A request outside the groups:** the developer asks the agent to "remember that we moved to PostgreSQL 16". The
+  agent has no memory tool, so it says this connection does not include memory. The developer changes the URL to
+  `/mcp/x/code,memory` and reconnects, and the list grows to 15 tools, about 4,100 tokens.
+
+### 4.2 Shorter descriptions: how it works
+
+**In short: rewrite each tool's text so its first words say what it is for, in words a user would search with;
+cut whatever the agent does not need to pick and call it; and pin the two core search tools so apps that load
+tools on demand never have to search for them.**
+
+What gets cut, largest saving first:
+1. **"Or null" markings on optional parameters.** The C# MCP SDK writes every optional parameter as
+   `"type": ["string", "null"], "default": null`. A parameter missing from `required` is already optional, so
+   plain `"type": "string"` says the same thing. Removing these markings takes today's list from 6,740 to 6,408
+   tokens (332 fewer, 5%) without changing a word. It is done once at startup, by rewriting each tool's input schema
+   (or through the SDK's schema-creation options), not tool by tool.
+2. **Description text.** Lead with the purpose and keep one example. Advice about using the result moves into the
+   result itself; Connapse already does this in places, such as `memory_space_create`'s "Save facts here with
+   memory_remember…" note.
+3. **Deprecated parameters.** Old aliases, such as `memory_remember`'s `containerId`, stay accepted by the server
+   for one release but leave the advertised schema.
+4. **Parameter descriptions that repeat the name**, such as `value`: "The value", are dropped.
+
+**Pinning.** `search_knowledge` and `get_document` get `_meta["anthropic/alwaysLoad"] = true`, so Claude Code keeps
+them loaded even when its tool search defers the rest; other apps ignore the field. Existing tools are not renamed,
+because a rename breaks saved agent prompts and permission rules. New tools take their group's prefix (`code_`,
+`memory_`).
+
+**Where it lives in the code.** The text is the `[Description]` attributes in `Mcp/McpTools*.cs`, and the
+null-marking cleanup is a few lines in `Program.cs`'s MCP setup. A unit test counts the `tools/list` output with
+`o200k_base` (`Microsoft.ML.Tokenizers` has it), so the 30% bar in section 5 is checked on every build and later
+tools cannot quietly regrow the list.
+
+**Example: `memory_remember`, the most expensive tool (o200k tokens, compact JSON).**
+
+| | Before | After |
+|---|---|---|
+| Whole tool | 499 | 275 (45% fewer) |
+| Description | 172 | 92 |
+| Input schema | 303 | 162 |
+
+Description before:
+> Store one fact in a memory space: a subject ("Halcyon"), an attribute ("database") and a value ("PostgreSQL 15"),
+> with the date it became true and the documents you learned it from. Name a `space` that exists: memory_spaces
+> lists yours, and memory_space_create makes one if none fits. No space is made for you. Save to a personal space if
+> it is about the user, their preferences or their own work; to a team space if it would be true and useful for
+> others. If unsure, ask. Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing
+> sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value
+> you stored before has changed, call `memory_correct` instead.
+
+Description after:
+> Save a fact to long-term memory as subject, attribute and value ("Halcyon", "database", "PostgreSQL 15"). Use a
+> personal space for facts about the user, a team space for facts others need; ask if unsure. Pick the space with
+> memory_spaces. Put the document IDs you learned it from in `sources`: the fact is then shown only to people who
+> can read them. If a saved value changed, use memory_correct.
+
+Schema changes in that tool:
+- **`space`:** `"type": ["string","null"], "default": null` becomes `"type": "string"`, and the same change applies
+  to the other five optional parameters.
+- **`containerId`:** the deprecated alias leaves the schema.
+- **`value`:** loses "The value".
+- **Other parameters:** descriptions are cut to their core, for example `validFrom` becomes "Date it became true,
+  YYYY-MM-DD".
+
+The facts the agent needs stay: what to save, which space, citing sources, and when to use `memory_correct`
+instead. Whether the shorter text keeps answers as good is what the test plan checks.
 
 **Not now:**
 - **Mid-session tool loading** (`list_changed` or an `enable_toolset` tool): reliable in no client, and the
@@ -277,7 +415,7 @@ before any run, both test code:
 
 Fixed for every arm: model `claude-sonnet-5-5` at effort `medium`, 3 repetitions per task, at most 12 tool calls,
 `test` split scored once, the same commit and machine; a provider error is retried 3 times and a run that still
-fails scores 0. A gain or loss counts only under the harness's Holm-corrected paired permutation test at p < 0.05.
+fails scores 0. A gain counts only under the harness's Holm-corrected paired permutation test at p < 0.05.
 "Non-inferior within 0.05" follows `eval/pass-bars.md`: the bar passes only when the lower end of the 90% BCa
 interval of the paired difference (new minus current) is above −0.05. An interval that reaches −0.05 or below
 fails, whether the change is worse or the run is too small to tell.
