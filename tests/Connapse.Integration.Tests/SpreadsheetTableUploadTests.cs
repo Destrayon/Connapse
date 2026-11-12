@@ -164,6 +164,35 @@ public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task Upload_JsonLinesXmlAndYaml_LoadAsTables()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            string events = await UploadAsync(containerId, "events.jsonl", Encoding.UTF8.GetBytes(
+                "{\"id\": 1, \"tags\": [\"x\", \"y\"]}\n{\"id\": 2, \"tags\": []}\n"));
+            string books = await UploadAsync(containerId, "books.xml", Encoding.UTF8.GetBytes(
+                "<books><book id=\"b1\"><title>Dune</title></book><book id=\"b2\"><title>Emma</title></book></books>"));
+            string fleet = await UploadAsync(containerId, "fleet.yaml", Encoding.UTF8.GetBytes(
+                "- name: a\n  port: 80\n- name: b\n  port: 443\n"));
+            foreach (string id in new[] { events, books, fleet })
+                await WaitForReadyAsync(containerId, id);
+
+            var tables = (await TablesAsync(containerId)).ToDictionary(t => t.Name);
+            tables.Keys.Should().BeEquivalentTo("events", "events.tags", "books.book", "fleet");
+            tables["events.tags"].RowCount.Should().Be(2);
+            tables["books.book"].Columns.Select(c => c.Name).Should().Equal("_index", "@id", "title");
+            tables["books.book"].RowCount.Should().Be(2);
+            tables["fleet"].Columns.Select(c => (c.Name, c.Type)).Should().Equal(
+                ("name", TableColumnType.Text), ("port", TableColumnType.WholeNumber));
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
     private async Task<List<string?>> KeywordHitsAsync(Guid containerId, string query)
     {
         using HttpResponseMessage response = await fixture.AdminClient.GetAsync(
@@ -205,9 +234,14 @@ public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
     {
         using var form = new MultipartFormDataContent();
         var part = new ByteArrayContent(content);
-        part.Headers.ContentType = new MediaTypeHeaderValue(fileName.EndsWith(".json")
-            ? "application/json"
-            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        part.Headers.ContentType = new MediaTypeHeaderValue(Path.GetExtension(fileName) switch
+        {
+            ".json" => "application/json",
+            ".jsonl" => "application/jsonl",
+            ".xml" => "application/xml",
+            ".yaml" => "application/yaml",
+            _ => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
         form.Add(part, "files", fileName);
         form.Add(new StringContent("/data/"), "path");
         using HttpResponseMessage response = await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", form);
