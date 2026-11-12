@@ -322,10 +322,12 @@ internal static class TableQueryCompiler
     };
 
     /// <summary>Text output is cut one character past the cap, so the runner can shorten it and say so.</summary>
-    private static string Output(string expression, TableColumnType type) =>
-        type == TableColumnType.Text
-            ? $"pg_catalog.substr({expression}, 1, {(MaxCellCharacters + 1).ToString(CultureInfo.InvariantCulture)})"
-            : expression;
+    private static string Output(string expression, TableColumnType type) => type switch
+    {
+        TableColumnType.Text => $"pg_catalog.substr({expression}, 1, {(MaxCellCharacters + 1).ToString(CultureInfo.InvariantCulture)})",
+        TableColumnType.Json => $"pg_catalog.substr(({expression})::text, 1, {(MaxCellCharacters + 1).ToString(CultureInfo.InvariantCulture)})",
+        _ => expression,
+    };
 
     private static string Direction(TableSortDirection direction) =>
         direction == TableSortDirection.Descending ? " DESC NULLS LAST" : " ASC NULLS LAST";
@@ -509,7 +511,7 @@ internal static class TableQueryCompiler
                 TableAggregateFunction.CountDistinct => ($"pg_catalog.count(DISTINCT {column})", TableColumnType.WholeNumber),
                 TableAggregateFunction.Sum or TableAggregateFunction.Avg when type is TableColumnType.WholeNumber or TableColumnType.Number =>
                     ($"pg_catalog.{FunctionName(function)}({column})", TableColumnType.Number),
-                TableAggregateFunction.Min or TableAggregateFunction.Max when type != TableColumnType.Boolean =>
+                TableAggregateFunction.Min or TableAggregateFunction.Max when type is not (TableColumnType.Boolean or TableColumnType.Json) =>
                     ($"pg_catalog.{FunctionName(function)}({column})", type),
                 _ => throw new TableQueryException(
                     $"{FunctionName(function)} doesn't work on \"{target.Name}\", a {TypeName(type)} column."),
@@ -567,6 +569,12 @@ internal static class TableQueryCompiler
             }
 
             IReadOnlyList<object?> values = condition.Values ?? [];
+            if (type == TableColumnType.Json && condition.Operator is TableFilterOperator.Contains or TableFilterOperator.StartsWith)
+            {
+                // A JSON column is searched as its JSON text.
+                expression = $"({expression})::text";
+                type = TableColumnType.Text;
+            }
             return condition.Operator switch
             {
                 TableFilterOperator.IsNull => values.Count == 0
@@ -785,6 +793,7 @@ internal static class TableQueryCompiler
         TableColumnType.Boolean => "true/false",
         TableColumnType.Date => "date",
         TableColumnType.DateTime => "date-time",
+        TableColumnType.Json => "JSON",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 
@@ -796,6 +805,7 @@ internal static class TableQueryCompiler
         TableColumnType.Boolean => typeof(bool),
         TableColumnType.Date => typeof(DateOnly),
         TableColumnType.DateTime => typeof(DateTime),
+        TableColumnType.Json => typeof(string),
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 }
@@ -859,6 +869,7 @@ internal static class TableQueryValues
     private static string Hint(TableColumnType type) => type switch
     {
         TableColumnType.Date => " Write dates as \"yyyy-mm-dd\".",
+        TableColumnType.Json => " A JSON column takes only is_null and contains; table_sql can read inside it with jsonb operators such as ->> and @>.",
         TableColumnType.DateTime => " Write date-times as ISO 8601, such as \"2026-01-31T14:00:00\".",
         _ => "",
     };

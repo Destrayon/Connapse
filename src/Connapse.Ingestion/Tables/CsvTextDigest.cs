@@ -63,6 +63,7 @@ internal static class CsvTextDigest
         TableColumnType.Boolean => "true/false",
         TableColumnType.Date => "date",
         TableColumnType.DateTime => "date and time",
+        TableColumnType.Json => "JSON",
         _ => "text",
     };
 }

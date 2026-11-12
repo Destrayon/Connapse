@@ -1,0 +1,6734 @@
+[
+  {
+    "order_id": 70001,
+    "placed": "2026-09-07",
+    "status": "returned",
+    "customer": {
+      "name": "Pablo Novak",
+      "tier": "gold",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 3,
+        "unit_price": 199.05,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 7,
+        "unit_price": 111.04,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 12,
+        "unit_price": 216.16,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 2,
+        "unit_price": 87.29,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "express",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70002,
+    "placed": "2026-05-02",
+    "status": "placed",
+    "customer": {
+      "name": "Aiden Rossi",
+      "tier": "gold",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-107",
+        "qty": 11,
+        "unit_price": 165.4,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70003,
+    "placed": "2026-05-08",
+    "status": "delivered",
+    "customer": {
+      "name": "Olga Ito",
+      "tier": "bronze",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-118",
+        "qty": 9,
+        "unit_price": 62.8,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70004,
+    "placed": "2026-05-21",
+    "status": "placed",
+    "customer": {
+      "name": "Jade Eriksen",
+      "tier": "silver",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-105",
+        "qty": 4,
+        "unit_price": 217.87,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 9,
+        "unit_price": 38.35,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-103",
+        "qty": 9,
+        "unit_price": 169.5,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 6,
+        "unit_price": 190.1,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70005,
+    "placed": "2026-08-08",
+    "status": "shipped",
+    "customer": {
+      "name": "Hana Chen",
+      "tier": "gold",
+      "address": {
+        "city": "Munich",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 6,
+        "unit_price": 106.9,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b",
+      "bulk",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70006,
+    "placed": "2026-08-05",
+    "status": "placed",
+    "customer": {
+      "name": "Nikhil Quist",
+      "tier": "silver",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-121",
+        "qty": 6,
+        "unit_price": 132.3,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-130",
+        "qty": 1,
+        "unit_price": 144.21,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 12,
+        "unit_price": 185.91,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70007,
+    "placed": "2026-06-07",
+    "status": "returned",
+    "customer": {
+      "name": "Emil Andersen",
+      "tier": "silver",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-123",
+        "qty": 5,
+        "unit_price": 147.59,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 9,
+        "unit_price": 81.21,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 11,
+        "unit_price": 155.72,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70008,
+    "placed": "2026-02-23",
+    "status": "returned",
+    "customer": {
+      "name": "Lena Engel",
+      "tier": "silver",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-125",
+        "qty": 4,
+        "unit_price": 248.64,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 8,
+        "unit_price": 167.41,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "express",
+      "b2b",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70009,
+    "placed": "2026-08-11",
+    "status": "shipped",
+    "customer": {
+      "name": "Emil Abbott",
+      "tier": "gold",
+      "address": {
+        "city": "Munich",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-126",
+        "qty": 12,
+        "unit_price": 169.31,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 12,
+        "unit_price": 10.2,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 9,
+        "unit_price": 63.41,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 4,
+        "unit_price": 32.14,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70010,
+    "placed": "2026-06-22",
+    "status": "shipped",
+    "customer": {
+      "name": "Umar Andersen",
+      "tier": "silver",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-107",
+        "qty": 11,
+        "unit_price": 170.72,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 4,
+        "unit_price": 160.58,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70011,
+    "placed": "2026-04-13",
+    "status": "delivered",
+    "customer": {
+      "name": "Dev Fischer",
+      "tier": "bronze",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 5,
+        "unit_price": 22.26,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70012,
+    "placed": "2026-02-20",
+    "status": "placed",
+    "customer": {
+      "name": "Hana Ueda",
+      "tier": "gold",
+      "address": {
+        "city": "Lyon",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 7,
+        "unit_price": 192.92,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 2,
+        "unit_price": 186.21,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "fragile",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70013,
+    "placed": "2026-03-07",
+    "status": "returned",
+    "customer": {
+      "name": "Ben Ueda",
+      "tier": "silver",
+      "address": {
+        "city": "Munich",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 5,
+        "unit_price": 4.49,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 1,
+        "unit_price": 123.71,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 3,
+        "unit_price": 98.77,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 2,
+        "unit_price": 80.78,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "bulk",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70014,
+    "placed": "2026-06-03",
+    "status": "shipped",
+    "customer": {
+      "name": "Caleb Novak",
+      "tier": "gold",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-122",
+        "qty": 4,
+        "unit_price": 51.99,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70015,
+    "placed": "2026-06-27",
+    "status": "placed",
+    "customer": {
+      "name": "Fiona Costa",
+      "tier": "bronze",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-117",
+        "qty": 11,
+        "unit_price": 97.52,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 8,
+        "unit_price": 88.65,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-101",
+        "qty": 5,
+        "unit_price": 69.22,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70016,
+    "placed": "2026-06-18",
+    "status": "delivered",
+    "customer": {
+      "name": "Ivan Dubois",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-126",
+        "qty": 2,
+        "unit_price": 136.63,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-109",
+        "qty": 8,
+        "unit_price": 141.66,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70017,
+    "placed": "2026-06-28",
+    "status": "returned",
+    "customer": {
+      "name": "Emil Ortega",
+      "tier": "bronze",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-120",
+        "qty": 6,
+        "unit_price": 81.64,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 7,
+        "unit_price": 225.74,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70018,
+    "placed": "2026-08-07",
+    "status": "placed",
+    "customer": {
+      "name": "Rosa Abbott",
+      "tier": "silver",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-124",
+        "qty": 10,
+        "unit_price": 215.7,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 9,
+        "unit_price": 101.26,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift",
+      "b2b",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70019,
+    "placed": "2026-04-26",
+    "status": "shipped",
+    "customer": {
+      "name": "Umar Ortega",
+      "tier": "gold",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-107",
+        "qty": 10,
+        "unit_price": 172.14,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-125",
+        "qty": 7,
+        "unit_price": 178.74,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 7,
+        "unit_price": 12.66,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70020,
+    "placed": "2026-03-17",
+    "status": "delivered",
+    "customer": {
+      "name": "Rosa Kaur",
+      "tier": "gold",
+      "address": {
+        "city": "Munich",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-121",
+        "qty": 11,
+        "unit_price": 77.32,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70021,
+    "placed": "2026-08-15",
+    "status": "shipped",
+    "customer": {
+      "name": "Marco Chen",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-102",
+        "qty": 4,
+        "unit_price": 157.62,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-104",
+        "qty": 12,
+        "unit_price": 30.12,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 2,
+        "unit_price": 177.65,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-130",
+        "qty": 4,
+        "unit_price": 88.69,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70022,
+    "placed": "2026-02-21",
+    "status": "placed",
+    "customer": {
+      "name": "Ines Lopez",
+      "tier": "bronze",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-114",
+        "qty": 12,
+        "unit_price": 194.94,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 5,
+        "unit_price": 25.99,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70023,
+    "placed": "2026-01-09",
+    "status": "shipped",
+    "customer": {
+      "name": "Zoe Andersen",
+      "tier": "gold",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-121",
+        "qty": 1,
+        "unit_price": 167.67,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-124",
+        "qty": 7,
+        "unit_price": 212.35,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 9,
+        "unit_price": 161.22,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 7,
+        "unit_price": 204.84,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b",
+      "express",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70024,
+    "placed": "2026-09-18",
+    "status": "returned",
+    "customer": {
+      "name": "Emil Gruber",
+      "tier": "bronze",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-103",
+        "qty": 12,
+        "unit_price": 42.14,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 4,
+        "unit_price": 13.21,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70025,
+    "placed": "2026-06-01",
+    "status": "delivered",
+    "customer": {
+      "name": "Umar Abbott",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-118",
+        "qty": 6,
+        "unit_price": 9.15,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 12,
+        "unit_price": 100.05,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 6,
+        "unit_price": 190.99,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70026,
+    "placed": "2026-04-03",
+    "status": "returned",
+    "customer": {
+      "name": "Wes Ferreira",
+      "tier": "silver",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-101",
+        "qty": 9,
+        "unit_price": 150.85,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 3,
+        "unit_price": 84.02,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-103",
+        "qty": 4,
+        "unit_price": 177.52,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 1,
+        "unit_price": 193.98,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "express",
+      "b2b",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70027,
+    "placed": "2026-07-05",
+    "status": "delivered",
+    "customer": {
+      "name": "Dev Jensen",
+      "tier": "bronze",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 5,
+        "unit_price": 230.18,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70028,
+    "placed": "2026-04-18",
+    "status": "shipped",
+    "customer": {
+      "name": "Nikhil Costa",
+      "tier": "bronze",
+      "address": {
+        "city": "Munich",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 9,
+        "unit_price": 230.81,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 9,
+        "unit_price": 108.3,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 5,
+        "unit_price": 173.15,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70029,
+    "placed": "2026-05-15",
+    "status": "placed",
+    "customer": {
+      "name": "Ben Costa",
+      "tier": "silver",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 8,
+        "unit_price": 194.68,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 2,
+        "unit_price": 239.12,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 1,
+        "unit_price": 134.84,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "bulk",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70030,
+    "placed": "2026-02-27",
+    "status": "placed",
+    "customer": {
+      "name": "Olga Novak",
+      "tier": "gold",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 11,
+        "unit_price": 50.79,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 12,
+        "unit_price": 10.45,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-130",
+        "qty": 3,
+        "unit_price": 161.62,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 12,
+        "unit_price": 231.59,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70031,
+    "placed": "2026-09-26",
+    "status": "placed",
+    "customer": {
+      "name": "Kofi Costa",
+      "tier": "gold",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 1,
+        "unit_price": 230.89,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70032,
+    "placed": "2026-08-04",
+    "status": "delivered",
+    "customer": {
+      "name": "Chloe Eriksen",
+      "tier": "bronze",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 4,
+        "unit_price": 194.69,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b",
+      "express",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70033,
+    "placed": "2026-08-12",
+    "status": "delivered",
+    "customer": {
+      "name": "Jonah Jensen",
+      "tier": "bronze",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-116",
+        "qty": 1,
+        "unit_price": 220.75,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 9,
+        "unit_price": 239.2,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70034,
+    "placed": "2026-09-23",
+    "status": "placed",
+    "customer": {
+      "name": "Aiden Nakamura",
+      "tier": "bronze",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-111",
+        "qty": 5,
+        "unit_price": 204.3,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70035,
+    "placed": "2026-02-15",
+    "status": "delivered",
+    "customer": {
+      "name": "Fiona Okafor",
+      "tier": "gold",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 7,
+        "unit_price": 242.73,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70036,
+    "placed": "2026-09-28",
+    "status": "shipped",
+    "customer": {
+      "name": "Bea Jensen",
+      "tier": "gold",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-124",
+        "qty": 4,
+        "unit_price": 85.21,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70037,
+    "placed": "2026-06-07",
+    "status": "placed",
+    "customer": {
+      "name": "Ines Fischer",
+      "tier": "silver",
+      "address": {
+        "city": "Lyon",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-118",
+        "qty": 9,
+        "unit_price": 173.06,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 7,
+        "unit_price": 51.55,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70038,
+    "placed": "2026-07-27",
+    "status": "shipped",
+    "customer": {
+      "name": "Xin Silva",
+      "tier": "silver",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-101",
+        "qty": 7,
+        "unit_price": 32.46,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "gift",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70039,
+    "placed": "2026-01-13",
+    "status": "delivered",
+    "customer": {
+      "name": "Yara Silva",
+      "tier": "gold",
+      "address": {
+        "city": "Munich",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-108",
+        "qty": 9,
+        "unit_price": 56.84,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70040,
+    "placed": "2026-09-16",
+    "status": "delivered",
+    "customer": {
+      "name": "Maya Ueda",
+      "tier": "gold",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-122",
+        "qty": 12,
+        "unit_price": 218.4,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 10,
+        "unit_price": 5.66,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 6,
+        "unit_price": 18.18,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70041,
+    "placed": "2026-02-14",
+    "status": "placed",
+    "customer": {
+      "name": "Wes Haas",
+      "tier": "bronze",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-110",
+        "qty": 5,
+        "unit_price": 170.35,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 8,
+        "unit_price": 35.01,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-103",
+        "qty": 1,
+        "unit_price": 53.22,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70042,
+    "placed": "2026-03-16",
+    "status": "shipped",
+    "customer": {
+      "name": "Olga Chen",
+      "tier": "silver",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 10,
+        "unit_price": 246.44,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 12,
+        "unit_price": 12.6,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 4,
+        "unit_price": 105.28,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 7,
+        "unit_price": 201.36,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70043,
+    "placed": "2026-09-18",
+    "status": "placed",
+    "customer": {
+      "name": "Ada Hale",
+      "tier": "gold",
+      "address": {
+        "city": "Berlin",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-128",
+        "qty": 6,
+        "unit_price": 112.46,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-114",
+        "qty": 10,
+        "unit_price": 201.93,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 6,
+        "unit_price": 47.54,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 2,
+        "unit_price": 43.65,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70044,
+    "placed": "2026-08-08",
+    "status": "delivered",
+    "customer": {
+      "name": "Umar Ueda",
+      "tier": "silver",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 9,
+        "unit_price": 130.19,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-103",
+        "qty": 10,
+        "unit_price": 218.67,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "b2b",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70045,
+    "placed": "2026-08-19",
+    "status": "returned",
+    "customer": {
+      "name": "Kofi Yilmaz",
+      "tier": "silver",
+      "address": {
+        "city": "Lyon",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 3,
+        "unit_price": 190.52,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 9,
+        "unit_price": 54.36,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 9,
+        "unit_price": 3.22,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70046,
+    "placed": "2026-06-18",
+    "status": "shipped",
+    "customer": {
+      "name": "Marco Okafor",
+      "tier": "gold",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 3,
+        "unit_price": 10.51,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 11,
+        "unit_price": 6.73,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 5,
+        "unit_price": 234.82,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk",
+      "gift",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70047,
+    "placed": "2026-04-14",
+    "status": "shipped",
+    "customer": {
+      "name": "Dana Fischer",
+      "tier": "bronze",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-126",
+        "qty": 1,
+        "unit_price": 31.07,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70048,
+    "placed": "2026-09-14",
+    "status": "placed",
+    "customer": {
+      "name": "Nikhil Nakamura",
+      "tier": "bronze",
+      "address": {
+        "city": "Warsaw",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-122",
+        "qty": 6,
+        "unit_price": 155.51,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 12,
+        "unit_price": 82.51,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-101",
+        "qty": 6,
+        "unit_price": 86.5,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-101",
+        "qty": 6,
+        "unit_price": 214.57,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70049,
+    "placed": "2026-02-12",
+    "status": "placed",
+    "customer": {
+      "name": "Liam Bianchi",
+      "tier": "bronze",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-119",
+        "qty": 1,
+        "unit_price": 131.53,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 2,
+        "unit_price": 68.77,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 9,
+        "unit_price": 116.33,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 7,
+        "unit_price": 209.42,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70050,
+    "placed": "2026-05-04",
+    "status": "returned",
+    "customer": {
+      "name": "Jonah Moreau",
+      "tier": "silver",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-104",
+        "qty": 11,
+        "unit_price": 138.19,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 7,
+        "unit_price": 185.19,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 1,
+        "unit_price": 156.73,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 3,
+        "unit_price": 243.68,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70051,
+    "placed": "2026-03-03",
+    "status": "delivered",
+    "customer": {
+      "name": "Umar Iqbal",
+      "tier": "silver",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-114",
+        "qty": 6,
+        "unit_price": 225.27,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 5,
+        "unit_price": 17.62,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70052,
+    "placed": "2026-03-12",
+    "status": "placed",
+    "customer": {
+      "name": "Nikhil Ito",
+      "tier": "bronze",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 1,
+        "unit_price": 94.04,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 3,
+        "unit_price": 35.09,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 11,
+        "unit_price": 70.64,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70053,
+    "placed": "2026-01-27",
+    "status": "shipped",
+    "customer": {
+      "name": "Ada Mendes",
+      "tier": "bronze",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-108",
+        "qty": 3,
+        "unit_price": 156.87,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 1,
+        "unit_price": 202.15,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 2,
+        "unit_price": 48.03,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 4,
+        "unit_price": 160.18,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70054,
+    "placed": "2026-09-05",
+    "status": "shipped",
+    "customer": {
+      "name": "Sami Rossi",
+      "tier": "silver",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 2,
+        "unit_price": 177.65,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 5,
+        "unit_price": 202.63,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 5,
+        "unit_price": 203.5,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70055,
+    "placed": "2026-06-03",
+    "status": "placed",
+    "customer": {
+      "name": "Grace Gruber",
+      "tier": "bronze",
+      "address": {
+        "city": "Madrid",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-114",
+        "qty": 10,
+        "unit_price": 132.96,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 7,
+        "unit_price": 8.12,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift",
+      "bulk",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70056,
+    "placed": "2026-04-24",
+    "status": "returned",
+    "customer": {
+      "name": "Zoe Haas",
+      "tier": "bronze",
+      "address": {
+        "city": "Berlin",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-102",
+        "qty": 4,
+        "unit_price": 130.69,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-120",
+        "qty": 7,
+        "unit_price": 210.06,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 2,
+        "unit_price": 79.68,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-125",
+        "qty": 3,
+        "unit_price": 170.11,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70057,
+    "placed": "2026-01-18",
+    "status": "delivered",
+    "customer": {
+      "name": "Aiden Varga",
+      "tier": "bronze",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-123",
+        "qty": 10,
+        "unit_price": 168.24,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 3,
+        "unit_price": 18.07,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 3,
+        "unit_price": 72.35,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-124",
+        "qty": 7,
+        "unit_price": 185.48,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift",
+      "bulk",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70058,
+    "placed": "2026-07-16",
+    "status": "returned",
+    "customer": {
+      "name": "Dev Chen",
+      "tier": "silver",
+      "address": {
+        "city": "Berlin",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-118",
+        "qty": 1,
+        "unit_price": 139.27,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-109",
+        "qty": 1,
+        "unit_price": 122.39,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70059,
+    "placed": "2026-08-24",
+    "status": "placed",
+    "customer": {
+      "name": "Ines Yilmaz",
+      "tier": "silver",
+      "address": {
+        "city": "Madrid",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-105",
+        "qty": 10,
+        "unit_price": 152.77,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 10,
+        "unit_price": 201.71,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 1,
+        "unit_price": 208.31,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70060,
+    "placed": "2026-03-25",
+    "status": "placed",
+    "customer": {
+      "name": "Ada Iqbal",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-114",
+        "qty": 12,
+        "unit_price": 142.97,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk",
+      "fragile",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70061,
+    "placed": "2026-03-17",
+    "status": "shipped",
+    "customer": {
+      "name": "Hana Fischer",
+      "tier": "bronze",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-119",
+        "qty": 9,
+        "unit_price": 203.21,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 10,
+        "unit_price": 9.24,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 7,
+        "unit_price": 73.08,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70062,
+    "placed": "2026-04-12",
+    "status": "delivered",
+    "customer": {
+      "name": "Gus Quist",
+      "tier": "gold",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-110",
+        "qty": 7,
+        "unit_price": 70.06,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 11,
+        "unit_price": 103.44,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 11,
+        "unit_price": 169.38,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 11,
+        "unit_price": 34.53,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70063,
+    "placed": "2026-07-10",
+    "status": "placed",
+    "customer": {
+      "name": "Emil Hale",
+      "tier": "bronze",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 8,
+        "unit_price": 221.34,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 10,
+        "unit_price": 223.92,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 10,
+        "unit_price": 201.29,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 7,
+        "unit_price": 152.22,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b",
+      "gift",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70064,
+    "placed": "2026-01-15",
+    "status": "returned",
+    "customer": {
+      "name": "Rosa Yilmaz",
+      "tier": "silver",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 8,
+        "unit_price": 199.92,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 7,
+        "unit_price": 110.61,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 9,
+        "unit_price": 14.74,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b",
+      "express",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70065,
+    "placed": "2026-04-26",
+    "status": "shipped",
+    "customer": {
+      "name": "Farid Abbott",
+      "tier": "gold",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 12,
+        "unit_price": 42.79,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "bulk",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70066,
+    "placed": "2026-04-20",
+    "status": "returned",
+    "customer": {
+      "name": "Ines Xu",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-115",
+        "qty": 2,
+        "unit_price": 192.13,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 8,
+        "unit_price": 67.98,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 9,
+        "unit_price": 120.18,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70067,
+    "placed": "2026-09-22",
+    "status": "placed",
+    "customer": {
+      "name": "Nora Lopez",
+      "tier": "silver",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-124",
+        "qty": 7,
+        "unit_price": 135.25,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 9,
+        "unit_price": 245.75,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-114",
+        "qty": 5,
+        "unit_price": 194.78,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 1,
+        "unit_price": 185.84,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70068,
+    "placed": "2026-07-06",
+    "status": "placed",
+    "customer": {
+      "name": "Nora Eriksen",
+      "tier": "bronze",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-111",
+        "qty": 8,
+        "unit_price": 117.84,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70069,
+    "placed": "2026-01-15",
+    "status": "placed",
+    "customer": {
+      "name": "Ben Patel",
+      "tier": "gold",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 7,
+        "unit_price": 124.58,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 9,
+        "unit_price": 187.2,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 6,
+        "unit_price": 43.17,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 9,
+        "unit_price": 100.8,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70070,
+    "placed": "2026-03-08",
+    "status": "delivered",
+    "customer": {
+      "name": "Kofi Yilmaz",
+      "tier": "gold",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-122",
+        "qty": 10,
+        "unit_price": 30.47,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-120",
+        "qty": 3,
+        "unit_price": 88.2,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-125",
+        "qty": 8,
+        "unit_price": 9.43,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift",
+      "express",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70071,
+    "placed": "2026-03-10",
+    "status": "returned",
+    "customer": {
+      "name": "Quinn Quist",
+      "tier": "bronze",
+      "address": {
+        "city": "Munich",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-108",
+        "qty": 9,
+        "unit_price": 249.88,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70072,
+    "placed": "2026-04-13",
+    "status": "shipped",
+    "customer": {
+      "name": "Kofi Yilmaz",
+      "tier": "silver",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-124",
+        "qty": 6,
+        "unit_price": 131.56,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 4,
+        "unit_price": 233.06,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 12,
+        "unit_price": 30.95,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70073,
+    "placed": "2026-05-23",
+    "status": "placed",
+    "customer": {
+      "name": "Kira Diaz",
+      "tier": "bronze",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-121",
+        "qty": 7,
+        "unit_price": 57.53,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-125",
+        "qty": 5,
+        "unit_price": 92.21,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 11,
+        "unit_price": 161.04,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70074,
+    "placed": "2026-03-19",
+    "status": "shipped",
+    "customer": {
+      "name": "Liam Barros",
+      "tier": "gold",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-116",
+        "qty": 5,
+        "unit_price": 67.4,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 6,
+        "unit_price": 103.21,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 11,
+        "unit_price": 237.15,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 12,
+        "unit_price": 126.28,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70075,
+    "placed": "2026-08-12",
+    "status": "placed",
+    "customer": {
+      "name": "Xin Rossi",
+      "tier": "silver",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-102",
+        "qty": 5,
+        "unit_price": 91.2,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-114",
+        "qty": 8,
+        "unit_price": 151.41,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 4,
+        "unit_price": 239.83,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 12,
+        "unit_price": 49.04,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70076,
+    "placed": "2026-01-17",
+    "status": "returned",
+    "customer": {
+      "name": "Tara Ueda",
+      "tier": "silver",
+      "address": {
+        "city": "Warsaw",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-111",
+        "qty": 11,
+        "unit_price": 203.05,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 3,
+        "unit_price": 196.82,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-103",
+        "qty": 7,
+        "unit_price": 156.9,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70077,
+    "placed": "2026-01-15",
+    "status": "delivered",
+    "customer": {
+      "name": "Marco Eriksen",
+      "tier": "bronze",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-109",
+        "qty": 12,
+        "unit_price": 213.97,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70078,
+    "placed": "2026-06-15",
+    "status": "placed",
+    "customer": {
+      "name": "Elena Okafor",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 2,
+        "unit_price": 126.55,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 3,
+        "unit_price": 43.06,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 9,
+        "unit_price": 86.15,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 6,
+        "unit_price": 50.44,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70079,
+    "placed": "2026-01-23",
+    "status": "returned",
+    "customer": {
+      "name": "Liam Quist",
+      "tier": "gold",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-114",
+        "qty": 2,
+        "unit_price": 194.51,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 8,
+        "unit_price": 82.28,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 9,
+        "unit_price": 173.74,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "gift",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70080,
+    "placed": "2026-05-16",
+    "status": "returned",
+    "customer": {
+      "name": "Ines Weber",
+      "tier": "gold",
+      "address": {
+        "city": "Madrid",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-107",
+        "qty": 1,
+        "unit_price": 245.77,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-124",
+        "qty": 2,
+        "unit_price": 90.23,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-103",
+        "qty": 8,
+        "unit_price": 119.91,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-130",
+        "qty": 7,
+        "unit_price": 24.72,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70081,
+    "placed": "2026-02-27",
+    "status": "returned",
+    "customer": {
+      "name": "Emil Abbott",
+      "tier": "bronze",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-101",
+        "qty": 4,
+        "unit_price": 121.53,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 5,
+        "unit_price": 5.8,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 1,
+        "unit_price": 88.28,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70082,
+    "placed": "2026-05-15",
+    "status": "delivered",
+    "customer": {
+      "name": "Ines Zimmer",
+      "tier": "bronze",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-105",
+        "qty": 7,
+        "unit_price": 5.03,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-130",
+        "qty": 7,
+        "unit_price": 198.73,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 3,
+        "unit_price": 210.78,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70083,
+    "placed": "2026-04-01",
+    "status": "returned",
+    "customer": {
+      "name": "Bea Quist",
+      "tier": "silver",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 2,
+        "unit_price": 153.45,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 7,
+        "unit_price": 63.96,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-120",
+        "qty": 11,
+        "unit_price": 194.16,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-104",
+        "qty": 11,
+        "unit_price": 70.72,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70084,
+    "placed": "2026-02-10",
+    "status": "delivered",
+    "customer": {
+      "name": "Maya Gruber",
+      "tier": "gold",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-105",
+        "qty": 8,
+        "unit_price": 36.67,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70085,
+    "placed": "2026-08-06",
+    "status": "delivered",
+    "customer": {
+      "name": "Xin Patel",
+      "tier": "bronze",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-104",
+        "qty": 3,
+        "unit_price": 233.79,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 1,
+        "unit_price": 51.24,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 5,
+        "unit_price": 4.78,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 3,
+        "unit_price": 247.22,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70086,
+    "placed": "2026-01-27",
+    "status": "placed",
+    "customer": {
+      "name": "Yara Weber",
+      "tier": "gold",
+      "address": {
+        "city": "Warsaw",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-101",
+        "qty": 4,
+        "unit_price": 94.52,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70087,
+    "placed": "2026-06-27",
+    "status": "delivered",
+    "customer": {
+      "name": "Liam Ueda",
+      "tier": "silver",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 5,
+        "unit_price": 244.74,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 9,
+        "unit_price": 117.82,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 1,
+        "unit_price": 90.93,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70088,
+    "placed": "2026-07-17",
+    "status": "delivered",
+    "customer": {
+      "name": "Caleb Haas",
+      "tier": "silver",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 9,
+        "unit_price": 157.71,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 12,
+        "unit_price": 172.38,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 12,
+        "unit_price": 125.97,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70089,
+    "placed": "2026-02-23",
+    "status": "shipped",
+    "customer": {
+      "name": "Marco Barros",
+      "tier": "bronze",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-103",
+        "qty": 2,
+        "unit_price": 27.48,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 6,
+        "unit_price": 97.33,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 2,
+        "unit_price": 49.06,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 4,
+        "unit_price": 131.37,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70090,
+    "placed": "2026-01-11",
+    "status": "placed",
+    "customer": {
+      "name": "Maya Silva",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-117",
+        "qty": 7,
+        "unit_price": 106.82,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 8,
+        "unit_price": 153.58,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 6,
+        "unit_price": 243.92,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-120",
+        "qty": 12,
+        "unit_price": 232.5,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70091,
+    "placed": "2026-01-14",
+    "status": "shipped",
+    "customer": {
+      "name": "Chloe Haas",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 3,
+        "unit_price": 69.29,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 4,
+        "unit_price": 148.43,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70092,
+    "placed": "2026-07-19",
+    "status": "returned",
+    "customer": {
+      "name": "Nora Yilmaz",
+      "tier": "silver",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 9,
+        "unit_price": 91.99,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-109",
+        "qty": 10,
+        "unit_price": 203.06,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70093,
+    "placed": "2026-07-27",
+    "status": "shipped",
+    "customer": {
+      "name": "Fiona Fischer",
+      "tier": "gold",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 2,
+        "unit_price": 75.32,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 1,
+        "unit_price": 247.48,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70094,
+    "placed": "2026-01-17",
+    "status": "shipped",
+    "customer": {
+      "name": "Wes Mendes",
+      "tier": "gold",
+      "address": {
+        "city": "Madrid",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-108",
+        "qty": 7,
+        "unit_price": 61.75,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 6,
+        "unit_price": 35.03,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70095,
+    "placed": "2026-05-22",
+    "status": "shipped",
+    "customer": {
+      "name": "Wes Tanaka",
+      "tier": "gold",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-120",
+        "qty": 9,
+        "unit_price": 107.66,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 10,
+        "unit_price": 81.26,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70096,
+    "placed": "2026-07-18",
+    "status": "shipped",
+    "customer": {
+      "name": "Vera Dubois",
+      "tier": "bronze",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-105",
+        "qty": 5,
+        "unit_price": 180.27,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 10,
+        "unit_price": 218.29,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "bulk",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70097,
+    "placed": "2026-02-09",
+    "status": "shipped",
+    "customer": {
+      "name": "Wes Tanaka",
+      "tier": "gold",
+      "address": {
+        "city": "Lyon",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 6,
+        "unit_price": 249.15,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70098,
+    "placed": "2026-07-04",
+    "status": "delivered",
+    "customer": {
+      "name": "Nikhil Kowalski",
+      "tier": "gold",
+      "address": {
+        "city": "Berlin",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 10,
+        "unit_price": 178.14,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 9,
+        "unit_price": 66.73,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 2,
+        "unit_price": 181.93,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70099,
+    "placed": "2026-01-22",
+    "status": "shipped",
+    "customer": {
+      "name": "Marco Andersen",
+      "tier": "silver",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-115",
+        "qty": 12,
+        "unit_price": 90.62,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 3,
+        "unit_price": 39.33,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-104",
+        "qty": 10,
+        "unit_price": 10.24,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-125",
+        "qty": 11,
+        "unit_price": 40.34,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70100,
+    "placed": "2026-06-02",
+    "status": "returned",
+    "customer": {
+      "name": "Rosa Zimmer",
+      "tier": "silver",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-109",
+        "qty": 7,
+        "unit_price": 243.85,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "fragile",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70101,
+    "placed": "2026-02-16",
+    "status": "placed",
+    "customer": {
+      "name": "Nora Diaz",
+      "tier": "bronze",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-123",
+        "qty": 4,
+        "unit_price": 126.65,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 1,
+        "unit_price": 94.09,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 2,
+        "unit_price": 33.36,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 8,
+        "unit_price": 92.85,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70102,
+    "placed": "2026-09-14",
+    "status": "shipped",
+    "customer": {
+      "name": "Ada Quist",
+      "tier": "silver",
+      "address": {
+        "city": "Warsaw",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-114",
+        "qty": 5,
+        "unit_price": 18.46,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 5,
+        "unit_price": 28.59,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 2,
+        "unit_price": 228.97,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-101",
+        "qty": 5,
+        "unit_price": 108.61,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70103,
+    "placed": "2026-06-24",
+    "status": "shipped",
+    "customer": {
+      "name": "Umar Nakamura",
+      "tier": "gold",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-129",
+        "qty": 5,
+        "unit_price": 6.92,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 5,
+        "unit_price": 218.78,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70104,
+    "placed": "2026-05-01",
+    "status": "shipped",
+    "customer": {
+      "name": "Hana Weber",
+      "tier": "gold",
+      "address": {
+        "city": "Warsaw",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-109",
+        "qty": 6,
+        "unit_price": 195.93,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 6,
+        "unit_price": 140.77,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 8,
+        "unit_price": 214.43,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 3,
+        "unit_price": 48.47,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70105,
+    "placed": "2026-03-27",
+    "status": "shipped",
+    "customer": {
+      "name": "Aiden Barros",
+      "tier": "silver",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-120",
+        "qty": 9,
+        "unit_price": 247.08,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 3,
+        "unit_price": 119.22,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-109",
+        "qty": 12,
+        "unit_price": 172.74,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 6,
+        "unit_price": 184.5,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70106,
+    "placed": "2026-07-16",
+    "status": "shipped",
+    "customer": {
+      "name": "Bea Kaur",
+      "tier": "bronze",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-102",
+        "qty": 9,
+        "unit_price": 129.76,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 4,
+        "unit_price": 240.39,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express"
+    ]
+  },
+  {
+    "order_id": 70107,
+    "placed": "2026-07-16",
+    "status": "shipped",
+    "customer": {
+      "name": "Lena Lindqvist",
+      "tier": "gold",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-103",
+        "qty": 11,
+        "unit_price": 229.86,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 10,
+        "unit_price": 207.46,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 11,
+        "unit_price": 96.64,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 3,
+        "unit_price": 198.23,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70108,
+    "placed": "2026-02-23",
+    "status": "shipped",
+    "customer": {
+      "name": "Umar Mendes",
+      "tier": "bronze",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-119",
+        "qty": 6,
+        "unit_price": 29.3,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 12,
+        "unit_price": 136.38,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 6,
+        "unit_price": 146.04,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "bulk",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70109,
+    "placed": "2026-01-24",
+    "status": "returned",
+    "customer": {
+      "name": "Hana Barros",
+      "tier": "bronze",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-124",
+        "qty": 2,
+        "unit_price": 140.64,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 3,
+        "unit_price": 10.1,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 12,
+        "unit_price": 127.84,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 6,
+        "unit_price": 237.68,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "fragile",
+      "gift",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70110,
+    "placed": "2026-05-27",
+    "status": "shipped",
+    "customer": {
+      "name": "Vera Zimmer",
+      "tier": "bronze",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-125",
+        "qty": 6,
+        "unit_price": 70.76,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 3,
+        "unit_price": 91.96,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 4,
+        "unit_price": 157.27,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70111,
+    "placed": "2026-04-05",
+    "status": "delivered",
+    "customer": {
+      "name": "Vera Bianchi",
+      "tier": "gold",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-104",
+        "qty": 7,
+        "unit_price": 206.34,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 9,
+        "unit_price": 43.74,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70112,
+    "placed": "2026-03-08",
+    "status": "placed",
+    "customer": {
+      "name": "Hana Kowalski",
+      "tier": "silver",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-118",
+        "qty": 6,
+        "unit_price": 211.38,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-124",
+        "qty": 12,
+        "unit_price": 186.44,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 1,
+        "unit_price": 125.72,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70113,
+    "placed": "2026-07-22",
+    "status": "shipped",
+    "customer": {
+      "name": "Ben Bianchi",
+      "tier": "bronze",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-120",
+        "qty": 8,
+        "unit_price": 66.03,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 7,
+        "unit_price": 215.7,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-104",
+        "qty": 12,
+        "unit_price": 96.98,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70114,
+    "placed": "2026-01-09",
+    "status": "returned",
+    "customer": {
+      "name": "Bea Gruber",
+      "tier": "silver",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-118",
+        "qty": 2,
+        "unit_price": 132.78,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b",
+      "fragile",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70115,
+    "placed": "2026-02-02",
+    "status": "placed",
+    "customer": {
+      "name": "Umar Silva",
+      "tier": "gold",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-115",
+        "qty": 10,
+        "unit_price": 44.79,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 11,
+        "unit_price": 46.61,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 9,
+        "unit_price": 159.49,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-109",
+        "qty": 10,
+        "unit_price": 52.34,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70116,
+    "placed": "2026-04-05",
+    "status": "shipped",
+    "customer": {
+      "name": "Dev Andersen",
+      "tier": "gold",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 3,
+        "unit_price": 245.65,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-114",
+        "qty": 2,
+        "unit_price": 226.96,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-122",
+        "qty": 8,
+        "unit_price": 203.66,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "fragile",
+      "express",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70117,
+    "placed": "2026-01-20",
+    "status": "returned",
+    "customer": {
+      "name": "Ines Mendes",
+      "tier": "bronze",
+      "address": {
+        "city": "Berlin",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-105",
+        "qty": 9,
+        "unit_price": 75.63,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 7,
+        "unit_price": 142.61,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70118,
+    "placed": "2026-08-25",
+    "status": "shipped",
+    "customer": {
+      "name": "Caleb Ueda",
+      "tier": "bronze",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-128",
+        "qty": 1,
+        "unit_price": 193.42,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 7,
+        "unit_price": 214.35,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 12,
+        "unit_price": 172.28,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 12,
+        "unit_price": 226.87,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70119,
+    "placed": "2026-04-04",
+    "status": "delivered",
+    "customer": {
+      "name": "Chloe Haas",
+      "tier": "silver",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 6,
+        "unit_price": 231.21,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70120,
+    "placed": "2026-08-15",
+    "status": "shipped",
+    "customer": {
+      "name": "Yara Okafor",
+      "tier": "silver",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 8,
+        "unit_price": 175.75,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 7,
+        "unit_price": 220.86,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70121,
+    "placed": "2026-09-26",
+    "status": "shipped",
+    "customer": {
+      "name": "Rosa Moreau",
+      "tier": "silver",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-123",
+        "qty": 5,
+        "unit_price": 101.22,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-104",
+        "qty": 1,
+        "unit_price": 247.02,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 4,
+        "unit_price": 186.64,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 4,
+        "unit_price": 175.24,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70122,
+    "placed": "2026-04-13",
+    "status": "delivered",
+    "customer": {
+      "name": "Pablo Silva",
+      "tier": "gold",
+      "address": {
+        "city": "Paris",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-126",
+        "qty": 11,
+        "unit_price": 77.53,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 2,
+        "unit_price": 91.33,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 12,
+        "unit_price": 17.47,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 3,
+        "unit_price": 207.33,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70123,
+    "placed": "2026-01-13",
+    "status": "returned",
+    "customer": {
+      "name": "Gus Kowalski",
+      "tier": "bronze",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-105",
+        "qty": 10,
+        "unit_price": 24.19,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 4,
+        "unit_price": 67.03,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 5,
+        "unit_price": 70.14,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70124,
+    "placed": "2026-06-01",
+    "status": "shipped",
+    "customer": {
+      "name": "Fiona Varga",
+      "tier": "silver",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 8,
+        "unit_price": 238.56,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-130",
+        "qty": 6,
+        "unit_price": 24.27,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 10,
+        "unit_price": 39.37,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70125,
+    "placed": "2026-04-17",
+    "status": "delivered",
+    "customer": {
+      "name": "Aiden Garcia",
+      "tier": "gold",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 6,
+        "unit_price": 199.46,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 11,
+        "unit_price": 188.01,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 5,
+        "unit_price": 143.02,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-120",
+        "qty": 8,
+        "unit_price": 79.2,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70126,
+    "placed": "2026-01-16",
+    "status": "delivered",
+    "customer": {
+      "name": "Kira Garcia",
+      "tier": "silver",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 5,
+        "unit_price": 72.53,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 8,
+        "unit_price": 44.42,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 11,
+        "unit_price": 117.85,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "express",
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70127,
+    "placed": "2026-09-09",
+    "status": "placed",
+    "customer": {
+      "name": "Kofi Ortega",
+      "tier": "gold",
+      "address": {
+        "city": "Warsaw",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-126",
+        "qty": 6,
+        "unit_price": 99.6,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-102",
+        "qty": 6,
+        "unit_price": 23.82,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70128,
+    "placed": "2026-07-24",
+    "status": "returned",
+    "customer": {
+      "name": "Quinn Abbott",
+      "tier": "silver",
+      "address": {
+        "city": "Berlin",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-116",
+        "qty": 10,
+        "unit_price": 75.97,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 10,
+        "unit_price": 3.61,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 10,
+        "unit_price": 208.51,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70129,
+    "placed": "2026-08-27",
+    "status": "placed",
+    "customer": {
+      "name": "Gus Andersen",
+      "tier": "bronze",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-112",
+        "qty": 8,
+        "unit_price": 51.52,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 12,
+        "unit_price": 126.81,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "order_id": 70130,
+    "placed": "2026-04-25",
+    "status": "delivered",
+    "customer": {
+      "name": "Caleb Quist",
+      "tier": "silver",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-110",
+        "qty": 4,
+        "unit_price": 111.7,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70131,
+    "placed": "2026-05-01",
+    "status": "shipped",
+    "customer": {
+      "name": "Umar Hale",
+      "tier": "gold",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-116",
+        "qty": 10,
+        "unit_price": 215.67,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "express",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70132,
+    "placed": "2026-03-25",
+    "status": "shipped",
+    "customer": {
+      "name": "Bea Quist",
+      "tier": "gold",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 7,
+        "unit_price": 230.48,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 6,
+        "unit_price": 26.96,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-110",
+        "qty": 11,
+        "unit_price": 175.08,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 4,
+        "unit_price": 97.46,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "b2b",
+      "bulk",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70133,
+    "placed": "2026-07-21",
+    "status": "placed",
+    "customer": {
+      "name": "Bea Zimmer",
+      "tier": "gold",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-127",
+        "qty": 8,
+        "unit_price": 145.65,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-127",
+        "qty": 10,
+        "unit_price": 49.42,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 4,
+        "unit_price": 7.02,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70134,
+    "placed": "2026-09-21",
+    "status": "returned",
+    "customer": {
+      "name": "Jonah Gruber",
+      "tier": "silver",
+      "address": {
+        "city": "Turin",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-130",
+        "qty": 11,
+        "unit_price": 184.32,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 3,
+        "unit_price": 152.08,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-128",
+        "qty": 12,
+        "unit_price": 90.13,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70135,
+    "placed": "2026-07-11",
+    "status": "placed",
+    "customer": {
+      "name": "Jade Zimmer",
+      "tier": "silver",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-101",
+        "qty": 1,
+        "unit_price": 114.78,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 3,
+        "unit_price": 158.83,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-108",
+        "qty": 12,
+        "unit_price": 197.52,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-109",
+        "qty": 10,
+        "unit_price": 27.12,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk",
+      "fragile",
+      "express"
+    ]
+  },
+  {
+    "order_id": 70136,
+    "placed": "2026-04-23",
+    "status": "delivered",
+    "customer": {
+      "name": "Tara Patel",
+      "tier": "bronze",
+      "address": {
+        "city": "Valencia",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-104",
+        "qty": 8,
+        "unit_price": 191.05,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 8,
+        "unit_price": 169.52,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 11,
+        "unit_price": 77.4,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "fragile",
+      "b2b"
+    ]
+  },
+  {
+    "order_id": 70137,
+    "placed": "2026-09-14",
+    "status": "shipped",
+    "customer": {
+      "name": "Hiro Barros",
+      "tier": "gold",
+      "address": {
+        "city": "Lille",
+        "country": "France"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-111",
+        "qty": 12,
+        "unit_price": 27.55,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-117",
+        "qty": 12,
+        "unit_price": 178.69,
+        "discounts": []
+      }
+    ]
+  },
+  {
+    "order_id": 70138,
+    "placed": "2026-04-13",
+    "status": "delivered",
+    "customer": {
+      "name": "Lena Silva",
+      "tier": "bronze",
+      "address": {
+        "city": "Warsaw",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-116",
+        "qty": 4,
+        "unit_price": 107.35,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-101",
+        "qty": 10,
+        "unit_price": 109.67,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-107",
+        "qty": 5,
+        "unit_price": 212.35,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70139,
+    "placed": "2026-05-12",
+    "status": "placed",
+    "customer": {
+      "name": "Gus Mendes",
+      "tier": "gold",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 6,
+        "unit_price": 218.08,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-118",
+        "qty": 1,
+        "unit_price": 148.44,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70140,
+    "placed": "2026-03-28",
+    "status": "shipped",
+    "customer": {
+      "name": "Hana Haas",
+      "tier": "silver",
+      "address": {
+        "city": "Madrid",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-106",
+        "qty": 4,
+        "unit_price": 52.07,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-114",
+        "qty": 5,
+        "unit_price": 81.71,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 7,
+        "unit_price": 145.83,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-115",
+        "qty": 8,
+        "unit_price": 68.29,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "express",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70141,
+    "placed": "2026-02-10",
+    "status": "shipped",
+    "customer": {
+      "name": "Zoe Abbott",
+      "tier": "gold",
+      "address": {
+        "city": "Madrid",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-130",
+        "qty": 2,
+        "unit_price": 173.81,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-123",
+        "qty": 12,
+        "unit_price": 221.1,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-120",
+        "qty": 3,
+        "unit_price": 31.66,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70142,
+    "placed": "2026-09-26",
+    "status": "placed",
+    "customer": {
+      "name": "Gus Patel",
+      "tier": "bronze",
+      "address": {
+        "city": "Berlin",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-103",
+        "qty": 3,
+        "unit_price": 50.37,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          },
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 11,
+        "unit_price": 93.54,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-112",
+        "qty": 10,
+        "unit_price": 37.28,
+        "discounts": [
+          {
+            "code": "LOYAL5",
+            "pct": 5
+          },
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 3,
+        "unit_price": 151.21,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "bulk",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70143,
+    "placed": "2026-04-17",
+    "status": "delivered",
+    "customer": {
+      "name": "Kira Xu",
+      "tier": "bronze",
+      "address": {
+        "city": "Madrid",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-113",
+        "qty": 10,
+        "unit_price": 157.19,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 7,
+        "unit_price": 111.94,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-125",
+        "qty": 12,
+        "unit_price": 160.93,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-129",
+        "qty": 6,
+        "unit_price": 33.46,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "express",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70144,
+    "placed": "2026-01-17",
+    "status": "shipped",
+    "customer": {
+      "name": "Ada Ueda",
+      "tier": "silver",
+      "address": {
+        "city": "Hamburg",
+        "country": "Germany"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-116",
+        "qty": 9,
+        "unit_price": 218.52,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-105",
+        "qty": 2,
+        "unit_price": 183.53,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "b2b",
+      "fragile",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70145,
+    "placed": "2026-09-25",
+    "status": "returned",
+    "customer": {
+      "name": "Ben Eriksen",
+      "tier": "bronze",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-109",
+        "qty": 9,
+        "unit_price": 126.7,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70146,
+    "placed": "2026-06-27",
+    "status": "placed",
+    "customer": {
+      "name": "Tara Tanaka",
+      "tier": "gold",
+      "address": {
+        "city": "Gdansk",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-128",
+        "qty": 8,
+        "unit_price": 215.19,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-106",
+        "qty": 1,
+        "unit_price": 20.2,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-101",
+        "qty": 3,
+        "unit_price": 229.46,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-116",
+        "qty": 6,
+        "unit_price": 111.55,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "express",
+      "fragile",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70147,
+    "placed": "2026-06-20",
+    "status": "returned",
+    "customer": {
+      "name": "Caleb Tanaka",
+      "tier": "gold",
+      "address": {
+        "city": "Krakow",
+        "country": "Poland"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-130",
+        "qty": 1,
+        "unit_price": 20.5,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-103",
+        "qty": 4,
+        "unit_price": 42.05,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk"
+    ]
+  },
+  {
+    "order_id": 70148,
+    "placed": "2026-09-14",
+    "status": "returned",
+    "customer": {
+      "name": "Nora Bianchi",
+      "tier": "gold",
+      "address": {
+        "city": "Seville",
+        "country": "Spain"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-122",
+        "qty": 6,
+        "unit_price": 85.16,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-126",
+        "qty": 2,
+        "unit_price": 135.18,
+        "discounts": [
+          {
+            "code": "SPRING10",
+            "pct": 10
+          }
+        ]
+      },
+      {
+        "sku": "SKU-104",
+        "qty": 4,
+        "unit_price": 170.28,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      },
+      {
+        "sku": "SKU-113",
+        "qty": 6,
+        "unit_price": 228.86,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "bulk",
+      "b2b",
+      "fragile"
+    ]
+  },
+  {
+    "order_id": 70149,
+    "placed": "2026-08-10",
+    "status": "returned",
+    "customer": {
+      "name": "Bea Novak",
+      "tier": "bronze",
+      "address": {
+        "city": "Milan",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-117",
+        "qty": 6,
+        "unit_price": 94.85,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-119",
+        "qty": 1,
+        "unit_price": 133.88,
+        "discounts": [
+          {
+            "code": "WELCOME",
+            "pct": 20
+          }
+        ]
+      }
+    ],
+    "tags": [
+      "fragile",
+      "b2b",
+      "gift"
+    ]
+  },
+  {
+    "order_id": 70150,
+    "placed": "2026-08-01",
+    "status": "placed",
+    "customer": {
+      "name": "Kira Kaur",
+      "tier": "bronze",
+      "address": {
+        "city": "Rome",
+        "country": "Italy"
+      }
+    },
+    "lines": [
+      {
+        "sku": "SKU-120",
+        "qty": 2,
+        "unit_price": 32.1,
+        "discounts": []
+      },
+      {
+        "sku": "SKU-121",
+        "qty": 5,
+        "unit_price": 180.53,
+        "discounts": [
+          {
+            "code": "BULK15",
+            "pct": 15
+          }
+        ]
+      },
+      {
+        "sku": "SKU-111",
+        "qty": 8,
+        "unit_price": 122.53,
+        "discounts": []
+      }
+    ],
+    "tags": [
+      "gift"
+    ]
+  }
+]

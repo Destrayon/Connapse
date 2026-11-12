@@ -1,0 +1,88 @@
+{
+  "tools": [
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "split": "test",
+  "config": "hybrid",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "questions": 60,
+  "correct": 57,
+  "toolCalls": 2.95,
+  "costPerQuestionUsd": 0.0285,
+  "outcomes": {
+    "Answered": 60
+  },
+  "families": {
+    "lookup": {
+      "questions": 10,
+      "correct": 10,
+      "pass": true
+    },
+    "filter_count": {
+      "questions": 10,
+      "correct": 10,
+      "pass": true
+    },
+    "child_aggregate": {
+      "questions": 10,
+      "correct": 10,
+      "pass": true
+    },
+    "grandchild": {
+      "questions": 10,
+      "correct": 9,
+      "pass": true
+    },
+    "scalar_list": {
+      "questions": 10,
+      "correct": 10,
+      "pass": true
+    },
+    "json": {
+      "questions": 10,
+      "correct": 8,
+      "pass": true
+    }
+  },
+  "bar": {
+    "1_overall": {
+      "correct": 57,
+      "rate": 0.95,
+      "pass": true
+    },
+    "2_everyFamily": {
+      "pass": true
+    },
+    "3_noDrop": "a separate run: tables-rag --setup tables --split test, at least 176 of 180",
+    "4_serverTokens": "0 by construction: the table tools call no model"
+  },
+  "conforming": true,
+  "diagnosticOnly": [],
+  "tablesLoaded": [
+    "fleet",
+    "fleet.drivers",
+    "fleet.services",
+    "fleet.services.parts",
+    "library.branch",
+    "library.branch.book",
+    "library.branch.book.keyword",
+    "library.branch.book.loan",
+    "orders",
+    "orders.lines",
+    "orders.lines.discounts",
+    "orders.tags",
+    "readings",
+    "readings.alerts",
+    "readings.calibration",
+    "readings.labels"
+  ],
+  "subscription": {
+    "atFirstRun": "allowed_warning (seven_day 75%)",
+    "atLastRun": "allowed_warning (seven_day 75%)"
+  }
+}

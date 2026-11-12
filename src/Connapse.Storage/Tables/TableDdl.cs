@@ -56,6 +56,7 @@ internal static partial class TableDdl
         TableColumnType.Boolean => "boolean",
         TableColumnType.Date => "date",
         TableColumnType.DateTime => "timestamp",
+        TableColumnType.Json => "jsonb",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 
@@ -67,6 +68,7 @@ internal static partial class TableDdl
         TableColumnType.Boolean => NpgsqlDbType.Boolean,
         TableColumnType.Date => NpgsqlDbType.Date,
         TableColumnType.DateTime => NpgsqlDbType.Timestamp,
+        TableColumnType.Json => NpgsqlDbType.Jsonb,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 

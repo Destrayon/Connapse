@@ -116,7 +116,7 @@ internal static class FileRules
     /// <summary>File types read as text; anything else goes through its parser. HTML is parsed, for its text.</summary>
     public static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".txt", ".md", ".markdown", ".csv", ".log", ".css", ".js", ".ts", ".jsx", ".tsx", ".json", ".xml", ".yaml", ".yml",
+        ".txt", ".md", ".markdown", ".csv", ".log", ".css", ".js", ".ts", ".jsx", ".tsx", ".json", ".jsonl", ".ndjson", ".xml", ".yaml", ".yml",
     };
 
     /// <summary>Whether a document's ingestion hasn't finished, so it isn't searchable yet.</summary>

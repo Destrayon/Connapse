@@ -305,6 +305,7 @@ public class TableSqlCheckTests
     [InlineData("SELECT (ARRAY[1, 2])[1], (ROW(1, 2)), ARRAY(SELECT c_1 FROM t_2) FROM t_1")]
     [InlineData("SELECT c_1 COLLATE \"C\" FROM t_1 ORDER BY 1 NULLS LAST")]
     [InlineData("SELECT 1 OPERATOR(pg_catalog.+) 2, 1.5, true, B'101', NULL")]
+    [InlineData("SELECT c_3->>'k', c_3 @> '{\"k\": 1}'::jsonb, jsonb_array_length(c_3), jsonb_typeof(c_3 -> 0) FROM t_1")]
     public void Check_PlainReads_Allowed(string sql) => Allowed(sql);
 
     [Fact]
@@ -340,7 +341,7 @@ public class TableSqlCheckTests
     [InlineData("SELECT 1::public.int4")]
     [InlineData("SELECT 'x'::regtype")]
     [InlineData("SELECT 'x'::oid")]
-    [InlineData("SELECT '{}'::jsonb")]
+    [InlineData("SELECT '{}'::json")]
     [InlineData("SELECT 1::db.pg_catalog.int4")]
     public void Check_TypeOffTheAllowlist_Refused(string sql) => Refused(sql, TableSqlRefusal.DisallowedType);
 

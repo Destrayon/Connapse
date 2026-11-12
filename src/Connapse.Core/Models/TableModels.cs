@@ -2,7 +2,7 @@ namespace Connapse.Core;
 
 /// <summary>
 /// A column's type in a container's table (CON-E6), named as Frictionless Table Schema names it. Each maps to one
-/// PostgreSQL type: text, bigint, numeric, boolean, date and timestamp.
+/// PostgreSQL type: text, bigint, numeric, boolean, date, timestamp and jsonb.
 /// </summary>
 public enum TableColumnType
 {
@@ -12,6 +12,12 @@ public enum TableColumnType
     Boolean,
     Date,
     DateTime,
+
+    /// <summary>
+    /// A nested JSON value kept whole (CON-335): part of a structured file too deep or too irregular to split into
+    /// columns and tables, stored as jsonb so it stays queryable. Frictionless calls it <c>any</c>, since it may hold an object or an array.
+    /// </summary>
+    Json,
 }
 
 /// <summary>

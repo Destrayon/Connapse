@@ -92,17 +92,14 @@ public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task Upload_FlatJsonArray_LoadsAsATableAndNestedJsonStaysText()
+    public async Task Upload_FlatJsonArray_LoadsAsATable()
     {
         Guid containerId = await NewContainerAsync();
         try
         {
             string people = await UploadAsync(containerId, "people.json",
                 Encoding.UTF8.GetBytes("""[{"name": "Ann", "joined": "2024-01-31", "age": 41}, {"name": "Bob", "age": 7}]"""));
-            string nested = await UploadAsync(containerId, "nested.json",
-                Encoding.UTF8.GetBytes("""[{"name": "Cy", "tags": ["a", "b"]}]"""));
             await WaitForReadyAsync(containerId, people);
-            await WaitForReadyAsync(containerId, nested);
 
             var table = (await TablesAsync(containerId)).Single();
             table.Name.Should().Be("people");
@@ -110,7 +107,85 @@ public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
             table.Columns.Select(c => (c.Name, c.Type)).Should().Equal(
                 ("name", TableColumnType.Text), ("joined", TableColumnType.Date), ("age", TableColumnType.WholeNumber));
             table.RowCount.Should().Be(2);
-            (await DocumentAsync(nested)).Metadata["ParserWarnings"].Should().Contain("only flat JSON arrays");
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Upload_NestedJson_LoadsParentAndChildTablesAnAgentCanFilterCountAndJoin()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            string id = await UploadAsync(containerId, "orders.json", Encoding.UTF8.GetBytes("""
+                [
+                  {"id": 1, "customer": {"name": "Ann"}, "lines": [{"sku": "a", "qty": 2}, {"sku": "b", "qty": 1}], "grid": [[1, 2], [3]]},
+                  {"id": 2, "customer": {"name": "Bob"}, "lines": [{"sku": "a", "qty": 5}]}
+                ]
+                """));
+            await WaitForReadyAsync(containerId, id);
+
+            var tables = (await TablesAsync(containerId)).ToDictionary(t => t.Name);
+            tables.Keys.Should().BeEquivalentTo("orders", "orders.lines", "orders.grid");
+            tables["orders"].Columns.Select(c => c.Name).Should().Equal("_row", "id", "customer.name");
+            tables["orders.grid"].Columns[^1].Type.Should().Be(TableColumnType.Json);
+            TableInfo orders = tables["orders"], lines = tables["orders.lines"], grid = tables["orders.grid"];
+
+            await using var scope = fixture.Factory.Services.CreateAsyncScope();
+            var service = scope.ServiceProvider.GetRequiredService<ITableQueryService>();
+            TableAccess access = new(new HashSet<Guid> { Guid.Parse(id) });
+
+            TableQueryResult joined = await service.ReadAsync(containerId, access, new TableReadRequest(
+                lines.Id, ["o.customer.name", "sku", "qty"],
+                Where: new TableCondition(new TableField("sku"), TableFilterOperator.Equal, ["a"]),
+                OrderBy: [new TableOrder(new TableField("qty"))],
+                Join: new TableJoin(orders.Id, "o", "_parent_row", "_row")));
+            joined.Rows.Select(r => (r[0], r[2])).Should().Equal(("Ann", (object)2L), ("Bob", 5L));
+
+            TableQueryResult counted = await service.AggregateAsync(containerId, access, new TableAggregateRequest(
+                lines.Id, [new TableField(null, TableAggregateFunction.Count)], ["sku"],
+                OrderBy: [new TableOrder(new TableField("sku"))]));
+            counted.Rows.Select(r => (r[0], r[1])).Should().Equal(("a", (object)2L), ("b", 1L));
+
+            TableQueryResult json = await service.ReadAsync(containerId, access, new TableReadRequest(
+                grid.Id, ["value"], Where: new TableCondition(new TableField("value"), TableFilterOperator.Contains, ["3"])));
+            json.Rows.Should().ContainSingle().Which[0].Should().Be("[3]");
+
+            TableQueryResult sql = await scope.ServiceProvider.GetRequiredService<ITableSqlService>().RunAsync(containerId, access,
+                $"SELECT c_2 AS i, jsonb_array_length(c_3) AS n, c_3->>0 AS first FROM {grid.StorageName} ORDER BY c_2");
+            sql.Rows.Select(r => (r[0], r[1], r[2])).Should().Equal((0L, (object)2, (object)"1"), (1L, 1, "3"));
+        }
+        finally
+        {
+            await DeleteContainerAsync(containerId);
+        }
+    }
+
+    [Fact]
+    public async Task Upload_JsonLinesXmlAndYaml_LoadAsTables()
+    {
+        Guid containerId = await NewContainerAsync();
+        try
+        {
+            string events = await UploadAsync(containerId, "events.jsonl", Encoding.UTF8.GetBytes(
+                "{\"id\": 1, \"tags\": [\"x\", \"y\"]}\n{\"id\": 2, \"tags\": []}\n"));
+            string books = await UploadAsync(containerId, "books.xml", Encoding.UTF8.GetBytes(
+                "<books><book id=\"b1\"><title>Dune</title></book><book id=\"b2\"><title>Emma</title></book></books>"));
+            string fleet = await UploadAsync(containerId, "fleet.yaml", Encoding.UTF8.GetBytes(
+                "- name: a\n  port: 80\n- name: b\n  port: 443\n"));
+            foreach (string id in new[] { events, books, fleet })
+                await WaitForReadyAsync(containerId, id);
+
+            var tables = (await TablesAsync(containerId)).ToDictionary(t => t.Name);
+            tables.Keys.Should().BeEquivalentTo("events", "events.tags", "books.book", "fleet");
+            tables["events.tags"].RowCount.Should().Be(2);
+            tables["books.book"].Columns.Select(c => c.Name).Should().Equal("_index", "@id", "title");
+            tables["books.book"].RowCount.Should().Be(2);
+            tables["fleet"].Columns.Select(c => (c.Name, c.Type)).Should().Equal(
+                ("name", TableColumnType.Text), ("port", TableColumnType.WholeNumber));
         }
         finally
         {
@@ -159,9 +234,14 @@ public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
     {
         using var form = new MultipartFormDataContent();
         var part = new ByteArrayContent(content);
-        part.Headers.ContentType = new MediaTypeHeaderValue(fileName.EndsWith(".json")
-            ? "application/json"
-            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        part.Headers.ContentType = new MediaTypeHeaderValue(Path.GetExtension(fileName) switch
+        {
+            ".json" => "application/json",
+            ".jsonl" => "application/jsonl",
+            ".xml" => "application/xml",
+            ".yaml" => "application/yaml",
+            _ => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
         form.Add(part, "files", fileName);
         form.Add(new StringContent("/data/"), "path");
         using HttpResponseMessage response = await fixture.AdminClient.PostAsync($"/api/containers/{containerId}/files", form);

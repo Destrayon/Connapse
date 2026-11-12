@@ -16,7 +16,7 @@ public static class ContentSniffer
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".txt", ".md", ".markdown", ".csv", ".log", ".json", ".xml", ".yaml", ".yml", ".html", ".htm", ".eml",
+        ".txt", ".md", ".markdown", ".csv", ".log", ".json", ".jsonl", ".ndjson", ".xml", ".yaml", ".yml", ".html", ".htm", ".eml",
         ".cs", ".ts", ".mts", ".cts", ".tsx", ".py", ".pyi",
     };
 

@@ -1512,6 +1512,31 @@
           "name": "linked-reserve.jsonl.gz",
           "url": "repo:tables/linked/reserve-linked.jsonl.gz",
           "sha256": "682ac14660f89f6937161e8666ecbb8f9d3da82bbc9b45da7533d08438dd92be"
+        },
+        {
+          "name": "nested-fleet.yaml",
+          "url": "repo:tables/nested/docs/fleet.yaml",
+          "sha256": "b3076043ca55eadcfec565e439c366dd759c0feffa0b198b679ef8c9d1c107bf"
+        },
+        {
+          "name": "nested-library.xml",
+          "url": "repo:tables/nested/docs/library.xml",
+          "sha256": "a3c40507414e1eef2a2be3f4991db3c7519562ccd4978474721a6802a2b7e561"
+        },
+        {
+          "name": "nested-orders.json",
+          "url": "repo:tables/nested/docs/orders.json",
+          "sha256": "192736a57650c89317dcd6933e7a2fc1765c41c8303092d0d95aab6e2aeb828e"
+        },
+        {
+          "name": "nested-readings.jsonl",
+          "url": "repo:tables/nested/docs/readings.jsonl",
+          "sha256": "701ed6943add3f20ac08af57516aca116f81624088bf43d3938f8e926a87b0c4"
+        },
+        {
+          "name": "nested-questions.jsonl",
+          "url": "repo:tables/nested/questions.jsonl",
+          "sha256": "87ac93df445338d41a50adc96c77a78d8e32717cbf0e22ad4fece80e4f34226e"
         }
       ]
     }

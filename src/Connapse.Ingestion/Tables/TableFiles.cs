@@ -35,9 +35,15 @@ internal static class TableFiles
                     workbook.Dispose();
                     throw;
                 }
-            case ".json":
-                (TableLoad? table, string? warning) = await JsonTableReader.ReadAsync(file, fileName, documentId, ct);
-                return new TableFile(table is null ? [] : [table], warning is null ? [] : [warning], null);
+            case ".json" or ".jsonl" or ".ndjson":
+                (IReadOnlyList<TableLoad> json, string? warning, IDisposable? owner) = await JsonTableReader.ReadAsync(file, fileName, documentId, ct);
+                return new TableFile(json, warning is null ? [] : [warning], owner);
+            case ".xml":
+                (IReadOnlyList<TableLoad> xml, string? xmlWarning, IDisposable? xmlOwner) = await XmlTableReader.ReadAsync(file, fileName, documentId, ct);
+                return new TableFile(xml, xmlWarning is null ? [] : [xmlWarning], xmlOwner);
+            case ".yaml" or ".yml":
+                (IReadOnlyList<TableLoad> yaml, string? yamlWarning, IDisposable? yamlOwner) = await YamlTableReader.ReadAsync(file, fileName, documentId, ct);
+                return new TableFile(yaml, yamlWarning is null ? [] : [yamlWarning], yamlOwner);
             default:
                 return new TableFile([await CsvTableReader.ReadAsync(file, fileName, documentId, ct)], [], null);
         }

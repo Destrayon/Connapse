@@ -1,0 +1,96 @@
+{
+  "tools": [
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "split": "tune",
+  "config": "hybrid",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "questions": 12,
+  "correct": 12,
+  "toolCalls": 2.92,
+  "costPerQuestionUsd": 0.0305,
+  "outcomes": {
+    "Answered": 12
+  },
+  "families": {
+    "lookup": {
+      "questions": 2,
+      "correct": 2,
+      "pass": true
+    },
+    "filter_count": {
+      "questions": 2,
+      "correct": 2,
+      "pass": true
+    },
+    "child_aggregate": {
+      "questions": 2,
+      "correct": 2,
+      "pass": true
+    },
+    "grandchild": {
+      "questions": 2,
+      "correct": 2,
+      "pass": true
+    },
+    "scalar_list": {
+      "questions": 2,
+      "correct": 2,
+      "pass": true
+    },
+    "json": {
+      "questions": 2,
+      "correct": 2,
+      "pass": true
+    }
+  },
+  "bar": {
+    "1_overall": {
+      "correct": 12,
+      "rate": 1,
+      "pass": true
+    },
+    "2_everyFamily": {
+      "pass": true
+    },
+    "3_noDrop": "a separate run: tables-rag --setup tables --split test, at least 176 of 180",
+    "4_serverTokens": "0 by construction: the table tools call no model"
+  },
+  "conforming": false,
+  "diagnosticOnly": [
+    "split is tune, not test",
+    "2 lookup questions, not 10",
+    "2 filter_count questions, not 10",
+    "2 child_aggregate questions, not 10",
+    "2 grandchild questions, not 10",
+    "2 scalar_list questions, not 10",
+    "2 json questions, not 10"
+  ],
+  "tablesLoaded": [
+    "fleet",
+    "fleet.drivers",
+    "fleet.services",
+    "fleet.services.parts",
+    "library.branch",
+    "library.branch.book",
+    "library.branch.book.keyword",
+    "library.branch.book.loan",
+    "orders",
+    "orders.lines",
+    "orders.lines.discounts",
+    "orders.tags",
+    "readings",
+    "readings.alerts",
+    "readings.calibration",
+    "readings.labels"
+  ],
+  "subscription": {
+    "atFirstRun": "allowed_warning (seven_day 75%)",
+    "atLastRun": "allowed_warning (seven_day 75%)"
+  }
+}

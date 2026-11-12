@@ -88,7 +88,7 @@ public class TableDdlRandomInputTests
     public void Convert_ValueOfAnotherType_FailsTheLoad() =>
         Gen.String.Sample(s =>
         {
-            foreach (TableColumnType type in Enum.GetValues<TableColumnType>().Where(t => t != TableColumnType.Text))
+            foreach (TableColumnType type in Enum.GetValues<TableColumnType>().Where(t => t is not (TableColumnType.Text or TableColumnType.Json)))
             {
                 Action convert = () => TableValues.Convert(s, type, 3, 1);
                 convert.Should().Throw<ArgumentException>().WithMessage("Row 3, column 2*");

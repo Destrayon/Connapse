@@ -1,0 +1,939 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<library>
+  <branch name="Northside" city="Leeds">
+    <book isbn="9780000115" year="2021">
+      <title>The Northern Garden</title>
+      <author>Maya Barros</author>
+      <genre>fantasy</genre>
+      <keyword>illustrated</keyword>
+      <keyword>classic</keyword>
+      <loan member="M-871" days="14"/>
+      <loan member="M-228" days="21"/>
+      <loan member="M-142" days="14"/>
+    </book>
+    <book isbn="9780000125" year="1990">
+      <title>The Winter Archive</title>
+      <author>Jonah Dubois</author>
+      <genre>science</genre>
+      <keyword>translated</keyword>
+      <keyword>classic</keyword>
+    </book>
+    <book isbn="9780000163" year="1970">
+      <title>The Winter Harbour</title>
+      <author>Ben Xu</author>
+      <genre>science</genre>
+    </book>
+    <book isbn="9780000175" year="1963">
+      <title>The Broken Garden</title>
+      <author>Wes Yilmaz</author>
+      <genre>poetry</genre>
+      <keyword>classic</keyword>
+      <loan member="M-996" days="7"/>
+      <loan member="M-834" days="14"/>
+      <loan member="M-605" days="14"/>
+      <loan member="M-590" days="21"/>
+    </book>
+    <book isbn="9780000208" year="2021">
+      <title>The Distant Archive</title>
+      <author>Nora Hale</author>
+      <genre>poetry</genre>
+      <keyword>award</keyword>
+      <loan member="M-308" days="21"/>
+      <loan member="M-851" days="7"/>
+      <loan member="M-509" days="21"/>
+    </book>
+    <book isbn="9780000230" year="1964">
+      <title>The Distant Garden</title>
+      <author>Farid Hale</author>
+      <genre>mystery</genre>
+      <keyword>translated</keyword>
+    </book>
+    <book isbn="9780000254" year="2006">
+      <title>The Winter Map</title>
+      <author>Chloe Gruber</author>
+      <genre>poetry</genre>
+      <keyword>award</keyword>
+    </book>
+    <book isbn="9780000278" year="1981">
+      <title>The Last Letter</title>
+      <author>Dev Novak</author>
+      <genre>fantasy</genre>
+    </book>
+    <book isbn="9780000289" year="1980">
+      <title>The Last Island</title>
+      <author>Umar Garcia</author>
+      <genre>history</genre>
+      <loan member="M-140" days="14"/>
+      <loan member="M-607" days="7"/>
+      <loan member="M-626" days="21"/>
+    </book>
+    <book isbn="9780000298" year="1977">
+      <title>The Iron Garden</title>
+      <author>Tara Hale</author>
+      <genre>history</genre>
+      <keyword>classic</keyword>
+      <loan member="M-184" days="28"/>
+      <loan member="M-178" days="14"/>
+    </book>
+    <book isbn="9780000311" year="1997">
+      <title>The Broken Lantern</title>
+      <author>Zoe Quist</author>
+      <genre>fantasy</genre>
+    </book>
+    <book isbn="9780000330" year="2025">
+      <title>The Hidden Letter</title>
+      <author>Chloe Xu</author>
+      <genre>mystery</genre>
+      <keyword>debut</keyword>
+      <keyword>award</keyword>
+      <loan member="M-706" days="21"/>
+      <loan member="M-419" days="14"/>
+      <loan member="M-146" days="7"/>
+      <loan member="M-208" days="14"/>
+    </book>
+    <book isbn="9780000347" year="2000">
+      <title>The Paper Harbour</title>
+      <author>Jade Garcia</author>
+      <genre>travel</genre>
+      <keyword>translated</keyword>
+      <keyword>classic</keyword>
+      <loan member="M-941" days="7"/>
+      <loan member="M-317" days="14"/>
+      <loan member="M-206" days="21"/>
+      <loan member="M-846" days="7"/>
+    </book>
+    <book isbn="9780000377" year="1957">
+      <title>The Northern Map</title>
+      <author>Caleb Costa</author>
+      <genre>science</genre>
+      <keyword>local</keyword>
+      <keyword>debut</keyword>
+    </book>
+    <book isbn="9780000380" year="1995">
+      <title>The Paper Orchard</title>
+      <author>Kofi Lopez</author>
+      <genre>fantasy</genre>
+      <loan member="M-231" days="21"/>
+      <loan member="M-388" days="7"/>
+      <loan member="M-449" days="28"/>
+    </book>
+    <book isbn="9780000391" year="1957">
+      <title>The Hidden Island</title>
+      <author>Hiro Kaur</author>
+      <genre>history</genre>
+      <keyword>award</keyword>
+    </book>
+    <book isbn="9780000415" year="1993">
+      <title>The Broken Harbour</title>
+      <author>Rosa Moreau</author>
+      <genre>science</genre>
+      <loan member="M-904" days="21"/>
+    </book>
+    <book isbn="9780000452" year="2016">
+      <title>The Silent Lantern</title>
+      <author>Pablo Xu</author>
+      <genre>fantasy</genre>
+      <keyword>local</keyword>
+      <keyword>classic</keyword>
+      <loan member="M-523" days="21"/>
+    </book>
+    <book isbn="9780000472" year="1960">
+      <title>The Hidden Letter</title>
+      <author>Pablo Lindqvist</author>
+      <genre>travel</genre>
+      <loan member="M-892" days="21"/>
+      <loan member="M-621" days="14"/>
+    </book>
+    <book isbn="9780000481" year="1999">
+      <title>The Broken Orchard</title>
+      <author>Marco Engel</author>
+      <genre>history</genre>
+      <keyword>award</keyword>
+    </book>
+    <book isbn="9780000486" year="2023">
+      <title>The Distant River</title>
+      <author>Dev Garcia</author>
+      <genre>poetry</genre>
+      <keyword>debut</keyword>
+    </book>
+    <book isbn="9780000498" year="1981">
+      <title>The Northern Lantern</title>
+      <author>Ines Ito</author>
+      <genre>fantasy</genre>
+      <loan member="M-813" days="21"/>
+      <loan member="M-716" days="14"/>
+      <loan member="M-419" days="14"/>
+    </book>
+    <book isbn="9780000502" year="1984">
+      <title>The Golden Map</title>
+      <author>Rosa Weber</author>
+      <genre>mystery</genre>
+      <keyword>debut</keyword>
+      <loan member="M-357" days="14"/>
+      <loan member="M-206" days="21"/>
+    </book>
+    <book isbn="9780000525" year="2007">
+      <title>The Hidden Harbour</title>
+      <author>Ben Zimmer</author>
+      <genre>travel</genre>
+      <keyword>classic</keyword>
+      <keyword>award</keyword>
+      <loan member="M-520" days="14"/>
+      <loan member="M-643" days="14"/>
+      <loan member="M-427" days="14"/>
+      <loan member="M-784" days="28"/>
+    </book>
+    <book isbn="9780000535" year="1999">
+      <title>The Distant Island</title>
+      <author>Dev Engel</author>
+      <genre>travel</genre>
+      <keyword>local</keyword>
+      <loan member="M-732" days="28"/>
+      <loan member="M-407" days="7"/>
+      <loan member="M-965" days="7"/>
+    </book>
+    <book isbn="9780000567" year="2007">
+      <title>The Northern Engine</title>
+      <author>Fiona Iqbal</author>
+      <genre>history</genre>
+      <loan member="M-467" days="14"/>
+    </book>
+    <book isbn="9780000604" year="2006">
+      <title>The Northern Letter</title>
+      <author>Dana Yilmaz</author>
+      <genre>mystery</genre>
+      <loan member="M-652" days="14"/>
+      <loan member="M-622" days="14"/>
+    </book>
+    <book isbn="9780000640" year="1967">
+      <title>The Iron Map</title>
+      <author>Elena Ortega</author>
+      <genre>fantasy</genre>
+      <keyword>local</keyword>
+    </book>
+    <book isbn="9780000652" year="1983">
+      <title>The Winter Harbour</title>
+      <author>Liam Eriksen</author>
+      <genre>travel</genre>
+      <keyword>local</keyword>
+      <keyword>debut</keyword>
+      <loan member="M-151" days="28"/>
+    </book>
+    <book isbn="9780000692" year="1970">
+      <title>The Golden Engine</title>
+      <author>Xin Diaz</author>
+      <genre>science</genre>
+      <keyword>classic</keyword>
+      <keyword>local</keyword>
+    </book>
+  </branch>
+  <branch name="Riverside" city="York">
+    <book isbn="9780000702" year="1954">
+      <title>The Paper Archive</title>
+      <author>Jade Ito</author>
+      <genre>science</genre>
+      <keyword>classic</keyword>
+    </book>
+    <book isbn="9780000712" year="1962">
+      <title>The Last Letter</title>
+      <author>Lena Nakamura</author>
+      <genre>poetry</genre>
+      <keyword>classic</keyword>
+      <loan member="M-443" days="21"/>
+      <loan member="M-740" days="14"/>
+    </book>
+    <book isbn="9780000738" year="1988">
+      <title>The Paper Island</title>
+      <author>Ivan Eriksen</author>
+      <genre>fantasy</genre>
+      <keyword>award</keyword>
+      <loan member="M-709" days="7"/>
+    </book>
+    <book isbn="9780000749" year="1950">
+      <title>The Broken Orchard</title>
+      <author>Yara Fischer</author>
+      <genre>travel</genre>
+      <keyword>classic</keyword>
+      <loan member="M-763" days="14"/>
+    </book>
+    <book isbn="9780000770" year="1953">
+      <title>The Distant Garden</title>
+      <author>Yara Fischer</author>
+      <genre>science</genre>
+      <keyword>illustrated</keyword>
+      <keyword>debut</keyword>
+    </book>
+    <book isbn="9780000785" year="1973">
+      <title>The Distant Harbour</title>
+      <author>Farid Iqbal</author>
+      <genre>poetry</genre>
+    </book>
+    <book isbn="9780000811" year="1992">
+      <title>The Paper Island</title>
+      <author>Kofi Chen</author>
+      <genre>travel</genre>
+      <keyword>translated</keyword>
+      <loan member="M-129" days="21"/>
+      <loan member="M-511" days="14"/>
+    </book>
+    <book isbn="9780000837" year="1978">
+      <title>The Hidden Letter</title>
+      <author>Gus Mendes</author>
+      <genre>poetry</genre>
+      <keyword>illustrated</keyword>
+      <loan member="M-314" days="21"/>
+      <loan member="M-931" days="7"/>
+      <loan member="M-662" days="14"/>
+    </book>
+    <book isbn="9780000841" year="1989">
+      <title>The Distant Map</title>
+      <author>Wes Ueda</author>
+      <genre>science</genre>
+      <keyword>illustrated</keyword>
+      <loan member="M-392" days="28"/>
+      <loan member="M-287" days="28"/>
+      <loan member="M-550" days="28"/>
+      <loan member="M-276" days="28"/>
+    </book>
+    <book isbn="9780000861" year="2003">
+      <title>The Hidden Archive</title>
+      <author>Liam Nakamura</author>
+      <genre>travel</genre>
+      <loan member="M-223" days="14"/>
+      <loan member="M-829" days="7"/>
+      <loan member="M-827" days="28"/>
+      <loan member="M-135" days="14"/>
+    </book>
+    <book isbn="9780000884" year="2024">
+      <title>The Distant Orchard</title>
+      <author>Nora Silva</author>
+      <genre>mystery</genre>
+      <keyword>classic</keyword>
+      <loan member="M-665" days="7"/>
+      <loan member="M-481" days="14"/>
+      <loan member="M-135" days="21"/>
+    </book>
+    <book isbn="9780000889" year="1991">
+      <title>The Iron Garden</title>
+      <author>Grace Ferreira</author>
+      <genre>fantasy</genre>
+      <keyword>classic</keyword>
+      <keyword>debut</keyword>
+    </book>
+    <book isbn="9780000912" year="1997">
+      <title>The Golden Harbour</title>
+      <author>Jade Quist</author>
+      <genre>history</genre>
+      <loan member="M-353" days="28"/>
+      <loan member="M-984" days="28"/>
+    </book>
+    <book isbn="9780000930" year="1967">
+      <title>The Broken Map</title>
+      <author>Umar Novak</author>
+      <genre>travel</genre>
+      <keyword>award</keyword>
+      <loan member="M-662" days="28"/>
+    </book>
+    <book isbn="9780000954" year="2007">
+      <title>The Last Lantern</title>
+      <author>Gus Lopez</author>
+      <genre>fantasy</genre>
+      <loan member="M-892" days="21"/>
+      <loan member="M-220" days="7"/>
+    </book>
+    <book isbn="9780000982" year="1988">
+      <title>The Last Engine</title>
+      <author>Marco Rossi</author>
+      <genre>mystery</genre>
+      <keyword>award</keyword>
+      <loan member="M-963" days="14"/>
+      <loan member="M-912" days="14"/>
+    </book>
+    <book isbn="9780000989" year="1983">
+      <title>The Paper Engine</title>
+      <author>Rosa Dubois</author>
+      <genre>travel</genre>
+      <keyword>award</keyword>
+    </book>
+    <book isbn="9780000997" year="1965">
+      <title>The Northern Harbour</title>
+      <author>Fiona Ueda</author>
+      <genre>travel</genre>
+      <keyword>debut</keyword>
+    </book>
+    <book isbn="9780001021" year="1983">
+      <title>The Broken Engine</title>
+      <author>Bea Haas</author>
+      <genre>science</genre>
+      <keyword>illustrated</keyword>
+      <keyword>translated</keyword>
+      <loan member="M-463" days="21"/>
+      <loan member="M-931" days="14"/>
+      <loan member="M-704" days="14"/>
+    </book>
+    <book isbn="9780001025" year="1996">
+      <title>The Winter Garden</title>
+      <author>Rosa Rossi</author>
+      <genre>fantasy</genre>
+      <keyword>illustrated</keyword>
+      <keyword>translated</keyword>
+      <loan member="M-157" days="7"/>
+      <loan member="M-587" days="28"/>
+      <loan member="M-922" days="21"/>
+      <loan member="M-748" days="28"/>
+    </book>
+    <book isbn="9780001061" year="1984">
+      <title>The Hidden Map</title>
+      <author>Caleb Costa</author>
+      <genre>science</genre>
+      <keyword>local</keyword>
+      <loan member="M-248" days="7"/>
+      <loan member="M-769" days="14"/>
+    </book>
+    <book isbn="9780001097" year="1987">
+      <title>The Iron Map</title>
+      <author>Bea Xu</author>
+      <genre>mystery</genre>
+      <keyword>award</keyword>
+      <loan member="M-643" days="7"/>
+    </book>
+    <book isbn="9780001119" year="1975">
+      <title>The Golden Engine</title>
+      <author>Pablo Fischer</author>
+      <genre>poetry</genre>
+      <keyword>translated</keyword>
+      <keyword>award</keyword>
+      <loan member="M-446" days="28"/>
+    </book>
+    <book isbn="9780001123" year="1977">
+      <title>The Hidden Engine</title>
+      <author>Ivan Ortega</author>
+      <genre>poetry</genre>
+      <keyword>classic</keyword>
+      <loan member="M-355" days="7"/>
+      <loan member="M-543" days="21"/>
+      <loan member="M-191" days="14"/>
+    </book>
+    <book isbn="9780001135" year="1979">
+      <title>The Last Letter</title>
+      <author>Bea Engel</author>
+      <genre>travel</genre>
+      <keyword>illustrated</keyword>
+      <loan member="M-448" days="21"/>
+      <loan member="M-321" days="7"/>
+    </book>
+    <book isbn="9780001145" year="2024">
+      <title>The Golden Letter</title>
+      <author>Nikhil Nakamura</author>
+      <genre>science</genre>
+      <loan member="M-915" days="28"/>
+      <loan member="M-815" days="14"/>
+    </book>
+    <book isbn="9780001151" year="1953">
+      <title>The Winter Garden</title>
+      <author>Farid Ferreira</author>
+      <genre>history</genre>
+    </book>
+    <book isbn="9780001189" year="1983">
+      <title>The Iron Map</title>
+      <author>Dana Eriksen</author>
+      <genre>fantasy</genre>
+      <keyword>local</keyword>
+    </book>
+    <book isbn="9780001210" year="2012">
+      <title>The Silent Archive</title>
+      <author>Nikhil Novak</author>
+      <genre>science</genre>
+      <keyword>classic</keyword>
+      <loan member="M-428" days="14"/>
+    </book>
+    <book isbn="9780001243" year="1962">
+      <title>The Paper Orchard</title>
+      <author>Nikhil Fischer</author>
+      <genre>travel</genre>
+      <keyword>local</keyword>
+      <loan member="M-216" days="21"/>
+    </book>
+  </branch>
+  <branch name="Old Town" city="Bath">
+    <book isbn="9780001246" year="2014">
+      <title>The Golden Harbour</title>
+      <author>Emil Andersen</author>
+      <genre>travel</genre>
+      <keyword>debut</keyword>
+      <loan member="M-716" days="21"/>
+      <loan member="M-778" days="14"/>
+    </book>
+    <book isbn="9780001269" year="1992">
+      <title>The Winter River</title>
+      <author>Ines Iqbal</author>
+      <genre>science</genre>
+      <keyword>illustrated</keyword>
+      <loan member="M-695" days="21"/>
+      <loan member="M-453" days="21"/>
+      <loan member="M-594" days="14"/>
+    </book>
+    <book isbn="9780001304" year="2009">
+      <title>The Winter Orchard</title>
+      <author>Olga Hale</author>
+      <genre>poetry</genre>
+      <keyword>translated</keyword>
+      <loan member="M-915" days="14"/>
+      <loan member="M-958" days="14"/>
+      <loan member="M-318" days="28"/>
+      <loan member="M-793" days="21"/>
+    </book>
+    <book isbn="9780001334" year="2011">
+      <title>The Golden Orchard</title>
+      <author>Bea Moreau</author>
+      <genre>science</genre>
+      <keyword>debut</keyword>
+      <keyword>illustrated</keyword>
+    </book>
+    <book isbn="9780001347" year="2014">
+      <title>The Paper River</title>
+      <author>Ada Kaur</author>
+      <genre>mystery</genre>
+      <keyword>translated</keyword>
+      <loan member="M-566" days="21"/>
+      <loan member="M-521" days="28"/>
+    </book>
+    <book isbn="9780001381" year="1956">
+      <title>The Last Harbour</title>
+      <author>Dana Rossi</author>
+      <genre>science</genre>
+    </book>
+    <book isbn="9780001395" year="1979">
+      <title>The Winter Harbour</title>
+      <author>Bea Gruber</author>
+      <genre>science</genre>
+      <keyword>debut</keyword>
+      <loan member="M-322" days="7"/>
+      <loan member="M-232" days="28"/>
+      <loan member="M-305" days="21"/>
+      <loan member="M-400" days="28"/>
+    </book>
+    <book isbn="9780001426" year="1992">
+      <title>The Silent Island</title>
+      <author>Ines Fischer</author>
+      <genre>fantasy</genre>
+      <keyword>debut</keyword>
+      <keyword>illustrated</keyword>
+      <loan member="M-153" days="21"/>
+      <loan member="M-472" days="7"/>
+      <loan member="M-904" days="21"/>
+      <loan member="M-360" days="21"/>
+    </book>
+    <book isbn="9780001433" year="2001">
+      <title>The Golden Garden</title>
+      <author>Rosa Iqbal</author>
+      <genre>fantasy</genre>
+      <keyword>award</keyword>
+    </book>
+    <book isbn="9780001443" year="2010">
+      <title>The Golden Island</title>
+      <author>Dana Novak</author>
+      <genre>poetry</genre>
+      <keyword>classic</keyword>
+      <loan member="M-828" days="28"/>
+      <loan member="M-966" days="14"/>
+    </book>
+    <book isbn="9780001449" year="2024">
+      <title>The Iron Engine</title>
+      <author>Dana Ito</author>
+      <genre>fantasy</genre>
+      <keyword>award</keyword>
+    </book>
+    <book isbn="9780001459" year="1960">
+      <title>The Paper Orchard</title>
+      <author>Aiden Fischer</author>
+      <genre>science</genre>
+      <keyword>illustrated</keyword>
+    </book>
+    <book isbn="9780001468" year="1967">
+      <title>The Paper Island</title>
+      <author>Caleb Lopez</author>
+      <genre>history</genre>
+      <loan member="M-215" days="28"/>
+      <loan member="M-593" days="7"/>
+      <loan member="M-402" days="28"/>
+    </book>
+    <book isbn="9780001494" year="2020">
+      <title>The Golden Garden</title>
+      <author>Jade Varga</author>
+      <genre>mystery</genre>
+      <loan member="M-575" days="14"/>
+    </book>
+    <book isbn="9780001521" year="2014">
+      <title>The Silent Lantern</title>
+      <author>Ben Costa</author>
+      <genre>science</genre>
+      <keyword>debut</keyword>
+      <loan member="M-696" days="7"/>
+      <loan member="M-849" days="14"/>
+    </book>
+    <book isbn="9780001536" year="1975">
+      <title>The Distant Harbour</title>
+      <author>Marco Ferreira</author>
+      <genre>fantasy</genre>
+      <loan member="M-415" days="14"/>
+    </book>
+    <book isbn="9780001570" year="1952">
+      <title>The Paper Island</title>
+      <author>Dev Ueda</author>
+      <genre>travel</genre>
+      <loan member="M-545" days="21"/>
+      <loan member="M-313" days="21"/>
+      <loan member="M-867" days="21"/>
+    </book>
+    <book isbn="9780001582" year="1988">
+      <title>The Paper Lantern</title>
+      <author>Jade Fischer</author>
+      <genre>fantasy</genre>
+      <keyword>debut</keyword>
+      <keyword>illustrated</keyword>
+    </book>
+    <book isbn="9780001611" year="2005">
+      <title>The Iron Lantern</title>
+      <author>Grace Fischer</author>
+      <genre>history</genre>
+      <keyword>classic</keyword>
+      <loan member="M-554" days="7"/>
+    </book>
+    <book isbn="9780001619" year="1971">
+      <title>The Silent Engine</title>
+      <author>Zoe Andersen</author>
+      <genre>poetry</genre>
+      <keyword>illustrated</keyword>
+      <keyword>translated</keyword>
+      <loan member="M-138" days="28"/>
+      <loan member="M-135" days="7"/>
+    </book>
+    <book isbn="9780001655" year="1952">
+      <title>The Winter Engine</title>
+      <author>Maya Patel</author>
+      <genre>mystery</genre>
+      <keyword>translated</keyword>
+      <keyword>illustrated</keyword>
+      <loan member="M-606" days="28"/>
+    </book>
+    <book isbn="9780001681" year="1991">
+      <title>The Last Lantern</title>
+      <author>Ada Varga</author>
+      <genre>mystery</genre>
+      <keyword>local</keyword>
+      <loan member="M-841" days="7"/>
+      <loan member="M-173" days="28"/>
+    </book>
+    <book isbn="9780001691" year="1978">
+      <title>The Winter Lantern</title>
+      <author>Rosa Abbott</author>
+      <genre>science</genre>
+      <loan member="M-170" days="14"/>
+      <loan member="M-990" days="7"/>
+      <loan member="M-666" days="14"/>
+      <loan member="M-998" days="28"/>
+    </book>
+    <book isbn="9780001711" year="1951">
+      <title>The Distant Island</title>
+      <author>Dev Tanaka</author>
+      <genre>science</genre>
+      <keyword>local</keyword>
+      <loan member="M-284" days="28"/>
+      <loan member="M-138" days="14"/>
+      <loan member="M-911" days="14"/>
+    </book>
+    <book isbn="9780001742" year="1959">
+      <title>The Distant Archive</title>
+      <author>Umar Lopez</author>
+      <genre>fantasy</genre>
+      <keyword>translated</keyword>
+    </book>
+    <book isbn="9780001757" year="1989">
+      <title>The Northern Harbour</title>
+      <author>Vera Jensen</author>
+      <genre>mystery</genre>
+      <keyword>translated</keyword>
+      <loan member="M-623" days="7"/>
+      <loan member="M-209" days="28"/>
+    </book>
+    <book isbn="9780001792" year="2014">
+      <title>The Iron Map</title>
+      <author>Farid Diaz</author>
+      <genre>science</genre>
+      <keyword>classic</keyword>
+      <keyword>translated</keyword>
+      <loan member="M-840" days="21"/>
+      <loan member="M-915" days="7"/>
+    </book>
+    <book isbn="9780001832" year="1981">
+      <title>The Hidden Letter</title>
+      <author>Rosa Chen</author>
+      <genre>poetry</genre>
+      <keyword>debut</keyword>
+      <keyword>classic</keyword>
+    </book>
+    <book isbn="9780001856" year="1954">
+      <title>The Hidden Orchard</title>
+      <author>Pablo Ueda</author>
+      <genre>history</genre>
+      <keyword>illustrated</keyword>
+      <keyword>local</keyword>
+    </book>
+    <book isbn="9780001873" year="2020">
+      <title>The Northern Orchard</title>
+      <author>Rosa Lopez</author>
+      <genre>mystery</genre>
+      <keyword>local</keyword>
+      <loan member="M-830" days="14"/>
+      <loan member="M-831" days="28"/>
+      <loan member="M-243" days="28"/>
+      <loan member="M-622" days="28"/>
+    </book>
+  </branch>
+  <branch name="Harbour" city="Hull">
+    <book isbn="9780001893" year="2015">
+      <title>The Last Lantern</title>
+      <author>Umar Okafor</author>
+      <genre>fantasy</genre>
+      <keyword>translated</keyword>
+      <loan member="M-653" days="14"/>
+      <loan member="M-192" days="21"/>
+      <loan member="M-186" days="14"/>
+    </book>
+    <book isbn="9780001905" year="2005">
+      <title>The Last Map</title>
+      <author>Wes Abbott</author>
+      <genre>science</genre>
+      <keyword>debut</keyword>
+      <loan member="M-654" days="14"/>
+      <loan member="M-447" days="21"/>
+    </book>
+    <book isbn="9780001942" year="1998">
+      <title>The Golden Island</title>
+      <author>Grace Iqbal</author>
+      <genre>mystery</genre>
+      <keyword>illustrated</keyword>
+      <keyword>local</keyword>
+    </book>
+    <book isbn="9780001982" year="2020">
+      <title>The Northern Letter</title>
+      <author>Jonah Xu</author>
+      <genre>history</genre>
+      <keyword>award</keyword>
+    </book>
+    <book isbn="9780001992" year="1955">
+      <title>The Paper Lantern</title>
+      <author>Nora Yilmaz</author>
+      <genre>history</genre>
+      <keyword>illustrated</keyword>
+      <loan member="M-248" days="28"/>
+    </book>
+    <book isbn="9780002000" year="1984">
+      <title>The Silent Orchard</title>
+      <author>Emil Kowalski</author>
+      <genre>fantasy</genre>
+      <keyword>debut</keyword>
+    </book>
+    <book isbn="9780002035" year="2002">
+      <title>The Paper River</title>
+      <author>Zoe Quist</author>
+      <genre>fantasy</genre>
+      <keyword>local</keyword>
+      <loan member="M-649" days="7"/>
+      <loan member="M-479" days="28"/>
+      <loan member="M-697" days="21"/>
+      <loan member="M-558" days="7"/>
+    </book>
+    <book isbn="9780002038" year="1965">
+      <title>The Golden Lantern</title>
+      <author>Marco Moreau</author>
+      <genre>poetry</genre>
+      <keyword>award</keyword>
+      <loan member="M-973" days="21"/>
+      <loan member="M-379" days="14"/>
+      <loan member="M-504" days="21"/>
+      <loan member="M-959" days="14"/>
+    </book>
+    <book isbn="9780002054" year="2011">
+      <title>The Iron Engine</title>
+      <author>Hana Quist</author>
+      <genre>science</genre>
+      <keyword>translated</keyword>
+      <keyword>classic</keyword>
+      <loan member="M-650" days="28"/>
+    </book>
+    <book isbn="9780002072" year="1988">
+      <title>The Winter Engine</title>
+      <author>Nikhil Barros</author>
+      <genre>mystery</genre>
+      <keyword>local</keyword>
+      <loan member="M-385" days="21"/>
+      <loan member="M-947" days="21"/>
+      <loan member="M-488" days="21"/>
+    </book>
+    <book isbn="9780002091" year="1994">
+      <title>The Iron Archive</title>
+      <author>Farid Zimmer</author>
+      <genre>poetry</genre>
+      <keyword>award</keyword>
+      <keyword>debut</keyword>
+      <loan member="M-776" days="7"/>
+      <loan member="M-546" days="21"/>
+    </book>
+    <book isbn="9780002123" year="1959">
+      <title>The Broken Garden</title>
+      <author>Ines Fischer</author>
+      <genre>mystery</genre>
+      <keyword>debut</keyword>
+      <loan member="M-981" days="14"/>
+      <loan member="M-164" days="7"/>
+    </book>
+    <book isbn="9780002161" year="2002">
+      <title>The Broken Orchard</title>
+      <author>Ada Ueda</author>
+      <genre>history</genre>
+      <keyword>award</keyword>
+      <loan member="M-827" days="28"/>
+      <loan member="M-164" days="21"/>
+    </book>
+    <book isbn="9780002168" year="1991">
+      <title>The Last Garden</title>
+      <author>Olga Lopez</author>
+      <genre>fantasy</genre>
+      <loan member="M-644" days="28"/>
+    </book>
+    <book isbn="9780002172" year="1962">
+      <title>The Iron Archive</title>
+      <author>Jonah Kowalski</author>
+      <genre>history</genre>
+      <keyword>translated</keyword>
+      <loan member="M-361" days="28"/>
+    </book>
+    <book isbn="9780002188" year="2014">
+      <title>The Northern Harbour</title>
+      <author>Hiro Rossi</author>
+      <genre>fantasy</genre>
+      <keyword>award</keyword>
+      <loan member="M-432" days="28"/>
+      <loan member="M-985" days="21"/>
+      <loan member="M-755" days="7"/>
+      <loan member="M-285" days="21"/>
+    </book>
+    <book isbn="9780002196" year="2024">
+      <title>The Last Garden</title>
+      <author>Ivan Fischer</author>
+      <genre>fantasy</genre>
+      <keyword>debut</keyword>
+      <keyword>classic</keyword>
+    </book>
+    <book isbn="9780002236" year="2013">
+      <title>The Hidden Engine</title>
+      <author>Kofi Iqbal</author>
+      <genre>history</genre>
+      <keyword>debut</keyword>
+      <loan member="M-102" days="14"/>
+      <loan member="M-475" days="21"/>
+      <loan member="M-137" days="28"/>
+    </book>
+    <book isbn="9780002252" year="2014">
+      <title>The Hidden Garden</title>
+      <author>Ines Andersen</author>
+      <genre>mystery</genre>
+      <keyword>award</keyword>
+      <keyword>local</keyword>
+    </book>
+    <book isbn="9780002269" year="1988">
+      <title>The Last Lantern</title>
+      <author>Caleb Ferreira</author>
+      <genre>travel</genre>
+      <keyword>classic</keyword>
+      <loan member="M-232" days="14"/>
+      <loan member="M-696" days="28"/>
+      <loan member="M-133" days="7"/>
+      <loan member="M-782" days="28"/>
+    </book>
+    <book isbn="9780002272" year="1975">
+      <title>The Paper Harbour</title>
+      <author>Tara Mendes</author>
+      <genre>mystery</genre>
+      <keyword>debut</keyword>
+      <loan member="M-316" days="7"/>
+    </book>
+    <book isbn="9780002283" year="1961">
+      <title>The Broken Orchard</title>
+      <author>Jade Patel</author>
+      <genre>travel</genre>
+      <keyword>local</keyword>
+      <keyword>award</keyword>
+      <loan member="M-707" days="21"/>
+      <loan member="M-589" days="21"/>
+      <loan member="M-607" days="7"/>
+      <loan member="M-266" days="14"/>
+    </book>
+    <book isbn="9780002301" year="1965">
+      <title>The Hidden Island</title>
+      <author>Ada Lindqvist</author>
+      <genre>poetry</genre>
+      <keyword>classic</keyword>
+      <loan member="M-881" days="28"/>
+      <loan member="M-817" days="14"/>
+    </book>
+    <book isbn="9780002304" year="1978">
+      <title>The Distant River</title>
+      <author>Gus Engel</author>
+      <genre>travel</genre>
+      <keyword>illustrated</keyword>
+      <keyword>translated</keyword>
+    </book>
+    <book isbn="9780002333" year="1965">
+      <title>The Winter River</title>
+      <author>Emil Novak</author>
+      <genre>mystery</genre>
+      <keyword>award</keyword>
+      <loan member="M-480" days="14"/>
+      <loan member="M-712" days="14"/>
+    </book>
+    <book isbn="9780002342" year="2022">
+      <title>The Iron Orchard</title>
+      <author>Nora Jensen</author>
+      <genre>mystery</genre>
+      <keyword>translated</keyword>
+      <loan member="M-746" days="14"/>
+      <loan member="M-714" days="21"/>
+    </book>
+    <book isbn="9780002369" year="1990">
+      <title>The Last River</title>
+      <author>Hana Ueda</author>
+      <genre>science</genre>
+      <keyword>illustrated</keyword>
+      <loan member="M-974" days="7"/>
+      <loan member="M-175" days="14"/>
+    </book>
+    <book isbn="9780002404" year="1968">
+      <title>The Last Map</title>
+      <author>Chloe Nakamura</author>
+      <genre>travel</genre>
+      <keyword>local</keyword>
+      <loan member="M-410" days="28"/>
+      <loan member="M-630" days="21"/>
+    </book>
+    <book isbn="9780002418" year="1992">
+      <title>The Winter River</title>
+      <author>Hiro Moreau</author>
+      <genre>history</genre>
+      <keyword>award</keyword>
+      <loan member="M-744" days="28"/>
+      <loan member="M-980" days="14"/>
+    </book>
+    <book isbn="9780002421" year="1957">
+      <title>The Paper Map</title>
+      <author>Ines Engel</author>
+      <genre>travel</genre>
+      <loan member="M-378" days="14"/>
+      <loan member="M-604" days="14"/>
+      <loan member="M-860" days="7"/>
+      <loan member="M-536" days="7"/>
+    </book>
+  </branch>
+</library>

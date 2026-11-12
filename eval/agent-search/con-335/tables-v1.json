@@ -1,0 +1,114 @@
+{
+  "setup": "tables",
+  "mixedSetup": "both",
+  "tools": [
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "all": {
+    "questions": 180,
+    "correct": 180,
+    "accuracy": 1,
+    "toolCalls": 2.53
+  },
+  "families": {
+    "filter_count": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.2
+    },
+    "group_topk": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.5
+    },
+    "join": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 3.43
+    },
+    "lookup": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.27
+    },
+    "seen_as_of": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.43
+    },
+    "sum_avg": {
+      "questions": 30,
+      "correct": 30,
+      "accuracy": 1,
+      "toolCalls": 2.37
+    }
+  },
+  "admin": {
+    "questions": 168,
+    "correct": 168,
+    "accuracy": 1,
+    "toolCalls": 2.48
+  },
+  "restricted": {
+    "questions": 12,
+    "correct": 12,
+    "accuracy": 1,
+    "toolCalls": 3.33
+  },
+  "restrictedLeaks": 0,
+  "seenAsOf": {
+    "load1": {
+      "questions": 16,
+      "correct": 16,
+      "accuracy": 1,
+      "toolCalls": 2.44
+    },
+    "load2": {
+      "questions": 14,
+      "correct": 14,
+      "accuracy": 1,
+      "toolCalls": 2.43
+    }
+  },
+  "mixed": {
+    "questions": 30,
+    "correct": 30,
+    "accuracy": 1,
+    "toolCalls": 4.33
+  },
+  "outcomes": {
+    "Answered": 210
+  },
+  "tokens": {
+    "runs": 210,
+    "input": 1842,
+    "cacheWrite": 1020807,
+    "cacheRead": 4312749,
+    "output": 183626,
+    "apiListPriceUsd": 6.3544
+  },
+  "costPerQuestionUsd": 0.0218,
+  "conforming": true,
+  "diagnosticOnly": [],
+  "inventorySeen": {
+    "load1": "2026-11-12 07:30:08 UTC",
+    "load2": "2026-11-12 07:30:10 UTC"
+  },
+  "subscription": {
+    "atFirstRun": "allowed_warning (seven_day 76%)",
+    "atLastRun": "allowed_warning (seven_day 76%)"
+  }
+}
