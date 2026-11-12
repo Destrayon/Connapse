@@ -26,7 +26,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "table_list", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("List the tables a container holds (built from its CSV and spreadsheet files, and from tables found in its documents) that you may read: id, name, description, columns with their types, and how many rows you may read. Use a table's id with table_describe, table_read and table_aggregate. `search` keeps the tables whose name, description or a column header contains it.")]
+     Description("List the tables a container holds (built from its CSV and spreadsheet files, and from tables found in its documents) that you may read: id, name, description, columns with their types, and how many rows you may read. Use a table's id with table_describe, table_read and table_aggregate. `search` keeps the tables whose name, description or a column header contains it. If a search result already named the table and its id, query it directly instead.")]
     public static async Task<string> TableList(
         ListTables list,
         GetContainer getContainer,
@@ -69,7 +69,7 @@ public partial class McpTools
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
-        [Description("The table's id, from table_list")] Guid tableId,
+        [Description("The table's id, from table_list or a search result's Tables line")] Guid tableId,
         CancellationToken ct = default)
     {
         var (id, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);

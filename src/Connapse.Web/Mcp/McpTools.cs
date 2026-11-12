@@ -125,7 +125,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again.")]
+     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again. A passage from a document that contains tables names each one, with its id, on a `Tables:` line and in a note where the table stood: pass that id as \"table\" to table_read or table_aggregate directly, without table_list. When a question is about a named report or document, search first.")]
     public static async Task<string> SearchKnowledge(
         Connapse.Application.Search.SearchKnowledge search,
         IHttpContextAccessor httpContextAccessor,
@@ -202,7 +202,7 @@ public partial class McpTools
     internal static string TablesLine(IReadOnlyList<PassageTable>? tables) =>
         tables is { Count: > 0 }
             ? "Tables: " + string.Join("; ", tables.Select(t => $"\"{t.Name}\" (id {t.Id}{(t.Page is int page ? $", page {page}" : "")})"))
-              + " (query with table_read or table_aggregate)\n"
+              + " (query directly: pass the id as \"table\" to table_read or table_aggregate; no table_list needed)\n"
             : "";
 
     internal static string PendingNote(int pendingDocuments) =>

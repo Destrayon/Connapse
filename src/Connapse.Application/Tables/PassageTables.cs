@@ -44,7 +44,7 @@ public sealed class PassageTables(ITablePassageLinks links, ITableStore tables, 
     {
         string where = table.Placement?.Page is int page ? $", page {page}" : "";
         string columns = string.Join(", ", table.VisibleColumns.Select(c => c.Name));
-        return $"[Table \"{table.Name}\" (id {table.Id}{where}), columns: {columns}. Its rows are in a table; query them with table_read or table_aggregate.]";
+        return $"[Table \"{table.Name}\" (id {table.Id}{where}), columns: {columns}. Its rows aren't in this passage: pass \"table\": \"{table.Id}\" to table_read or table_aggregate to query them directly.]";
     }
 
     public static PassageTable Describe(TableInfo table, bool hidden = false) =>
