@@ -248,7 +248,7 @@
     "CodeLines": 143,
     "Injects": 7,
     "Complexity": 37,
-    "MarkupLogic": 16,
+    "MarkupLogic": 18,
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
@@ -447,6 +447,13 @@
     "MarkupLogic": 6,
     "IsEmpty": false
   },
+  "Shared/FileTablesPanel.razor": {
+    "CodeLines": 19,
+    "Injects": 2,
+    "Complexity": 6,
+    "MarkupLogic": 6,
+    "IsEmpty": false
+  },
   "Shared/FolderUploadButton.razor": {
     "CodeLines": 8,
     "Injects": 1,
@@ -528,7 +535,7 @@
     "CodeLines": 40,
     "Injects": 2,
     "Complexity": 16,
-    "MarkupLogic": 12,
+    "MarkupLogic": 13,
     "IsEmpty": false
   }
 }

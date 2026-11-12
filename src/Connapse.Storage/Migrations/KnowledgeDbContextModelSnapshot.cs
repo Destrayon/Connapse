@@ -359,6 +359,17 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("document_id");
 
+                    b.Property<string>("HeaderHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("header_hash");
+
+                    b.Property<bool>("Hidden")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("hidden");
+
                     b.PrimitiveCollection<string[]>("HiddenColumns")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -381,6 +392,10 @@ namespace Connapse.Storage.Migrations
                     b.Property<bool>("NeedsReview")
                         .HasColumnType("boolean")
                         .HasColumnName("needs_review");
+
+                    b.Property<int?>("Page")
+                        .HasColumnType("integer")
+                        .HasColumnName("page");
 
                     b.Property<string>("RejectsJson")
                         .IsRequired()
@@ -406,6 +421,10 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("character varying(63)")
                         .HasColumnName("storage_name");
 
+                    b.Property<int?>("TableNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("table_number");
+
                     b.Property<int>("Version")
                         .HasColumnType("integer")
                         .HasColumnName("version");
@@ -415,7 +434,8 @@ namespace Connapse.Storage.Migrations
                     b.HasIndex("ContainerId")
                         .HasDatabaseName("ix_container_tables_container");
 
-                    b.HasIndex("DocumentId");
+                    b.HasIndex("DocumentId")
+                        .HasDatabaseName("ix_container_tables_document");
 
                     b.HasIndex("StorageName")
                         .IsUnique()
@@ -1284,6 +1304,58 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("stored_file_removals", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.TablePassageLinkEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ChunkId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("chunk_id");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("document_id");
+
+                    b.Property<int>("Length")
+                        .HasColumnType("integer")
+                        .HasColumnName("length");
+
+                    b.Property<int>("Start")
+                        .HasColumnType("integer")
+                        .HasColumnName("start");
+
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("table_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChunkId")
+                        .HasDatabaseName("ix_table_passage_links_chunk");
+
+                    b.HasIndex("ContainerId");
+
+                    b.HasIndex("DocumentId")
+                        .HasDatabaseName("ix_table_passage_links_document");
+
+                    b.HasIndex("TableId")
+                        .HasDatabaseName("ix_table_passage_links_table");
+
+                    b.ToTable("table_passage_links", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_table_passage_links_span", "start >= 0 AND length > 0");
+                        });
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.BatchDocumentEntity", b =>
                 {
                     b.HasOne("Connapse.Storage.Data.Entities.BatchEntity", "Batch")
@@ -1419,6 +1491,33 @@ namespace Connapse.Storage.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.TablePassageLinkEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ChunkEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ChunkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Connapse.Storage.Data.Entities.DocumentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerTableEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.BatchEntity", b =>

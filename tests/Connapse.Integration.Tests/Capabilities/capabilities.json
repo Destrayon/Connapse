@@ -109,6 +109,15 @@
       "mcp": "generic"
     },
     {
+      "id": "tables.hide",
+      "capability": "Hide a whole table from every caller, or show it again",
+      "routes": [
+        "PUT /api/containers/{containerId:guid}/tables/{tableId:guid}/hidden"
+      ],
+      "mcp": "generic",
+      "note": "A hidden table keeps its id and stays hidden when its document is re-ingested. Its passages show their own text again, with no note or link."
+    },
+    {
       "id": "containers.settings.get",
       "capability": "Read a container's settings overrides",
       "routes": [
@@ -195,6 +204,15 @@
         "GET /api/containers/{containerId:guid}/files/{fileId}/content"
       ],
       "mcp": "get_document"
+    },
+    {
+      "id": "files.tables",
+      "capability": "List the tables found in a document",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/files/{fileId}/tables"
+      ],
+      "mcp": "generic",
+      "note": "Only tables the caller may read; admins also see hidden ones, marked. get_document names the same tables."
     },
     {
       "id": "files.contents",

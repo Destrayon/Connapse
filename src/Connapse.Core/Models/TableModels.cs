@@ -59,11 +59,42 @@ public sealed record TableLoad(
     string? Description = null,
     bool NeedsReview = false,
     IReadOnlyList<TableReject>? Rejects = null,
-    IReadOnlyList<Guid>? SourceDocuments = null)
+    IReadOnlyList<Guid>? SourceDocuments = null,
+    TablePlacement? Placement = null)
 {
     /// <summary>True when the table is merged from several documents and each row carries its own.</summary>
     public bool IsMerged => SourceDocuments is { Count: > 0 };
 }
+
+/// <summary>
+/// Where a table found inside a document sits (CON-312): the PDF page, slide or sheet (null for a format without pages),
+/// its number among the document's tables from 1, and a hash of its header. Together with the document these are the
+/// table's key across re-ingests, so a re-ingest reloads the same table, keeping its id and an admin's hides.
+/// </summary>
+public sealed record TablePlacement(int? Page, int Number, string HeaderHash);
+
+/// <summary>
+/// A passage that holds all or part of a table found in its document (CON-312): the table, the chunk, and the span of
+/// the chunk's text the table takes up. A reader shown the table sees a note in place of the span; any other reader
+/// sees the passage exactly as stored.
+/// </summary>
+public sealed record TablePassageLink(Guid TableId, Guid ChunkId, int Start, int Length);
+
+/// <summary>
+/// A table found in a passage or document (CON-312), as a reader is told of it: enough to query it with the table
+/// tools. <see cref="Hidden"/> is true only for an admin, who is shown a table hidden from everyone else.
+/// <see cref="Preview"/> is set on the first search passage naming the table, and only there.
+/// </summary>
+public sealed record PassageTable(
+    Guid Id, Guid ContainerId, string Name, int? Page, int? Number, bool Hidden = false, TablePreview? Preview = null);
+
+/// <summary>
+/// A small look at a table shown with the search passage that names it (CON-312): its first visible columns, a few
+/// sample rows with long cells cut short, and how many rows the caller may read. It is a pointer to the table, not a
+/// copy of it: the full table is queried with the table tools. Built only from rows and columns the caller may read.
+/// </summary>
+public sealed record TablePreview(
+    IReadOnlyList<string> Columns, int MoreColumns, IReadOnlyList<IReadOnlyList<string>> Rows, long RowCount);
 
 /// <summary>
 /// A table's catalog entry. <see cref="StorageName"/> is the generated name of the PostgreSQL table holding its rows
@@ -96,8 +127,13 @@ public sealed record TableInfo(
     string? Key = null,
     DateTime? HistoryFrom = null,
     IReadOnlyList<Guid>? SourceDocuments = null,
-    IReadOnlyList<string>? HiddenColumns = null)
+    IReadOnlyList<string>? HiddenColumns = null,
+    TablePlacement? Placement = null,
+    bool Hidden = false)
 {
+    /// <summary>True for a table found inside a document's text (CON-312) rather than loaded from a file of its own.</summary>
+    public bool IsFromPassage => Placement is not null;
+
     /// <summary>True when the table keeps row history, so it can be read as seen at a time and asked what changed.</summary>
     public bool HasHistory => Key is not null && HistoryFrom is not null;
 

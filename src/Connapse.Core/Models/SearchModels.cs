@@ -36,6 +36,13 @@ public record SearchHit(
     string DocumentId,
     string Content,
     float Score,
-    Dictionary<string, string> Metadata);
+    Dictionary<string, string> Metadata)
+{
+    /// <summary>
+    /// The tables found in this passage that the caller may read (CON-312), in the order they sit in it; null when it
+    /// holds none. Each one's text in <see cref="Content"/> is replaced by a short note naming it.
+    /// </summary>
+    public IReadOnlyList<PassageTable>? Tables { get; init; }
+}
 
 public enum SearchMode { Semantic, Keyword, Hybrid }

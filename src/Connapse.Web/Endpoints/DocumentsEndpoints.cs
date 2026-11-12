@@ -2,6 +2,7 @@
 using System.Text;
 using Connapse.Application;
 using Connapse.Application.Files;
+using Connapse.Application.Tables;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -151,6 +152,24 @@ public static class DocumentsEndpoints
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("files.links")
         .WithDescription("The files of the same container a file links to and the ones that link to it, each with the kinds of link (calls, imports, inherits). Files the caller can't read are left out.")
+        .RequireAuthorization("RequireViewer");
+
+        // GET /api/containers/{containerId}/files/{fileId}/tables - The tables found in a file (CON-312)
+        group.MapGet("/{fileId}/tables", async (
+            HttpContext http,
+            Guid containerId,
+            string fileId,
+            [FromServices] GetFileTables fileTables,
+            CancellationToken ct) =>
+        {
+            var read = await fileTables.RunAsync(Rest(http), containerId, fileId, ct);
+            return read.Succeeded ? Results.Ok(read.Result) : FileProblems.Result(read);
+        })
+        .Produces<IReadOnlyList<PassageTable>>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("files.tables")
+        .WithDescription("The tables found in a file that the caller may read, each with its id, page and number, to query with the table tools. Admins also see tables hidden from everyone else, marked hidden.")
         .RequireAuthorization("RequireViewer");
 
         // DELETE /api/containers/{containerId}/files/{fileId} - Delete file

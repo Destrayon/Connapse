@@ -1,0 +1,90 @@
+{
+  "tools": [
+    "search_knowledge",
+    "get_document",
+    "table_list",
+    "table_describe",
+    "table_read",
+    "table_aggregate"
+  ],
+  "questionSet": "sealed reserve (reserve-linked.jsonl.gz)",
+  "config": "hybrid",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "setups": {
+    "both-linked": {
+      "questions": 30,
+      "correct": 30,
+      "tableCorrect": 20,
+      "proseCorrect": 10,
+      "followedLink": 16,
+      "usedTableList": 4,
+      "proseWithTableCall": 0,
+      "toolCalls": 1.83,
+      "costPerQuestionUsd": 0.0323,
+      "outcomes": {
+        "Answered": 30
+      }
+    },
+    "both-unlinked": {
+      "questions": 30,
+      "correct": 30,
+      "tableCorrect": 20,
+      "proseCorrect": 10,
+      "followedLink": 0,
+      "usedTableList": 5,
+      "proseWithTableCall": 0,
+      "toolCalls": 1.2,
+      "costPerQuestionUsd": 0.0352,
+      "outcomes": {
+        "Answered": 30
+      }
+    }
+  },
+  "bar": {
+    "1_followedLink": {
+      "followed": 16,
+      "tableQuestions": 20,
+      "rate": 0.8,
+      "pass": true
+    },
+    "2_helps": {
+      "allCorrectLinked": 30,
+      "allCorrectUnlinked": 30,
+      "tableGain": 0,
+      "pass": false
+    },
+    "3_noDistraction": {
+      "proseWithTableCall": 0,
+      "proseCorrectLinked": 10,
+      "proseCorrectUnlinked": 10,
+      "pass": true
+    },
+    "4_noLeak": "measured by tests, not this run: DocumentTableLinkTests and the PassageTables unit tests",
+    "5_cost": {
+      "linkedPerQuestionUsd": 0.0323,
+      "unlinkedPerQuestionUsd": 0.0352,
+      "ratio": 0.919,
+      "pass": true
+    }
+  },
+  "conforming": true,
+  "diagnosticOnly": [],
+  "tablesLoaded": [
+    "clinic-staffing-plan, page 1, table 1",
+    "customer-survey-2025, page 1, table 1",
+    "energy-usage-2025, table 1",
+    "fleet-maintenance-2025, table 1",
+    "it-asset-register, table 1",
+    "marketing-campaigns-2025, table 1",
+    "project-portfolio-q4, table 1",
+    "supplier-scorecard-2025, page 1, table 1",
+    "training-completion-2025, page 1, table 1",
+    "warehouse-audit-q3, page 1, table 1"
+  ],
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 68%)",
+    "atLastRun": "allowed (seven_day 69%)"
+  }
+}

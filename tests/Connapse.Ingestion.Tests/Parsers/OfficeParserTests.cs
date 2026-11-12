@@ -20,7 +20,8 @@ public class OfficeParserTests
     {
         _parser.SupportedExtensions.Should().Contain(".docx");
         _parser.SupportedExtensions.Should().Contain(".pptx");
-        _parser.SupportedExtensions.Should().HaveCount(2);
+        _parser.SupportedExtensions.Should().Contain(".xlsx");
+        _parser.SupportedExtensions.Should().HaveCount(3);
     }
 
     [Fact]
@@ -103,7 +104,7 @@ public class OfficeParserTests
     {
         using var stream = new MemoryStream();
 
-        var act = async () => await _parser.ParseAsync(stream, "test.xlsx");
+        var act = async () => await _parser.ParseAsync(stream, "test.xls");
 
         await act.Should().ThrowAsync<NotSupportedException>()
             .WithMessage("*not supported*");

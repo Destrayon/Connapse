@@ -7,14 +7,15 @@ using System.Text;
 namespace Connapse.Ingestion.Parsers;
 
 /// <summary>
-/// Parser for Microsoft Office documents (.docx, .pptx) using OpenXML.
+/// Parser for Microsoft Office documents (.docx, .pptx, .xlsx) using OpenXML.
 /// </summary>
 public class OfficeParser : IDocumentParser
 {
     private static readonly HashSet<string> _supportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".docx",
-        ".pptx"
+        ".pptx",
+        ".xlsx"
     };
 
     public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
@@ -24,8 +25,9 @@ public class OfficeParser : IDocumentParser
     /// footnotes, endnotes and text boxes; tracked deletions excluded (#599).
     /// 3: PPTX as Markdown -- a heading per slide with its title, paragraphs instead of one line
     /// per run, tables, grouped shapes and speaker notes (#599).
+    /// 4: XLSX as Markdown -- a heading per sheet and each block of cells as a table (CON-312).
     /// </summary>
-    public int Version => 3;
+    public int Version => 4;
 
     public async Task<ParsedDocument> ParseAsync(
         Stream stream,
@@ -47,6 +49,7 @@ public class OfficeParser : IDocumentParser
                 {
                     ".docx" => ParseWordDocument(stream, metadata, warnings, cancellationToken),
                     ".pptx" => ParsePowerPointDocument(stream, metadata, warnings, cancellationToken),
+                    ".xlsx" => ParseSpreadsheet(stream, metadata, warnings, cancellationToken),
                     _ => throw new NotSupportedException($"Extension {extension} is not supported by OfficeParser")
                 };
 
@@ -99,6 +102,34 @@ public class OfficeParser : IDocumentParser
         if (string.IsNullOrWhiteSpace(content))
         {
             warnings.Add("Document contains no extractable text");
+            content = string.Empty;
+        }
+
+        return new ParsedDocument(content, metadata, warnings);
+    }
+
+    private static ParsedDocument ParseSpreadsheet(
+        Stream stream,
+        Dictionary<string, string> metadata,
+        List<string> warnings,
+        CancellationToken cancellationToken)
+    {
+        using var document = SpreadsheetDocument.Open(stream, false);
+
+        metadata["FileType"] = "Excel Workbook";
+
+        var coreProps = document.PackageProperties;
+        if (!string.IsNullOrWhiteSpace(coreProps.Title))
+            metadata["Title"] = coreProps.Title;
+        if (!string.IsNullOrWhiteSpace(coreProps.Creator))
+            metadata["Author"] = coreProps.Creator;
+        if (coreProps.Created.HasValue)
+            metadata["CreationDate"] = coreProps.Created.Value.ToString("O");
+
+        string content = XlsxMarkdown.Convert(document, warnings, cancellationToken);
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            warnings.Add("Workbook contains no cells with values");
             content = string.Empty;
         }
 

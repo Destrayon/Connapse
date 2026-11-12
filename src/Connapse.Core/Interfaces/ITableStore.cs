@@ -40,4 +40,37 @@ public interface ITableStore
 
     /// <summary>Removes a table from the catalog at once; its rows are dropped a little later. False when it doesn't exist.</summary>
     Task<bool> DeleteAsync(Guid containerId, Guid tableId, CancellationToken ct = default);
+
+    /// <summary>Every table loaded from <paramref name="documentId"/>, in the order they sit in it.</summary>
+    Task<IReadOnlyList<TableInfo>> ListByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Hides a whole table from every caller (CON-312), or shows it again. A hidden table stays hidden across
+    /// re-ingests. Null when the table doesn't exist.
+    /// </summary>
+    Task<TableInfo?> SetHiddenAsync(Guid containerId, Guid tableId, bool hidden, CancellationToken ct = default);
+
+    /// <summary>
+    /// Makes the tables found inside <paramref name="documentId"/> (CON-312) match <paramref name="loads"/>, each of
+    /// which has a <see cref="TableLoad.Placement"/>, in one transaction. A load whose placement matches one of the
+    /// document's tables reloads it, keeping its id and hides; a load matching none is created; a table no load matches
+    /// is deleted. The document's other tables, such as one loaded from a CSV file, aren't touched. When anything fails
+    /// nothing changes. Returns the tables in load order.
+    /// </summary>
+    Task<IReadOnlyList<TableInfo>> SyncDocumentTablesAsync(
+        Guid containerId, Guid documentId, IReadOnlyList<TableLoad> loads, CancellationToken ct = default);
+}
+
+/// <summary>
+/// The links from a document's passages to the tables found in them (CON-312). A link is removed with its table, its
+/// passage or its document.
+/// </summary>
+public interface ITablePassageLinks
+{
+    /// <summary>Replaces every link from <paramref name="documentId"/>'s passages with <paramref name="links"/>.</summary>
+    Task ReplaceAsync(Guid containerId, Guid documentId, IReadOnlyList<TablePassageLink> links, CancellationToken ct = default);
+
+    /// <summary>The links from each of <paramref name="chunkIds"/> that has any, each passage's in the order they sit in it.</summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<TablePassageLink>>> ForChunksAsync(
+        IReadOnlyCollection<Guid> chunkIds, CancellationToken ct = default);
 }

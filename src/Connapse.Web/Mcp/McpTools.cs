@@ -4,6 +4,7 @@ using Connapse.Application.Files;
 using Microsoft.AspNetCore.Authorization;
 using Connapse.Application.Search;
 using Connapse.Application.Sources;
+using Connapse.Application.Tables;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
 using Connapse.Core.Utilities;
@@ -124,7 +125,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "search_knowledge", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again.")]
+     Description("Search a container using semantic, keyword, or hybrid mode (Hybrid is the default and works well without tuning). Returns ranked passages with citations, scores, and document IDs. If the first query returns thin results, refine the query and call again. A passage from a document that contains tables names each one, with its id, on a `Tables:` line and in a note where the table stood: pass that id as \"table\" to table_read or table_aggregate directly, without table_list. When a question is about a named report or document, search first.")]
     public static async Task<string> SearchKnowledge(
         Connapse.Application.Search.SearchKnowledge search,
         IHttpContextAccessor httpContextAccessor,
@@ -183,6 +184,8 @@ public partial class McpTools
             resultText += $"Path: {docPath ?? "/"}\n";
             resultText += $"Chunk: {chunkIndex ?? "0"}\n";
             resultText += $"DocumentId: {hit.DocumentId}\n";
+            resultText += TablesLine(hit.Tables);
+            resultText += TablePreviews(hit.Tables);
             resultText += $"Content:\n{hit.Content}\n\n";
         }
 
@@ -193,6 +196,39 @@ public partial class McpTools
     /// Says that documents still waiting to be indexed can't be in a search's results yet (CON-277), so an agent
     /// doesn't read a miss as absence; empty when none are waiting.
     /// </summary>
+    /// <summary>
+    /// The tables found in a passage or document the caller may read (CON-312), one line naming each with its id, so an
+    /// agent queries their rows with the table tools; empty when there are none.
+    /// </summary>
+    internal static string TablesLine(IReadOnlyList<PassageTable>? tables) =>
+        tables is { Count: > 0 }
+            ? "Tables: " + string.Join("; ", tables.Select(t => $"\"{t.Name}\" (id {t.Id}{(t.Page is int page ? $", page {page}" : "")})"))
+              + " (query directly: pass the id as \"table\" to table_read or table_aggregate; no table_list needed)\n"
+            : "";
+
+    /// <summary>
+    /// A short preview of each named table that carries one (CON-312): its columns, a few sample rows and its row
+    /// count, ending with how to query the whole table. Empty when no table has a preview.
+    /// </summary>
+    internal static string TablePreviews(IReadOnlyList<PassageTable>? tables)
+    {
+        if (tables is null)
+            return "";
+        var text = new System.Text.StringBuilder();
+        foreach (PassageTable table in tables)
+        {
+            if (table.Preview is not { } preview)
+                continue;
+            string more = preview.MoreColumns > 0 ? $" (+{preview.MoreColumns} more columns)" : "";
+            string rows = preview.RowCount == 1 ? "1 row" : $"{preview.RowCount} rows";
+            text.Append($"Table preview \"{table.Name}\" ({rows}; sample of {preview.Rows.Count}): {string.Join(" | ", preview.Columns)}{more}\n");
+            foreach (IReadOnlyList<string> row in preview.Rows)
+                text.Append("  ").AppendJoin(" | ", row).Append('\n');
+            text.Append($"Preview only. Query the full table with table_read or table_aggregate using \"table\": \"{table.Id}\". {TableQueryResult.UntrustedDataNotice}\n");
+        }
+        return text.ToString();
+    }
+
     internal static string PendingNote(int pendingDocuments) =>
         SearchNotes.Pending(pendingDocuments) is { } note ? $"\nNote: {note} Text files can already be read with get_document." : "";
 
@@ -531,6 +567,7 @@ public partial class McpTools
     public static async Task<string> GetDocument(
         GetFile getFile,
         GetFileContent getContent,
+        GetFileTables getTables,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
@@ -578,9 +615,18 @@ public partial class McpTools
                      $"Size: {document.SizeBytes:N0} bytes\n" +
                      $"Created: {document.CreatedAt:u}\n" +
                      (read.Result.AwaitingIndex ? "Indexing: still waiting, so search_knowledge can't find this document yet.\n" : "") +
+                     await DocumentTablesLineAsync(getTables, http, resolvedId.Value, document.Id, ct) +
                      $"---\n";
 
         return header + content;
+    }
+
+    /// <summary>The document's tables the caller may read (CON-312), as a line; empty when there are none or they can't be checked.</summary>
+    private static async Task<string> DocumentTablesLineAsync(
+        GetFileTables getTables, IHttpContextAccessor http, Guid containerId, string documentId, CancellationToken ct)
+    {
+        var found = await getTables.RunAsync(Mcp(http), containerId, documentId, ct);
+        return found.Succeeded ? TablesLine(found.Result!.Where(t => !t.Hidden).ToList()) : "";
     }
 
     [McpServerTool(Name = "get_documents", ReadOnly = true, Idempotent = true),

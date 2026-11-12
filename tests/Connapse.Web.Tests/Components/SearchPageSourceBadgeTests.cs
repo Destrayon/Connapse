@@ -56,6 +56,10 @@ public class SearchPageSourceBadgeTests : IDisposable
         ctx.Services.AddSingleton(new VectorModelDiscovery(
             Substitute.For<IDbContextFactory<KnowledgeDbContext>>(), NullLogger<VectorModelDiscovery>.Instance));
         ctx.Services.AddSourceOperations();
+        ctx.Services.AddSingleton(Substitute.For<ITablePassageLinks>());
+        ctx.Services.AddSingleton(Substitute.For<ITableStore>());
+        ctx.Services.AddSingleton(Substitute.For<IDocumentStore>());
+        ctx.Services.AddSingleton(Substitute.For<Connapse.Application.Ports.IDocumentAccess>());
     }
 
     public void Dispose() => ctx.Dispose();

@@ -372,6 +372,13 @@ public class IngestionPipeline : IKnowledgeIngester
             if (keepPreviousIndex)
                 return await KeepPreviousIndexAsync(existing!, generation, pageErrors!, warnings, stopwatch, ct);
 
+            // Clean tables inside the document become tables of its container (CON-312), linked from the passages
+            // that hold them in the swap below.
+            IReadOnlyList<(FoundTable Found, TableInfo Info)> promoted =
+                _tableStore is not null && owner.ContainerId is Guid promoteIn && alsoTableIn is null && DocumentTables.Formats.Contains(extension)
+                    ? await PromoteTablesAsync(parsedDocument.Content, extension, options.FileName ?? virtualPath, promoteIn, documentId, warnings, ct)
+                    : [];
+
             // One snapshot for the whole ingest, so the recorded model and size describe the vectors stored.
             var embedSettings = _embeddingSettings.CurrentValue;
             var metadata = BuildMetadata(options, existing, embedSettings);
@@ -453,6 +460,23 @@ public class IngestionPipeline : IKnowledgeIngester
             documentEntity.Metadata = metadata;
 
             var vectorItems = StageChunks(documentId, owner, chunks, embeddings, embedSettings);
+
+            // The old links went with the old chunks; the new ones commit with the new chunks, or not at all.
+            if (promoted.Count > 0 && owner.ContainerId is Guid linkIn)
+            {
+                foreach (TableSpan span in DocumentTables.Spans([.. promoted.Select(p => p.Found)], chunks))
+                {
+                    _context.TablePassageLinks.Add(new TablePassageLinkEntity
+                    {
+                        ContainerId = linkIn,
+                        DocumentId = documentId,
+                        TableId = promoted[span.Table].Info.Id,
+                        ChunkId = Guid.Parse(vectorItems[span.Chunk].Id),
+                        Start = span.Start,
+                        Length = span.Length,
+                    });
+                }
+            }
 
             // A code file's links replace the ones it asserted before, in the same commit as its chunks (CON-109), so a
             // superseded job's links roll back with its chunks. A file read without an outline asserts none, and nor does
@@ -638,6 +662,44 @@ public class IngestionPipeline : IKnowledgeIngester
             .Select(d => (int?)d.Generation)
             .FirstOrDefaultAsync(ct);
         return current != generation;
+    }
+
+    /// <summary>
+    /// Syncs the clean tables found in a document's text into its container (CON-312): a table found again keeps its
+    /// id and an admin's hide, a new one is created, and one no longer found is removed. The sync is one transaction,
+    /// so a failure leaves the previous tables as they were; the text still indexes, and the warnings say why the
+    /// tables didn't load. Like a CSV's table, it runs outside the text's transaction, so it needs the document's row:
+    /// a direct caller's new document, created by the swap, gets its tables on its next ingest.
+    /// </summary>
+    private async Task<IReadOnlyList<(FoundTable Found, TableInfo Info)>> PromoteTablesAsync(
+        string content, string extension, string fileName, Guid containerId, Guid documentId, List<string> warnings,
+        CancellationToken ct)
+    {
+        List<FoundTable> clean = [.. DocumentTables.Find(content, extension).Where(t => DocumentTables.Reject(t) is null)];
+        IReadOnlyList<TableInfo> tables;
+        try
+        {
+            tables = await _tableStore!.SyncDocumentTablesAsync(containerId, documentId,
+                [.. clean.Select(t => DocumentTables.ToLoad(t, DocumentTables.Name(fileName, t), documentId))], ct);
+        }
+        catch (Exception ex) when (IsUnreadableTable(ex))
+        {
+            warnings.Add($"Could not load the tables in {Path.GetFileName(fileName)}: {StorableText.Clean(ex.Message)}");
+            return [];
+        }
+        catch (Exception ex) when (IsDocumentGone(ex))
+        {
+            return [];
+        }
+
+        foreach (TableInfo table in tables)
+        {
+            if (RejectsWarning(table) is { } rejects)
+                warnings.Add($"{table.Name}: {rejects}");
+        }
+        if (tables.Count > 0)
+            _logger.LogInformation("Loaded {Count} table(s) found in document {DocumentId}", tables.Count, documentId);
+        return [.. clean.Zip(tables)];
     }
 
     /// <summary>Reads a CSV into the document's own table: a new one on the first load, a reload after that.</summary>
@@ -1338,7 +1400,7 @@ internal static class IngestionPipelineStrategyResolver
     /// </summary>
     private static readonly HashSet<string> ParsedMarkdownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".pdf", ".docx", ".pptx", ".html", ".htm", ".eml", ".msg", ".epub",
+        ".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm", ".eml", ".msg", ".epub",
     };
 
     public static string Resolve(string fallbackStrategy, string? fileName, bool strategyIsExplicit = false)

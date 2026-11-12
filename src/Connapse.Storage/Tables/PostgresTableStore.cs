@@ -38,6 +38,117 @@ public class PostgresTableStore(
         var connection = context.Database.GetDbConnection();
 
         await PrepareLoadAsync(context, connection, containerId, ct);
+        var entity = await CreateEntryAsync(context, connection, containerId, load, ct);
+        await transaction.CommitAsync(ct);
+        return ToInfo(entity);
+    }
+
+    public async Task<TableInfo?> ReloadAsync(Guid containerId, Guid tableId, TableLoad load, CancellationToken ct = default)
+    {
+        Validate(load);
+        await using var context = await factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        var connection = context.Database.GetDbConnection();
+
+        await PrepareLoadAsync(context, connection, containerId, ct);
+        // Locked until commit, so two reloads of one table queue rather than both retire the same old table.
+        var entity = await LockEntryAsync(context, containerId, tableId, ct);
+        if (entity is null)
+            return null;
+
+        await ReloadEntryAsync(context, connection, containerId, entity, load, ct);
+        await transaction.CommitAsync(ct);
+        return ToInfo(entity);
+    }
+
+    public async Task<IReadOnlyList<TableInfo>> SyncDocumentTablesAsync(
+        Guid containerId, Guid documentId, IReadOnlyList<TableLoad> loads, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(loads);
+        foreach (var load in loads)
+        {
+            Validate(load);
+            if (load.Placement is null || load.DocumentId != documentId || load.IsMerged)
+                throw new ArgumentException("Each table found in a document needs its placement and that document.", nameof(loads));
+        }
+        if (loads.Select(l => l.Placement!.Number).Distinct().Count() != loads.Count)
+            throw new ArgumentException("Each table found in a document needs its own number.", nameof(loads));
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        var connection = context.Database.GetDbConnection();
+
+        await PrepareLoadAsync(context, connection, containerId, ct);
+        // Locked until commit, so two syncs of one document queue rather than both create its tables.
+        var existing = await context.ContainerTables
+            .FromSql($"SELECT * FROM container_tables WHERE container_id = {containerId} AND document_id = {documentId} AND header_hash IS NOT NULL ORDER BY table_number, id FOR UPDATE")
+            .ToListAsync(ct);
+
+        var matches = TablePlacements.Match(
+            loads.Select(l => l.Placement!).ToList(),
+            existing.Select(e => new TablePlacement(e.Page, e.TableNumber ?? 0, e.HeaderHash!)).ToList());
+
+        var result = new List<TableInfo>(loads.Count);
+        for (int i = 0; i < loads.Count; i++)
+        {
+            var entity = matches[i] is int m
+                ? await ReloadEntryAsync(context, connection, containerId, existing[m], loads[i], ct)
+                : await CreateEntryAsync(context, connection, containerId, loads[i], ct);
+            result.Add(ToInfo(entity));
+        }
+
+        HashSet<int> kept = [.. matches.OfType<int>()];
+        var gone = existing.Where((_, n) => !kept.Contains(n)).ToList();
+        foreach (var entity in gone)
+        {
+            context.ContainerTables.Remove(entity);
+            context.RetiredTables.Add(new RetiredTableEntity
+            {
+                ContainerId = containerId,
+                StorageName = entity.StorageName,
+                RetiredAt = DateTime.UtcNow,
+            });
+        }
+        await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        logger.LogInformation(
+            "Synced the tables of document {DocumentId} in container {ContainerId}: {Kept} kept, {Created} created, {Deleted} deleted",
+            documentId, containerId, kept.Count, loads.Count - kept.Count, gone.Count);
+        return result;
+    }
+
+    public async Task<IReadOnlyList<TableInfo>> ListByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        var entities = await context.ContainerTables.AsNoTracking()
+            .Where(t => t.ContainerId == containerId && t.DocumentId == documentId)
+            .OrderBy(t => t.TableNumber).ThenBy(t => t.CreatedAt).ThenBy(t => t.Id)
+            .ToListAsync(ct);
+        return entities.Select(ToInfo).ToList();
+    }
+
+    public async Task<TableInfo?> SetHiddenAsync(Guid containerId, Guid tableId, bool hidden, CancellationToken ct = default)
+    {
+        await using var context = await factory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        var entity = await LockEntryAsync(context, containerId, tableId, ct);
+        if (entity is null)
+            return null;
+
+        entity.Hidden = hidden;
+        await context.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        logger.LogInformation("Table {TableId} in container {ContainerId} is now {State}",
+            tableId, containerId, hidden ? "hidden" : "shown");
+        return ToInfo(entity);
+    }
+
+    /// <summary>Loads <paramref name="load"/> into a new table and adds its entry, inside the caller's transaction.</summary>
+    private async Task<ContainerTableEntity> CreateEntryAsync(
+        KnowledgeDbContext context, DbConnection connection, Guid containerId, TableLoad load, CancellationToken ct)
+    {
         DateTime now = await SeenTimeAsync(connection, ct);
         string storageName = TableDdl.NewTableName();
         var candidates = TableHistory.KeyCandidates(load.Columns, load.IsMerged);
@@ -56,25 +167,18 @@ public class PostgresTableStore(
         entity.Version = 1;
         context.ContainerTables.Add(entity);
         await context.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         logger.LogInformation("Created table {TableId} ({Name}) in container {ContainerId}: {Rows} rows in {StorageName}",
             entity.Id, Sanitize(entity.Name), containerId, rows, storageName);
-        return ToInfo(entity);
+        return entity;
     }
 
-    public async Task<TableInfo?> ReloadAsync(Guid containerId, Guid tableId, TableLoad load, CancellationToken ct = default)
+    /// <summary>Reloads the locked <paramref name="entity"/> with <paramref name="load"/>, inside the caller's transaction.</summary>
+    private async Task<ContainerTableEntity> ReloadEntryAsync(
+        KnowledgeDbContext context, DbConnection connection, Guid containerId, ContainerTableEntity entity, TableLoad load,
+        CancellationToken ct)
     {
-        Validate(load);
-        await using var context = await factory.CreateDbContextAsync(ct);
-        await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        var connection = context.Database.GetDbConnection();
-
-        await PrepareLoadAsync(context, connection, containerId, ct);
-        // Locked until commit, so two reloads of one table queue rather than both retire the same old table.
-        var entity = await LockEntryAsync(context, containerId, tableId, ct);
-        if (entity is null)
-            return null;
+        Guid tableId = entity.Id;
 
         // One seen time for every version this sync writes, never before the last sync's even if the clock stepped back.
         DateTime now = await SeenTimeAsync(connection, ct);
@@ -107,12 +211,11 @@ public class PostgresTableStore(
             Apply(entity, load, oldName, rows, now, existing.Key, existing.HistoryFrom);
             entity.Version++;
             await context.SaveChangesAsync(ct);
-            await transaction.CommitAsync(ct);
 
             logger.LogInformation(
                 "Re-synced table {TableId} in container {ContainerId} with history: {Rows} rows, {Closed} versions closed, {Added} added",
                 tableId, containerId, rows, closed, added);
-            return ToInfo(entity);
+            return entity;
         }
 
         // Otherwise the new table replaces the old one, and history, if the new one has a key, starts again here.
@@ -131,11 +234,10 @@ public class PostgresTableStore(
             RetiredAt = DateTime.UtcNow,
         });
         await context.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
 
         logger.LogInformation("Reloaded table {TableId} in container {ContainerId}: {Rows} rows in {StorageName}, replacing {OldName}",
             tableId, containerId, rows, storageName, oldName);
-        return ToInfo(entity);
+        return entity;
     }
 
     public async Task<TableInfo?> GetAsync(Guid containerId, Guid tableId, CancellationToken ct = default)
@@ -453,6 +555,10 @@ public class PostgresTableStore(
         entity.NeedsReview = load.NeedsReview;
         entity.RejectsJson = JsonSerializer.Serialize(load.Rejects ?? [], Json);
         entity.LoadedAt = loadedAt;
+        // The placement is the table's key across re-ingests; an admin's hide of the whole table is kept as it is.
+        entity.Page = load.Placement?.Page;
+        entity.TableNumber = load.Placement?.Number;
+        entity.HeaderHash = load.Placement?.HeaderHash;
     }
 
     private static TableInfo ToInfo(ContainerTableEntity entity)
@@ -473,7 +579,9 @@ public class PostgresTableStore(
             schema.PrimaryKey?.FirstOrDefault(),
             schema.HistoryFrom is DateTime from ? DateTime.SpecifyKind(from, DateTimeKind.Utc) : null,
             entity.SourceDocuments is { Length: > 0 } sources ? sources : null,
-            entity.HiddenColumns ?? []);
+            entity.HiddenColumns ?? [],
+            entity.HeaderHash is string hash ? new TablePlacement(entity.Page, entity.TableNumber ?? 0, hash) : null,
+            entity.Hidden);
     }
 
     private static readonly JsonSerializerOptions Json = new()
@@ -493,6 +601,43 @@ public class PostgresTableStore(
     private sealed record FrictionlessField(
         string Name, string Type, string? Description, string Column, string? Format = null, string? DecimalChar = null,
         string? GroupChar = null, IReadOnlyList<string>? TrueValues = null, IReadOnlyList<string>? FalseValues = null);
+}
+
+/// <summary>Matches the tables found in a re-ingested document to the ones it had (CON-312).</summary>
+internal static class TablePlacements
+{
+    /// <summary>
+    /// For each of <paramref name="incoming"/>, the index into <paramref name="existing"/> of the table it reloads, or
+    /// null for a new one. A table on the same page with the same number and header matches first; then one left over
+    /// with the same header, in order, so a table that moved, or had another inserted before it, keeps its id and
+    /// hides. Each existing table matches at most once.
+    /// </summary>
+    internal static IReadOnlyList<int?> Match(IReadOnlyList<TablePlacement> incoming, IReadOnlyList<TablePlacement> existing)
+    {
+        var result = new int?[incoming.Count];
+        var used = new bool[existing.Count];
+        MatchWhere((a, b) => a == b);
+        MatchWhere((a, b) => string.Equals(a.HeaderHash, b.HeaderHash, StringComparison.Ordinal));
+        return result;
+
+        void MatchWhere(Func<TablePlacement, TablePlacement, bool> same)
+        {
+            for (int i = 0; i < incoming.Count; i++)
+            {
+                if (result[i] is not null)
+                    continue;
+                for (int e = 0; e < existing.Count; e++)
+                {
+                    if (!used[e] && same(incoming[i], existing[e]))
+                    {
+                        result[i] = e;
+                        used[e] = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// <summary>Turns load values into what binary COPY writes for each column type, and names the types for Frictionless.</summary>

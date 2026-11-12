@@ -223,6 +223,30 @@ public class TableOperationTests
     }
 
     [Fact]
+    public async Task List_HiddenTable_IsLeftOutForAViewer()
+    {
+        _authorizer.Allows = policy => policy != Policies.Admin;
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        Holds(id, Table(id, "shown"), Table(id, "secret") with { Hidden = true });
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        listed.Result!.Items.Select(t => t.Name).Should().Equal("shown");
+        listed.Result.TotalCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task List_HiddenTable_IsShownMarkedToAnAdmin()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        Holds(id, Table(id, "shown"), Table(id, "secret") with { Hidden = true });
+
+        var listed = await List.RunAsync(Caller, id, 0, 10);
+
+        listed.Result!.Items.Select(t => (t.Name, t.Hidden)).Should().Equal(("shown", false), ("secret", true));
+    }
+
+    [Fact]
     public async Task List_MergedTableReadInPart_CountsOnlyReadableRowsAndNamesOnlyReadableSources()
     {
         Guid id = ContainerOfKind(ContainerKind.Documents);

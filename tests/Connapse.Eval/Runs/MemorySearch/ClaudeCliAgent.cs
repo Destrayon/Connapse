@@ -184,6 +184,7 @@ public sealed class ClaudeCliAgent(
         try
         {
             ProcessResult process = await _runner.RunAsync(StartInfo(bridge.UrlFor(id), system, question), _timeout, ct);
+            await SaveTranscriptAsync(Environment.GetEnvironmentVariable(TranscriptVariable), id, question, process.Stdout, ct);
             CliResult result = CliResult.Parse(process.Stdout);
             if (result.Limit is { } limit)
                 lock (_lock)
@@ -197,6 +198,19 @@ public sealed class ClaudeCliAgent(
         {
             bridge.Close(id);
         }
+    }
+
+    /// <summary>When set to a folder, each run's raw stream-json is saved there, so the agent's reasoning can be read.</summary>
+    public const string TranscriptVariable = "CONNAPSE_EVAL_TRANSCRIPTS";
+
+    /// <summary>Writes the question and then every stream-json line to <c>&lt;dir&gt;/&lt;session&gt;.jsonl</c>; does nothing without a folder.</summary>
+    public static async Task SaveTranscriptAsync(string? dir, string session, string question, IEnumerable<string> stdout, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(dir))
+            return;
+        Directory.CreateDirectory(dir);
+        string first = new JsonObject { ["question"] = question }.ToJsonString();
+        await File.WriteAllLinesAsync(Path.Combine(dir, session + ".jsonl"), [first, .. stdout], ct);
     }
 
     /// <summary>

@@ -22,7 +22,7 @@ public static class ContentSniffer
 
     private static readonly HashSet<string> ZipOfficeExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".docx", ".pptx", ".epub",
+        ".docx", ".pptx", ".xlsx", ".epub",
     };
 
     private static ReadOnlySpan<byte> PdfMagic => "%PDF-"u8;

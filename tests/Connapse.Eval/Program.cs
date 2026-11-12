@@ -59,6 +59,11 @@ internal static class EvalEntryPoint
                         cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tables"),
                         cli.PositiveInt("stall-minutes")),
                     TableArm.Parse(cli.List("arms")), cli.PositiveInt("runs") ?? TablesArmsEval.RegisteredRuns), cts.Token),
+                "tables-linked" => await new TablesLinkedEval(paths, Console.Out).RunAsync(new TablesLinkedEval.Options(
+                    cli.Option("config") ?? "hybrid", cli.Option("model") ?? "claude-sonnet-5-5", cli.Option("effort") ?? "medium",
+                    cli.PositiveInt("limit-tasks"), cli.List("ids"), cli.PositiveInt("workers") ?? 1, cli.Option("out"),
+                    cli.Option("agent-dir"), cli.PositiveInt("stall-minutes"), cli.Flag("reserve"),
+                    cli.PositiveInt("min-free-gb") is int gb ? gb * 1024L * 1024 * 1024 : TablesLinkedEval.DefaultMinFreeMemory), cts.Token),
                 "memory-learned" => await new MemoryLearnedEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
@@ -296,6 +301,7 @@ internal static class Commands
               tables-rag [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--skip-mixed] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--setup rag|tables] [--out <file>]   (tables-v1: an agent answering table questions with search tools (rag) or the four table tools (tables, mixed questions get all six); runs `claude -p` on your Claude subscription)
               tables-compare <rag.runs.jsonl> <tables.runs.jsonl> [--out <file>]   (scores a tables run against the rag baseline on the CON-E6 pass bar: McNemar, per family, mixed, cost)
               tables-arms [--arms structured,sql] [--runs 3] [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (CON-327: the structured table tools against table_sql on the same tables-v1 questions, with the CON-320 pass bar's McNemar and Wilcoxon; runs `claude -p` on your Claude subscription)
+              tables-linked [--config hybrid] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--reserve] [--min-free-gb 8] [--out <file>]   (CON-312: the linked-set reports asked with all six tools, with passage links (both-linked) and without (both-unlinked), scored on the passage-link bar; --reserve asks the sealed reserve set once instead, after checking its pinned SHA-256; each run waits while free memory is under --min-free-gb; runs `claude -p` on your Claude subscription)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
 }
