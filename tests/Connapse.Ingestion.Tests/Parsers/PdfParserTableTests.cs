@@ -1,5 +1,6 @@
 using Connapse.Core;
 using Connapse.Ingestion.Parsers;
+using Connapse.Ingestion.Tables;
 using FluentAssertions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -49,6 +50,34 @@ public class PdfParserTableTests
         int after = parsed.Content.IndexOf("Text after the table.", StringComparison.Ordinal);
         heading.Should().BeLessThan(table);
         table.Should().BeLessThan(after);
+    }
+
+    [Fact]
+    public async Task ParseAsync_RuledTableOnPageTwo_IsFoundOnItsPage()
+    {
+        var grid = new System.Text.StringBuilder("0.5 w\n");
+        for (int y = 640; y <= 700; y += 20) grid.Append($"72 {y} m 372 {y} l S\n");
+        for (int x = 72; x <= 372; x += 100) grid.Append($"{x} 640 m {x} 700 l S\n");
+        byte[] pdf = TestPdf.Build(
+            new TestPdf.Page([new(72, 740, "Cover page with no tables.")]),
+            new TestPdf.Page(
+            [
+                new(72, 740, "Results by region"),
+                new(76, 685, "Region"), new(176, 685, "Q1"), new(276, 685, "Q2"),
+                new(76, 665, "North"), new(176, 665, "12"), new(276, 665, "15"),
+                new(76, 645, "South"), new(176, 645, "9"), new(276, 645, "11"),
+            ], RawPrefix: grid.ToString()));
+
+        var parsed = await Parser("Ruled").ParseAsync(new MemoryStream(pdf), "report.pdf");
+        var tables = DocumentTables.Find(parsed.Content, ".pdf");
+
+        tables.Should().ContainSingle();
+        tables[0].Page.Should().Be(2);
+        tables[0].Number.Should().Be(1);
+        tables[0].Header.Should().Equal("Region", "Q1", "Q2");
+        tables[0].Rows.Should().HaveCount(2);
+        tables[0].Rows[0].Should().Equal("North", "12", "15");
+        DocumentTables.Reject(tables[0]).Should().BeNull();
     }
 
     [Fact]
