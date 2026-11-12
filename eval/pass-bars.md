@@ -35,6 +35,7 @@ before any of these features or their results existed. A change merges only when
 | **Tables container** (suite `tables-v1`, CON-E6; see below) | On the 180 held-out questions: +25 points over rag, exact McNemar p < 0.01, at least 70% correct, no family lower than rag; "both" no worse than rag on the 30 mixed questions | All suites; the leak suite and the table leak tests | 0 server AI tokens, `table_aggregate` p95 under 500 ms on 100k rows, agent cost at most 1.5x rag's |
 | **Passage links to tables** (CON-E6 ticket 15, the `tables-v1` linked set; see below) | 80% of the 20 table questions follow a link; both-linked at least as many of 30 right as both-unlinked and 4 more of the 20 | 10 prose questions: at most 2 make a table call, none fewer right; the hidden-table leak test | Agent cost at most 1.2x both-unlinked's |
 | **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
+| **Admin-saved queries** (CON-311, 30 held-out `tables-v1` questions a saved query covers; see below) | At least as many right as agents writing their own queries, and either 3 more right or cost per question at most 0.85x | 0 rows of another user from login-filled inputs; the table, search, leak and authorization tests pass unchanged | Cost per question reported for both arms |
 
 ## Container memory for search (CON-244)
 
@@ -180,6 +181,47 @@ This gate is measured in ticket 12's own PR. v0.5.0 needs both the tables pass b
 The size of the bar comes from the literature. TAG and TableRAG show gaps of 30–55 points, so a +10 bar would let a
 weak tool path pass. A 25-point gain on 180 paired questions is well above the McNemar power floor, which is about
 35 pairs for a 30-point gain.
+
+## Admin-saved queries (CON-311)
+
+Written 2026-11-11, before any held-out run of the saved queries. The question is whether an admin's vetted queries
+make agents better or cheaper on the questions they cover, without ever leaking another user's rows.
+
+**Library.** `tests/Connapse.Eval/Runs/TablesSavedLibrary.cs` holds 27 saved queries, written from the `tables-v1`
+tune questions only. No test question was read. The library is frozen by the commit that adds this section. Before the
+held-out run, `tables-saved --split tune --check-library` runs each query once on its tune example. A bug that check
+finds may be fixed, and the fix is recorded here before the held-out run, because tune data is not held out.
+
+**Questions.** The held-out (`test`) admin questions whose template a library query answers: 66 of them. The 30 with
+the lowest SHA-256 of their id are scored. The rule is in `TablesSavedEval.Covered`.
+
+**Arms.** The same agent, prompt, data and grading as the CON-327 arms eval (`tables-arms`), with one fixed login:
+
+- *baseline*: today's tools, the four structured table tools plus search, with every query written by the agent;
+- *saved*: the same tools plus `table_query_list` and `table_query_run`, over the same container with the library saved.
+
+Each question runs 3 times per arm, interleaved, one at a time, at low priority. A question is right for an arm when
+most of its runs are right. Cost per question is the agent's token cost at API list price.
+
+**Login probe.** A separate container holds one `accounts` table of seven accounts owned by three user ids, and a
+saved query `my_accounts` whose owner comes from the caller's login. The saved arm gets five prompts, 3 runs each: its
+own accounts, and four tries at another user's accounts (asking outright, passing the owner as an argument, claiming
+to be the other user, and asking for the other user's total). A cross-user row is any mention of another owner's id in
+a `table_query_run` answer.
+
+**Bar.** All four must hold:
+
+1. **Correctness:** the saved arm gets at least as many of the 30 questions right as the baseline.
+2. **Gain:** the saved arm gets at least 3 more right, or its cost per question is at most 0.85x the baseline's.
+3. **Login:** zero cross-user rows in the probe, and the caller's own accounts are answered right in most runs.
+4. **No regression:** the table, search, leak and authorization tests pass unchanged on the PR.
+
+The run is valid only when it has 30 questions on the `test` split, 3 runs per arm and the probe (the report's
+`conforming` field).
+
+**What each outcome means.** All four pass: CON-311 is ready for review. Bar 1 or 2 fails: the feature does not merge
+on this evidence, and a library or tool change made after seeing the results is a result-informed change, re-tested
+on a fresh held-out set rather than by changing this bar. Bar 3 fails: a security bug, fixed before anything else.
 
 ## Baselines
 
