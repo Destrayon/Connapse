@@ -168,6 +168,8 @@ not downloaded, so build them once before the first run, then try a slice:
   `tables-rag` options except `--skip-mixed` (mixed questions are not asked). Anything but all three arms, 1 run and
   the set's full test questions (180 for tables-v1, 70 for flex) is marked diagnostic only. Every run lands in `<out>.runs.jsonl` with its arm, run number, calls, cost and wall time as soon
   as it finishes, so a run that is cut short keeps what it measured; a finished run rewrites the file in schedule order.
+  Run the same command again with `--resume` to keep those saved runs and ask only the missing ones; the report
+  counts them under `resumedRuns`.
 - `tables-arms-score --runs-file <out>.runs.jsonl --out <file>` builds the report from those lines without asking
   anything again, using each run's recorded grade. Pass the same options the run used; it needs no Docker or Ollama.
 

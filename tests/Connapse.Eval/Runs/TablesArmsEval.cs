@@ -113,8 +113,25 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
     /// <param name="Base">The data, split, model and slice, as the rag setup takes them; its mixed questions are not asked.</param>
     /// <param name="Set"><see cref="TablesV1Set"/> or <see cref="FlexSet"/>.</param>
     /// <param name="MinFreeMemoryBytes">Each run waits until the machine has this much free memory; null never waits.</param>
+    /// <param name="Resume">Keep the runs already in <c>&lt;out&gt;.runs.jsonl</c> and ask only the ones it lacks.</param>
     public sealed record Options(TablesRagEval.Options Base, IReadOnlyList<TableArm> Arms, int Runs, string Set = TablesV1Set,
-        long? MinFreeMemoryBytes = null);
+        long? MinFreeMemoryBytes = null, bool Resume = false);
+
+    /// <summary>
+    /// The runs a cut-short journal already holds, by question, arm and zero-based run number, each with its line. When a
+    /// run appears twice the later line wins, as the journal appends in finishing order.
+    /// </summary>
+    public static Dictionary<(string Id, string Arm, int Run), string> SavedRuns(IEnumerable<string> lines)
+    {
+        Dictionary<(string Id, string Arm, int Run), string> saved = [];
+        foreach (string line in lines.Where(l => l.Length > 0))
+        {
+            using JsonDocument doc = JsonDocument.Parse(line);
+            JsonElement r = doc.RootElement;
+            saved[(r.GetProperty("id").GetString()!, r.GetProperty("arm").GetString()!, r.GetProperty("run").GetInt32() - 1)] = line;
+        }
+        return saved;
+    }
 
     /// <summary>The test questions the bar expects from a set; anything else throws, so a typo can't run an unnamed set.</summary>
     public static int RegisteredTestOf(string set) => set switch
@@ -205,9 +222,22 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
 
         List<(TableQuestion Question, int Run, TableArm Arm)> schedule = Schedule(questions, options.Arms, options.Runs);
         ConcurrentDictionary<int, ArmRun> done = new();
-        RunJournal journal = new(b.OutPath is null ? null : Path.ChangeExtension(b.OutPath, ".runs.jsonl"));
-        int finished = 0;
-        await Parallel.ForEachAsync(Enumerable.Range(0, schedule.Count), new ParallelOptions { MaxDegreeOfParallelism = b.Workers, CancellationToken = ct }, async (i, token) =>
+        string? journalPath = b.OutPath is null ? null : Path.ChangeExtension(b.OutPath, ".runs.jsonl");
+        Dictionary<(string Id, string Arm, int Run), string> saved = options.Resume && journalPath is not null && File.Exists(journalPath)
+            ? SavedRuns(await File.ReadAllLinesAsync(journalPath, ct))
+            : [];
+        RunJournal journal = new(journalPath, keep: options.Resume);
+        int finished = 0, resumed = 0;
+        for (int i = 0; i < schedule.Count; i++)
+            if (saved.TryGetValue((schedule[i].Question.Id, schedule[i].Arm.Name, schedule[i].Run), out string? line))
+            {
+                done[i] = ReadRun(line);
+                resumed++;
+            }
+        if (options.Resume)
+            log.WriteLine($"resuming: {resumed} of {schedule.Count} runs already saved");
+        finished = resumed;
+        await Parallel.ForEachAsync(Enumerable.Range(0, schedule.Count).Where(i => !done.ContainsKey(i)), new ParallelOptions { MaxDegreeOfParallelism = b.Workers, CancellationToken = ct }, async (i, token) =>
         {
             (TableQuestion q, int run, TableArm arm) = schedule[i];
             if (options.MinFreeMemoryBytes is long floor)
@@ -233,6 +263,8 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
                 ["load1"] = TableQuestion.FormatSeen(seen[1]),
                 ["load2"] = TableQuestion.FormatSeen(seen[2]),
             };
+        if (options.Resume)
+            report["resumedRuns"] = resumed;
         report["subscription"] = new JsonObject
         {
             ["atFirstRun"] = agent.FirstLimit?.ToString(),
@@ -243,7 +275,8 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         {
             await File.WriteAllTextAsync(b.OutPath, json + "\n", ct);
             // The journal holds every run in finishing order; rewrite it in schedule order now that all are in.
-            await File.WriteAllLinesAsync(Path.ChangeExtension(b.OutPath, ".runs.jsonl"), RunLines(runs), ct);
+            await File.WriteAllLinesAsync(Path.ChangeExtension(b.OutPath, ".runs.jsonl"),
+                schedule.Select((s, i) => saved.TryGetValue((s.Question.Id, s.Arm.Name, s.Run), out string? kept) ? kept : RunLines([runs[i]]).Single()), ct);
         }
         log.WriteLine(json);
         return 0;
@@ -581,10 +614,11 @@ public sealed class RunJournal
     private readonly string? _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public RunJournal(string? path)
+    /// <param name="keep">Append after the lines already in the file, for a resumed run, instead of emptying it.</param>
+    public RunJournal(string? path, bool keep = false)
     {
         _path = path;
-        if (path is not null)
+        if (path is not null && !(keep && File.Exists(path)))
             File.WriteAllText(path, "");
     }
 

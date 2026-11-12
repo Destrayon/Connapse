@@ -429,6 +429,42 @@ public class TablesArmsEvalTests
     }
 
     [Fact]
+    public void SavedRuns_JournalLines_KeyedByQuestionArmAndRunWithTheLastLineWinning()
+    {
+        List<string> lines =
+        [
+            .. TablesArmsEval.RunLines([Run(Question("a"), "sql", 0, false), Run(Question("a"), "graphql", 0, true)]),
+            "",
+            .. TablesArmsEval.RunLines([Run(Question("a"), "sql", 0, true)]),
+        ];
+
+        Dictionary<(string Id, string Arm, int Run), string> saved = TablesArmsEval.SavedRuns(lines);
+
+        saved.Keys.Should().BeEquivalentTo([("a", "sql", 0), ("a", "graphql", 0)]);
+        TablesArmsEval.ReadRun(saved[("a", "sql", 0)]).Grade.Correct.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RunJournal_Keep_LeavesSavedLinesInPlace()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"journal-{Guid.NewGuid():N}.runs.jsonl");
+        await File.WriteAllTextAsync(path, "saved\n");
+        try
+        {
+            RunJournal journal = new(path, keep: true);
+            await journal.AppendAsync(Run(Question("b"), "sql", 0, true), CancellationToken.None);
+
+            string[] lines = await File.ReadAllLinesAsync(path);
+            lines.Should().HaveCount(2);
+            lines[0].Should().Be("saved");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task ScoreAsync_RunsFile_WritesTheReport()
     {
         string runsPath = Path.Combine(Path.GetTempPath(), $"score-{Guid.NewGuid():N}.runs.jsonl");
