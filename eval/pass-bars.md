@@ -232,6 +232,9 @@ never looked further. That is a product gap, so `table_list` now reports `savedQ
 next 30 covered questions in the same SHA-256 order, none of which round 1 asked (`TablesSavedEval.Round`). The bar,
 library, arms and probe are unchanged.
 
+**Result (round 2, 2026-11-11): fail.** Correctness 30 vs 30 (pass); gain +0 right and cost 1.16x (fail); login 0
+cross-user rows, own accounts 3 of 3 (pass). Details: `eval/agent-search/con-311/results.md`.
+
 ## Baselines
 
 Recorded on 2026-10-24 with the `hybrid` config (nomic-embed-text through Ollama, reranker off) from the commit

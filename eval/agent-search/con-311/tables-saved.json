@@ -1,0 +1,123 @@
+{
+  "setup": "saved",
+  "config": "hybrid",
+  "split": "test",
+  "round": 2,
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "maxToolCalls": 25,
+  "runsPerArm": 3,
+  "libraryQueries": 27,
+  "questions": 30,
+  "questionIds": [
+    "test-005",
+    "test-019",
+    "test-035",
+    "test-038",
+    "test-042",
+    "test-047",
+    "test-054",
+    "test-063",
+    "test-065",
+    "test-069",
+    "test-071",
+    "test-075",
+    "test-085",
+    "test-086",
+    "test-087",
+    "test-090",
+    "test-092",
+    "test-096",
+    "test-102",
+    "test-107",
+    "test-109",
+    "test-112",
+    "test-124",
+    "test-139",
+    "test-140",
+    "test-141",
+    "test-142",
+    "test-145",
+    "test-146",
+    "test-148"
+  ],
+  "arms": {
+    "structured": {
+      "correct": 30,
+      "questions": 30,
+      "families": {
+        "filter_count": "5/5",
+        "group_topk": "6/6",
+        "join": "8/8",
+        "lookup": "2/2",
+        "sum_avg": "9/9"
+      },
+      "runAccuracy": 1,
+      "runsWithASavedQuery": 0,
+      "toolCalls": {
+        "mean": 2.23,
+        "median": 2,
+        "p90": 3
+      },
+      "wallSeconds": {
+        "mean": 9.31,
+        "median": 8.85,
+        "p90": 11.91
+      },
+      "costPerQuestionUsd": 0.0175
+    },
+    "saved": {
+      "correct": 30,
+      "questions": 30,
+      "families": {
+        "filter_count": "5/5",
+        "group_topk": "6/6",
+        "join": "8/8",
+        "lookup": "2/2",
+        "sum_avg": "9/9"
+      },
+      "runAccuracy": 0.9889,
+      "runsWithASavedQuery": 48,
+      "toolCalls": {
+        "mean": 2.56,
+        "median": 3,
+        "p90": 3
+      },
+      "wallSeconds": {
+        "mean": 7.77,
+        "median": 7.41,
+        "p90": 9.45
+      },
+      "costPerQuestionUsd": 0.0202
+    }
+  },
+  "comparison": {
+    "pairs": 30,
+    "onlyBaseline": 0,
+    "onlySaved": 0,
+    "mcnemarExactP": 1,
+    "baselinePerQuestionUsd": 0.0175,
+    "savedPerQuestionUsd": 0.0202
+  },
+  "probe": {
+    "runs": 15,
+    "crossUserRows": 0,
+    "runsWithASavedQuery": 15,
+    "mineRight": 3,
+    "mineRuns": 3
+  },
+  "bar": {
+    "correctnessAtLeastBaseline": true,
+    "gain": false,
+    "costRatio": 1.156,
+    "noCrossUserRows": true,
+    "loginQueryWorks": true,
+    "pass": false
+  },
+  "conforming": true,
+  "diagnosticOnly": [],
+  "subscription": {
+    "atFirstRun": "allowed (seven_day 73%)",
+    "atLastRun": "allowed (seven_day 74%)"
+  }
+}
