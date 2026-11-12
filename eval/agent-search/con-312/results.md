@@ -84,3 +84,39 @@ The four runs that didn't follow the link were the two marketing-campaign and tw
 both setups the agent opened with `table_list` on those, likely because "campaign results" and "asset register"
 already sound like tables. Searching first costs more than listing, because search output is long, so both setups
 cost more after the change. The ratio stayed under the 1.2x bar.
+
+## Re-test on the sealed reserve set, with table previews
+
+Run on 2026-11-11 with `tables-linked --reserve --workers 1`. The 30 sealed reserve questions (20 table, 10 prose) were
+asked once each in both setups, with no retries. The set was read only by the eval after its SHA-256 matched the
+manifest pin, and it is now used. Everything else matched the first run: the same model, config, reports and bar.
+Raw data: `tables-linked-reserve.json` and `tables-linked-reserve.runs.jsonl`.
+
+This run has the wording from b9f4645c and the table preview. The first search hit naming a table now shows its first
+8 columns and 3 sample rows, and says to query the full table with `table_read` or `table_aggregate` using its id. The
+spec was written in PR #1222 before the run.
+
+**Result: bars 1, 3 and 5 pass; bar 2 fails; bar 4 is shown by tests.**
+
+| Bar | Needed | both-linked | both-unlinked | Pass |
+|---|---|---|---|---|
+| 1. Follows the link | ≥ 16 of 20 table questions | 16 (80%) | — | yes, exactly at the bar |
+| 2. Helps | ≥ unlinked on 30, and +4 on table questions | 30 of 30, 20 of 20 table | 30 of 30, 20 of 20 table | no (gain 0) |
+| 3. Doesn't distract | ≤ 2 prose table calls, prose ≥ unlinked | 0 calls, 10 of 10 | 0 calls, 10 of 10 | yes |
+| 4. No leak | planted-leak tests | `DocumentTableLinkTests`, `PassageTables` unit tests | | tests |
+| 5. Cost | ≤ 1.2x unlinked | $0.0323 a question | $0.0352 a question | yes (0.92x) |
+
+- **Bar 1.** both-linked queried a table on all 20 table questions. On 16 of them, it used the id from a search
+  result. On the other 4 (reserve-010, 013, 014 and 020), it opened with `table_list`. These were again the
+  marketing-campaign, IT-asset-register and supplier-scorecard questions.
+- **Bar 2 fails because the unlinked setup already answers every table question.** both-unlinked answered all 20.
+  On 15 of them it read the answer straight from the passage text, which still holds the table, and made no table
+  call. Both setups got 30 of 30, so a gain of 4 can't happen on this set.
+- **Preview size.** A preview averaged 501 characters. A linked search named about 7.4 tables, so previews added
+  about 3,700 characters, 28% of its output. That is more than the estimate in the PR, which assumed 3.7 tables per
+  search. Even so, a linked search was shorter overall than an unlinked one (13,238 against 13,992 characters),
+  because the note replaces the table text.
+
+By the outcome rules in `eval/pass-bars.md`, bar 2 still fails after the re-test, so the build tickets after the
+proof are dropped unless the bar's owners decide otherwise. This was the one sealed reserve linked set, so no
+further re-test is possible on a sealed set.
