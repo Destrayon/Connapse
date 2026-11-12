@@ -651,6 +651,7 @@ internal static class TableValues
         TableColumnType.Boolean => "boolean",
         TableColumnType.Date => "date",
         TableColumnType.DateTime => "datetime",
+        TableColumnType.Json => "any",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 
@@ -662,6 +663,7 @@ internal static class TableValues
         "boolean" => TableColumnType.Boolean,
         "date" => TableColumnType.Date,
         "datetime" => TableColumnType.DateTime,
+        "any" => TableColumnType.Json,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 
@@ -682,6 +684,7 @@ internal static class TableValues
         (TableColumnType.Date, DateOnly d) => d,
         (TableColumnType.Date, DateTime d) => DateOnly.FromDateTime(d),
         (TableColumnType.DateTime, DateTime d) => DateTime.SpecifyKind(d, DateTimeKind.Unspecified),
+        (TableColumnType.Json, string s) => s,
         _ => throw new ArgumentException(
             $"Row {row}, column {column + 1}: a {value.GetType().Name} can't go in a {type} column."),
     };

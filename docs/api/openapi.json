@@ -23945,7 +23945,8 @@
           "Number",
           "Boolean",
           "Date",
-          "DateTime"
+          "DateTime",
+          "Json"
         ]
       },
       "TableDetailsResponse": {

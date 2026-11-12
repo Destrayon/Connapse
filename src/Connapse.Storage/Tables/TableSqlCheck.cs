@@ -103,13 +103,16 @@ internal static class TableSqlCheck
         "date_trunc", "date_part", "extract", "age", "now", "make_date", "make_time", "make_timestamp",
         "make_interval", "date_bin", "justify_days", "justify_hours", "justify_interval", "timezone", "isfinite",
         "overlaps",
+        // jsonb, for nested data kept whole (CON-335); none of these generates rows
+        "jsonb_typeof", "jsonb_array_length", "jsonb_extract_path", "jsonb_extract_path_text", "jsonb_path_exists",
+        "jsonb_path_match", "jsonb_path_query_first",
     };
 
     /// <summary>Types a value may be cast to. No <c>reg*</c> type, since those look names up in the catalog.</summary>
     private static readonly HashSet<string> AllowedTypes = new(StringComparer.Ordinal)
     {
         "int2", "int4", "int8", "float4", "float8", "numeric", "text", "varchar", "bpchar", "bool", "date", "time",
-        "timetz", "timestamp", "timestamptz", "interval",
+        "timetz", "timestamp", "timestamptz", "interval", "jsonb",
     };
 
     /// <summary>Date and time keywords; <c>CURRENT_USER</c>, <c>SESSION_USER</c> and the like stay out.</summary>
