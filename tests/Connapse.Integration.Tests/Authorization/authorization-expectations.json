@@ -245,6 +245,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/containers/{containerId:guid}/files/{fileId}/tables": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/containers/{containerId:guid}/files/{fileId}/content": {
       "requires": "viewer",
       "risk": "read",
