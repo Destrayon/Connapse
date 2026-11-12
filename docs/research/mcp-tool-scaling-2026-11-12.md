@@ -230,7 +230,9 @@ mid-session tool loading.**
    (search and read documents), `documents` (writes), `memory`, `code`, `admin`. The choice is made when a token is
    minted (a checkbox list beside the scopes) and can be narrowed per connection with a URL path, as GitHub does
    with `/x/{toolset}`. A default "search" toolset of `container_list`, `search_knowledge`, `list_files` and
-   `get_document` costs about 900 tokens today, a seventh of the full list. Strongest reason: it is the only option that
+   `get_document` costs about 900 tokens today, a seventh of the full list. The `search` toolset is always
+   included: a token or URL that names only `code` or `memory` still gets `search` too, so `search_knowledge` and
+   `get_document` are in every connection and pick 2 can always pin them. Strongest reason: it is the only option that
    cuts tokens and choices in all seven clients without touching per-tool permission prompts, and most of the
    plumbing exists.
 2. **Shorter, search-ready descriptions with core tools pinned.** Cut description and parameter text toward a
@@ -265,13 +267,20 @@ before any run, both test code:
 - **A routing set.** `memory-search` only asks document questions. Add a small held-out set (about 60 tasks: 20
   document, 20 code, 20 memory) whose gold answer names the tool that must be called, built and frozen before any
   run, with a dev split for building the command.
-- **Tool search pinned per arm.** The harness does not set `ENABLE_TOOL_SEARCH`, so Claude Code's default deferral
-  is on today. Every arm runs twice: `ENABLE_TOOL_SEARCH=false` (stands in for Desktop, ChatGPT and Gemini CLI,
-  which load everything) and `true` (stands in for Claude Code, Codex, Cursor and VS Code).
+- **Tool search pinned per arm.** The harness does not set `ENABLE_TOOL_SEARCH`, and it starts Claude Code with
+  `--tools ""` (`ClaudeCliAgent.cs`), which removes every built-in tool, ToolSearch included, so no tool is
+  deferred today. Every arm runs twice: `ENABLE_TOOL_SEARCH=false` (stands in for Desktop, ChatGPT and Gemini CLI,
+  which load everything) and `true` (stands in for Claude Code, Codex, Cursor and VS Code). In the `true` arm the
+  harness must allow ToolSearch (`--tools ToolSearch`, with `ToolSearch` added to `--allowedTools`); every other
+  built-in tool stays off. A `true` run that records no ToolSearch call over the whole task set is invalid and is
+  rerun after fixing the setup, not scored.
 
 Fixed for every arm: model `claude-sonnet-5-5` at effort `medium`, 3 repetitions per task, at most 12 tool calls,
 `test` split scored once, the same commit and machine; a provider error is retried 3 times and a run that still
 fails scores 0. A gain or loss counts only under the harness's Holm-corrected paired permutation test at p < 0.05.
+"Non-inferior within 0.05" follows `eval/pass-bars.md`: the bar passes only when the lower end of the 90% BCa
+interval of the paired difference (new minus current) is above −0.05. An interval that reaches −0.05 or below
+fails, whether the change is worse or the run is too small to tell.
 
 Bars, fixed on 2026-11-12 before any run:
 
