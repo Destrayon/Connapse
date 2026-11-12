@@ -223,6 +223,15 @@ The run is valid only when it has 30 questions on the `test` split, 3 runs per a
 on this evidence, and a library or tool change made after seeing the results is a result-informed change, re-tested
 on a fresh held-out set rather than by changing this bar. Bar 3 fails: a security bug, fixed before anything else.
 
+**Round 2 (recorded 2026-11-11, before it ran).** The tune check passed for all 27 queries with no fix. The first
+held-out run was stopped at 122 of 180 runs, covering 21 of its 30 questions: the saved arm had called a saved query
+0 times in 61 runs, so it was measuring the baseline twice. Both arms were right on all 61 runs; costs were $0.96
+(baseline) and $0.98 (saved). The tools were offered (a unit test now checks it); agents went to `table_list` and
+never looked further. That is a product gap, so `table_list` now reports `savedQueries` and points agents at
+`table_query_list` when a container has any. This is a result-informed change, so round 2 scores a fresh set: the
+next 30 covered questions in the same SHA-256 order, none of which round 1 asked (`TablesSavedEval.Round`). The bar,
+library, arms and probe are unchanged.
+
 ## Baselines
 
 Recorded on 2026-10-24 with the `hybrid` config (nomic-embed-text through Ollama, reranker off) from the commit

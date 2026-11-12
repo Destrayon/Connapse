@@ -5,6 +5,7 @@ using Connapse.Eval.Runs;
 using Connapse.Eval.Runs.MemorySearch;
 using Connapse.Storage.Tables;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Eval.Tests.Runs;
 
@@ -68,7 +69,7 @@ public class TablesSavedEvalTests
             Question("q4", "not-a-library-template"),
         ];
 
-        TablesSavedEval.Covered(questions).Select(q => q.Id).Should().Equal("q1");
+        TablesSavedEval.Covered(questions, round: 1).Select(q => q.Id).Should().Equal("q1");
     }
 
     [Fact]
@@ -77,11 +78,32 @@ public class TablesSavedEvalTests
         string covered = TablesSavedLibrary.Templates.First();
         List<TableQuestion> questions = [.. Enumerable.Range(0, 50).Select(i => Question($"test-{i:000}", covered))];
 
-        List<string> first = [.. TablesSavedEval.Covered(questions).Select(q => q.Id)];
-        List<string> reversed = [.. TablesSavedEval.Covered(Enumerable.Reverse(questions)).Select(q => q.Id)];
+        List<string> first = [.. TablesSavedEval.Covered(questions, round: 1).Select(q => q.Id)];
+        List<string> reversed = [.. TablesSavedEval.Covered(Enumerable.Reverse(questions), round: 1).Select(q => q.Id)];
 
         first.Should().HaveCount(TablesSavedEval.RegisteredQuestions).And.BeInAscendingOrder(StringComparer.Ordinal);
         reversed.Should().Equal(first);
+    }
+
+    [Fact]
+    public void Covered_RoundTwo_AsksNoQuestionRoundOneAsked()
+    {
+        string covered = TablesSavedLibrary.Templates.First();
+        List<TableQuestion> questions = [.. Enumerable.Range(0, 66).Select(i => Question($"test-{i:000}", covered))];
+
+        List<string> one = [.. TablesSavedEval.Covered(questions, round: 1).Select(q => q.Id)];
+        List<string> two = [.. TablesSavedEval.Covered(questions, round: 2).Select(q => q.Id)];
+
+        two.Should().HaveCount(TablesSavedEval.RegisteredQuestions).And.NotIntersectWith(one);
+    }
+
+    [Fact]
+    public void SavedArm_Toolbox_OffersBothSavedQueryTools()
+    {
+        McpToolbox tools = new(new ServiceCollection().BuildServiceProvider(), McpToolbox.Reader(TablesSavedEval.Caller, "t"),
+            TablesSavedEval.Saved.Tools, MemorySearchEval.Pinned);
+
+        tools.Tools.Select(t => t.Name).Should().Contain(TablesSavedEval.SavedTools);
     }
 
     [Fact]

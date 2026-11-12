@@ -38,6 +38,10 @@ public class SavedQueryIntegrationTests(SharedWebAppFixture fixture)
         try
         {
             Guid orders = await UploadOrdersAsync(containerId);
+            await using McpClient mcp = await Surfaces.McpAsync(fixture);
+            using (JsonDocument before = JsonDocument.Parse(await CallAsync(mcp, "table_list", new() { ["containerId"] = containerId.ToString() })))
+                before.RootElement.TryGetProperty("savedQueries", out _).Should().BeFalse();
+
             object definition = new
             {
                 description = "My orders in a region",
@@ -91,7 +95,11 @@ public class SavedQueryIntegrationTests(SharedWebAppFixture fixture)
                 $"/api/containers/{containerId}/tables/queries/my_orders/run", new { me = SharedWebAppFixture.AdminEmail }))
                 spoofed.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
-            await using McpClient mcp = await Surfaces.McpAsync(fixture);
+            using (JsonDocument after = JsonDocument.Parse(await CallAsync(mcp, "table_list", new() { ["containerId"] = containerId.ToString() })))
+            {
+                after.RootElement.GetProperty("savedQueries").GetInt32().Should().Be(1);
+                after.RootElement.GetProperty("notice").GetString().Should().Contain("table_query_list");
+            }
             string tools = await CallAsync(mcp, "table_query_list", new() { ["containerId"] = containerId.ToString() });
             tools.Should().Contain("my_orders");
             using (JsonDocument mine = JsonDocument.Parse(await CallAsync(mcp, "table_query_run",

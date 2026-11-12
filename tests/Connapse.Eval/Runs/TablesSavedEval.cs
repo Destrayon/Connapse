@@ -29,6 +29,12 @@ public sealed class TablesSavedEval(RepoPaths paths, HttpClient http, TextWriter
     public const int RegisteredQuestions = 30;
     public const int RegisteredRuns = 3;
 
+    /// <summary>
+    /// The held-out round. Round 1's saved arm never called a saved query, so table_list now points agents at them
+    /// and, as the bar requires after a result-informed change, round 2 asks a fresh set.
+    /// </summary>
+    public const int Round = 2;
+
     /// <summary>The bar's gain: at least 3 more of the covered questions right, or cost per question at most 0.85×.</summary>
     public const int GainQuestions = 3;
 
@@ -60,9 +66,14 @@ public sealed class TablesSavedEval(RepoPaths paths, HttpClient http, TextWriter
     /// SHA-256 order of their ids, the first <see cref="RegisteredQuestions"/>, then in id order. Fixed by the bar,
     /// before any run.
     /// </summary>
-    public static List<TableQuestion> Covered(IEnumerable<TableQuestion> questions) =>
+    /// <remarks>
+    /// Round 2 is the bar's fresh held-out set after a result-informed change: the next
+    /// <see cref="RegisteredQuestions"/> in the same order, none of which round 1 asked.
+    /// </remarks>
+    public static List<TableQuestion> Covered(IEnumerable<TableQuestion> questions, int round = Round) =>
         [.. questions.Where(q => q.Split == "test" && !q.Restricted && TablesSavedLibrary.Templates.Contains(q.Template))
             .OrderBy(q => Sha256(q.Id), StringComparer.Ordinal)
+            .Skip((round - 1) * RegisteredQuestions)
             .Take(RegisteredQuestions)
             .OrderBy(q => q.Id, StringComparer.Ordinal)];
 
@@ -383,6 +394,7 @@ public sealed class TablesSavedEval(RepoPaths paths, HttpClient http, TextWriter
             ["setup"] = "saved",
             ["config"] = options.Base.Config,
             ["split"] = options.Base.Split,
+            ["round"] = Round,
             ["model"] = options.Base.Model,
             ["effort"] = options.Base.Effort,
             ["maxToolCalls"] = TablesRagEval.MaxToolCalls,
