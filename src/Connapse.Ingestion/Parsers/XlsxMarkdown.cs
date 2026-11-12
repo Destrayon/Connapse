@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Connapse.Ingestion.Tables;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 
@@ -208,34 +209,9 @@ internal static class XlsxMarkdown
     }
 
     /// <summary>A number format that shows a date: it has d, m, y, h or s outside quotes and brackets.</summary>
-    internal static bool IsDateCode(string code)
-    {
-        bool quoted = false, bracket = false;
-        for (int i = 0; i < code.Length; i++)
-        {
-            char c = code[i];
-            if (c == '"') quoted = !quoted;
-            else if (quoted) continue;
-            else if (c == '\\') i++;
-            else if (c == '[') bracket = true;
-            else if (c == ']') bracket = false;
-            else if (!bracket && char.ToLowerInvariant(c) is 'd' or 'm' or 'y' or 'h' or 's')
-                return true;
-        }
-        return false;
-    }
+    internal static bool IsDateCode(string code) => XlsxWorkbook.IsDateFormat(code);
 
     /// <summary>The 0-based column of a reference like <c>AB12</c>, or -1 when it has no letters.</summary>
-    internal static int ColumnIndex(string reference)
-    {
-        int column = 0, letters = 0;
-        foreach (char c in reference)
-        {
-            if (c is >= 'A' and <= 'Z') column = (column * 26) + (c - 'A' + 1);
-            else if (c is >= 'a' and <= 'z') column = (column * 26) + (c - 'a' + 1);
-            else break;
-            if (++letters > 3) return -1;
-        }
-        return letters == 0 ? -1 : column - 1;
-    }
+    internal static int ColumnIndex(string reference) =>
+        XlsxWorkbook.TryParseReference(reference, out _, out int column) ? column : -1;
 }

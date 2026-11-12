@@ -57,6 +57,7 @@
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeConfluenceChanges.cs" Link="Fakes\FakeConfluenceChanges.cs" />
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeJira.cs" Link="Fakes\FakeJira.cs" />
     <Compile Include="..\Connapse.Core.Tests\Connectors\FakeMiddleMan.cs" Link="Fakes\FakeMiddleMan.cs" />
+    <Compile Include="..\Connapse.Ingestion.Tests\Tables\XlsxFixture.cs" Link="Fakes\XlsxFixture.cs" />
   </ItemGroup>
 
 </Project>
