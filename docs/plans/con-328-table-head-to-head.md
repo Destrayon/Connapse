@@ -29,3 +29,6 @@ in that plan on 2026-11-10. The pass bar is copied into the PR description befor
   on memory (4.3 GB free of 64 GB), after 35 of 1,080 runs (6 questions). Containers cleaned up; nothing left running.
   The harness can't resume, so a restart is a fresh full run and the 35 partial runs are set aside, not merged.
   Waiting on the PM to say when to restart.
+- Phase 4 restarted (2026-11-11 23:52Z, user approved via the PM): fresh full run; the partial attempt is in
+  `E:\tmp\con-328\set-aside-attempt-1` and is not merged. `supervise.ps1` runs it at BelowNormal and pauses the eval
+  and its agent processes below 8 GB free (resumes at 10 GB), logging each pause to `supervise.log`.
