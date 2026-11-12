@@ -35,6 +35,7 @@ before any of these features or their results existed. A change merges only when
 | **Tables container** (suite `tables-v1`, CON-E6; see below) | On the 180 held-out questions: +25 points over rag, exact McNemar p < 0.01, at least 70% correct, no family lower than rag; "both" no worse than rag on the 30 mixed questions | All suites; the leak suite and the table leak tests | 0 server AI tokens, `table_aggregate` p95 under 500 ms on 100k rows, agent cost at most 1.5x rag's |
 | **Passage links to tables** (CON-E6 ticket 15, the `tables-v1` linked set; see below) | 80% of the 20 table questions follow a link; both-linked at least as many of 30 right as both-unlinked and 4 more of the 20 | 10 prose questions: at most 2 make a table call, none fewer right; the hidden-table leak test | Agent cost at most 1.2x both-unlinked's |
 | **Finding tables by description** (CON-E6 ticket 13, suite `table-search-v1`; see below) | Hybrid puts every gold table in the first 10 for at least 75% of the 885 test questions, at least 5 points above keyword-only ranking, exact McNemar p < 0.01 | `table_list` unchanged at 50 visible tables or fewer; hidden columns never change the ranking | 0 LLM tokens, one query embedding per search, ranking p95 under 50 ms over 876 tables |
+| **Nested files as tables** (CON-335, the `tables-v1` nested set; see below) | At least 85% of the 60 held-out nested questions right, every family at least 75% | tables-v1's 180 held-out questions with the tables setup: at least 176 right (the baseline is 179) | 0 server AI tokens; reported: tool calls and agent cost per question |
 | **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
 
 ## Container memory for search (CON-244)
@@ -155,6 +156,33 @@ CON-E6 ticket 15's links ship only if, on the linked set:
 Thirty questions are too few for a significance test, so these bars are counts. They gate ticket 15 only, not the
 tables container. A failed bar follows the same re-test rule as the main bar, with the one sealed reserve linked set
 of 30 questions.
+
+### Bar for nested files
+
+Written on 2026-11-12 for CON-335, before the nested set's questions or any run existed. The nested set is
+`eval/datasets/tables/nested` (four files: nested JSON, JSON Lines, XML and YAML, built by
+`eval/tools/tables/build_nested.py`), uploaded as a user's files would be into one container. It is asked with the
+tables setup: the four table tools, the same base prompt, model, turn limit and grader as the main bar, one attempt
+per question. Its 72 questions are split before any run into 12 `tune` questions, used for dry runs, and 60 `test`
+questions, 10 in each of six families:
+
+- **lookup:** a value inside a nested object (a dotted column);
+- **filter_count:** counting parent rows by a nested field;
+- **child_aggregate:** a count or sum over a child table, filtered through its parent;
+- **grandchild:** a question that joins two levels of child tables back to the top;
+- **scalar_list:** a list of plain values, such as tags, loaded as a one-column child table;
+- **json:** a value inside data that can't be flattened (arrays of arrays), stored as a jsonb column.
+
+CON-335 ships only if, scored once on the 60 `test` questions:
+
+1. **Accuracy:** at least **85%** (51 of 60) right.
+2. **Every family:** at least **75%** right in each family (8 of 10).
+3. **No drop on flat tables:** the tables setup on tables-v1's 180 held-out questions answers at least **176** right,
+   against 179 on this branch's base. Three questions allow for run-to-run noise in one-attempt agent runs.
+4. **Cost:** 0 server AI tokens; tool calls and agent cost per question are reported, not gated.
+
+A failed bar follows the main bar's rule: a change made after seeing `test` results is judged on a fresh nested set
+built with a new seed, never by changing this bar.
 
 ### Gate for moving memory
 
