@@ -1304,6 +1304,45 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("stored_file_removals", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.TableCardVectorEntity", b =>
+                {
+                    b.Property<Guid>("TableId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("table_id");
+
+                    b.Property<string>("ModelId")
+                        .HasColumnType("text")
+                        .HasColumnName("model_id");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<DateTime>("EmbeddedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("embedded_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Vector>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("vector")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("TextHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("text_hash");
+
+                    b.HasKey("TableId", "ModelId");
+
+                    b.HasIndex("ContainerId", "ModelId")
+                        .HasDatabaseName("ix_table_card_vectors_container_model");
+
+                    b.ToTable("table_card_vectors", (string)null);
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.TablePassageLinkEntity", b =>
                 {
                     b.Property<long>("Id")
@@ -1491,6 +1530,15 @@ namespace Connapse.Storage.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Connection");
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.TableCardVectorEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerTableEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.TablePassageLinkEntity", b =>

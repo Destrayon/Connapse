@@ -26,13 +26,13 @@ public partial class McpTools
 
     [McpServerTool(Name = "table_list", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("List the tables a container holds (built from its CSV and spreadsheet files, and from tables found in its documents) that you may read: id, name, description, columns with their types, and how many rows you may read. Use a table's id with table_describe, table_read and table_aggregate. `search` keeps the tables whose name, description or a column header contains it. If a search result already named the table and its id, query it directly instead.")]
+     Description("List the tables a container holds (built from its CSV and spreadsheet files, and from tables found in its documents) that you may read: id, name, description, columns with their types, and how many rows you may read. Use a table's id with table_describe, table_read and table_aggregate. `search` keeps the tables whose name, description or a column header contains it; when you may read more than 50 tables it instead ranks all of them, best match first, by what their names, descriptions and columns say and mean, so describe the data you need (mode says which ran). If a search result already named the table and its id, query it directly instead.")]
     public static async Task<string> TableList(
         ListTables list,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
-        [Description("Only tables whose name, description or a column header contains this, ignoring case")] string? search = null,
+        [Description("What you're looking for. Up to 50 tables: only those whose name, description or a column header contains this, ignoring case. More: all of them, best match first")] string? search = null,
         [Description("Tables to skip. Default 0")] int skip = 0,
         [Description("At most this many tables (1-200). Default 50")] int take = 50,
         CancellationToken ct = default)
@@ -58,6 +58,9 @@ public partial class McpTools
             }),
             totalCount = page.TotalCount,
             hasMore = page.HasMore,
+            mode = page.Mode.ToString().ToLowerInvariant(),
+            meaningUsed = page.MeaningUsed,
+            unembedded = page.Mode == TableListMode.Ranked ? page.Unembedded : (int?)null,
         }, MemoryJson);
     }
 

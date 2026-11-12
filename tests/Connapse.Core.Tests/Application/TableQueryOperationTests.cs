@@ -56,7 +56,8 @@ public class TableQueryOperationTests
 
     private AggregateTable Aggregate => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>());
 
-    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>());
+    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer, Substitute.For<IMemoryService>(),
+        Substitute.For<ITableCardIndex>());
 
     /// <summary>A table in the test's container from a document present in it, stored so it can be fetched and listed.</summary>
     private TableInfo Holds(string name = "sales", string? description = null, string? key = null, DateTime? historyFrom = null,

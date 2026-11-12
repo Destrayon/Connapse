@@ -41,7 +41,18 @@ public class TableOperationTests
 
     private readonly IMemoryService _memory = Viewing();
 
-    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer, _memory);
+    private readonly ITableCardIndex _cards = WordsOnly();
+
+    private ListTables List => new(_containers, _tables, _queries, _documents, _access, _authorizer, _memory, _cards);
+
+    /// <summary>A card index whose embeddings are down, so a ranking goes by words alone.</summary>
+    private static ITableCardIndex WordsOnly()
+    {
+        var cards = Substitute.For<ITableCardIndex>();
+        cards.SimilaritiesAsync(default, default!, default!, default)
+            .ReturnsForAnyArgs(c => TableCardSimilarities.Unavailable(c.ArgAt<IReadOnlyList<TableCard>?>(1)?.Count ?? 0));
+        return cards;
+    }
 
     /// <summary>A memory service that lets any caller view any container's memory, seeing no sources.</summary>
     private static IMemoryService Viewing()
@@ -296,14 +307,125 @@ public class TableOperationTests
         listed.Result!.Items.Should().BeEmpty();
     }
 
+    /// <summary>Holds <paramref name="count"/> tables named fill000, fill001, … plus <paramref name="extra"/>, all readable.</summary>
+    private TableInfo[] Many(Guid containerId, int count, params TableInfo[] extra)
+    {
+        TableInfo[] all = [.. Enumerable.Range(0, count).Select(i => Table(containerId, $"fill{i:D3}")), .. extra];
+        Holds(containerId, all);
+        return all;
+    }
+
+    [Fact]
+    public async Task List_SearchOverManyTables_RanksEveryTableWithTheMatchFirst()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo payroll = Table(id, "staff_payroll") with { Description = "What each employee is paid." };
+        Many(id, TableSearch.ManyTables, payroll);
+
+        var listed = await List.RunAsync(Caller, id, 0, 10, "employee pay");
+
+        listed.Result!.Mode.Should().Be(TableListMode.Ranked);
+        listed.Result.Items.Should().HaveCount(10);
+        listed.Result.Items[0].Id.Should().Be(payroll.Id);
+        listed.Result.TotalCount.Should().Be(TableSearch.ManyTables + 1, "a ranking drops no table");
+        listed.Result.HasMore.Should().BeTrue();
+        listed.Result.MeaningUsed.Should().BeFalse();
+        listed.Result.Unembedded.Should().Be(TableSearch.ManyTables + 1);
+    }
+
+    [Fact]
+    public async Task List_SearchOverManyTables_FindsByMeaningWhatNoWordMatches()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo wages = Table(id, "zz_w2");
+        Many(id, TableSearch.ManyTables, wages);
+        _cards.SimilaritiesAsync(id, Arg.Any<IReadOnlyList<TableCard>>(), "salaries", Arg.Any<CancellationToken>())
+            .Returns(new TableCardSimilarities(new Dictionary<Guid, double> { [wages.Id] = 0.9 }, TableSearch.ManyTables, true));
+
+        var listed = await List.RunAsync(Caller, id, 0, 5, " salaries ");
+
+        listed.Result!.Items[0].Id.Should().Be(wages.Id);
+        listed.Result.MeaningUsed.Should().BeTrue();
+        listed.Result.Unembedded.Should().Be(TableSearch.ManyTables);
+    }
+
+    [Fact]
+    public async Task List_SearchOverAtMostManyTables_StillFiltersAndEmbedsNothing()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        Many(id, TableSearch.ManyTables);
+
+        var listed = await List.RunAsync(Caller, id, 0, 200, "fill01");
+
+        listed.Result!.Mode.Should().Be(TableListMode.Filtered);
+        listed.Result.Items.Select(t => t.Name).Should().Equal(Enumerable.Range(10, 10).Select(i => $"fill{i:D3}"));
+        listed.Result.MeaningUsed.Should().BeNull();
+        _cards.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task List_ManyTablesButFewReadable_FiltersAndNeverEmbedsUnreadableOnes()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo[] all = Many(id, TableSearch.ManyTables + 10);
+        foreach (TableInfo table in all.Take(11))
+            _unreadable.Add(table.DocumentId!.Value);
+
+        var listed = await List.RunAsync(Caller, id, 0, 200, "fill");
+
+        listed.Result!.Mode.Should().Be(TableListMode.Filtered);
+        listed.Result.TotalCount.Should().Be(TableSearch.ManyTables - 1);
+        _cards.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task List_RankedSearch_SendsOnlyReadableTablesVisibleColumnsToTheIndex()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo closed = Table(id, "closed_table");
+        TableInfo people = Table(id, "people") with
+        {
+            Columns = [new TableColumn("name", TableColumnType.Text), new TableColumn("ssn", TableColumnType.Text, "Social security number")],
+            HiddenColumns = ["ssn"],
+        };
+        Many(id, TableSearch.ManyTables + 1, closed, people);
+        _unreadable.Add(closed.DocumentId!.Value);
+        IReadOnlyList<TableCard>? sent = null;
+        _cards.SimilaritiesAsync(id, Arg.Do<IReadOnlyList<TableCard>>(c => sent = c), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(c => TableCardSimilarities.Unavailable(c.ArgAt<IReadOnlyList<TableCard>>(1).Count));
+
+        var listed = await List.RunAsync(Caller, id, 0, 200, "ssn social security");
+
+        listed.Result!.Mode.Should().Be(TableListMode.Ranked);
+        sent!.Select(c => c.TableId).Should().NotContain(closed.Id);
+        sent!.Should().OnlyContain(c => !c.Text.Contains("ssn") && !c.Text.Contains("Social security"));
+        listed.Result.Items.Select(t => t.Id).Should().NotContain(closed.Id);
+        listed.Result.Items[0].Id.Should().NotBe(people.Id, "a hidden column can't move its table up");
+    }
+
+    [Fact]
+    public async Task List_RankedSearchWhenTheIndexFails_FallsBackToWords()
+    {
+        Guid id = ContainerOfKind(ContainerKind.Documents);
+        TableInfo payroll = Table(id, "payroll");
+        Many(id, TableSearch.ManyTables, payroll);
+        _cards.SimilaritiesAsync(default, default!, default!, default).ThrowsAsyncForAnyArgs(new InvalidOperationException("db down"));
+
+        var listed = await List.RunAsync(Caller, id, 0, 1, "payroll");
+
+        listed.Result!.Items.Single().Id.Should().Be(payroll.Id);
+        listed.Result.MeaningUsed.Should().BeFalse();
+    }
+
     [Fact]
     [Trait("Size", "Medium")]
     [RandomInputTestOf(typeof(ListTables))]
     public Task List_AnyCallerContainerPageAndReadableSet_AnswersTheReadableSliceOrTheFirstRuleItBreaks() =>
-        Gen.Select(Gen.Bool, Gen.Enum<ContainerKind>().Nullable(), Gen.Int[-2, 6], Gen.Int[-1, 205], Gen.Bool.Array[0, 8])
+        Gen.Select(Gen.Bool, Gen.Enum<ContainerKind>().Nullable(), Gen.Int[-2, 6], Gen.Int[-1, 205],
+                Gen.OneOf(Gen.Bool.Array[0, 8], Gen.Bool.Array[45, 60]), Gen.OneOfConst<string?>(null, " ", "t1", "a", "zz"))
             .SampleAsync(async t =>
             {
-                var (reader, kind, skip, take, readable) = t;
+                var (reader, kind, skip, take, readable, search) = t;
                 var containers = Substitute.For<IContainerStore>();
                 var tables = Substitute.For<ITableStore>();
                 var documents = Substitute.For<IDocumentStore>();
@@ -322,8 +444,8 @@ public class TableOperationTests
                 access.ReadableAsync(Arg.Any<ClaimsPrincipal>(), Arg.Any<IReadOnlyList<Document>>(), Arg.Any<CancellationToken>())
                     .Returns(open);
 
-                var listed = await new ListTables(containers, tables, Substitute.For<ITableQueryService>(), documents, access, authorizer, Viewing())
-                    .RunAsync(Caller, id, skip, take);
+                var listed = await new ListTables(containers, tables, Substitute.For<ITableQueryService>(), documents, access, authorizer, Viewing(), WordsOnly())
+                    .RunAsync(Caller, id, skip, take, search);
 
                 TableStatus expected = !reader ? TableStatus.Forbidden
                     : skip < 0 || take is < 1 or > 200 ? TableStatus.InvalidPage
@@ -333,7 +455,7 @@ public class TableOperationTests
                 if (expected != TableStatus.Success || kind == ContainerKind.Memory)
                 {
                     tables.ReceivedCalls().Should().BeEmpty();
-                    if (expected == TableStatus.Success)
+                    if (expected == TableStatus.Success && search is null or " ")
                     {
                         // A memory container lists just its memory table (CON-309), on the first page.
                         listed.Result!.Items.Select(x => x.Id).Should().Equal(skip == 0 ? [MemoryTable.Id] : []);
@@ -342,7 +464,23 @@ public class TableOperationTests
                     return;
                 }
                 var visible = all.Where((_, i) => readable[i]).ToList();
-                listed.Result!.Items.Select(x => x.Id).Should().Equal(visible.Skip(skip).Take(take).Select(x => x.Id));
+                bool searching = !string.IsNullOrWhiteSpace(search);
+                listed.Result!.Mode.Should().Be(!searching ? TableListMode.All
+                    : visible.Count > TableSearch.ManyTables ? TableListMode.Ranked : TableListMode.Filtered);
+                if (listed.Result.Mode == TableListMode.Ranked)
+                {
+                    // Every readable table is ranked, each once, and none other.
+                    listed.Result.Items.Select(x => x.Id).Should().OnlyHaveUniqueItems()
+                        .And.BeSubsetOf(visible.Select(x => x.Id))
+                        .And.HaveCount(Math.Max(0, Math.Min(take, visible.Count - skip)));
+                }
+                else
+                {
+                    // Every table here has the one column "a", so "a" keeps them all.
+                    if (searching)
+                        visible = visible.Where(x => x.Name.Contains(search!) || search == "a").ToList();
+                    listed.Result.Items.Select(x => x.Id).Should().Equal(visible.Skip(skip).Take(take).Select(x => x.Id));
+                }
                 listed.Result.TotalCount.Should().Be(visible.Count);
                 listed.Result.HasMore.Should().Be(visible.Count - skip > take);
             }, iter: 2000);

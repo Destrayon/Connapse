@@ -70,6 +70,8 @@ internal static class EvalEntryPoint
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
                 "code" => await new CodeEval(paths, http, Console.Out).RunAsync(
                     cli.Option("config") ?? "code", cli.Option("split") ?? "heldout", cli.Option("out"), cts.Token),
+                "table-search" => await new TableSearchEval(paths, http, Console.Out).RunAsync(
+                    cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("out"), cts.Token),
                 _ => Commands.Usage(),
             };
         }

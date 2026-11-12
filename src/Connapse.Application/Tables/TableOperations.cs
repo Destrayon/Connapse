@@ -47,8 +47,28 @@ public enum TableStatus
     QueryNotRun,
 }
 
-/// <summary>One page of a container's tables, by name, with how many it holds in all and whether another page follows.</summary>
-public sealed record TableListing(IReadOnlyList<TableInfo> Items, int TotalCount, bool HasMore);
+/// <summary>How a table listing chose and ordered its tables.</summary>
+public enum TableListMode
+{
+    /// <summary>No search: every readable table, by name.</summary>
+    All,
+
+    /// <summary>A search in a container with few tables: those whose name, description or a column header contains it.</summary>
+    Filtered,
+
+    /// <summary>A search in a container with many tables (CON-310): every readable table, best match first.</summary>
+    Ranked,
+}
+
+/// <summary>
+/// One page of a container's tables with how many it holds in all and whether another page follows. A
+/// <see cref="TableListMode.Ranked"/> listing says whether the tables' meaning was compared with the search
+/// (<paramref name="MeaningUsed"/>, false when embeddings were unavailable so only words counted) and how many tables
+/// weren't compared that way yet (<paramref name="Unembedded"/>).
+/// </summary>
+public sealed record TableListing(
+    IReadOnlyList<TableInfo> Items, int TotalCount, bool HasMore,
+    TableListMode Mode = TableListMode.All, bool? MeaningUsed = null, int Unembedded = 0);
 
 /// <summary>What a caller may see of a container's tables (CON-304), shared by the table operations.</summary>
 public static class TableRules
@@ -124,7 +144,9 @@ public static class TableRules
 /// Lists a container's tables a page at a time (CON-319): a documents container holds any number of them beside its
 /// files. Open to viewers and reading agent keys. Only tables built from documents the caller may read are listed,
 /// each trimmed to what the caller may see (CON-304); when that can't be checked, nothing is. A search keeps the tables
-/// whose name, description or a visible column's header contains it, ignoring case (CON-305).
+/// whose name, description or a visible column's header contains it, ignoring case (CON-305). Over
+/// <see cref="TableSearch.ManyTables"/> readable tables a search instead ranks every one of them by its card's words
+/// and meaning (CON-310); hidden columns are never part of a card, so they can't move a table up.
 /// </summary>
 [Operation("tables.list", Scope = "knowledge:read", Risk = RiskTier.Read)]
 public sealed class ListTables(
@@ -134,7 +156,8 @@ public sealed class ListTables(
     IDocumentStore documents,
     IDocumentAccess access,
     IOperationAuthorizer authorizer,
-    IMemoryService memory)
+    IMemoryService memory,
+    ITableCardIndex cards)
 {
     public const int MaxTake = 200;
 
@@ -164,7 +187,24 @@ public sealed class ListTables(
         // An admin is also shown the tables hidden from everyone (CON-312), marked, to show them again.
         List<TableInfo> visible = all
             .Where(t => readable.CanRead(t) || admin && t.Hidden && readable.CanRead(t with { Hidden = false }))
-            .Where(t => term is null || Matches(t, term)).ToList();
+            .ToList();
+        TableListMode mode = term is null ? TableListMode.All
+            : visible.Count > TableSearch.ManyTables ? TableListMode.Ranked
+            : TableListMode.Filtered;
+        bool? meaningUsed = null;
+        int unembedded = 0;
+        if (mode == TableListMode.Filtered)
+            visible = visible.Where(t => Matches(t, term!)).ToList();
+        else if (mode == TableListMode.Ranked)
+        {
+            TableCard[] tableCards = [.. visible.Select(TableCard.For)];
+            TableCardSimilarities found = await SimilaritiesAsync(containerId, tableCards, term!, ct);
+            Dictionary<Guid, TableInfo> byId = visible.ToDictionary(t => t.Id);
+            visible = TableSearch.Rank(tableCards, term!, found.Scores).Select(id => byId[id]).ToList();
+            meaningUsed = found.Available;
+            unembedded = found.Unembedded;
+        }
+
         var items = new List<TableInfo>();
         foreach (TableInfo table in visible.Skip(skip).Take(take))
         {
@@ -183,7 +223,22 @@ public sealed class ListTables(
             items.Add(TableRules.Trim(table, readable, admin, readableRows));
         }
 
-        return Attempt<TableListing, TableStatus>.Succeed(new TableListing(items, visible.Count, skip + take < visible.Count));
+        return Attempt<TableListing, TableStatus>.Succeed(
+            new TableListing(items, visible.Count, skip + take < visible.Count, mode, meaningUsed, unembedded));
+    }
+
+    /// <summary>The cards' similarity to the search, or none when it can't be had, so the ranking falls back to words.</summary>
+    private async Task<TableCardSimilarities> SimilaritiesAsync(
+        Guid containerId, IReadOnlyList<TableCard> tableCards, string term, CancellationToken ct)
+    {
+        try
+        {
+            return await cards.SimilaritiesAsync(containerId, tableCards, term, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return TableCardSimilarities.Unavailable(tableCards.Count);
+        }
     }
 
     /// <summary>
@@ -200,10 +255,11 @@ public sealed class ListTables(
 
         TableInfo table = MemoryTable.For(containerId);
         string? term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        TableListMode mode = term is null ? TableListMode.All : TableListMode.Filtered;
         if (term is not null && !Matches(table, term))
-            return Attempt<TableListing, TableStatus>.Succeed(new TableListing([], 0, false));
+            return Attempt<TableListing, TableStatus>.Succeed(new TableListing([], 0, false, mode));
         if (skip > 0)
-            return Attempt<TableListing, TableStatus>.Succeed(new TableListing([], 1, false));
+            return Attempt<TableListing, TableStatus>.Succeed(new TableListing([], 1, false, mode));
 
         long rows;
         try
@@ -214,7 +270,7 @@ public sealed class ListTables(
         {
             return Attempt<TableListing, TableStatus>.Fail(TableStatus.InvalidRequest, ex.Message);
         }
-        return Attempt<TableListing, TableStatus>.Succeed(new TableListing([table with { RowCount = rows }], 1, false));
+        return Attempt<TableListing, TableStatus>.Succeed(new TableListing([table with { RowCount = rows }], 1, false, mode));
     }
 
     /// <summary>Whether the table's name, description or a visible column's header contains <paramref name="term"/>.</summary>

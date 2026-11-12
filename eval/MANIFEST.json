@@ -73,9 +73,31 @@
     ],
     "tables-v1": [
       "tables"
+    ],
+    "table-search-v1": [
+      "spider-tables"
     ]
   },
   "datasets": {
+    "spider-tables": {
+      "adapter": "spider-tables",
+      "version": "con-310",
+      "tags": [
+        "shape:tables"
+      ],
+      "files": [
+        {
+          "name": "tables.json",
+          "url": "https://raw.githubusercontent.com/taoyds/spider/b7b5b8c890cd30e35427348bb9eb8c6d1350ca7c/evaluation_examples/examples/tables.json",
+          "sha256": "61bb20aa401f03164e2d7f3b16509b7b5f79cc9c943ca7bd159046df1159e2ed"
+        },
+        {
+          "name": "dev.parquet",
+          "url": "https://huggingface.co/datasets/xlangai/spider/resolve/0c350918f3f29ec754f1181c65cdce76cd6c133c/spider/validation-00000-of-00001.parquet",
+          "sha256": "c3e2a46303899a2d4afe3f6a3a62e59f8d589f241b3cbfb52356479b1f054888"
+        }
+      ]
+    },
     "nanobeir-arguana": {
       "adapter": "beir-parquet",
       "version": "8f4a982d470a32c45817738b9d29042ca55d75ad",
