@@ -98,6 +98,30 @@ keep-or-drop decision for container memory rests on it.**
 - **Budget:** one full run (228 session-1 and 624 session-2 runs) must use at most about 5% of the seven-day
   subscription window, on the subscription only.
 
+## Check-by dates on a copy of the ClaudePM memory space (CON-340)
+
+Written on 2026-11-12, before the export or any run. The question is whether check-by dates take facts that are no
+longer true out of the list of current facts ClaudePM reads at session start, without losing any fact.
+
+- **Data:** one read-only export of the live `claudepm` space (`status=all`), loaded into a throwaway database. The
+  live space is never written.
+- **Replay:** every current fact is saved again through the real memory service and store, in the order it was
+  recorded, with the clock set to its recorded time. The copy's space gets fixed defaults before the replay:
+  `waiting_on` 7 days and `status` 14 days. Every other attribute has no default, and no fact carries its own date.
+  Recall then runs at the export time.
+- **Session-start split:** the harness rebuilds ClaudePM's list of decisions and rules (current facts whose attribute
+  is not `lesson`, `worker`, `finding` or `note`). Facts recalled as unconfirmed go into a "check these" list, and
+  the rest stay in the current list.
+- **Stale facts:** a current fact whose subject or value names a CON ticket that the PM's status list marks as merged
+  or dropped. This list is fixed before the run, and the export is not looked at before then.
+- **Pass, all of these:**
+  1. No stale fact is in the current list. Before the change, the count is the number of stale facts; after, it is 0.
+     This includes the `waiting_on` facts for CON-307 and CON-335.
+  2. Every current fact in the copy appears in exactly one of the two lists.
+  3. Recall returns as many current facts as the copy holds; none is dropped or hidden.
+- **Reported, not gated:** facts in "check these" that are not stale (still true, but asked to be checked), by
+  attribute.
+
 ## Baselines
 
 Recorded on 2026-10-24 with the `hybrid` config (nomic-embed-text through Ollama, reranker off) from the commit
