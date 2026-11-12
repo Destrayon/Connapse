@@ -46,7 +46,7 @@ public static class MemoryFactMatcher
     internal const int MinPartLength = 4;
 
     public static IReadOnlyList<MemoryFactMatch> Match(
-        MemoryFact saved, MemoryMatchWords words, IEnumerable<MemoryMatchCandidate> candidates)
+        MemoryFact saved, MemoryMatchWords words, IEnumerable<MemoryMatchCandidate> candidates, int max = MaxMatches)
     {
         string subject = Compact(saved.Subject), attribute = Compact(saved.Attribute);
         if (subject.Length == 0)
@@ -86,7 +86,7 @@ public static class MemoryFactMatcher
             .ThenByDescending(m => m.Candidate.Rank)
             .ThenByDescending(m => m.Candidate.Fact.RecordedAt)
             .ThenBy(m => m.Candidate.Fact.Id)
-            .Take(MaxMatches)
+            .Take(max)
             .Select(m => new MemoryFactMatch(m.Candidate.Fact, m.Kind))];
     }
 

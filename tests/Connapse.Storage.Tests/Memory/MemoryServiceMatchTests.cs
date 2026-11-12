@@ -57,6 +57,19 @@ public class MemoryServiceMatchTests
     }
 
     [Fact]
+    public async Task Remember_AFactThatDoesNotMatch_HasItsSourcesLeftUnchecked()
+    {
+        MemoryFact region = Fact(Me, MemoryScope.Team, new MemorySource(MemorySourceKind.Document, "page")) with { Attribute = "region", Value = "eu-west-1" };
+        _store.MatchCandidatesAsync(_saved, Me, Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(new MemoryMatchSearch(StatusWords,
+            [new MemoryMatchCandidate(region, new(["con", "291"], ["region"], ["eu", "west", "1"]), 0.5f)]));
+
+        (await RememberAsync()).Matches.Should().BeEmpty();
+
+        await _access.DidNotReceive().ReadableAsync(Arg.Any<Guid?>(),
+            Arg.Is<IReadOnlyCollection<string>>(refs => refs.Contains("page")), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Remember_WhenTheCheckFails_SavesAndShowsNothing()
     {
         _store.MatchCandidatesAsync(_saved, Me, Arg.Any<int>(), Arg.Any<CancellationToken>()).ThrowsAsync(new InvalidOperationException("down"));

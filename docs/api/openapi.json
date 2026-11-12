@@ -19714,6 +19714,21 @@
           }
         }
       },
+      "MemoryFactMatch": {
+        "required": [
+          "fact",
+          "kind"
+        ],
+        "type": "object",
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/MemoryFact"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MemoryMatchKind"
+          }
+        }
+      },
       "MemoryFactsListed": {
         "required": [
           "facts",
@@ -19750,6 +19765,13 @@
             "format": "int32"
           }
         }
+      },
+      "MemoryMatchKind": {
+        "enum": [
+          "SameSubjectAndAttribute",
+          "SameSubject",
+          "SimilarSubject"
+        ]
       },
       "MemoryRecallResponse": {
         "required": [
@@ -19791,7 +19813,8 @@
       "MemoryRememberedResponse": {
         "required": [
           "fact",
-          "savedTo"
+          "savedTo",
+          "matches"
         ],
         "type": "object",
         "properties": {
@@ -19800,6 +19823,12 @@
           },
           "savedTo": {
             "$ref": "#/components/schemas/MemorySpaceRef"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryFactMatch"
+            }
           }
         }
       },

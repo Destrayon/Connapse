@@ -67,8 +67,15 @@ public sealed class MemoryService(
             MemoryMatchSearch? found = await store.MatchCandidatesAsync(written, caller, MaxMatchCandidates, budget.Token);
             if (found is null || found.Candidates.Count == 0)
                 return [];
-            IReadOnlySet<MemorySource> readable = await ReadableAsync(found.Candidates.SelectMany(c => c.Fact.Sources), caller.UserId, budget.Token);
-            return MemoryFactMatcher.Match(written, found.Saved, found.Candidates.Where(c => Visible(c.Fact, readable, caller)));
+            // Sources are checked only for the facts that could be shown, so a save asks no provider about the rest. A
+            // candidate whose sources went unchecked is left out of the final pass, which only removes matches.
+            HashSet<Guid> possible = [.. MemoryFactMatcher.Match(written, found.Saved, found.Candidates, int.MaxValue).Select(m => m.Fact.Id)];
+            if (possible.Count == 0)
+                return [];
+            IReadOnlySet<MemorySource> readable = await ReadableAsync(
+                found.Candidates.Where(c => possible.Contains(c.Fact.Id)).SelectMany(c => c.Fact.Sources), caller.UserId, budget.Token);
+            return MemoryFactMatcher.Match(written, found.Saved, found.Candidates.Where(c =>
+                (c.Fact.Sources.Count == 0 || possible.Contains(c.Fact.Id)) && Visible(c.Fact, readable, caller)));
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
