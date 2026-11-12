@@ -3137,7 +3137,7 @@
         "tags": [
           "Containers"
         ],
-        "description": "List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). ?search= keeps the tables whose name, description or a visible column's header contains it, ignoring case. totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.",
+        "description": "List the tables a container holds that the caller may read, by name, a page at a time (?skip=0&take=50, take at most 200). ?search= keeps the tables whose name, description or a visible column's header contains it, ignoring case; when the caller may read more than 50 tables it instead ranks all of them, best match first, by their names, descriptions and column headers and what those mean (mode is \"ranked\"; meaningUsed is false when embeddings were unavailable and only words counted; unembedded is how many tables weren't compared by meaning yet). mode is \"all\", \"filtered\" or \"ranked\". totalCount is how many it holds that the caller may read. Hidden columns are left out; a merged table the caller reads only part of is partial, counts only its readable rows, and has no version or loadedAt.",
         "operationId": "tables.list",
         "parameters": [
           {
@@ -3207,7 +3207,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PagedResponseOfTableResponse"
+                  "$ref": "#/components/schemas/TableListResponse"
                 }
               }
             }
@@ -21913,33 +21913,6 @@
           }
         }
       },
-      "PagedResponseOfTableResponse": {
-        "required": [
-          "items",
-          "totalCount",
-          "hasMore"
-        ],
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TableResponse"
-            }
-          },
-          "totalCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "hasMore": {
-            "type": "boolean"
-          }
-        }
-      },
       "PagedResponseOfUserListItem": {
         "required": [
           "items",
@@ -24041,6 +24014,53 @@
           },
           "sampleRows": {
             "$ref": "#/components/schemas/TableQueryResult"
+          }
+        }
+      },
+      "TableListResponse": {
+        "required": [
+          "mode",
+          "meaningUsed",
+          "unembedded",
+          "items",
+          "totalCount",
+          "hasMore"
+        ],
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "meaningUsed": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "unembedded": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TableResponse"
+            }
+          },
+          "totalCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hasMore": {
+            "type": "boolean"
           }
         }
       },
