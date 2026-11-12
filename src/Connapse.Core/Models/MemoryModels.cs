@@ -120,6 +120,12 @@ public sealed record MemoryRecall(IReadOnlyList<RecalledFact> Facts, bool Denied
 /// <summary>The outcome of a write: the fact written (and the one it replaced), or why nothing was written.</summary>
 public sealed record MemoryWriteResult(MemoryFact? Fact, MemoryFact? Replaced, string? Error, MemoryWriteFailure Failure = MemoryWriteFailure.None)
 {
+    /// <summary>
+    /// For a new fact, the current facts it may repeat or contradict, closest first, at most
+    /// <see cref="MemoryFactMatcher.MaxMatches"/>; empty when none is close. Nothing is changed because of them.
+    /// </summary>
+    public IReadOnlyList<MemoryFactMatch> Matches { get; init; } = [];
+
     public static MemoryWriteResult Failed(string error, MemoryWriteFailure failure = MemoryWriteFailure.Invalid) => new(null, null, error, failure);
 }
 

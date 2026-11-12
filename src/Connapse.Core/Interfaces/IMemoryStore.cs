@@ -81,6 +81,14 @@ public interface IMemoryStore
     /// <summary>The container a fact is in, or null when there is no such fact. Says nothing about who may read it.</summary>
     Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default);
 
+    /// <summary>
+    /// The current facts of <paramref name="saved"/>'s container, other than its own chain, that share its subject (in
+    /// any case) or any word search stems from its subject, attribute or value, best match first, at most
+    /// <paramref name="take"/>. Only team facts and <paramref name="viewer"/>'s own are read; their sources are not
+    /// checked here. Reads only.
+    /// </summary>
+    Task<MemoryMatchSearch> MatchCandidatesAsync(MemoryFact saved, MemoryCaller viewer, int take, CancellationToken ct = default);
+
     /// <summary>The most matches a search lists.</summary>
     const int MaxSearchResults = 1000;
 }
