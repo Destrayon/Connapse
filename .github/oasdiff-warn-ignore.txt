@@ -7,3 +7,9 @@ POST /api/sources removed the enum value `filesystem` of the request property `s
 POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeJiraProjectScope]/allOf[#/components/schemas/SourceScope]/type`
 POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeS3BucketScope]/allOf[#/components/schemas/SourceScope]/type`
 POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeSftpFolderScope]/allOf[#/components/schemas/SourceScope]/type`
+# CON-335: table columns gain the Json type for nested values kept whole as jsonb. The tables API hasn't shipped yet,
+# so no client relies on the old set of column types.
+GET /api/containers/{containerId}/tables added the new `Json` enum value to the `items/items/columns/items/type` response property for the response status `200`
+GET /api/containers/{containerId}/tables/{tableId} added the new `Json` enum value to the `columns/items/type` response property for the response status `200`
+PUT /api/containers/{containerId}/tables/{tableId}/hidden added the new `Json` enum value to the `columns/items/type` response property for the response status `200`
+PUT /api/containers/{containerId}/tables/{tableId}/hidden-columns added the new `Json` enum value to the `columns/items/type` response property for the response status `200`
