@@ -5,7 +5,7 @@ using Connapse.Ingestion.Tables;
 namespace Connapse.Ingestion.Parsers;
 
 /// <summary>
-/// Reads an Excel workbook (.xlsx) as searchable text (CON-308): each visible sheet under its name, one line per row,
+/// Reads an Excel workbook (.xlsx) as searchable text (CON-308): each sheet under its name, one line per row,
 /// cells separated by tabs. A long sheet is cut short in the text; in a container it also loads whole as a table,
 /// which is where its every row can be queried.
 /// </summary>
@@ -18,8 +18,11 @@ public class XlsxParser : IDocumentParser
 
     public IReadOnlySet<string> SupportedExtensions => _supportedExtensions;
 
-    /// <summary>1: visible sheets as tab-separated rows, merged cells filled, hidden sheets left out.</summary>
-    public int Version => 1;
+    /// <summary>
+    /// 1: visible sheets as tab-separated rows, merged cells filled, hidden sheets left out. 2: hidden sheets too,
+    /// marked hidden, since they load as tables.
+    /// </summary>
+    public int Version => 2;
 
     public Task<ParsedDocument> ParseAsync(Stream stream, string fileName, CancellationToken cancellationToken = default) =>
         Task.Run(() => Parse(stream, cancellationToken), cancellationToken);
@@ -31,15 +34,13 @@ public class XlsxParser : IDocumentParser
         var text = new StringBuilder();
 
         using XlsxWorkbook workbook = XlsxWorkbook.Open(stream, ct);
-        int visible = 0;
+        int sheets = 0;
         foreach (XlsxSheet sheet in workbook.Sheets)
         {
-            if (sheet.Hidden)
-                continue;
-            visible++;
+            sheets++;
             if (text.Length > 0)
                 text.AppendLine();
-            text.Append("Sheet: ").AppendLine(sheet.Name);
+            text.Append("Sheet: ").Append(sheet.Name).AppendLine(sheet.Hidden ? " (hidden in Excel)" : "");
 
             int written = 0;
             bool more = false;
@@ -66,9 +67,9 @@ public class XlsxParser : IDocumentParser
                 text.AppendLine($"(The sheet has more than {MaxRowsPerSheet:N0} rows; the rest are in its table.)");
         }
 
-        metadata["SheetCount"] = visible.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (visible == 0)
-            warnings.Add("The workbook has no visible sheet.");
+        metadata["SheetCount"] = sheets.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (sheets == 0)
+            warnings.Add("The workbook has no sheet.");
         return new ParsedDocument(text.ToString(), metadata, warnings);
     }
 }

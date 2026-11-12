@@ -41,8 +41,9 @@ public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
             fruit.Columns.Select(c => (c.Name, c.Type)).Should().Equal(("name", TableColumnType.Text), ("kilos", TableColumnType.Number));
             fruit.RowCount.Should().Be(2);
             fruit.NeedsReview.Should().BeFalse();
+            fruit.Description.Should().Contain("Harvest 2024");
             var totals = tables[1];
-            totals.RowCount.Should().Be(1);
+            totals.RowCount.Should().Be(2);
             totals.NeedsReview.Should().BeTrue();
             totals.Rejects.Should().ContainSingle().Which.Reason.Should().Contain("without a result");
 

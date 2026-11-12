@@ -649,9 +649,11 @@ public class IngestionPipeline : IKnowledgeIngester
             return [];
         }
 
+        // A workbook's rows all load, with a bad cell left empty, and its reader warns about those cells itself.
+        bool rowsLeftOut = !string.Equals(Path.GetExtension(name), ".xlsx", StringComparison.OrdinalIgnoreCase);
         foreach (TableInfo table in tables)
         {
-            if (RejectsWarning(table, tables.Count > 1) is { } rejects)
+            if (rowsLeftOut && RejectsWarning(table, tables.Count > 1) is { } rejects)
                 warnings.Add(rejects);
             _logger.LogInformation("Loaded document {DocumentId} as table {TableId} too: {Rows} rows, {Rejects} rejects",
                 documentId, table.Id, table.RowCount, table.Rejects.Count);

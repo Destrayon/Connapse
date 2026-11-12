@@ -6,20 +6,27 @@ using Connapse.Core.Utilities;
 namespace Connapse.Ingestion.Tables;
 
 /// <summary>
-/// Turns each sheet of an .xlsx workbook into a typed table load (CON-308). A sheet is read several times and never
-/// held whole: once for its merged ranges, once for its layout, once to type every column, and once more as the store
-/// copies the rows in.
+/// Turns each sheet of an .xlsx workbook into typed table loads (CON-308). A sheet is read several times and never
+/// held whole: once for its merged ranges, once for its layout, once for the text around its tables, once to type
+/// every column, and once more as the store copies the rows in.
 /// <para>
-/// The table is the sheet's largest block of rows between blank rows. Its header is the first row about as wide as the
-/// block's usual row, which skips a title or a note above it (Frictionless's width rule, with the most common width in
-/// place of the mean). Cells inside a merged range take the range's value. A sheet that may have been read wrong still
-/// loads, flagged needs-review with a warning that says why: another block beside the table, a merged header, a header
-/// with no text in it, blank or repeated column names, or cells outside the header's columns.
+/// Each block of rows between blank rows that has at least two rows of two or more cells is a table; a sheet with
+/// several loads each as its own table. A table's header is the first row about as wide as the block's usual row,
+/// which skips a title or a note above it (Frictionless's width rule, with the most common width in place of the
+/// mean). A header row with a cell merged across columns, over a row of text, is a two-row header: each column is
+/// named from both rows, as in "2025 Hires". Cells inside a merged range take the range's value.
 /// </para>
 /// <para>
-/// A row holding an Excel error (#N/A, #DIV/0!) or a formula the file was saved without a result for is left out and
-/// listed as a reject, never loaded with the cell empty. Columns are typed from every row: one kind of value throughout
-/// gives that type, mixed kinds give text.
+/// Nothing on the sheet is dropped. Text outside the tables, such as a title, a units line or a footnote, goes into
+/// each table's description. Cells beside the header's columns load into columns with generated names. A hidden sheet
+/// loads too, and its description says it is hidden. An Excel error (#N/A, #DIV/0!) or a formula the file was saved
+/// without a result for leaves its cell empty and is listed among the table's rejects with the formula or error; the
+/// rest of its row loads. Columns are typed from every value: one kind throughout gives that type, mixed kinds give text.
+/// </para>
+/// <para>
+/// A table that may have been read wrong still loads, flagged needs-review with a warning that says why: the sheet
+/// holds several tables, a header has merged cells that couldn't be read as two rows, a header with no text in it,
+/// blank or repeated column names, or cells with an error or a formula that has no saved result.
 /// </para>
 /// </summary>
 internal static class XlsxTableReader
@@ -27,11 +34,14 @@ internal static class XlsxTableReader
     /// <summary>The longest a table name gets, the same as a CSV's.</summary>
     public const int MaxNameChars = 256;
 
+    /// <summary>The longest the text kept from around a sheet's tables gets in a table's description.</summary>
+    public const int MaxNoteChars = 4000;
+
     /// <summary>
-    /// Reads every visible sheet that has data. Hidden sheets aren't loaded; each is named in a warning. The workbook
-    /// must stay open until every returned load's rows have been read.
+    /// Reads every sheet that has data, hidden ones included. The workbook must stay open until every returned load's
+    /// rows have been read.
     /// </summary>
-    /// <exception cref="InvalidDataException">No visible sheet has any data.</exception>
+    /// <exception cref="InvalidDataException">No sheet has any data.</exception>
     public static (IReadOnlyList<TableLoad> Tables, IReadOnlyList<string> Warnings) Read(
         XlsxWorkbook workbook, string fileName, Guid? documentId, CancellationToken ct = default)
     {
@@ -44,46 +54,56 @@ internal static class XlsxTableReader
 
         foreach (XlsxSheet sheet in workbook.Sheets)
         {
-            if (sheet.Hidden)
+            IReadOnlyList<XlsxMerge> merges = workbook.Merges(sheet, ct);
+            List<SheetLayout> layouts = Layouts(workbook, sheet, merges, ct);
+            if (layouts.Count == 0)
+                continue;
+            string? description = Describe(sheet.Hidden, Notes(workbook, sheet, merges, layouts, ct));
+
+            for (int i = 0; i < layouts.Count; i++)
             {
-                warnings.Add($"Sheet {Clean(sheet.Name)} is hidden, so it wasn't loaded as a table.");
-                continue;
+                SheetLayout layout = layouts[i];
+                string sheetName = Clean(sheet.Name);
+                string label = layouts.Count == 1 ? $"Sheet {sheetName}" : $"Table {i + 1} of sheet {sheetName}";
+                string name = Unique(names, Clip($"{file} - {sheetName}" + (i == 0 ? "" : $" ({i + 1})")));
+                ColumnScan scan = Scan(workbook, sheet, layout, ct);
+                List<string> reasons = [.. scan.Reasons];
+                if (layouts.Count > 1)
+                    reasons.Insert(0, $"the sheet holds {layouts.Count} separate tables, and each was loaded as its own table");
+                if (reasons.Count > 0)
+                    warnings.Add($"{label} loaded as a table but needs review: {string.Join("; ", reasons)}.");
+                if (scan.NoValueCells > 0)
+                    warnings.Add(
+                        $"{label} has {scan.NoValueCells} formula cell(s) the file was saved without results for; they are empty " +
+                        "in the table, and its rejects list each formula. Open and save the file in Excel to store the results.");
+                if (scan.ErrorCells > 0)
+                    warnings.Add($"{label} has {scan.ErrorCells} cell(s) with an Excel error such as #DIV/0!; they are empty in the table, and its rejects list them.");
+
+                TableColumn[] columns = [.. scan.Names.Select((n, c) => new TableColumn(n, scan.Types[c]))];
+                tables.Add(new TableLoad(
+                    name, columns, RowsAsync(workbook, sheet, layout, scan, ct), documentId,
+                    Description: description, NeedsReview: reasons.Count > 0 || scan.RejectCount > 0, Rejects: scan.Rejects));
             }
-            SheetLayout? layout = Layout(workbook, sheet, ct);
-            if (layout is null)
-                continue;
-
-            string name = Unique(names, Clip($"{file} - {Clean(sheet.Name)}"));
-            ColumnScan scan = Scan(workbook, sheet, layout, ct);
-            List<string> reasons = [.. layout.Reasons, .. scan.Reasons];
-            if (reasons.Count > 0)
-                warnings.Add($"Sheet {Clean(sheet.Name)} loaded as a table but needs review: {string.Join("; ", reasons)}.");
-            if (scan.NoValueRows > 0)
-                warnings.Add(
-                    $"Sheet {Clean(sheet.Name)} has {scan.NoValueRows} row(s) with formulas the file was saved without results " +
-                    "for; they were left out of the table. Open and save the file in Excel to store the results.");
-
-            TableColumn[] columns = [.. scan.Names.Select((n, i) => new TableColumn(n, scan.Types[i]))];
-            tables.Add(new TableLoad(
-                name, columns, RowsAsync(workbook, sheet, layout, scan, ct), documentId,
-                Description: null, NeedsReview: reasons.Count > 0 || scan.RejectCount > 0, Rejects: scan.Rejects));
         }
 
         if (tables.Count == 0)
-            throw new InvalidDataException("The workbook has no visible sheet with data.");
+            throw new InvalidDataException("The workbook has no sheet with data.");
         return (tables, warnings);
     }
 
-    /// <summary>Where a sheet's table is: its rows, its header and its columns, and what about it is doubtful.</summary>
+    /// <summary>
+    /// Where one table is on its sheet: its merged ranges, its last row, its header row, its columns, and whether its
+    /// header has merged cells and may take two rows.
+    /// </summary>
     private sealed record SheetLayout(
-        IReadOnlyList<XlsxMerge> Merges, long FirstRow, long LastRow, long HeaderRow, int Left, int Right, List<string> Reasons);
+        IReadOnlyList<XlsxMerge> Merges, long FirstRow, long LastRow, long HeaderRow, int Left, int Right,
+        bool MergedHeader, bool TwoRowHeader);
 
     private readonly record struct RowShape(long Number, int Count, int Left, int Right);
 
-    /// <summary>Finds the table on a sheet from each row's width alone; null for a sheet with no data.</summary>
-    private static SheetLayout? Layout(XlsxWorkbook workbook, XlsxSheet sheet, CancellationToken ct)
+    /// <summary>Finds the tables on a sheet from each row's width alone; none for a sheet with no data.</summary>
+    private static List<SheetLayout> Layouts(XlsxWorkbook workbook, XlsxSheet sheet, IReadOnlyList<XlsxMerge> merges, CancellationToken ct)
     {
-        IReadOnlyList<XlsxMerge> merges = workbook.Merges(sheet, ct);
         List<List<RowShape>> blocks = [];
         foreach (XlsxRow row in workbook.Rows(sheet, merges, ct))
         {
@@ -93,13 +113,17 @@ internal static class XlsxTableReader
             blocks[^1].Add(shape);
         }
         if (blocks.Count == 0)
-            return null;
+            return [];
 
-        List<RowShape> block = blocks.MaxBy(b => b.Sum(r => (long)r.Count))!;
-        List<string> reasons = [];
-        if (blocks.Any(b => !ReferenceEquals(b, block) && b.Count >= 2 && b.Max(r => r.Count) >= 2))
-            reasons.Add("the sheet has more than one block of rows, and only the largest was loaded");
+        // A table is a block with two or more rows of two or more cells; a sheet without one loads its largest block.
+        List<List<RowShape>> found = [.. blocks.Where(b => b.Count(r => r.Count >= 2) >= 2)];
+        if (found.Count == 0)
+            found = [blocks.MaxBy(b => b.Sum(r => (long)r.Count))!];
+        return [.. found.Select(b => Layout(b, merges))];
+    }
 
+    private static SheetLayout Layout(List<RowShape> block, IReadOnlyList<XlsxMerge> merges)
+    {
         // The usual width: the most common count of cells among rows with two or more; ties go to the wider.
         List<RowShape> wide = [.. block.Where(r => r.Count >= 2)];
         RowShape header;
@@ -114,16 +138,59 @@ internal static class XlsxTableReader
             header = wide.First(r => r.Count >= least);
         }
 
-        if (merges.Any(m => m.Top <= header.Number && m.Bottom >= header.Number))
-            reasons.Add("its header has merged cells, so it may take more than one row");
-
-        return new SheetLayout(merges, block[0].Number, block[^1].Number, header.Number, header.Left, header.Right, reasons);
+        // The columns are every one used from the header down, so a cell beside the header's columns still loads.
+        IEnumerable<RowShape> table = block.Where(r => r.Number >= header.Number);
+        // A merge that starts on the header and spans columns or the row below marks a header that may take two rows.
+        bool merged = merges.Any(m => m.Top <= header.Number && m.Bottom >= header.Number);
+        bool twoRows = merges.Any(m => m.Top == header.Number && (m.Right > m.Left || m.Bottom == header.Number + 1));
+        return new SheetLayout(merges, block[0].Number, block[^1].Number, header.Number,
+            table.Min(r => r.Left), table.Max(r => r.Right), merged, twoRows);
     }
 
-    /// <summary>What a pass over every row found: the column names and types, and the rows that can't load.</summary>
+    /// <summary>
+    /// The text on a sheet outside its tables, a line per row with cells joined by " | ", such as a title, a units
+    /// line or a footnote; null when there is none.
+    /// </summary>
+    private static string? Notes(
+        XlsxWorkbook workbook, XlsxSheet sheet, IReadOnlyList<XlsxMerge> merges, List<SheetLayout> layouts, CancellationToken ct)
+    {
+        List<string> lines = [];
+        int length = 0;
+        foreach (XlsxRow row in workbook.Rows(sheet, merges, ct))
+        {
+            if (layouts.Any(l => row.Number >= l.HeaderRow && row.Number <= l.LastRow))
+                continue;
+            string line = string.Join(" | ", row.Cells.Select(c => Display(c).ReplaceLineEndings(" ").Trim()).Where(t => t.Length > 0).Distinct());
+            if (line.Length == 0)
+                continue;
+            lines.Add(line);
+            length += line.Length + 3;
+            if (length > MaxNoteChars)
+                break;
+        }
+        if (lines.Count == 0)
+            return null;
+        string notes = string.Join(" / ", lines);
+        return notes.Length > MaxNoteChars ? notes[..MaxNoteChars] + "…" : notes;
+    }
+
+    private static string? Describe(bool hidden, string? notes)
+    {
+        List<string> parts = [];
+        if (hidden)
+            parts.Add("This sheet is hidden in Excel.");
+        if (notes is not null)
+            parts.Add($"Text on the sheet outside the table: {notes}");
+        return parts.Count == 0 ? null : StorableText.Clean(string.Join(" ", parts));
+    }
+
+    /// <summary>
+    /// What a pass over every row found: the column names and types, the first row of data, and the cells that
+    /// couldn't load.
+    /// </summary>
     private sealed record ColumnScan(
-        IReadOnlyList<string> Names, IReadOnlyList<TableColumnType> Types, bool HasHeader,
-        IReadOnlyList<TableReject> Rejects, long RejectCount, long NoValueRows, List<string> Reasons);
+        IReadOnlyList<string> Names, IReadOnlyList<TableColumnType> Types, long DataRow,
+        IReadOnlyList<TableReject> Rejects, long RejectCount, long NoValueCells, long ErrorCells, List<string> Reasons);
 
     private sealed class ColumnKinds
     {
@@ -162,9 +229,10 @@ internal static class XlsxTableReader
         var kinds = new ColumnKinds[width];
         for (int c = 0; c < width; c++)
             kinds[c] = new ColumnKinds();
-        IReadOnlyList<XlsxCell> headerCells = [];
+        IReadOnlyList<XlsxCell>? headerCells = null, secondCells = null;
+        bool hasHeader = false;
         List<TableReject> rejects = [];
-        long rejectCount = 0, noValueRows = 0, outside = 0, dataRows = 0;
+        long rejectCount = 0, noValue = 0, errors = 0;
 
         foreach (XlsxRow row in workbook.Rows(sheet, layout.Merges, ct))
         {
@@ -175,76 +243,80 @@ internal static class XlsxTableReader
             if (row.Number == layout.HeaderRow)
             {
                 headerCells = row.Cells;
-                continue;
+                hasHeader = row.Cells.Any(c => c.Kind == XlsxCellKind.Text);
+                if (hasHeader)
+                    continue;
             }
-            dataRows++;
-            if (row.Cells.Any(c => c.Column < layout.Left || c.Column > layout.Right))
-                outside++;
-            if (Check(row, layout) is { } bad)
+            else if (hasHeader && layout.TwoRowHeader && row.Number == layout.HeaderRow + 1
+                && row.Cells.All(c => c.Kind == XlsxCellKind.Text))
             {
-                rejectCount++;
-                if (bad.Exists(r => r.Reason.StartsWith(NoValueReason, StringComparison.Ordinal)))
-                    noValueRows++;
-                foreach (TableReject reject in bad)
-                {
-                    if (rejects.Count < CsvTableReader.MaxRejects)
-                        rejects.Add(reject);
-                }
+                secondCells = row.Cells;
                 continue;
             }
-            foreach (XlsxCell cell in InSpan(row, layout))
-                kinds[cell.Column - layout.Left].Add(cell);
+
+            foreach (XlsxCell cell in row.Cells)
+            {
+                int c = cell.Column - layout.Left;
+                if (!cell.IsBad)
+                {
+                    kinds[c].Add(cell);
+                    continue;
+                }
+                rejectCount++;
+                string reason;
+                if (cell.Kind == XlsxCellKind.Error)
+                {
+                    errors++;
+                    reason = $"is the Excel error {cell.Text}, so the cell is empty in the table";
+                }
+                else
+                {
+                    noValue++;
+                    reason = "is a formula the file was saved without a result for, so the cell is empty in the table";
+                }
+                if (rejects.Count < CsvTableReader.MaxRejects)
+                    rejects.Add(new TableReject(row.Number, c + 1, Clip(cell.Text, CsvTableReader.MaxRejectValueChars), reason));
+            }
         }
 
         List<string> reasons = [];
-        bool hasHeader = headerCells.Any(c => c.Kind == XlsxCellKind.Text);
+        string?[] header = new string?[width];
         if (!hasHeader)
         {
             reasons.Add("its first row has no text in it, so the columns were given generated names");
-            if (headerCells.Any(c => c.IsBad))
-                rejects.Insert(0, Check(new XlsxRow(layout.HeaderRow, headerCells), layout)![0]);
-            else
-                foreach (XlsxCell cell in headerCells.Where(c => c.Column >= layout.Left && c.Column <= layout.Right))
-                    kinds[cell.Column - layout.Left].Add(cell);
         }
-
-        string?[] header = new string?[width];
-        if (hasHeader)
+        else
         {
-            foreach (XlsxCell cell in headerCells.Where(c => c.Column >= layout.Left && c.Column <= layout.Right))
+            foreach (XlsxCell cell in headerCells!)
                 header[cell.Column - layout.Left] = cell.Kind == XlsxCellKind.Text ? cell.Text : Display(cell);
+            if (secondCells is not null)
+            {
+                foreach (XlsxCell cell in secondCells)
+                {
+                    int c = cell.Column - layout.Left;
+                    string below = cell.Text.Trim();
+                    string? above = header[c]?.Trim();
+                    header[c] = CsvSniffer.IsNull(above) || string.Equals(above, below, StringComparison.OrdinalIgnoreCase)
+                        ? below
+                        : $"{above} {below}";
+                }
+            }
+            else if (layout.MergedHeader)
+            {
+                reasons.Add("its header has merged cells, so it may take more than one row");
+            }
             if (header.Any(CsvSniffer.IsNull))
                 reasons.Add("some columns have no name, so they were given generated ones");
             int distinct = header.Where(h => !CsvSniffer.IsNull(h)).Select(h => h!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count();
             if (distinct < header.Count(h => !CsvSniffer.IsNull(h)))
                 reasons.Add("some column names repeat, so _1, _2… were added to make them unique");
         }
-        if (dataRows > 0 && outside > Math.Max(1, dataRows / 20))
-            reasons.Add($"{outside} row(s) have cells outside the header's columns, which weren't loaded");
 
+        long dataRow = !hasHeader ? layout.HeaderRow : layout.HeaderRow + (secondCells is null ? 1 : 2);
         return new ColumnScan(
-            CsvSniffer.Names(hasHeader ? header : null, width), [.. kinds.Select(k => k.Type)], hasHeader,
-            rejects, rejectCount + (!hasHeader && headerCells.Any(c => c.IsBad) ? 1 : 0), noValueRows, reasons);
+            CsvSniffer.Names(hasHeader ? header : null, width), [.. kinds.Select(k => k.Type)], dataRow,
+            rejects, rejectCount, noValue, errors, reasons);
     }
-
-    private const string NoValueReason = "is a formula the file was saved without a result for";
-
-    /// <summary>Why a row can't load, one entry per error or result-less formula in the table's columns; null when it loads.</summary>
-    private static List<TableReject>? Check(XlsxRow row, SheetLayout layout)
-    {
-        List<TableReject>? rejects = null;
-        foreach (XlsxCell cell in InSpan(row, layout))
-        {
-            if (!cell.IsBad)
-                continue;
-            string reason = cell.Kind == XlsxCellKind.Error ? $"is the Excel error {cell.Text}" : NoValueReason;
-            (rejects ??= []).Add(new TableReject(row.Number, cell.Column - layout.Left + 1, Clip(cell.Text, CsvTableReader.MaxRejectValueChars), reason));
-        }
-        return rejects;
-    }
-
-    private static IEnumerable<XlsxCell> InSpan(XlsxRow row, SheetLayout layout) =>
-        row.Cells.Where(c => c.Column >= layout.Left && c.Column <= layout.Right);
 
     private static async IAsyncEnumerable<IReadOnlyList<object?>> RowsAsync(
         XlsxWorkbook workbook, XlsxSheet sheet, SheetLayout layout, ColumnScan scan, [EnumeratorCancellation] CancellationToken ct)
@@ -253,25 +325,20 @@ internal static class XlsxTableReader
         int width = layout.Right - layout.Left + 1;
         foreach (XlsxRow row in workbook.Rows(sheet, layout.Merges, ct))
         {
-            if (row.Number < layout.HeaderRow || (scan.HasHeader && row.Number == layout.HeaderRow))
+            if (row.Number < scan.DataRow)
                 continue;
             if (row.Number > layout.LastRow)
                 yield break;
             var values = new object?[width];
-            bool any = false, bad = false;
-            foreach (XlsxCell cell in InSpan(row, layout))
+            foreach (XlsxCell cell in row.Cells)
             {
+                // An error or a formula with no saved result stays empty; its reject says what the cell held.
                 if (cell.IsBad)
-                {
-                    bad = true;
-                    break;
-                }
+                    continue;
                 int c = cell.Column - layout.Left;
                 values[c] = Convert(cell, scan.Types[c]);
-                any = true;
             }
-            if (any && !bad)
-                yield return values;
+            yield return values;
         }
     }
 
