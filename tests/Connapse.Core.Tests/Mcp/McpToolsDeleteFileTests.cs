@@ -63,7 +63,7 @@ public class McpToolsDeleteFileTests
     [Fact]
     public async Task DeleteFile_StorageSucceeds_ReturnsSuccessMessage()
     {
-        var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
+        var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
 
         result.Should().Be($"File '{FileName}' (ID: {FileId}) deleted.");
         await _documentStore.Received(1).DeleteOwingFileRemovalAsync(FileId, Arg.Any<CancellationToken>());
@@ -77,7 +77,7 @@ public class McpToolsDeleteFileTests
             .DeleteFileAsync(FilePath, Arg.Any<CancellationToken>())
             .ThrowsAsync(new IOException("disk error"));
 
-        var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
+        var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
 
         result.Should().Contain("deleted from database");
         result.Should().Contain("backing storage file could not be removed");
@@ -93,7 +93,7 @@ public class McpToolsDeleteFileTests
     [Fact]
     public async Task DeleteFile_CancelsIngestionJobBeforeDeletion()
     {
-        await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
+        await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FileId);
 
         await _ingestionQueue.Received(1).CancelJobForDocumentAsync(FileId);
         Received.InOrder(() =>
@@ -102,6 +102,24 @@ public class McpToolsDeleteFileTests
             _documentStore.DeleteOwingFileRemovalAsync(FileId, Arg.Any<CancellationToken>());
         });
     }
+
+    [Fact]
+    public async Task DeleteFile_FileIdAndFileIds_ReturnsErrorWithoutDeleting()
+    {
+        var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container,
+            McpCaller.Http, ContainerId.ToString(), FileId, $"[\"{FileId}\"]");
+
+        result.Should().Be("Error: Provide either 'fileId' or 'fileIds', not both.");
+        await _documentStore.DidNotReceiveWithAnyArgs().DeleteOwingFileRemovalAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    public async Task DeleteFile_NeitherFileIdNorFileIds_ReturnsError(string? fileId, string? fileIds) =>
+        (await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container,
+            McpCaller.Http, ContainerId.ToString(), fileId, fileIds))
+        .Should().Be("Error: Provide either 'fileId' for one, or 'fileIds' for several.");
 
     private static Container MakeContainer() => new(
         Id: ContainerId.ToString(),

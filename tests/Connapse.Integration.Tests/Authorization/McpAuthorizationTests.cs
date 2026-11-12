@@ -29,9 +29,12 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
     public async Task EveryMcpTool_HasScopeAndRiskMetadata()
     {
         await using var admin = await ConnectAsync(fixture.AdminClient.DefaultRequestHeaders.Authorization!);
-        var listed = (await admin.ListToolsAsync()).ToDictionary(t => t.Name);
+        var listed = (await admin.ListToolsAsync()).Select(t => t.Name);
+        // The deprecated aliases (CON-344) aren't listed but stay callable, so their hints come from the server's own tools.
+        var registered = fixture.Factory.Services.GetServices<McpServerTool>().ToDictionary(t => t.ProtocolTool.Name);
 
-        listed.Keys.Should().BeEquivalentTo(Tools.Keys, "every MCP tool needs an entry in the tools section of authorization-expectations.json");
+        registered.Keys.Should().BeEquivalentTo(Tools.Keys, "every MCP tool needs an entry in the tools section of authorization-expectations.json");
+        listed.Should().BeEquivalentTo(Tools.Keys.Except(McpTools.HiddenAliases), "every tool but the deprecated aliases is listed");
 
         var violations = new List<string>();
         foreach (var (name, expected) in Tools)
@@ -41,7 +44,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                 violations.Add($"mcp-tool {name}: expects scope {expected.Scope}, declares {declaredScope}");
 
             // The risk a client sees: MCP treats a tool with no destructive hint as destructive.
-            var hints = listed[name].ProtocolTool.Annotations;
+            var hints = registered[name].ProtocolTool.Annotations;
             string declaredRisk = hints?.ReadOnlyHint == true
                 ? (hints.DestructiveHint == true ? "read+destructive" : "read")
                 : hints?.DestructiveHint == false ? "write" : "destructive";
@@ -135,6 +138,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             string first = await UploadAsync(http, full, "first.txt");
             string second = await UploadAsync(http, full, "second.txt");
             string third = await UploadAsync(http, full, "third.txt", "/probe");
+            string fourth = await UploadAsync(http, full, "fourth.txt");
             // CON-291: no space is made for an agent, so it makes its own personal one first.
             string notes = $"authz-notes-{Guid.NewGuid():N}"[..24];
             var made = await agent.CallToolAsync("memory_space_create",
@@ -153,6 +157,9 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                     async () => (await http.GetAsync($"/api/containers/{empty}")).IsSuccessStatusCode),
                 ("delete_file", new() { ["containerId"] = full, ["fileId"] = first },
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{first}")).IsSuccessStatusCode),
+                // delete_file's list form (CON-344) is held the same way.
+                ("delete_file", new() { ["containerId"] = full, ["fileIds"] = $"[\"{fourth}\"]" },
+                    async () => (await http.GetAsync($"/api/containers/{full}/files/{fourth}")).IsSuccessStatusCode),
                 ("bulk_delete", new() { ["containerId"] = full, ["fileIds"] = $"[\"{second}\"]" },
                     async () => (await http.GetAsync($"/api/containers/{full}/files/{second}")).IsSuccessStatusCode),
                 (McpApiTools.WriteName, new() { ["operation"] = "folders.delete", ["parameters"] = new Dictionary<string, object?> { ["containerId"] = full, ["path"] = "/probe", ["cascade"] = true } },
@@ -161,7 +168,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
                     async () => Text(await agent.CallToolAsync("memory_recall", new Dictionary<string, object?> { ["containerId"] = space, ["subject"] = "probe" })).Contains(fact)),
             ];
             Tools.Where(t => t.Value.Risk == "destructive").Select(t => t.Key)
-                .Should().BeEquivalentTo(cases.Select(c => c.Tool), "each destructive tool needs a case here");
+                .Should().BeEquivalentTo(cases.Select(c => c.Tool).Distinct(), "each destructive tool needs a case here");
 
             var violations = new List<string>();
             foreach (var (tool, arguments, unchanged) in cases)

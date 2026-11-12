@@ -135,7 +135,7 @@ public static partial class Operations
                 var response = await rest.PostAsync($"/api/containers/{Target(c, k)}/files", form);
                 return response.IsSuccessStatusCode ? BulkUploadResult(await response.Content.ReadAsStringAsync()) : await Surfaces.ResultAsync(response);
             },
-            Mcp: (f, c, p, k) => McpAsync(f, p, "bulk_upload", new()
+            Mcp: (f, c, p, k) => McpAsync(f, p, "upload_file", new()
             {
                 ["containerId"] = Target(c, k),
                 ["files"] = JsonSerializer.Serialize(BulkFiles(k).Select(n => new { filename = n, content = Body })),
@@ -154,7 +154,7 @@ public static partial class Operations
                     new { fileIds = k == Case.Invalid ? [c.Files[0].Id, c.Unknown] : c.Files.Select(x => x.Id).ToArray() });
                 return response.IsSuccessStatusCode ? BulkDeleteResult(await response.Content.ReadAsStringAsync()) : await Surfaces.ResultAsync(response);
             },
-            Mcp: (f, c, p, k) => McpAsync(f, p, "bulk_delete", new()
+            Mcp: (f, c, p, k) => McpAsync(f, p, "delete_file", new()
             {
                 ["containerId"] = Target(c, k),
                 ["fileIds"] = JsonSerializer.Serialize(k == Case.Invalid ? [c.Files[0].Id, c.Unknown] : c.Files.Select(x => x.Id).ToArray()),

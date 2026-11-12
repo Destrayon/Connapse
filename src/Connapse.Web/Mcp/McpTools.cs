@@ -278,9 +278,10 @@ public partial class McpTools
 
     [McpServerTool(Name = "upload_file", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Upload a file to be parsed, chunked, embedded, and made searchable. Provide either 'content' (base64) or 'textContent' (raw text), not both.")]
+     Description("Upload one file, or up to 100 with 'files', to be parsed, chunked, embedded, and made searchable. For one file give 'fileName' and either 'content' (base64) or 'textContent' (raw text), not both.")]
     public static async Task<string> UploadFile(
         UploadFile upload,
+        BulkUploadFiles bulkUpload,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
@@ -289,10 +290,16 @@ public partial class McpTools
         [Description("Original file name with extension")] string fileName = "",
         [Description("Destination folder path (e.g., '/docs/2026/')")] string? path = null,
         [Description("Chunking strategy: Semantic, FixedSize, or Recursive. Default: Semantic")] string? strategy = null,
+        [Description("Several files instead of one: JSON array of {\"filename\":\"name.txt\", \"content\":\"...\", \"encoding\":\"text|base64\", \"folderPath\":\"/optional/\"}. Max 100. Use instead of fileName, content, textContent, path and strategy.")] string? files = null,
         CancellationToken ct = default)
     {
+        if (!string.IsNullOrEmpty(files))
+            return content is not null || textContent is not null || !string.IsNullOrEmpty(fileName) || path is not null || strategy is not null
+                ? "Error: Provide either 'files' or a single file's 'fileName', 'content'/'textContent', 'path' and 'strategy', not both."
+                : await UploadFilesAsync(bulkUpload, getContainer, http, containerId, files, ct);
+
         if (string.IsNullOrEmpty(fileName))
-            return "Error: 'fileName' is required.";
+            return "Error: 'fileName' is required (or 'files' for several files).";
 
         if (content is not null && textContent is not null)
             return "Error: Provide either 'content' or 'textContent', not both.";
@@ -334,20 +341,28 @@ public partial class McpTools
 
     [McpServerTool(Name = "delete_file", Destructive = true),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
-     Description("Delete a file and all its chunks and vectors. To update a file, delete it first then re-upload with upload_file." + HeldDeleteNote)]
+     Description("Delete one file, or up to 100 with 'fileIds', and all their chunks and vectors. To update a file, delete it first then re-upload with upload_file. "
+        + "With 'fileIds' it returns per-file success/failure results." + HeldDeleteNote + " A held batch holds at most 50 files.")]
     public static async Task<string> DeleteFile(
         DeleteFile delete,
+        BulkDeleteFiles bulkDelete,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
-        [Description("File (document) ID to delete")] string fileId,
+        [Description("File (document) ID to delete")] string? fileId = null,
+        [Description("Several files instead of one: JSON array of file (document) IDs, e.g. [\"id1\",\"id2\"]. Max 100. Use instead of fileId.")] string? fileIds = null,
         CancellationToken ct = default)
     {
+        if (OneForm(fileId, "fileId", fileIds, "fileIds") is { } formError)
+            return formError;
+        if (!string.IsNullOrEmpty(fileIds))
+            return await DeleteFilesAsync(bulkDelete, getContainer, http, containerId, fileIds, ct);
+
         var (resolvedId, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
         if (resolvedId is null)
             return missing!;
 
-        var deleted = await delete.RunAsync(Mcp(http), resolvedId.Value, fileId, ct);
+        var deleted = await delete.RunAsync(Mcp(http), resolvedId.Value, fileId!, ct);
         if (deleted.Status == FileStatus.NotFound)
             return $"Error: File '{fileId}' not found in this container.";
         if (!deleted.Succeeded)
@@ -361,14 +376,32 @@ public partial class McpTools
 
     [McpServerTool(Name = "bulk_delete", Destructive = true),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Destructive),
-     Description("Delete up to 100 files in one call. Returns per-file success/failure results." + HeldDeleteNote + " A held batch holds at most 50 files.")]
-    public static async Task<string> BulkDelete(
+     Description(DeprecatedAlias + "delete_file with 'fileIds'. Delete up to 100 files in one call. Returns per-file success/failure results." + HeldDeleteNote + " A held batch holds at most 50 files.")]
+    public static Task<string> BulkDelete(
         BulkDeleteFiles bulkDelete,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("JSON array of file (document) IDs to delete, e.g. [\"id1\",\"id2\"]. Max 100.")] string fileIds,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        DeleteFilesAsync(bulkDelete, getContainer, http, containerId, fileIds, ct);
+
+    /// <summary>The tools get_documents, bulk_delete and bulk_upload, kept callable but left out of tools/list (CON-344).</summary>
+    internal static readonly IReadOnlySet<string> HiddenAliases = new HashSet<string>(StringComparer.Ordinal) { "get_documents", "bulk_delete", "bulk_upload" };
+
+    private const string DeprecatedAlias = "Deprecated, goes away after 0.4.x: use ";
+
+    /// <summary>The error for a call that gives both, or neither, of a tool's single-item and list arguments.</summary>
+    private static string? OneForm(string? one, string oneName, string? many, string manyName) =>
+        (string.IsNullOrEmpty(one), string.IsNullOrEmpty(many)) switch
+        {
+            (false, false) => $"Error: Provide either '{oneName}' or '{manyName}', not both.",
+            (true, true) => $"Error: Provide either '{oneName}' for one, or '{manyName}' for several.",
+            _ => null,
+        };
+
+    private static async Task<string> DeleteFilesAsync(
+        BulkDeleteFiles bulkDelete, GetContainer getContainer, IHttpContextAccessor http, string containerId, string fileIds, CancellationToken ct)
     {
         List<string> ids;
         try
@@ -384,7 +417,7 @@ public partial class McpTools
             return "Error: 'fileIds' array must not be empty.";
 
         if (ids.Count > Connapse.Application.Files.BulkDeleteFiles.MaxFiles)
-            return "Error: Maximum 100 files per bulk_delete call.";
+            return "Error: Maximum 100 files per call.";
 
         // Early-exit if container doesn't exist (avoids N per-file "not found" errors).
         var (resolvedId, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
@@ -410,14 +443,18 @@ public partial class McpTools
 
     [McpServerTool(Name = "bulk_upload", Destructive = false),
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
-     Description("Upload up to 100 files in one call. Each file is parsed, chunked, and embedded. Returns per-file results.")]
-    public static async Task<string> BulkUpload(
+     Description(DeprecatedAlias + "upload_file with 'files'. Upload up to 100 files in one call. Each file is parsed, chunked, and embedded. Returns per-file results.")]
+    public static Task<string> BulkUpload(
         BulkUploadFiles bulkUpload,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("JSON array of file objects. Each object: {\"filename\":\"name.txt\", \"content\":\"...\", \"encoding\":\"text|base64\", \"folderPath\":\"/optional/\"}. Max 100.")] string files,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        UploadFilesAsync(bulkUpload, getContainer, http, containerId, files, ct);
+
+    private static async Task<string> UploadFilesAsync(
+        BulkUploadFiles bulkUpload, GetContainer getContainer, IHttpContextAccessor http, string containerId, string files, CancellationToken ct)
     {
         List<BulkUploadFileItem> items;
         try
@@ -437,7 +474,7 @@ public partial class McpTools
             return "Error: 'files' array must not be empty.";
 
         if (items.Count > Connapse.Application.Files.BulkUploadFiles.MaxFiles)
-            return "Error: Maximum 100 files per bulk_upload call.";
+            return "Error: Maximum 100 files per call.";
 
         var found = await getContainer.RunAsync(Mcp(http), ContainerKey.Parse(containerId), ct);
         if (!found.Succeeded || !Guid.TryParse(found.Result!.Id, out var resolvedId))
@@ -527,29 +564,38 @@ public partial class McpTools
 
     [McpServerTool(Name = "get_document", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Retrieve a single document's full text by ID or path. Returns extracted text for binary formats (PDF, DOCX, PPTX). Intended for use after `search_knowledge` returns a `DocumentId` worth reading in entirety, or when the user has named an exact file.")]
+     Description("Retrieve a document's full text by ID or path, or up to 50 documents' with 'files'. Returns extracted text for binary formats (PDF, DOCX, PPTX). Intended for use after `search_knowledge` returns a `DocumentId` worth reading in entirety, or when the user has named an exact file. "
+        + "With 'files' each document comes under its own header in the order asked; a file that can't be read gets an error line and doesn't stop the others, and past 2,000,000 characters in all, the rest get one too. "
+        + "Pair 'files' with `list_files` sort \"newest\" and `limit` to read the newest entries of a folder in two calls.")]
     public static async Task<string> GetDocument(
         GetFile getFile,
         GetFileContent getContent,
+        GetFileContents getContents,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
-        [Description("Document ID (UUID) or virtual path (e.g., '/docs/readme.md')")] string fileId,
+        [Description("Document ID (UUID) or virtual path (e.g., '/docs/readme.md')")] string? fileId = null,
+        [Description("Several documents instead of one: JSON array of document IDs (UUID) or virtual paths, e.g. [\"/log/2026-11-08.md\",\"id2\"]. Max 50. Use instead of fileId.")] string? files = null,
         CancellationToken ct = default)
     {
+        if (OneForm(fileId, "fileId", files, "files") is { } formError)
+            return formError;
+        if (!string.IsNullOrEmpty(files))
+            return await ReadDocumentsAsync(getContents, getContainer, http, containerId, files, ct);
+
         var (resolvedId, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
         if (resolvedId is null)
             return missing!;
 
         // The document first, by ID or path, for the name and status this tool's messages give.
-        var found = await getFile.RunAsync(Mcp(http), resolvedId.Value, fileId, ct);
+        var found = await getFile.RunAsync(Mcp(http), resolvedId.Value, fileId!, ct);
         if (found.Status == FileStatus.NotFound)
             return $"Error: Document '{fileId}' not found in this container.";
         if (!found.Succeeded)
             return Refused(found);
         var document = found.Result!;
 
-        var read = await getContent.RunAsync(Mcp(http), resolvedId.Value, fileId, ct);
+        var read = await getContent.RunAsync(Mcp(http), resolvedId.Value, fileId!, ct);
         switch (read.Status)
         {
             case FileStatus.Success:
@@ -585,16 +631,20 @@ public partial class McpTools
 
     [McpServerTool(Name = "get_documents", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Retrieve up to 50 documents' full text in one call, by ID or path, each under its own header in the order asked. "
+     Description(DeprecatedAlias + "get_document with 'files'. Retrieve up to 50 documents' full text in one call, by ID or path, each under its own header in the order asked. "
         + "A file that can't be read gets an error line and doesn't stop the others; past 2,000,000 characters in all, the rest get one too. Pair with `list_files` sort \"newest\" and `limit` "
         + "to read the newest entries of a folder in two calls.")]
-    public static async Task<string> GetDocuments(
+    public static Task<string> GetDocuments(
         GetFileContents getContents,
         GetContainer getContainer,
         IHttpContextAccessor http,
         [Description("Container ID or name")] string containerId,
         [Description("JSON array of document IDs (UUID) or virtual paths, e.g. [\"/log/2026-11-08.md\",\"id2\"]. Max 50.")] string files,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        ReadDocumentsAsync(getContents, getContainer, http, containerId, files, ct);
+
+    private static async Task<string> ReadDocumentsAsync(
+        GetFileContents getContents, GetContainer getContainer, IHttpContextAccessor http, string containerId, string files, CancellationToken ct)
     {
         List<string> refs;
         try

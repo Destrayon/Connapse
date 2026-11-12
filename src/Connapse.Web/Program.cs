@@ -146,7 +146,14 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
 .WithToolsFromAssembly()
 .AddAuthorizationFilters()
 .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
-    context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)));
+    context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)))
+// The deprecated aliases of the merged get/delete/upload tools stay callable but aren't listed (CON-344).
+.WithRequestFilters(filters => filters.AddListToolsFilter(next => async (context, ct) =>
+{
+    var listed = await next(context, ct);
+    listed.Tools = [.. listed.Tools.Where(t => !Connapse.Web.Mcp.McpTools.HiddenAliases.Contains(t.Name))];
+    return listed;
+}));
 builder.Services.AddScoped<Connapse.Web.Mcp.McpApprovalGate>();
 // The generic connapse_api_* tools, built from the committed spec (CON-20).
 builder.Services.AddSingleton<Connapse.Web.Services.GenericApi.ApiCatalog>();

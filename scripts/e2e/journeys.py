@@ -531,7 +531,7 @@ def audit(c, t):
 # ── MCP ──────────────────────────────────────────────────────────────────────────────────────────
 
 EXPECTED_TOOLS = {"container_create", "container_list", "container_delete", "container_describe", "container_stats",
-                  "upload_file", "bulk_upload", "list_files", "get_document", "delete_file", "bulk_delete",
+                  "upload_file", "list_files", "get_document", "delete_file",
                   "search_knowledge", "connapse_api_search", "connapse_api_read", "connapse_api_write"}
 
 
@@ -556,7 +556,7 @@ def mcp(c, t):
     r("MCP", "upload_file", lambda: m.call("upload_file", {"containerId": box, "fileName": "kestrel.md",
                                                            "textContent": "# Kestrel\n\nThe kestrel batch job reruns at midnight UTC.\n",
                                                            "path": "/notes/"}))
-    r("MCP", "bulk_upload", lambda: m.call("bulk_upload", {"containerId": box, "files": json.dumps([
+    r("MCP", "upload_file with files", lambda: m.call("upload_file", {"containerId": box, "files": json.dumps([
         {"filename": "a.txt", "content": "alpha note about lanterns", "encoding": "text"},
         {"filename": "b.txt", "content": "YnJhdm8gbm90ZQ==", "encoding": "base64", "folderPath": "/b/"}])}))
     listing = r("MCP", "list_files", lambda: m.call("list_files", {"containerId": box, "path": "/notes/"}))
@@ -581,7 +581,7 @@ def mcp(c, t):
                 "pending approval" in held.call("delete_file", {"containerId": box, "fileId": a_id}), "not held"))
         r("MCP", "delete_file", lambda: m.call("delete_file", {"containerId": box, "fileId": a_id}))
     b_files = A("GET", "/api/containers/{containerId}/files", containerId=bx["id"], query={"path": "/b/"}).json["items"]
-    r("MCP", "bulk_delete", lambda: m.call("bulk_delete", {"containerId": box, "fileIds": json.dumps([f["id"] for f in b_files if not f["isFolder"]])}))
+    r("MCP", "delete_file with fileIds", lambda: m.call("delete_file", {"containerId": box, "fileIds": json.dumps([f["id"] for f in b_files if not f["isFolder"]])}))
     if kid:
         m.call("delete_file", {"containerId": box, "fileId": kid})
     r("MCP", "container_delete", lambda: m.call("container_delete", {"containerId": box}))

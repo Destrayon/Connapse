@@ -278,7 +278,7 @@ curl -X POST "$BASE_URL/api/containers/$CID/files" \
 
 ```bash
 # Bulk upload with mix of valid and invalid files
-# (use the MCP bulk_upload tool or API equivalent)
+# (use the MCP upload_file tool with `files` or API equivalent)
 
 # Bulk upload 100 files in one request
 # Expected: capped at reasonable number or handled gracefully

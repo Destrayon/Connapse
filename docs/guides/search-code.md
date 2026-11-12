@@ -17,7 +17,7 @@ Use this when you want an AI agent to find its way around a codebase through Con
 ## Steps
 
 1. Get the code into Connapse, in one of three ways:
-   - Upload the files to a container, on the **Files** page or with the `bulk_upload` MCP tool.
+   - Upload the files to a container, on the **Files** page or with the `upload_file` MCP tool and its `files` list.
    - Add a GitHub **Docs** source and add patterns such as `*.cs` or `*.py` to its file patterns. See [GitHub setup](../sources/github-setup.md#what-gets-indexed).
    - Add an SFTP source whose patterns include the code's extensions. See [Index a folder over SFTP](../sources/sftp.md).
 

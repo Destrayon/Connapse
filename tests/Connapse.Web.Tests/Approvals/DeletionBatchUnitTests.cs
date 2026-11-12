@@ -171,6 +171,25 @@ public class DeletionBatchUnitTests
             .Should().Contain("JSON array");
     }
 
+    [Fact]
+    public void HeldDelete_DeleteFileWithFileIds_BecomesOneItemPerFile()
+    {
+        McpApprovalGate.DeletionItems("delete_file", null, Args(new { containerId = "c", fileIds = "[\"a\",\"b\"]" }))!.Value.Items!
+            .Select(i => (i.Container, i.Target)).Should().Equal(("c", "a"), ("c", "b"));
+        McpApprovalGate.DeletionItems("delete_file", null, Args(new { containerId = "c", fileId = "f", fileIds = "" }))!.Value.Items
+            .Should().ContainSingle().Which.Target.Should().Be("f");
+    }
+
+    [Fact]
+    public void HeldDelete_DeleteFileWithFileIdAndFileIds_NamesTheProblem()
+    {
+        var both = McpApprovalGate.DeletionItems("delete_file", null, Args(new { containerId = "c", fileId = "f", fileIds = "[\"a\"]" }))!.Value;
+        both.Items.Should().BeNull();
+        both.Problem.Should().Be("Provide either fileId or fileIds, not both.");
+        McpApprovalGate.DeletionItems("delete_file", null, Args(new { containerId = "c", fileIds = "a,b" }))!.Value.Problem
+            .Should().Contain("JSON array");
+    }
+
     [Theory]
     [InlineData(McpApiTools.WriteName, "connections.create")]
     [InlineData(McpApiTools.WriteName, "containers.settings.update")]

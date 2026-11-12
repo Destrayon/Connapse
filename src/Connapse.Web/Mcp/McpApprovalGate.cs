@@ -117,11 +117,15 @@ public sealed class McpApprovalGate(IMcpApprovalStore store, ApiCatalog catalog,
         string reason = $"Held from the agent's {operation ?? tool} call.";
         switch (operation ?? tool)
         {
-            case "delete_file":
+            case "delete_file" when string.IsNullOrEmpty(Text(arguments, "fileIds")):
                 return ([new DeletionRequestItem("file", Text(arguments, "containerId") ?? "", Text(arguments, "fileId"), reason)], null);
 
+            // delete_file with a list (CON-344), or its deprecated alias bulk_delete.
+            case "delete_file":
             case "bulk_delete":
                 {
+                    if (!string.IsNullOrEmpty(Text(arguments, "fileId")))
+                        return (null, "Provide either fileId or fileIds, not both.");
                     List<string>? ids;
                     try
                     {

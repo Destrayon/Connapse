@@ -62,7 +62,7 @@ public class McpToolsGetDocumentTests
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
             .Returns(MakeDocument());
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().Contain($"Document: {FileName}");
         result.Should().Contain($"Path: {FilePath}");
@@ -77,7 +77,7 @@ public class McpToolsGetDocumentTests
         _documentStore.GetByPathAsync(ContainerId, FilePath, Arg.Any<CancellationToken>())
             .Returns(MakeDocument());
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FilePath);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), FilePath);
 
         result.Should().Contain(FileContent);
         result.Should().Contain($"Document: {FileName}");
@@ -93,9 +93,9 @@ public class McpToolsGetDocumentTests
             .Returns(Array.Empty<SearchHit>());
         _services.GetService(typeof(DocumentReadGuard)).Returns(NewGuard(denying));
 
-        var denied = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var denied = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>()).Returns((Document?)null);
-        var missing = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var missing = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         denied.Should().Be(missing);
         await _connector.DidNotReceive().ReadFileAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -111,7 +111,7 @@ public class McpToolsGetDocumentTests
             .ThrowsAsync(new HttpRequestException("site down"));
         _services.GetService(typeof(DocumentReadGuard)).Returns(NewGuard(throwing));
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().StartWith("Error:").And.Contain("not found");
     }
@@ -122,13 +122,13 @@ public class McpToolsGetDocumentTests
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>()).Returns(MakeDocument());
         _services.GetService(typeof(DocumentReadGuard)).Returns(null);
 
-        (await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId)).Should().StartWith("Error:").And.Contain("not found");
+        (await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId)).Should().StartWith("Error:").And.Contain("not found");
     }
 
     [Fact]
     public async Task GetDocument_ContainerNotFound_ReturnsError()
     {
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, Guid.NewGuid().ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, Guid.NewGuid().ToString(), DocId);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found");
@@ -140,7 +140,7 @@ public class McpToolsGetDocumentTests
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
             .Returns((Document?)null);
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found");
@@ -153,7 +153,7 @@ public class McpToolsGetDocumentTests
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
             .Returns(MakeDocument(containerId: otherContainerId));
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("not found in this container");
@@ -168,7 +168,7 @@ public class McpToolsGetDocumentTests
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
             .Returns(MakeDocument(status: status));
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().EndWith(FileContent);
         if (waiting)
@@ -183,7 +183,7 @@ public class McpToolsGetDocumentTests
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
             .Returns(MakeDocument(status: "Pending", fileName: "report.pdf", path: "/docs/report.pdf"));
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("still being ingested");
@@ -195,7 +195,7 @@ public class McpToolsGetDocumentTests
         _documentStore.GetAsync(DocId, Arg.Any<CancellationToken>())
             .Returns(MakeDocument(status: "Failed", errorMessage: "parse error"));
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("parse error");
@@ -211,7 +211,7 @@ public class McpToolsGetDocumentTests
             .ReadFileAsync(FilePath, Arg.Any<CancellationToken>())
             .ThrowsAsync(new FileNotFoundException("gone"));
 
-        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents, McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("could not be read from storage");
@@ -242,7 +242,7 @@ public class McpToolsGetDocumentTests
         services.GetService(typeof(DocumentReadGuard)).Returns(NewGuard(new NoOpSearchResultVerifier()));
         services.GetService(typeof(IEnumerable<IDocumentParser>)).Returns(new[] { parser });
 
-        var result = await McpTools.GetDocument(McpCaller.Files(services).Get, McpCaller.Files(services).Content, McpCaller.Files(services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(services).Get, McpCaller.Files(services).Content, McpCaller.Files(services).Contents, McpCaller.Files(services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().Contain(parsedText);
         result.Should().Contain("Document: report.pdf");
@@ -265,7 +265,7 @@ public class McpToolsGetDocumentTests
         services.GetService(typeof(DocumentReadGuard)).Returns(NewGuard(new NoOpSearchResultVerifier()));
         services.GetService(typeof(IEnumerable<IDocumentParser>)).Returns(Array.Empty<IDocumentParser>());
 
-        var result = await McpTools.GetDocument(McpCaller.Files(services).Get, McpCaller.Files(services).Content, McpCaller.Files(services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
+        var result = await McpTools.GetDocument(McpCaller.Files(services).Get, McpCaller.Files(services).Content, McpCaller.Files(services).Contents, McpCaller.Files(services).Container, McpCaller.Http, ContainerId.ToString(), DocId);
 
         result.Should().StartWith("Error:");
         result.Should().Contain("No parser available");
@@ -317,6 +317,44 @@ public class McpToolsGetDocumentTests
     [Fact]
     public async Task GetDocuments_ContainerNotFound_ReturnsError() =>
         (await GetDocuments($"[\"{DocId}\"]", Guid.NewGuid().ToString())).Should().StartWith("Error:").And.Contain("not found");
+
+    // ── get_document with 'files' (CON-344) ──────────────────────────────────────────────────────
+
+    private Task<string> GetDocument(string? fileId, string? files) =>
+        McpTools.GetDocument(McpCaller.Files(_services).Get, McpCaller.Files(_services).Content, McpCaller.Files(_services).Contents,
+            McpCaller.Files(_services).Container, McpCaller.Http, ContainerId.ToString(), fileId, files);
+
+    [Fact]
+    public async Task GetDocument_WithFiles_GivesTheSameTextAsTheGetDocumentsAlias()
+    {
+        _documentStore.GetByPathAsync(ContainerId, FilePath, Arg.Any<CancellationToken>()).Returns(MakeDocument());
+        _connector.ReadFileAsync(FilePath, Arg.Any<CancellationToken>()).Returns(_ => new MemoryStream(Encoding.UTF8.GetBytes(FileContent)));
+        string files = $"[\"{FilePath}\", \"/docs/missing.md\"]";
+
+        var merged = await GetDocument(null, files);
+
+        merged.Should().StartWith("Read 1 of 2 document(s).");
+        merged.Should().Be(await GetDocuments(files));
+    }
+
+    [Fact]
+    public async Task GetDocument_FileIdAndFiles_ReturnsErrorWithoutReading()
+    {
+        var result = await GetDocument(DocId, $"[\"{DocId}\"]");
+
+        result.Should().Be("Error: Provide either 'fileId' or 'files', not both.");
+        await _documentStore.DidNotReceiveWithAnyArgs().GetAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    public async Task GetDocument_NeitherFileIdNorFiles_ReturnsError(string? fileId, string? files) =>
+        (await GetDocument(fileId, files)).Should().Be("Error: Provide either 'fileId' for one, or 'files' for several.");
+
+    [Fact]
+    public async Task GetDocument_WithFilesNotAJsonArray_ReturnsTheListError() =>
+        (await GetDocument(null, "not json")).Should().Be("Error: 'files' must be a valid JSON array of strings.");
 
     private readonly Dictionary<string, string?> _uris = new() { [DocId] = null };
 
