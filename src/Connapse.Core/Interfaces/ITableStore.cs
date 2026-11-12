@@ -32,12 +32,6 @@ public interface ITableStore
     Task<TableInfo?> FindByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default);
 
     /// <summary>
-    /// Every table loaded from <paramref name="documentId"/>, oldest first: one for a CSV, one per sheet for a
-    /// workbook (CON-308). Empty when the document has none.
-    /// </summary>
-    Task<IReadOnlyList<TableInfo>> ListByDocumentAsync(Guid containerId, Guid documentId, CancellationToken ct = default);
-
-    /// <summary>
     /// Hides the named columns of a table from every caller (CON-304), replacing the ones hidden before; an empty list
     /// shows them all. Names are the columns' original headers and stay hidden across reloads. Null when the table
     /// doesn't exist; throws <see cref="ArgumentException"/> for a name the table has no column for.

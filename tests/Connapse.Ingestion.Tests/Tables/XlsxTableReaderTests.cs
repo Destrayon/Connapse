@@ -263,15 +263,20 @@ public class XlsxTableReaderTests
         XlsxWorkbook.IsDateFormat(code).Should().Be(expected);
 
     [Fact]
-    public async Task XlsxParser_WritesEachSheetAsTabSeparatedRowsAndMarksHiddenOnes()
+    public async Task SameWorkbook_TextHasVisibleSheetsAndTablesHaveEverySheet()
     {
         var file = Build(
             new SheetSpec("Sales", $"<sheetData>{Row(1, "region", "units")}{Row(2, "East", 3)}</sheetData>"),
             new SheetSpec("Prices", $"<sheetData>{Row(1, "sku", "price")}{Row(2, "P-1", 12.5)}</sheetData>", Hidden: true));
 
-        var parsed = await new XlsxParser().ParseAsync(file, "book.xlsx");
+        var parsed = await new OfficeParser().ParseAsync(file, "book.xlsx");
+        file.Position = 0;
+        var (tables, _, rows) = await ReadAsync(file);
 
-        parsed.Content.Should().Contain("Sheet: Sales").And.Contain("region\tunits").And.Contain("East\t3")
-            .And.Contain("Sheet: Prices (hidden in Excel)").And.Contain("P-1\t12.5");
+        parsed.Content.Should().Contain("## Sheet 1: Sales").And.Contain("| region | units |").And.Contain("| East | 3 |")
+            .And.NotContain("P-1", "the searchable text is CON-312's Markdown, which leaves hidden sheets out");
+        tables.Select(t => t.Name).Should().Equal("book - Sales", "book - Prices");
+        tables[1].Description.Should().Contain("hidden in Excel");
+        rows[1].Should().ContainSingle().Which.Should().Equal("P-1", 12.5m);
     }
 }

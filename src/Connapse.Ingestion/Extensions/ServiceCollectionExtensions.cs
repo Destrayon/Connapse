@@ -23,7 +23,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDocumentParser, TextParser>();
         services.AddSingleton<IDocumentParser, PdfParser>();
         services.AddSingleton<IDocumentParser, OfficeParser>();
-        services.AddSingleton<IDocumentParser, XlsxParser>();
         services.AddSingleton<IDocumentParser, HtmlParser>();
         services.AddSingleton<IDocumentParser, CodeParser>();
         services.AddSingleton<IDocumentParser>(sp => new EpubParser(
