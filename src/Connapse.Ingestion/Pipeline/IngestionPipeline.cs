@@ -50,6 +50,7 @@ public class IngestionPipeline : IKnowledgeIngester
     private readonly PostgresLinkStore? _linkStore;
     private readonly ICustomProviderStore? _customProviders;
     private readonly ITableStore? _tableStore;
+    private readonly ITableCardIndex? _tableCards;
     private readonly IConnectorFactory _connectorFactory;
     private readonly IDocumentLifecycle _lifecycle;
     private readonly IOptionsMonitor<UploadSettings> _uploadSettings;
@@ -190,10 +191,12 @@ public class IngestionPipeline : IKnowledgeIngester
         ParserProcessPool? parserPool = null,
         ICustomProviderStore? customProviders = null,
         PostgresLinkStore? linkStore = null,
-        ITableStore? tableStore = null)
+        ITableStore? tableStore = null,
+        ITableCardIndex? tableCards = null)
     {
         _linkStore = linkStore;
         _tableStore = tableStore;
+        _tableCards = tableCards;
         _parserPool = parserPool;
         _customProviders = customProviders;
         _context = context;
@@ -658,6 +661,9 @@ public class IngestionPipeline : IKnowledgeIngester
             _logger.LogInformation("Loaded document {DocumentId} as table {TableId} too: {Rows} rows, {Rejects} rejects",
                 documentId, table.Id, table.RowCount, table.Rejects.Count);
         }
+        // Best effort: a table whose card isn't embedded now is embedded by the first search that needs it (CON-310).
+        if (_tableCards is not null && tables.Count > 0)
+            await _tableCards.IndexAsync(containerId, [.. tables.Select(TableCard.For)], ct);
         return tables;
     }
 

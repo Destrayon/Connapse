@@ -59,6 +59,20 @@ public class TablePassageLinkEntity
 }
 
 /// <summary>
+/// A table's search card embedded with one embedding model (CON-310). <see cref="TextHash"/> is the hash of the card it
+/// was made from; once the card changes (a new description, a column hidden) the vector is stale and isn't used.
+/// </summary>
+public class TableCardVectorEntity
+{
+    public Guid TableId { get; set; }
+    public string ModelId { get; set; } = string.Empty;
+    public Guid ContainerId { get; set; }
+    public string TextHash { get; set; } = string.Empty;
+    public Pgvector.Vector Embedding { get; set; } = null!;
+    public DateTime EmbeddedAt { get; set; }
+}
+
+/// <summary>
 /// A table no catalog entry points at any more, waiting to be dropped. Dropping waits a grace period, so a reader
 /// that resolved the old name just before a reload still finds its table.
 /// </summary>

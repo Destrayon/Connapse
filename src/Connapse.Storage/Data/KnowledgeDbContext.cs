@@ -29,6 +29,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<ContainerTableEntity> ContainerTables => Set<ContainerTableEntity>();
     public DbSet<RetiredTableEntity> RetiredTables => Set<RetiredTableEntity>();
     public DbSet<TablePassageLinkEntity> TablePassageLinks => Set<TablePassageLinkEntity>();
+    public DbSet<TableCardVectorEntity> TableCardVectors => Set<TableCardVectorEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -107,6 +108,20 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.HasOne<DocumentEntity>().WithMany().HasForeignKey(e => e.DocumentId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ContainerTableEntity>().WithMany().HasForeignKey(e => e.TableId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<ChunkEntity>().WithMany().HasForeignKey(e => e.ChunkId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TableCardVectorEntity>(entity =>
+        {
+            entity.ToTable("table_card_vectors");
+            entity.HasKey(e => new { e.TableId, e.ModelId });
+            entity.Property(e => e.TableId).HasColumnName("table_id");
+            entity.Property(e => e.ModelId).HasColumnName("model_id").IsRequired();
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.TextHash).HasColumnName("text_hash").HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Embedding).HasColumnName("embedding").HasColumnType("vector").IsRequired();
+            entity.Property(e => e.EmbeddedAt).HasColumnName("embedded_at").HasDefaultValueSql("now()");
+            entity.HasIndex(e => new { e.ContainerId, e.ModelId }).HasDatabaseName("ix_table_card_vectors_container_model");
+            entity.HasOne<ContainerTableEntity>().WithMany().HasForeignKey(e => e.TableId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RetiredTableEntity>(entity =>
