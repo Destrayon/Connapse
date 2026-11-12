@@ -34,6 +34,7 @@ before any of these features or their results existed. A change merges only when
 | **Learned container memory** (suite `memory-learned-v1`, CON-244; see below) | Same rule, session-2 memory tasks, memory written by session-1 agents | Same rule, session-2 control and stale tasks | Reported: session-1 scores and facts written |
 | **Tables container** (suite `tables-v1`, CON-E6; see below) | On the 180 held-out questions: +25 points over rag, exact McNemar p < 0.01, at least 70% correct, no family lower than rag; "both" no worse than rag on the 30 mixed questions | All suites; the leak suite and the table leak tests | 0 server AI tokens, `table_aggregate` p95 under 500 ms on 100k rows, agent cost at most 1.5x rag's |
 | **Passage links to tables** (CON-E6 ticket 15, the `tables-v1` linked set; see below) | 80% of the 20 table questions follow a link; both-linked at least as many of 30 right as both-unlinked and 4 more of the 20 | 10 prose questions: at most 2 make a table call, none fewer right; the hidden-table leak test | Agent cost at most 1.2x both-unlinked's |
+| **Finding tables by description** (CON-E6 ticket 13, suite `table-search-v1`; see below) | Hybrid puts every gold table in the first 10 for at least 75% of the 885 test questions, at least 5 points above keyword-only ranking, exact McNemar p < 0.01 | `table_list` unchanged at 50 visible tables or fewer; hidden columns never change the ranking | 0 LLM tokens, one query embedding per search, ranking p95 under 50 ms over 876 tables |
 | **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
 
 ## Container memory for search (CON-244)
@@ -180,6 +181,48 @@ This gate is measured in ticket 12's own PR. v0.5.0 needs both the tables pass b
 The size of the bar comes from the literature. TAG and TableRAG show gaps of 30–55 points, so a +10 bar would let a
 weak tool path pass. A 25-point gain on 180 paired questions is well above the McNemar power floor, which is about
 35 pairs for a 30-point gain.
+
+## Finding tables by description (CON-E6 ticket 13)
+
+Written on 2026-11-11, before the ranking code, the `table-search` command or any scored run existed. These bars may
+not change once results exist.
+
+- **Test set (`table-search-v1`).** Every table of Spider (Yu et al. 2018, CC BY-SA 4.0): 876 tables from 166
+  databases, pinned in `eval/MANIFEST.json` as `spider-tables`. They are loaded as one container's tables with their
+  original column headers and no descriptions, as CSV files arrive today. Each table is named the way a spreadsheet
+  sheet is, by its database and its table (`concert_singer singer`), because a container holding 166 databases' tables
+  would hold them as 166 files. The questions are Spider's 1,034 dev questions. A question's gold tables are the
+  tables its gold SQL reads after `FROM` or `JOIN`.
+- **Split.** A dev database is `tune` when the first byte of the SHA-256 of its name is divisible by 4, otherwise
+  `test`: 4 databases and 149 questions to tune on, 16 databases and 885 questions held out. The test split is scored
+  once per design.
+- **How it runs.** Each question, as written, is the `search` phrase. The ranking is the one `table_list` runs over a
+  container with more than 50 visible tables. Arms:
+  - **keyword:** keyword scores over each table's card alone;
+  - **hybrid:** the same keyword ranking fused with the cosine similarity of the card's embedding to the question's,
+    with the app's default embedding model (nomic-embed-text through Ollama, CPU only).
+- **Metric.** A question is found when every one of its gold tables is in the first 10 ranked tables.
+
+### Pass bar
+
+1. **Absolute:** hybrid finds at least **75%** of the 885 test questions. Below that, one question in four still sends the
+   agent paging through hundreds of tables, which is the problem this ticket exists to fix.
+2. **Embeddings earn their cost:** hybrid finds at least **5 points** more test questions than keyword, with an exact
+   McNemar test p < 0.01.
+3. **Cost and speed:** 0 LLM tokens. One query embedding per search. A card is embedded once per load or change to
+   its visible columns. Ranking 876 tables, query embedding excluded, has p95 under 50 ms.
+4. **No regression:** at 50 visible tables or fewer, `table_list` returns what it returned before; its existing tests
+   pass unchanged.
+5. **No leak:** a hidden column's header never enters a card, so hiding or showing a column changes no caller's
+   ranking except through what that caller is shown. Tested directly.
+
+### What each outcome means
+
+- **All pass:** hybrid ships.
+- **Bar 2 fails but keyword meets bar 1:** keyword ranking ships alone, with no card embeddings.
+- **Bar 1 fails for both arms:** nothing ships. A redesign is judged on a fresh held-out set: 500 questions drawn with
+  seed 13 from Spider's train questions over the same 876 tables, unopened until then.
+- **Bar 3, 4 or 5 fails:** blocked until fixed.
 
 ## Baselines
 
