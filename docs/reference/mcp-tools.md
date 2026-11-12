@@ -93,8 +93,6 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `delete_file` | `containerId` | string | Yes | Container id or name |
 | | `fileId` | string | One of the two | Document id |
 | | `fileIds` | string | One of the two | A JSON array of up to 100 document ids |
-
-`get_documents`, `bulk_upload` and `bulk_delete`, the separate multi-file tools before v0.4.2, still answer calls with the same results as `get_document` with `files`, `upload_file` with `files` and `delete_file` with `fileIds`. They are no longer listed in `tools/list`, and they will be removed after the 0.4.x releases.
 | `code_find_symbol` | `containerId` | string | Yes | Container or source id or name |
 | | `query` | string | Yes | The symbol's name, words of its qualified name, or a description, per `match` |
 | | `match` | string | No | `exact` (default), `words` or `meaning` |
@@ -146,6 +144,8 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `from`, `to` | string | No | Only facts that started or ended in this window |
 | | `limit` | integer | No | Most facts, 1 to 100; default 50 |
 | | `cursor` | string | No | As for `memory_recall`, but needs no `from`, `to` or `attribute`. Pages go from the newest facts back |
+
+`get_documents`, `bulk_upload` and `bulk_delete`, the separate multi-file tools before v0.4.2, still answer calls with the same results as `get_document` with `files`, `upload_file` with `files` and `delete_file` with `fileIds`. They are no longer listed in `tools/list`, and they will be removed after the 0.4.x releases.
 
 The file types an upload accepts are in [File types](file-types.md).
 

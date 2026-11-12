@@ -110,6 +110,12 @@ results by the cross-surface and unit tests, not by an agent eval.
 - **Arms.** Both run the `memory-search` command with the same agent, model, system prompt, questions and
   repetitions; only the tools differ, and their descriptions are the MCP server's own.
   - **Baseline** runs on the unchanged code (`main` at 24e6a7b7) with `--tools search_knowledge,get_document,get_documents`.
+    *Corrected after the run, 2026-11-12:* `memory-search` at 24e6a7b7 has no `--tools`, so the baseline was built
+    from a0acaea8, which is 24e6a7b7 plus the harness-only commit that adds `--tools` and `memory-search-compare`.
+    That commit changes nothing under `src/`, so the MCP tools the agent saw are `main`'s. The build was
+    `dotnet build -c Release tests/Connapse.Eval -o <baseline-bin>` and the run was
+    `Connapse.Eval memory-search --config hybrid --split test --workers 1 --repetitions 3 --model claude-sonnet-5-5
+    --effort medium --tools search_knowledge,get_document,get_documents --out baseline.json`.
   - **Merged** runs on the CON-344 branch with `--tools search_knowledge,get_document`, where `get_document` is the
     merged tool.
 - **Fixed as in CON-244 above:** `claude-sonnet-5-5` at effort `medium`, 3 repetitions, 12 tool calls per run, Hybrid

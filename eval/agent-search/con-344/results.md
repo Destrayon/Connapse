@@ -25,11 +25,28 @@ Agents with the merged `get_document` answered as well as agents with the separa
 [−0.0208, 0.0089], 95% interval [−0.0238, 0.0089], t-test p = 0.48, permutation p = 0.73. 3 tasks scored better and
 5 worse. That spread is within the ±0.014 noise the CON-244 runs showed on this interval.
 
+**What the PASS covers.** Agents almost never asked for several documents at once, so this eval mainly proves the
+single-document path and the effect of the smaller tool list. It says little about the list form:
+
+| | Baseline | Merged |
+|---|---|---|
+| List-form calls | 5 (`get_documents`) | 6 (`get_document` with `files`) |
+| Runs using the list form | 5 of 336 | 6 of 336 |
+| Single-document `get_document` calls | 35 | 26 |
+| List-form calls that returned an error | 0 | 0 |
+| Mean score of runs using the list form | 0.20 | 0.00 |
+
+Every list-form run was on an alias or location task, the hardest kinds here, which is why their scores are low in
+both arms. With 5 and 6 runs the gap between them is noise. All 6 merged list-form calls were well-formed and
+returned the documents, so agents read the merged tool's `files` parameter correctly. The cross-surface and unit
+tests, not this eval, hold the list form to the same results as `get_documents`.
+
 ## Setup
 
 Both arms ran `memory-search --config hybrid --split test --workers 1 --repetitions 3 --model claude-sonnet-5-5
---effort medium`, with only `--tools` differing. The baseline ran on `main` at 24e6a7b7 and the merged arm on the
-CON-344 branch. Each arm took about 41 minutes. Embeddings came from CPU-only Ollama capped at 2 CPUs and 4 GB, and
+--effort medium`, with only `--tools` differing. The baseline binary was built from a0acaea8, which is `main` at
+24e6a7b7 plus the harness-only commit that adds `--tools` (nothing under `src/` changes), so its MCP tools are
+`main`'s. Its agents called `get_documents` 5 times, which confirms they had it. The merged arm ran on 20d3df80. Each arm took about 41 minutes. Embeddings came from CPU-only Ollama capped at 2 CPUs and 4 GB, and
 the test containers were capped at 2 CPUs and 2 GB.
 
 `memory-search-v1` uses only the getting pair. Deleting and uploading are held to identical results by the
