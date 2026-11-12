@@ -16,7 +16,8 @@ Base `epic/con-e6-tables` at e8adda0b (CON-328 merged). Scratch and eval output 
 5. **Pass bars.** Goal: bars for both sets written in `eval/pass-bars.md` and the PR opened before any scored run.
    Done when the PR is open.
 6. **Harness and dry run.** Goal: arm G (GraphQL) in the tables-arms harness and the flexibility set runnable for all
-   three arms; dry run on tune questions only. Done when a tune run finishes with all arms answering.
+   three arms; dry run on tune questions only. Done when `TableGraphQLTests` pass (moved here from Phase 3: it needs
+   containers, which wait on free memory) and a tune run finishes with all arms answering.
 7. **Scored runs.** Goal: one attempt per question per arm on the 180 tables-v1 test questions and the flexibility test
    questions. Done when both reports are conforming.
 8. **Decision.** Goal: results and outcome in `docs/research/`, CI-flag build and tests, push, PM told. Done when
@@ -34,3 +35,6 @@ Base `epic/con-e6-tables` at e8adda0b (CON-328 merged). Scratch and eval output 
   operation, REST route, MCP `table_graphql`, OpenAPI, capabilities and authz entries. 25 unit tests, the random-input
   test, and 34 TableOperationTests pass; `TableGraphQLTests` (leak tests) compiles with CI flags but has not run yet,
   because free memory was 6.1 GB. Next: run `TableGraphQLTests` when memory allows; meanwhile Phase 4.
+- Phase 4: `eval/tools/tables/build_flex.py` (seed 20261113) writes six files for one invented retailer and 84
+  gold-SQL questions (7 families × 12; 14 tune, 70 test) to `eval/datasets/tables/flex/`, with a card and
+  MANIFEST entries. Rerun is byte-identical. Next: bars for both sets in `eval/pass-bars.md`, then open the PR.

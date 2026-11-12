@@ -1,0 +1,13 @@
+store_id,city,region,opened
+S01,Leeds,north,2010-01-01
+S02,York,north,2009-06-01
+S03,Durham,north,2005-08-01
+S04,Bristol,west,2007-09-01
+S05,Exeter,west,2009-02-01
+S06,Bath,west,2006-07-01
+S07,Norwich,east,2006-09-01
+S08,Ipswich,east,2008-10-01
+S09,Cambridge,east,2014-01-01
+S10,Brighton,south,2014-08-01
+S11,Dover,south,2005-11-01
+S12,Portsmouth,south,2014-09-01

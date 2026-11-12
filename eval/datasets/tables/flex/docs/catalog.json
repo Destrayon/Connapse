@@ -1,0 +1,2389 @@
+[
+  {
+    "sku": "P-1001",
+    "name": "Max Desk Tidy",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 0.7,
+      "dims": {
+        "w_cm": 87,
+        "h_cm": 65,
+        "d_cm": 79
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 97,
+        "price": 40.34
+      },
+      {
+        "color": "white",
+        "stock": 108,
+        "price": 276.26
+      }
+    ],
+    "tags": [
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1002",
+    "name": "Eco Kettle",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 10.06,
+      "dims": {
+        "w_cm": 21,
+        "h_cm": 96,
+        "d_cm": 6
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 136,
+        "price": 61.33
+      },
+      {
+        "color": "blue",
+        "stock": 67,
+        "price": 317.14
+      },
+      {
+        "color": "green",
+        "stock": 62,
+        "price": 234.49
+      }
+    ],
+    "tags": [
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1003",
+    "name": "Max Chair",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 13.59,
+      "dims": {
+        "w_cm": 35,
+        "h_cm": 107,
+        "d_cm": 9
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 41,
+        "price": 64.38
+      },
+      {
+        "color": "red",
+        "stock": 34,
+        "price": 293.9
+      }
+    ]
+  },
+  {
+    "sku": "P-1004",
+    "name": "Mini Lamp",
+    "category": "office",
+    "specs": {
+      "weight_kg": 20.7,
+      "dims": {
+        "w_cm": 17,
+        "h_cm": 120,
+        "d_cm": 9
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 49,
+        "price": 234.78
+      },
+      {
+        "color": "blue",
+        "stock": 76,
+        "price": 43.37
+      },
+      {
+        "color": "red",
+        "stock": 138,
+        "price": 26.89
+      },
+      {
+        "color": "black",
+        "stock": 128,
+        "price": 247.16
+      }
+    ],
+    "tags": [
+      "new"
+    ]
+  },
+  {
+    "sku": "P-1005",
+    "name": "Mini Chair",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 9.68,
+      "dims": {
+        "w_cm": 31,
+        "h_cm": 5,
+        "d_cm": 75
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 107,
+        "price": 383.04
+      },
+      {
+        "color": "black",
+        "stock": 19,
+        "price": 23.24
+      },
+      {
+        "color": "grey",
+        "stock": 1,
+        "price": 291.75
+      }
+    ]
+  },
+  {
+    "sku": "P-1006",
+    "name": "Classic Chair",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 17.07,
+      "dims": {
+        "w_cm": 34,
+        "h_cm": 76,
+        "d_cm": 51
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 12,
+        "price": 163.82
+      },
+      {
+        "color": "red",
+        "stock": 41,
+        "price": 176.95
+      },
+      {
+        "color": "blue",
+        "stock": 123,
+        "price": 202.76
+      },
+      {
+        "color": "green",
+        "stock": 104,
+        "price": 281.22
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1007",
+    "name": "Max Planter",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 0.6,
+      "dims": {
+        "w_cm": 91,
+        "h_cm": 11,
+        "d_cm": 12
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 107,
+        "price": 156.17
+      },
+      {
+        "color": "red",
+        "stock": 71,
+        "price": 69.12
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1008",
+    "name": "Eco Lamp",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 17.14,
+      "dims": {
+        "w_cm": 108,
+        "h_cm": 84,
+        "d_cm": 10
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 111,
+        "price": 262.57
+      },
+      {
+        "color": "white",
+        "stock": 69,
+        "price": 234.59
+      },
+      {
+        "color": "blue",
+        "stock": 64,
+        "price": 302.08
+      },
+      {
+        "color": "black",
+        "stock": 55,
+        "price": 309.15
+      }
+    ],
+    "tags": [
+      "new"
+    ]
+  },
+  {
+    "sku": "P-1009",
+    "name": "Pro Planter",
+    "category": "office",
+    "specs": {
+      "weight_kg": 21.48,
+      "dims": {
+        "w_cm": 107,
+        "h_cm": 63,
+        "d_cm": 17
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 85,
+        "price": 170.0
+      },
+      {
+        "color": "red",
+        "stock": 24,
+        "price": 385.07
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1010",
+    "name": "Max Kettle",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 13.0,
+      "dims": {
+        "w_cm": 86,
+        "h_cm": 89,
+        "d_cm": 78
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 73,
+        "price": 357.0
+      }
+    ],
+    "tags": [
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1011",
+    "name": "Pro Lamp",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 1.6,
+      "dims": {
+        "w_cm": 109,
+        "h_cm": 20,
+        "d_cm": 7
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 128,
+        "price": 153.24
+      },
+      {
+        "color": "white",
+        "stock": 140,
+        "price": 248.79
+      }
+    ],
+    "tags": [
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1012",
+    "name": "Mini Hose",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 21.44,
+      "dims": {
+        "w_cm": 36,
+        "h_cm": 110,
+        "d_cm": 72
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 82,
+        "price": 30.42
+      }
+    ],
+    "tags": [
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1013",
+    "name": "Pro Planter",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 21.35,
+      "dims": {
+        "w_cm": 56,
+        "h_cm": 69,
+        "d_cm": 68
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 101,
+        "price": 30.05
+      }
+    ],
+    "tags": [
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1014",
+    "name": "Eco Kettle",
+    "category": "office",
+    "specs": {
+      "weight_kg": 10.6,
+      "dims": {
+        "w_cm": 112,
+        "h_cm": 84,
+        "d_cm": 45
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 112,
+        "price": 54.9
+      },
+      {
+        "color": "black",
+        "stock": 7,
+        "price": 41.57
+      }
+    ]
+  },
+  {
+    "sku": "P-1015",
+    "name": "Pro Kettle",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 24.07,
+      "dims": {
+        "w_cm": 19,
+        "h_cm": 68,
+        "d_cm": 16
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 128,
+        "price": 86.42
+      },
+      {
+        "color": "white",
+        "stock": 122,
+        "price": 132.87
+      }
+    ]
+  },
+  {
+    "sku": "P-1016",
+    "name": "Compact Planter",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 6.13,
+      "dims": {
+        "w_cm": 60,
+        "h_cm": 104,
+        "d_cm": 65
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 17,
+        "price": 168.6
+      },
+      {
+        "color": "grey",
+        "stock": 53,
+        "price": 381.07
+      },
+      {
+        "color": "red",
+        "stock": 131,
+        "price": 31.76
+      },
+      {
+        "color": "white",
+        "stock": 88,
+        "price": 137.93
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1017",
+    "name": "Eco Robot",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 24.81,
+      "dims": {
+        "w_cm": 82,
+        "h_cm": 31,
+        "d_cm": 43
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 46,
+        "price": 212.25
+      },
+      {
+        "color": "grey",
+        "stock": 86,
+        "price": 230.39
+      },
+      {
+        "color": "black",
+        "stock": 13,
+        "price": 317.48
+      },
+      {
+        "color": "white",
+        "stock": 111,
+        "price": 59.47
+      }
+    ]
+  },
+  {
+    "sku": "P-1018",
+    "name": "Classic Blender",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 13.65,
+      "dims": {
+        "w_cm": 69,
+        "h_cm": 104,
+        "d_cm": 77
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 75,
+        "price": 277.64
+      },
+      {
+        "color": "blue",
+        "stock": 58,
+        "price": 377.49
+      },
+      {
+        "color": "grey",
+        "stock": 114,
+        "price": 234.55
+      },
+      {
+        "color": "white",
+        "stock": 42,
+        "price": 35.46
+      }
+    ],
+    "tags": [
+      "new"
+    ]
+  },
+  {
+    "sku": "P-1019",
+    "name": "Mini Chair",
+    "category": "office",
+    "specs": {
+      "weight_kg": 10.76,
+      "dims": {
+        "w_cm": 5,
+        "h_cm": 6,
+        "d_cm": 15
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 79,
+        "price": 205.05
+      }
+    ],
+    "tags": [
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1020",
+    "name": "Eco Blender",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 21.46,
+      "dims": {
+        "w_cm": 56,
+        "h_cm": 31,
+        "d_cm": 53
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 108,
+        "price": 86.2
+      },
+      {
+        "color": "red",
+        "stock": 10,
+        "price": 333.6
+      }
+    ],
+    "tags": [
+      "new"
+    ]
+  },
+  {
+    "sku": "P-1021",
+    "name": "Compact Kettle",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 12.25,
+      "dims": {
+        "w_cm": 109,
+        "h_cm": 59,
+        "d_cm": 43
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 12,
+        "price": 7.7
+      },
+      {
+        "color": "green",
+        "stock": 128,
+        "price": 86.41
+      },
+      {
+        "color": "grey",
+        "stock": 118,
+        "price": 374.82
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1022",
+    "name": "Max Lamp",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 0.22,
+      "dims": {
+        "w_cm": 54,
+        "h_cm": 61,
+        "d_cm": 25
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 86,
+        "price": 172.61
+      },
+      {
+        "color": "blue",
+        "stock": 40,
+        "price": 198.43
+      },
+      {
+        "color": "green",
+        "stock": 7,
+        "price": 7.68
+      }
+    ]
+  },
+  {
+    "sku": "P-1023",
+    "name": "Max Hose",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 2.8,
+      "dims": {
+        "w_cm": 73,
+        "h_cm": 54,
+        "d_cm": 62
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 134,
+        "price": 319.75
+      },
+      {
+        "color": "grey",
+        "stock": 22,
+        "price": 393.19
+      },
+      {
+        "color": "green",
+        "stock": 105,
+        "price": 211.99
+      }
+    ],
+    "tags": [
+      "new"
+    ]
+  },
+  {
+    "sku": "P-1024",
+    "name": "Classic Desk Tidy",
+    "category": "office",
+    "specs": {
+      "weight_kg": 24.69,
+      "dims": {
+        "w_cm": 79,
+        "h_cm": 32,
+        "d_cm": 65
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 53,
+        "price": 166.75
+      },
+      {
+        "color": "black",
+        "stock": 131,
+        "price": 287.36
+      },
+      {
+        "color": "green",
+        "stock": 93,
+        "price": 310.16
+      }
+    ],
+    "tags": [
+      "bundle",
+      "new"
+    ]
+  },
+  {
+    "sku": "P-1025",
+    "name": "Compact Robot",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 24.24,
+      "dims": {
+        "w_cm": 101,
+        "h_cm": 35,
+        "d_cm": 66
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 21,
+        "price": 395.25
+      },
+      {
+        "color": "white",
+        "stock": 112,
+        "price": 55.78
+      }
+    ],
+    "tags": [
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1026",
+    "name": "Eco Planter",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 21.07,
+      "dims": {
+        "w_cm": 44,
+        "h_cm": 83,
+        "d_cm": 7
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 105,
+        "price": 298.33
+      },
+      {
+        "color": "blue",
+        "stock": 131,
+        "price": 267.92
+      },
+      {
+        "color": "grey",
+        "stock": 70,
+        "price": 23.65
+      },
+      {
+        "color": "green",
+        "stock": 112,
+        "price": 9.17
+      }
+    ]
+  },
+  {
+    "sku": "P-1027",
+    "name": "Classic Hose",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 10.22,
+      "dims": {
+        "w_cm": 78,
+        "h_cm": 35,
+        "d_cm": 68
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 65,
+        "price": 202.3
+      }
+    ],
+    "tags": [
+      "eco",
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1028",
+    "name": "Mini Kettle",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 2.68,
+      "dims": {
+        "w_cm": 88,
+        "h_cm": 91,
+        "d_cm": 30
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 49,
+        "price": 294.03
+      },
+      {
+        "color": "white",
+        "stock": 68,
+        "price": 267.06
+      }
+    ],
+    "tags": [
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1029",
+    "name": "Pro Puzzle",
+    "category": "office",
+    "specs": {
+      "weight_kg": 12.99,
+      "dims": {
+        "w_cm": 68,
+        "h_cm": 33,
+        "d_cm": 29
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 131,
+        "price": 81.37
+      }
+    ],
+    "tags": [
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1030",
+    "name": "Max Planter",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 19.44,
+      "dims": {
+        "w_cm": 109,
+        "h_cm": 119,
+        "d_cm": 78
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 136,
+        "price": 349.61
+      },
+      {
+        "color": "red",
+        "stock": 91,
+        "price": 11.22
+      },
+      {
+        "color": "white",
+        "stock": 72,
+        "price": 305.85
+      },
+      {
+        "color": "grey",
+        "stock": 9,
+        "price": 63.26
+      }
+    ],
+    "tags": [
+      "bestseller",
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1031",
+    "name": "Max Chair",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 14.32,
+      "dims": {
+        "w_cm": 39,
+        "h_cm": 111,
+        "d_cm": 30
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 59,
+        "price": 24.9
+      }
+    ],
+    "tags": [
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1032",
+    "name": "Max Lamp",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 16.74,
+      "dims": {
+        "w_cm": 84,
+        "h_cm": 97,
+        "d_cm": 46
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 98,
+        "price": 33.01
+      },
+      {
+        "color": "black",
+        "stock": 88,
+        "price": 145.25
+      },
+      {
+        "color": "grey",
+        "stock": 22,
+        "price": 366.0
+      }
+    ]
+  },
+  {
+    "sku": "P-1033",
+    "name": "Eco Planter",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 13.32,
+      "dims": {
+        "w_cm": 10,
+        "h_cm": 108,
+        "d_cm": 18
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 103,
+        "price": 211.59
+      },
+      {
+        "color": "blue",
+        "stock": 58,
+        "price": 122.04
+      },
+      {
+        "color": "red",
+        "stock": 65,
+        "price": 106.51
+      },
+      {
+        "color": "grey",
+        "stock": 60,
+        "price": 116.94
+      }
+    ],
+    "tags": [
+      "bundle",
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1034",
+    "name": "Mini Lamp",
+    "category": "office",
+    "specs": {
+      "weight_kg": 23.94,
+      "dims": {
+        "w_cm": 51,
+        "h_cm": 71,
+        "d_cm": 6
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 72,
+        "price": 149.85
+      },
+      {
+        "color": "black",
+        "stock": 116,
+        "price": 290.82
+      },
+      {
+        "color": "red",
+        "stock": 81,
+        "price": 317.8
+      },
+      {
+        "color": "grey",
+        "stock": 135,
+        "price": 391.2
+      }
+    ],
+    "tags": [
+      "clearance",
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1035",
+    "name": "Mini Speaker",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 2.02,
+      "dims": {
+        "w_cm": 90,
+        "h_cm": 111,
+        "d_cm": 10
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 119,
+        "price": 30.55
+      },
+      {
+        "color": "black",
+        "stock": 60,
+        "price": 234.76
+      },
+      {
+        "color": "white",
+        "stock": 102,
+        "price": 124.9
+      }
+    ]
+  },
+  {
+    "sku": "P-1036",
+    "name": "Compact Blender",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 7.2,
+      "dims": {
+        "w_cm": 54,
+        "h_cm": 58,
+        "d_cm": 52
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 123,
+        "price": 377.11
+      }
+    ],
+    "tags": [
+      "new",
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1037",
+    "name": "Pro Kettle",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 15.72,
+      "dims": {
+        "w_cm": 76,
+        "h_cm": 104,
+        "d_cm": 12
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 100,
+        "price": 291.71
+      },
+      {
+        "color": "red",
+        "stock": 130,
+        "price": 144.09
+      }
+    ]
+  },
+  {
+    "sku": "P-1038",
+    "name": "Eco Lamp",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 19.77,
+      "dims": {
+        "w_cm": 104,
+        "h_cm": 73,
+        "d_cm": 67
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 29,
+        "price": 82.93
+      },
+      {
+        "color": "white",
+        "stock": 125,
+        "price": 295.59
+      }
+    ]
+  },
+  {
+    "sku": "P-1039",
+    "name": "Compact Blender",
+    "category": "office",
+    "specs": {
+      "weight_kg": 10.47,
+      "dims": {
+        "w_cm": 20,
+        "h_cm": 7,
+        "d_cm": 25
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 41,
+        "price": 283.04
+      },
+      {
+        "color": "white",
+        "stock": 82,
+        "price": 148.59
+      },
+      {
+        "color": "blue",
+        "stock": 85,
+        "price": 394.22
+      },
+      {
+        "color": "red",
+        "stock": 68,
+        "price": 134.58
+      }
+    ],
+    "tags": [
+      "bestseller",
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1040",
+    "name": "Max Planter",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 24.27,
+      "dims": {
+        "w_cm": 51,
+        "h_cm": 27,
+        "d_cm": 30
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 65,
+        "price": 350.14
+      },
+      {
+        "color": "white",
+        "stock": 82,
+        "price": 319.8
+      }
+    ],
+    "tags": [
+      "new",
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1041",
+    "name": "Eco Hose",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 1.42,
+      "dims": {
+        "w_cm": 99,
+        "h_cm": 90,
+        "d_cm": 16
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 74,
+        "price": 264.37
+      }
+    ]
+  },
+  {
+    "sku": "P-1042",
+    "name": "Mini Kettle",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 3.93,
+      "dims": {
+        "w_cm": 106,
+        "h_cm": 88,
+        "d_cm": 23
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 99,
+        "price": 127.28
+      }
+    ],
+    "tags": [
+      "bestseller",
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1043",
+    "name": "Classic Desk Tidy",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 24.58,
+      "dims": {
+        "w_cm": 68,
+        "h_cm": 51,
+        "d_cm": 6
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 92,
+        "price": 59.89
+      },
+      {
+        "color": "green",
+        "stock": 54,
+        "price": 233.22
+      },
+      {
+        "color": "grey",
+        "stock": 42,
+        "price": 153.58
+      },
+      {
+        "color": "blue",
+        "stock": 74,
+        "price": 375.16
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1044",
+    "name": "Eco Desk Tidy",
+    "category": "office",
+    "specs": {
+      "weight_kg": 15.8,
+      "dims": {
+        "w_cm": 49,
+        "h_cm": 35,
+        "d_cm": 74
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 23,
+        "price": 166.7
+      },
+      {
+        "color": "blue",
+        "stock": 49,
+        "price": 111.35
+      },
+      {
+        "color": "green",
+        "stock": 1,
+        "price": 282.05
+      },
+      {
+        "color": "white",
+        "stock": 39,
+        "price": 94.68
+      }
+    ],
+    "tags": [
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1045",
+    "name": "Classic Hose",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 21.83,
+      "dims": {
+        "w_cm": 77,
+        "h_cm": 53,
+        "d_cm": 61
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 108,
+        "price": 324.57
+      },
+      {
+        "color": "white",
+        "stock": 79,
+        "price": 295.15
+      },
+      {
+        "color": "red",
+        "stock": 123,
+        "price": 202.39
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1046",
+    "name": "Max Speaker",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 16.63,
+      "dims": {
+        "w_cm": 117,
+        "h_cm": 85,
+        "d_cm": 19
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 52,
+        "price": 295.29
+      }
+    ],
+    "tags": [
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1047",
+    "name": "Compact Planter",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 13.63,
+      "dims": {
+        "w_cm": 12,
+        "h_cm": 106,
+        "d_cm": 23
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 99,
+        "price": 96.8
+      },
+      {
+        "color": "red",
+        "stock": 14,
+        "price": 142.8
+      },
+      {
+        "color": "grey",
+        "stock": 55,
+        "price": 256.35
+      }
+    ]
+  },
+  {
+    "sku": "P-1048",
+    "name": "Mini Robot",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 21.29,
+      "dims": {
+        "w_cm": 14,
+        "h_cm": 54,
+        "d_cm": 26
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 140,
+        "price": 371.42
+      }
+    ]
+  },
+  {
+    "sku": "P-1049",
+    "name": "Mini Chair",
+    "category": "office",
+    "specs": {
+      "weight_kg": 11.93,
+      "dims": {
+        "w_cm": 108,
+        "h_cm": 78,
+        "d_cm": 26
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 38,
+        "price": 70.22
+      }
+    ],
+    "tags": [
+      "bundle",
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1050",
+    "name": "Mini Kettle",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 12.61,
+      "dims": {
+        "w_cm": 89,
+        "h_cm": 120,
+        "d_cm": 15
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 108,
+        "price": 65.91
+      },
+      {
+        "color": "red",
+        "stock": 41,
+        "price": 292.21
+      },
+      {
+        "color": "green",
+        "stock": 47,
+        "price": 288.17
+      }
+    ]
+  },
+  {
+    "sku": "P-1051",
+    "name": "Max Hose",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 9.82,
+      "dims": {
+        "w_cm": 64,
+        "h_cm": 81,
+        "d_cm": 62
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 101,
+        "price": 150.62
+      },
+      {
+        "color": "black",
+        "stock": 76,
+        "price": 115.38
+      },
+      {
+        "color": "blue",
+        "stock": 74,
+        "price": 152.65
+      }
+    ],
+    "tags": [
+      "bestseller",
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1052",
+    "name": "Compact Speaker",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 24.59,
+      "dims": {
+        "w_cm": 120,
+        "h_cm": 44,
+        "d_cm": 29
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 60,
+        "price": 147.61
+      },
+      {
+        "color": "blue",
+        "stock": 53,
+        "price": 302.59
+      },
+      {
+        "color": "white",
+        "stock": 62,
+        "price": 51.21
+      }
+    ],
+    "tags": [
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1053",
+    "name": "Classic Puzzle",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 12.44,
+      "dims": {
+        "w_cm": 23,
+        "h_cm": 95,
+        "d_cm": 11
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 57,
+        "price": 13.74
+      }
+    ],
+    "tags": [
+      "bestseller",
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1054",
+    "name": "Compact Puzzle",
+    "category": "office",
+    "specs": {
+      "weight_kg": 20.15,
+      "dims": {
+        "w_cm": 78,
+        "h_cm": 14,
+        "d_cm": 51
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 126,
+        "price": 303.33
+      }
+    ]
+  },
+  {
+    "sku": "P-1055",
+    "name": "Compact Blender",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 3.68,
+      "dims": {
+        "w_cm": 46,
+        "h_cm": 77,
+        "d_cm": 64
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 9,
+        "price": 299.2
+      }
+    ]
+  },
+  {
+    "sku": "P-1056",
+    "name": "Eco Chair",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 2.47,
+      "dims": {
+        "w_cm": 99,
+        "h_cm": 31,
+        "d_cm": 61
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 79,
+        "price": 65.13
+      }
+    ],
+    "tags": [
+      "eco",
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1057",
+    "name": "Compact Chair",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 13.76,
+      "dims": {
+        "w_cm": 32,
+        "h_cm": 26,
+        "d_cm": 41
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 53,
+        "price": 255.99
+      },
+      {
+        "color": "red",
+        "stock": 80,
+        "price": 239.26
+      }
+    ],
+    "tags": [
+      "eco",
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1058",
+    "name": "Max Desk Tidy",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 12.54,
+      "dims": {
+        "w_cm": 35,
+        "h_cm": 95,
+        "d_cm": 29
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 127,
+        "price": 385.75
+      },
+      {
+        "color": "grey",
+        "stock": 97,
+        "price": 379.76
+      }
+    ],
+    "tags": [
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1059",
+    "name": "Pro Kettle",
+    "category": "office",
+    "specs": {
+      "weight_kg": 16.64,
+      "dims": {
+        "w_cm": 110,
+        "h_cm": 24,
+        "d_cm": 55
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 86,
+        "price": 338.73
+      }
+    ]
+  },
+  {
+    "sku": "P-1060",
+    "name": "Eco Puzzle",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 23.03,
+      "dims": {
+        "w_cm": 117,
+        "h_cm": 34,
+        "d_cm": 6
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 37,
+        "price": 96.25
+      },
+      {
+        "color": "blue",
+        "stock": 76,
+        "price": 116.42
+      }
+    ],
+    "tags": [
+      "new"
+    ]
+  },
+  {
+    "sku": "P-1061",
+    "name": "Max Desk Tidy",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 17.25,
+      "dims": {
+        "w_cm": 58,
+        "h_cm": 59,
+        "d_cm": 76
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 68,
+        "price": 316.36
+      },
+      {
+        "color": "white",
+        "stock": 21,
+        "price": 116.34
+      }
+    ]
+  },
+  {
+    "sku": "P-1062",
+    "name": "Classic Kettle",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 15.51,
+      "dims": {
+        "w_cm": 91,
+        "h_cm": 32,
+        "d_cm": 75
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 66,
+        "price": 245.53
+      }
+    ]
+  },
+  {
+    "sku": "P-1063",
+    "name": "Mini Puzzle",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 23.35,
+      "dims": {
+        "w_cm": 73,
+        "h_cm": 94,
+        "d_cm": 71
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 67,
+        "price": 366.09
+      },
+      {
+        "color": "grey",
+        "stock": 118,
+        "price": 283.32
+      },
+      {
+        "color": "green",
+        "stock": 135,
+        "price": 297.64
+      },
+      {
+        "color": "black",
+        "stock": 3,
+        "price": 311.75
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1064",
+    "name": "Mini Chair",
+    "category": "office",
+    "specs": {
+      "weight_kg": 13.57,
+      "dims": {
+        "w_cm": 44,
+        "h_cm": 108,
+        "d_cm": 20
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 96,
+        "price": 268.71
+      }
+    ]
+  },
+  {
+    "sku": "P-1065",
+    "name": "Pro Kettle",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 2.88,
+      "dims": {
+        "w_cm": 42,
+        "h_cm": 91,
+        "d_cm": 51
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 81,
+        "price": 239.38
+      },
+      {
+        "color": "black",
+        "stock": 102,
+        "price": 20.92
+      },
+      {
+        "color": "grey",
+        "stock": 106,
+        "price": 172.27
+      }
+    ],
+    "tags": [
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1066",
+    "name": "Mini Hose",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 0.35,
+      "dims": {
+        "w_cm": 45,
+        "h_cm": 88,
+        "d_cm": 27
+      }
+    },
+    "variants": [
+      {
+        "color": "blue",
+        "stock": 117,
+        "price": 349.32
+      },
+      {
+        "color": "black",
+        "stock": 120,
+        "price": 53.84
+      },
+      {
+        "color": "red",
+        "stock": 63,
+        "price": 274.93
+      }
+    ],
+    "tags": [
+      "eco",
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1067",
+    "name": "Pro Lamp",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 23.84,
+      "dims": {
+        "w_cm": 74,
+        "h_cm": 94,
+        "d_cm": 25
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 140,
+        "price": 50.31
+      },
+      {
+        "color": "black",
+        "stock": 3,
+        "price": 97.41
+      },
+      {
+        "color": "grey",
+        "stock": 1,
+        "price": 176.64
+      },
+      {
+        "color": "green",
+        "stock": 35,
+        "price": 64.49
+      }
+    ]
+  },
+  {
+    "sku": "P-1068",
+    "name": "Max Speaker",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 5.94,
+      "dims": {
+        "w_cm": 74,
+        "h_cm": 65,
+        "d_cm": 67
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 118,
+        "price": 133.37
+      },
+      {
+        "color": "red",
+        "stock": 102,
+        "price": 73.1
+      },
+      {
+        "color": "black",
+        "stock": 98,
+        "price": 205.58
+      }
+    ],
+    "tags": [
+      "new",
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1069",
+    "name": "Mini Blender",
+    "category": "office",
+    "specs": {
+      "weight_kg": 20.49,
+      "dims": {
+        "w_cm": 92,
+        "h_cm": 97,
+        "d_cm": 55
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 71,
+        "price": 273.31
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1070",
+    "name": "Pro Blender",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 6.99,
+      "dims": {
+        "w_cm": 51,
+        "h_cm": 12,
+        "d_cm": 34
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 121,
+        "price": 133.49
+      },
+      {
+        "color": "black",
+        "stock": 35,
+        "price": 334.11
+      },
+      {
+        "color": "white",
+        "stock": 127,
+        "price": 266.1
+      }
+    ],
+    "tags": [
+      "clearance",
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1071",
+    "name": "Max Lamp",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 19.54,
+      "dims": {
+        "w_cm": 31,
+        "h_cm": 116,
+        "d_cm": 7
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 117,
+        "price": 35.21
+      },
+      {
+        "color": "black",
+        "stock": 41,
+        "price": 76.56
+      },
+      {
+        "color": "white",
+        "stock": 111,
+        "price": 162.08
+      },
+      {
+        "color": "green",
+        "stock": 54,
+        "price": 101.13
+      }
+    ],
+    "tags": [
+      "clearance",
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1072",
+    "name": "Compact Desk Tidy",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 4.74,
+      "dims": {
+        "w_cm": 8,
+        "h_cm": 30,
+        "d_cm": 32
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 107,
+        "price": 343.88
+      },
+      {
+        "color": "black",
+        "stock": 58,
+        "price": 203.22
+      },
+      {
+        "color": "blue",
+        "stock": 69,
+        "price": 27.7
+      }
+    ],
+    "tags": [
+      "clearance"
+    ]
+  },
+  {
+    "sku": "P-1073",
+    "name": "Mini Planter",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 11.13,
+      "dims": {
+        "w_cm": 41,
+        "h_cm": 118,
+        "d_cm": 66
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 8,
+        "price": 202.9
+      },
+      {
+        "color": "black",
+        "stock": 127,
+        "price": 323.3
+      },
+      {
+        "color": "red",
+        "stock": 122,
+        "price": 144.64
+      },
+      {
+        "color": "grey",
+        "stock": 87,
+        "price": 167.47
+      }
+    ],
+    "tags": [
+      "new",
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1074",
+    "name": "Mini Speaker",
+    "category": "office",
+    "specs": {
+      "weight_kg": 9.94,
+      "dims": {
+        "w_cm": 42,
+        "h_cm": 88,
+        "d_cm": 45
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 23,
+        "price": 77.11
+      },
+      {
+        "color": "black",
+        "stock": 107,
+        "price": 346.24
+      }
+    ],
+    "tags": [
+      "bestseller"
+    ]
+  },
+  {
+    "sku": "P-1075",
+    "name": "Eco Planter",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 5.96,
+      "dims": {
+        "w_cm": 79,
+        "h_cm": 50,
+        "d_cm": 71
+      }
+    },
+    "variants": [
+      {
+        "color": "green",
+        "stock": 48,
+        "price": 44.06
+      },
+      {
+        "color": "red",
+        "stock": 20,
+        "price": 210.32
+      }
+    ],
+    "tags": [
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1076",
+    "name": "Max Desk Tidy",
+    "category": "audio",
+    "specs": {
+      "weight_kg": 10.73,
+      "dims": {
+        "w_cm": 5,
+        "h_cm": 28,
+        "d_cm": 57
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 56,
+        "price": 350.68
+      },
+      {
+        "color": "black",
+        "stock": 135,
+        "price": 253.43
+      },
+      {
+        "color": "red",
+        "stock": 39,
+        "price": 160.05
+      }
+    ],
+    "tags": [
+      "eco"
+    ]
+  },
+  {
+    "sku": "P-1077",
+    "name": "Compact Puzzle",
+    "category": "kitchen",
+    "specs": {
+      "weight_kg": 21.74,
+      "dims": {
+        "w_cm": 94,
+        "h_cm": 10,
+        "d_cm": 50
+      }
+    },
+    "variants": [
+      {
+        "color": "red",
+        "stock": 49,
+        "price": 284.94
+      },
+      {
+        "color": "white",
+        "stock": 95,
+        "price": 40.91
+      },
+      {
+        "color": "green",
+        "stock": 28,
+        "price": 220.04
+      },
+      {
+        "color": "blue",
+        "stock": 98,
+        "price": 175.26
+      }
+    ],
+    "tags": [
+      "bundle"
+    ]
+  },
+  {
+    "sku": "P-1078",
+    "name": "Pro Speaker",
+    "category": "garden",
+    "specs": {
+      "weight_kg": 13.75,
+      "dims": {
+        "w_cm": 86,
+        "h_cm": 55,
+        "d_cm": 37
+      }
+    },
+    "variants": [
+      {
+        "color": "black",
+        "stock": 111,
+        "price": 271.69
+      },
+      {
+        "color": "white",
+        "stock": 130,
+        "price": 299.43
+      },
+      {
+        "color": "blue",
+        "stock": 29,
+        "price": 68.16
+      },
+      {
+        "color": "grey",
+        "stock": 106,
+        "price": 258.93
+      }
+    ]
+  },
+  {
+    "sku": "P-1079",
+    "name": "Compact Desk Tidy",
+    "category": "office",
+    "specs": {
+      "weight_kg": 1.38,
+      "dims": {
+        "w_cm": 105,
+        "h_cm": 118,
+        "d_cm": 34
+      }
+    },
+    "variants": [
+      {
+        "color": "white",
+        "stock": 94,
+        "price": 188.34
+      },
+      {
+        "color": "red",
+        "stock": 107,
+        "price": 179.86
+      },
+      {
+        "color": "green",
+        "stock": 95,
+        "price": 304.47
+      },
+      {
+        "color": "black",
+        "stock": 7,
+        "price": 370.26
+      }
+    ]
+  },
+  {
+    "sku": "P-1080",
+    "name": "Classic Lamp",
+    "category": "toys",
+    "specs": {
+      "weight_kg": 4.59,
+      "dims": {
+        "w_cm": 112,
+        "h_cm": 43,
+        "d_cm": 53
+      }
+    },
+    "variants": [
+      {
+        "color": "grey",
+        "stock": 131,
+        "price": 79.08
+      },
+      {
+        "color": "red",
+        "stock": 60,
+        "price": 303.89
+      },
+      {
+        "color": "green",
+        "stock": 4,
+        "price": 371.88
+      },
+      {
+        "color": "white",
+        "stock": 68,
+        "price": 138.29
+      }
+    ],
+    "tags": [
+      "new"
+    ]
+  }
+]
