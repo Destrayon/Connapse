@@ -334,3 +334,29 @@ arm is built and committed with the sealed set, before any stage-1 code.
 
 Recorded on 2026-10-24 with the `hybrid` config (nomic-embed-text through Ollama, reranker off) from the commit
 that adds this file. See `eval/baselines/2026-10-24.md`.
+
+## Saving a fact shows the facts it might repeat or contradict (CON-332)
+
+Written on 2026-11-12, before the check had run on anything. The check runs on every `memory_remember` and returns at
+most three current facts the new one may repeat or contradict, or nothing.
+
+- **Case set.** `tests/Connapse.Integration.Tests/Memory/MemorySaveMatchCases.cs`, written with this bar and before the
+  first run. Each case seeds a space, saves one fact and names the facts it must show. Families: **same** (same subject
+  and attribute, in any case or punctuation), **reworded attribute** (same subject, attribute reworded, e.g. "status"
+  and "current status" or "state"), **similar subject** (subject spelled or extended differently, e.g. "Halcyon" and
+  "Halcyon API"), **unrelated** (must show nothing, including another ticket's status: "CON-291" and "CON-292" are
+  different subjects), and **synonym subject** (the subject named in other words, e.g. "cold-room watcher" for
+  "Gannet"). The two real cases are in it: two status facts for one ticket, and one thing saved under a slightly
+  different attribute.
+- **Time.** A space holding 5,000 current facts, 200 saves, Postgres in Testcontainers capped at 2 CPUs and 4 GB.
+- **Passes** only when all hold:
+  1. every **same** case shows its fact first;
+  2. at least 95% of **same**, **reworded attribute** and **similar subject** cases, pooled, show their fact;
+  3. at least 90% of **unrelated** cases show nothing;
+  4. no save shows more than three facts, and no fact is changed, ended or deleted by a save;
+  5. the check adds at most 50 ms at p95 to a save, and a whole save takes at most 150 ms at p95. A check that runs
+     past 500 ms is cut off and shows nothing, and the save still succeeds.
+- **Reported, not gated:** how many **synonym subject** cases show their fact. Without fact embeddings (CON-322's stage
+  2, out of scope here) these are expected to miss; the count measures the gap.
+- **Fixed before the run:** the case set above and these thresholds. A change to either after the first run is a
+  new bar, written down with the reason.

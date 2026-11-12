@@ -120,6 +120,11 @@ public partial class McpTools
         }, MemoryJson);
     }
 
+    /// <summary>What a save says beside the current facts it may repeat or contradict.</summary>
+    internal const string MayRepeatNote =
+        "Saved. These current facts look like the same thing. If one of them is now out of date or wrong, call memory_correct on it "
+        + "and memory_forget the fact you just saved; if they are different things, keep both. Nothing was changed.";
+
     /// <summary>Who reads a space's facts, in words.</summary>
     internal static string WhoSees(MemorySpaceKind kind, int? accounts) => kind switch
     {
@@ -133,7 +138,7 @@ public partial class McpTools
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name a `space` that exists: memory_spaces lists yours, and memory_space_create makes one if none fits. No space is made for you. "
         + SaveTest
-        + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead.")]
+        + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved, and lists under `mayRepeat` up to three current facts that look like the same thing; nothing is changed because of them. When a value you stored before has changed, call `memory_correct` instead.")]
     public static async Task<string> MemoryRemember(
         RememberFact remember,
         ListMemorySpaces spaces,
@@ -168,8 +173,16 @@ public partial class McpTools
         if (!written.Succeeded)
             return Refused(written);
         MemoryFact fact = written.Result!.Fact;
-        IReadOnlyDictionary<Guid, int> handles = await MemoryHandles.ShowAsync(remember.Handles, context, [fact.Id], ct);
-        return JsonSerializer.Serialize(new { remembered = Shown(fact, null, null, HandleOf(handles, fact.Id)), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson);
+        IReadOnlyList<MemoryFactMatch> matches = written.Result.Matches;
+        IReadOnlyDictionary<Guid, int> handles = await MemoryHandles.ShowAsync(remember.Handles, context, [fact.Id, .. matches.Select(m => m.Fact.Id)], ct);
+        return JsonSerializer.Serialize(new
+        {
+            remembered = Shown(fact, null, null, HandleOf(handles, fact.Id)),
+            savedTo = SavedTo(written.Result.SavedTo),
+            // Only when one is close, so a save with nothing like it answers as before (CON-332).
+            mayRepeat = matches.Count == 0 ? null : matches.Select(m => Shown(m.Fact, null, null, HandleOf(handles, m.Fact.Id))),
+            note = matches.Count == 0 ? null : MayRepeatNote,
+        }, MemoryJson);
     }
 
     /// <summary>

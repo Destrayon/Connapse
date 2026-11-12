@@ -33,6 +33,12 @@ public sealed class MemoryService(
     /// <summary>How long a count runs before it answers with a lower bound; under the 2 seconds a count must answer in.</summary>
     internal static readonly TimeSpan CountBudget = TimeSpan.FromSeconds(1.5);
 
+    /// <summary>How long a save looks for the facts it may repeat before it shows none.</summary>
+    internal static readonly TimeSpan MatchBudget = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>The most facts a save's search hands the matcher, best first.</summary>
+    internal const int MaxMatchCandidates = 40;
+
     public async Task<MemoryWriteResult> RememberAsync(Guid containerId, NewMemoryFact fact, MemoryCaller caller, CancellationToken ct = default)
     {
         if (Validate(fact) is { } invalid)
@@ -44,7 +50,43 @@ public sealed class MemoryService(
         MemoryFact written = await store.AddAsync(containerId, fact, caller, ct);
         await audit.LogAsync("memory.remembered", "memory_fact", written.Id.ToString(),
             new { ContainerId = containerId, caller.UserId, caller.AgentId, Sources = written.Sources.Count, Scope = written.Scope.ToString() }, ct);
-        return new MemoryWriteResult(written, null, null);
+        return new MemoryWriteResult(written, null, null) { Matches = await MatchesAsync(written, caller, ct) };
+    }
+
+    /// <summary>
+    /// The current facts the new one may repeat or contradict, that the saver can see (CON-332). Only read: what to do
+    /// about one is the saver's choice. A check that fails or runs past <see cref="MatchBudget"/> shows none, and the
+    /// fact stays saved.
+    /// </summary>
+    private async Task<IReadOnlyList<MemoryFactMatch>> MatchesAsync(MemoryFact written, MemoryCaller caller, CancellationToken ct)
+    {
+        using CancellationTokenSource budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(MatchBudget);
+        try
+        {
+            MemoryMatchSearch? found = await store.MatchCandidatesAsync(written, caller, MaxMatchCandidates, budget.Token);
+            if (found is null || found.Candidates.Count == 0)
+                return [];
+            // Sources are checked only for the facts that could be shown, so a save asks no provider about the rest. A
+            // candidate whose sources went unchecked is left out of the final pass, which only removes matches.
+            HashSet<Guid> possible = [.. MemoryFactMatcher.Match(written, found.Saved, found.Candidates, int.MaxValue).Select(m => m.Fact.Id)];
+            if (possible.Count == 0)
+                return [];
+            IReadOnlySet<MemorySource> readable = await ReadableAsync(
+                found.Candidates.Where(c => possible.Contains(c.Fact.Id)).SelectMany(c => c.Fact.Sources), caller.UserId, budget.Token);
+            return MemoryFactMatcher.Match(written, found.Saved, found.Candidates.Where(c =>
+                (c.Fact.Sources.Count == 0 || possible.Contains(c.Fact.Id)) && Visible(c.Fact, readable, caller)));
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning("Looking for the facts a save may repeat ran past {Budget}; showing none", MatchBudget);
+            return [];
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not look for the facts a save may repeat; showing none");
+            return [];
+        }
     }
 
     public async Task<MemoryWriteResult> CorrectAsync(
