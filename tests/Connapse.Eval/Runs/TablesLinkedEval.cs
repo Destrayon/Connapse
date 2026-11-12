@@ -26,6 +26,27 @@ public sealed record LinkedQuestion(string Id, string Kind, string Question, str
     public static List<LinkedQuestion> ReadAll(string path) =>
         [.. File.ReadLines(path).Where(l => l.Length > 0).Select(Parse)];
 
+    /// <summary>
+    /// The sealed reserve set: a gzipped questions file, read only after its SHA-256 matches <paramref name="sha256"/>,
+    /// so a re-test runs on exactly the file the manifest pinned. Nothing of it is printed.
+    /// </summary>
+    public static List<LinkedQuestion> ReadSealed(string gzPath, string sha256)
+    {
+        byte[] bytes = File.ReadAllBytes(gzPath);
+        string actual = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        if (!string.Equals(actual, sha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"{Path.GetFileName(gzPath)} has SHA-256 {actual}, not the pinned {sha256}.");
+        using var gz = new System.IO.Compression.GZipStream(new MemoryStream(bytes), System.IO.Compression.CompressionMode.Decompress);
+        using var reader = new StreamReader(gz, System.Text.Encoding.UTF8);
+        List<LinkedQuestion> questions = [];
+        while (reader.ReadLine() is { } line)
+        {
+            if (line.Length > 0)
+                questions.Add(Parse(line));
+        }
+        return questions;
+    }
+
     public static LinkedQuestion Parse(string line)
     {
         using JsonDocument doc = JsonDocument.Parse(line);
@@ -56,7 +77,39 @@ public sealed partial class TablesLinkedEval(RepoPaths paths, TextWriter log)
 
     public sealed record Options(
         string Config, string Model, string Effort, int? LimitTasks, IReadOnlyList<string> Ids, int Workers, string? OutPath,
-        string? AgentDir = null, int? StallMinutes = null);
+        string? AgentDir = null, int? StallMinutes = null, bool Reserve = false, long? MinFreeMemoryBytes = DefaultMinFreeMemory);
+
+    /// <summary>The sealed reserve linked set, and its SHA-256 as <c>eval/MANIFEST.json</c> pins it.</summary>
+    public const string ReserveFile = "reserve-linked.jsonl.gz";
+    public const string ReserveSha256 = "682ac14660f89f6937161e8666ecbb8f9d3da82bbc9b45da7533d08438dd92be";
+
+    /// <summary>Each agent run waits while the machine has less free memory than this (8 GB).</summary>
+    public const long DefaultMinFreeMemory = 8L * 1024 * 1024 * 1024;
+
+    /// <summary>The questions a run asks: the sealed reserve set, or the open set narrowed by ids and a limit.</summary>
+    public static List<LinkedQuestion> Questions(string linkedRoot, Options options, IReadOnlyList<EvalDocument> reports)
+    {
+        List<LinkedQuestion> questions;
+        if (options.Reserve)
+        {
+            if (options.Ids.Count > 0 || options.LimitTasks is not null)
+                throw new ArgumentException("--reserve runs the whole sealed set once; --ids and --limit-tasks can't be used with it.");
+            questions = LinkedQuestion.ReadSealed(Path.Combine(linkedRoot, ReserveFile), ReserveSha256);
+        }
+        else
+        {
+            questions = LinkedQuestion.ReadAll(Path.Combine(linkedRoot, "questions.jsonl"));
+            if (options.Ids.Count > 0)
+                questions = [.. questions.Where(q => options.Ids.Contains(q.Id))];
+            if (options.LimitTasks is int limit)
+                questions = [.. questions.Take(limit)];
+        }
+        HashSet<string> known = [.. reports.Select(r => r.Id)];
+        int missing = questions.Count(q => !known.Contains(q.Document));
+        if (missing > 0)
+            throw new InvalidDataException($"{missing} question(s) ask about a document that isn't among the {known.Count} reports.");
+        return questions;
+    }
 
     public sealed record Result(LinkedQuestion Question, string Setup, AgentRun Run, bool Correct, bool FollowedLink, bool TableCall);
 
@@ -67,12 +120,10 @@ public sealed partial class TablesLinkedEval(RepoPaths paths, TextWriter log)
         MemorySearchEval.RequireNoProjectMemory(agentDir);
 
         string root = Path.Combine(paths.DatasetsRoot, TablesRagEval.Dataset, "linked");
-        List<LinkedQuestion> questions = LinkedQuestion.ReadAll(Path.Combine(root, "questions.jsonl"));
-        if (options.Ids.Count > 0)
-            questions = [.. questions.Where(q => options.Ids.Contains(q.Id))];
-        if (options.LimitTasks is int limit)
-            questions = [.. questions.Take(limit)];
         List<EvalDocument> reports = Reports(root);
+        List<LinkedQuestion> questions = Questions(root, options, reports);
+        if (OperatingSystem.IsWindows())
+            System.Diagnostics.Process.GetCurrentProcess().PriorityClass = System.Diagnostics.ProcessPriorityClass.BelowNormal;
 
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, "connapse", options.Config);
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
@@ -107,6 +158,8 @@ public sealed partial class TablesLinkedEval(RepoPaths paths, TextWriter log)
         string prompt = TablesRagEval.BasePrompt(container);
         await Parallel.ForEachAsync(runs, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (r, token) =>
         {
+            if (options.MinFreeMemoryBytes is long floor)
+                await MemoryGate.WaitAsync(floor, MemoryGate.Available, TimeSpan.FromSeconds(30), log, token);
             AgentRun run = await agent.RunAsync(toolboxes[r.Setup], prompt, r.Question.Question, token);
             Result result = Grade(r.Question, r.Setup, run);
             done[(r.Question.Id, r.Setup)] = result;
@@ -272,6 +325,7 @@ public sealed partial class TablesLinkedEval(RepoPaths paths, TextWriter log)
         return new JsonObject
         {
             ["tools"] = new JsonArray([.. Tools.Select(t => (JsonNode)t)]),
+            ["questionSet"] = options.Reserve ? "sealed reserve (" + ReserveFile + ")" : "questions.jsonl",
             ["config"] = options.Config,
             ["model"] = options.Model,
             ["effort"] = options.Effort,
