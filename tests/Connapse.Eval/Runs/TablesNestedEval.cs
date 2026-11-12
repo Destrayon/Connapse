@@ -130,9 +130,9 @@ public sealed class TablesNestedEval(RepoPaths paths, TextWriter log)
     }
 
     /// <summary>The nested-set files, each uploaded under its own name as a user's file would be.</summary>
-    public static List<EvalDocument> Files(string nestedRoot) =>
+    public static List<EvalDocument> Files(string nestedRoot, string set = "nested") =>
         [.. Directory.GetFiles(Path.Combine(nestedRoot, "docs")).Order(StringComparer.Ordinal).Select(path =>
-            new EvalDocument("nested/docs/" + Path.GetFileName(path), DocumentKind.File, Path.GetFileNameWithoutExtension(path), null, null,
+            new EvalDocument(set + "/docs/" + Path.GetFileName(path), DocumentKind.File, Path.GetFileNameWithoutExtension(path), null, null,
                 new Dictionary<string, string>(), path)
             {
                 FileName = Path.GetFileName(path),

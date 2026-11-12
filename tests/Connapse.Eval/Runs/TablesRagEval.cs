@@ -33,7 +33,8 @@ public sealed record TableQuestion(
             q.TryGetProperty(name, out JsonElement e) && e.ValueKind == JsonValueKind.Array ? [.. e.EnumerateArray().Select(s => s.GetString()!)] : [];
         return new TableQuestion(
             q.GetProperty("id").GetString()!, q.GetProperty("split").GetString()!, q.GetProperty("family").GetString()!,
-            q.GetProperty("template").GetString()!, q.GetProperty("question").GetString()!, q.GetProperty("user").GetString()!,
+            q.GetProperty("template").GetString()!, q.GetProperty("question").GetString()!,
+            q.TryGetProperty("user", out JsonElement user) ? user.GetString()! : "admin",
             q.GetProperty("answer_type").GetString()!, q.GetProperty("answer").Clone(), Optional("admin_answer"),
             Optional("as_of_load")?.GetInt32(), Strings("tables"), Strings("documents"));
     }
@@ -301,7 +302,7 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
     }
 
     /// <summary>The test-question half of <see cref="Nonconforming"/>, shared with the arms run.</summary>
-    public static List<string> NonconformingTest(Options options, int questions)
+    public static List<string> NonconformingTest(Options options, int questions, int registered = RegisteredTest)
     {
         List<string> reasons = [];
         if (options.Split != "test")
@@ -316,8 +317,8 @@ public sealed class TablesRagEval(RepoPaths paths, HttpClient http, TextWriter l
             reasons.Add("--ids was set");
         if (options.Tables is { Count: > 0 })
             reasons.Add("--tables was set");
-        if (questions != RegisteredTest)
-            reasons.Add($"{questions} questions, not {RegisteredTest}");
+        if (questions != registered)
+            reasons.Add($"{questions} questions, not {registered}");
         return reasons;
     }
 

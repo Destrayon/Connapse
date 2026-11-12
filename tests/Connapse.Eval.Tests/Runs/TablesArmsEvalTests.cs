@@ -29,9 +29,9 @@ public class TablesArmsEvalTests
         new(new TablesRagEval.Options("hybrid", split, "claude-sonnet-5-5", "medium", null, [], true, 1, null), arms ?? TableArm.All, runs);
 
     [Fact]
-    public void Parse_NoNames_GivesBothArms()
+    public void Parse_NoNames_GivesEveryArm()
     {
-        TableArm.Parse([]).Should().Equal(TableArm.Structured, TableArm.Sql);
+        TableArm.Parse([]).Should().Equal(TableArm.Structured, TableArm.Sql, TableArm.GraphQL);
     }
 
     [Fact]
@@ -45,7 +45,84 @@ public class TablesArmsEvalTests
     {
         Action act = () => TableArm.Parse(["both"]);
 
-        act.Should().Throw<ArgumentException>().WithMessage("*'both'*structured, sql*");
+        act.Should().Throw<ArgumentException>().WithMessage("*'both'*structured, sql, graphql*");
+    }
+
+    [Fact]
+    public void Missing_GraphQLArm_HasEveryTool()
+    {
+        TableArm.GraphQL.Missing().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(TablesArmsEval.TablesV1Set, 180)]
+    [InlineData(TablesArmsEval.FlexSet, 70)]
+    public void RegisteredTestOf_KnownSet_GivesItsTestQuestions(string set, int expected)
+    {
+        TablesArmsEval.RegisteredTestOf(set).Should().Be(expected);
+    }
+
+    [Fact]
+    public void RegisteredTestOf_UnknownSet_Throws()
+    {
+        Action act = () => TablesArmsEval.RegisteredTestOf("flexible");
+
+        act.Should().Throw<ArgumentException>().WithMessage("*'flexible'*tables-v1, flex*");
+    }
+
+    [Fact]
+    public void Nonconforming_FlexSet_ExpectsSeventyQuestions()
+    {
+        TablesArmsEval.Options flex = Options(runs: 1) with { Set = TablesArmsEval.FlexSet };
+
+        TablesArmsEval.Nonconforming(flex, TablesArmsEval.RegisteredFlexTest).Should().BeEmpty();
+        TablesArmsEval.Nonconforming(flex, TablesRagEval.RegisteredTest).Should().Equal("180 questions, not 70");
+    }
+
+    [Fact]
+    public void Parse_QuestionWithoutUser_IsAskedAsAdmin()
+    {
+        TableQuestion q = TableQuestion.Parse(
+            """{"id":"flex-test-001","split":"test","family":"median","template":"t","question":"q","answer_type":"number","answer":1,"files":["sales.csv"]}""");
+
+        q.User.Should().Be("admin");
+        q.Restricted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Report_ThreeArms_ComparesGraphQLWithEachOtherArm()
+    {
+        // 10 questions: graphql right on all, structured wrong on 2, sql wrong on 4.
+        List<ArmRun> runs = [];
+        for (int i = 0; i < 10; i++)
+        {
+            TableQuestion q = Question($"q{i}");
+            runs.Add(Run(q, "structured", 0, i >= 2, cost: 0.10));
+            runs.Add(Run(q, "sql", 0, i >= 4, cost: 0.30));
+            runs.Add(Run(q, "graphql", 0, true, cost: 0.11));
+        }
+
+        JsonObject report = TablesArmsEval.Report(Options(runs: 1), 10, runs);
+        JsonNode graphql = report["comparisonGraphql"]!;
+        JsonNode sqlOverGraphql = report["comparisonSqlOverGraphql"]!;
+
+        report["set"]!.GetValue<string>().Should().Be(TablesArmsEval.TablesV1Set);
+        graphql["correctAnswers"]!["onlyStructured"]!.GetValue<int>().Should().Be(0);
+        graphql["correctAnswers"]!["onlyGraphql"]!.GetValue<int>().Should().Be(2);
+        graphql["correctAnswers"]!["graphqlMinusStructuredPoints"]!.GetValue<double>().Should().Be(20);
+        graphql["toolCallsWhenBothRight"]!["graphqlMedian"]!.GetValue<double>().Should().Be(2);
+        graphql["cost"]!["graphqlOverStructured"]!.GetValue<double>().Should().Be(1.1);
+        sqlOverGraphql["correctAnswers"]!["onlyGraphql"]!.GetValue<int>().Should().Be(4);
+        sqlOverGraphql["correctAnswers"]!["sqlMinusGraphqlPoints"]!.GetValue<double>().Should().Be(-40);
+        sqlOverGraphql["cost"]!["sqlOverGraphql"]!.GetValue<double>().Should().BeApproximately(2.727, 0.001);
+    }
+
+    [Theory]
+    [InlineData(-6, 0.01, "graphql loses")]
+    [InlineData(6, 0.01, "graphql wins")]
+    public void CorrectVerdict_NamedChallenger_NamesIt(double points, double p, string expected)
+    {
+        TablesArmsEval.CorrectVerdict(points, p, "graphql").Should().Be(expected);
     }
 
     [Fact]
@@ -53,6 +130,7 @@ public class TablesArmsEvalTests
     {
         TableArm.Structured.Tools.Should().Equal("table_list", "table_describe", "table_read", "table_aggregate", "search_knowledge", "get_document");
         TableArm.Sql.Tools.Should().Equal("table_sql", "table_list", "table_describe", "search_knowledge", "get_document");
+        TableArm.GraphQL.Tools.Should().Equal("table_graphql", "table_list", "table_describe", "search_knowledge", "get_document");
     }
 
     [Fact]
@@ -73,10 +151,18 @@ public class TablesArmsEvalTests
         TableQuestion a = Question("a");
         TableQuestion b = Question("b");
 
-        var schedule = TablesArmsEval.Schedule([a, b], TableArm.All, 2);
+        var schedule = TablesArmsEval.Schedule([a, b], [TableArm.Structured, TableArm.Sql], 2);
 
         schedule.Select(s => $"{s.Question.Id}{s.Run}{s.Arm.Name[..2]}").Should().Equal(
             "a0st", "a0sq", "a1sq", "a1st", "b0st", "b0sq", "b1sq", "b1st");
+    }
+
+    [Fact]
+    public void Schedule_EveryArmOnce_AsksEachQuestionOfEachArmInTurn()
+    {
+        var schedule = TablesArmsEval.Schedule([Question("a"), Question("b")], TableArm.All, TablesArmsEval.RegisteredRuns);
+
+        schedule.Select(s => $"{s.Question.Id}{s.Arm.Name[..2]}").Should().Equal("ast", "asq", "agr", "bst", "bsq", "bgr");
     }
 
     [Fact]
@@ -290,18 +376,19 @@ public class TablesArmsEvalTests
     [Fact]
     public void Report_OneArm_HasNoComparisonAndIsDiagnostic()
     {
-        JsonObject report = TablesArmsEval.Report(Options([TableArm.Sql], runs: 1, split: "tune"), 1, [Run(Question("a"), "sql", 0, true)]);
+        JsonObject report = TablesArmsEval.Report(Options([TableArm.Sql], runs: 2, split: "tune"), 1, [Run(Question("a"), "sql", 0, true)]);
 
         report["comparison"].Should().BeNull();
+        report["comparisonGraphql"].Should().BeNull();
         report["conforming"]!.GetValue<bool>().Should().BeFalse();
         report["diagnosticOnly"]!.AsArray().Select(n => n!.GetValue<string>()).Should().Contain(
-            ["split is tune, not test", "1 runs per arm, not 3", "only arm sql ran"]);
+            ["split is tune, not test", "2 runs per arm, not 1", "only arm sql ran"]);
     }
 
     [Fact]
     public void Nonconforming_RegisteredRun_IsEmpty()
     {
-        TablesArmsEval.Nonconforming(Options(), TablesRagEval.RegisteredTest).Should().BeEmpty();
+        TablesArmsEval.Nonconforming(Options(runs: 1), TablesRagEval.RegisteredTest).Should().BeEmpty();
     }
 
     [Fact]
