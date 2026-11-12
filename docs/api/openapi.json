@@ -22009,6 +22009,16 @@
           "hidden": {
             "type": "boolean",
             "default": false
+          },
+          "preview": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TablePreview"
+              }
+            ]
           }
         }
       },
@@ -24031,6 +24041,48 @@
           },
           "sampleRows": {
             "$ref": "#/components/schemas/TableQueryResult"
+          }
+        }
+      },
+      "TablePreview": {
+        "required": [
+          "columns",
+          "moreColumns",
+          "rows",
+          "rowCount"
+        ],
+        "type": "object",
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "moreColumns": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "rowCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },

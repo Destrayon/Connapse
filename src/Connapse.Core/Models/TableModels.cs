@@ -83,8 +83,18 @@ public sealed record TablePassageLink(Guid TableId, Guid ChunkId, int Start, int
 /// <summary>
 /// A table found in a passage or document (CON-312), as a reader is told of it: enough to query it with the table
 /// tools. <see cref="Hidden"/> is true only for an admin, who is shown a table hidden from everyone else.
+/// <see cref="Preview"/> is set on the first search passage naming the table, and only there.
 /// </summary>
-public sealed record PassageTable(Guid Id, Guid ContainerId, string Name, int? Page, int? Number, bool Hidden = false);
+public sealed record PassageTable(
+    Guid Id, Guid ContainerId, string Name, int? Page, int? Number, bool Hidden = false, TablePreview? Preview = null);
+
+/// <summary>
+/// A small look at a table shown with the search passage that names it (CON-312): its first visible columns, a few
+/// sample rows with long cells cut short, and how many rows the caller may read. It is a pointer to the table, not a
+/// copy of it: the full table is queried with the table tools. Built only from rows and columns the caller may read.
+/// </summary>
+public sealed record TablePreview(
+    IReadOnlyList<string> Columns, int MoreColumns, IReadOnlyList<IReadOnlyList<string>> Rows, long RowCount);
 
 /// <summary>
 /// A table's catalog entry. <see cref="StorageName"/> is the generated name of the PostgreSQL table holding its rows

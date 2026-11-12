@@ -14,9 +14,21 @@ namespace Connapse.Application.Tables;
 /// agent can query its rows instead of reading them as prose. A table the caller may not read, including one an admin
 /// hid, leaves the passage exactly as stored and isn't named. When the links or the access can't be read, every hit is
 /// left as it came.
+/// <para>
+/// The first hit naming a table also carries a <see cref="TablePreview"/> of it: up to <see cref="PreviewColumns"/>
+/// visible columns, <see cref="PreviewRows"/> sample rows with cells cut at <see cref="PreviewCell"/> characters, and its
+/// readable row count, all read with the caller's access. A preview that can't be read is left out; the table is
+/// still named.
+/// </para>
 /// </summary>
-public sealed class PassageTables(ITablePassageLinks links, ITableStore tables, IDocumentStore documents, IDocumentAccess access)
+public sealed class PassageTables(
+    ITablePassageLinks links, ITableStore tables, IDocumentStore documents, IDocumentAccess access,
+    ITableQueryService? queries = null)
 {
+    public const int PreviewRows = 3;
+    public const int PreviewColumns = 8;
+    public const int PreviewCell = 40;
+
     public async Task<SearchResult> ApplyAsync(ClaimsPrincipal user, SearchResult result, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -30,8 +42,10 @@ public sealed class PassageTables(ITablePassageLinks links, ITableStore tables, 
             IReadOnlyDictionary<Guid, IReadOnlyList<TablePassageLink>> found = await links.ForChunksAsync(chunkIds, ct);
             if (found.Count == 0)
                 return result;
-            Dictionary<Guid, TableInfo> readable = await ReadableAsync(user, result.Hits, found, ct);
-            return result with { Hits = result.Hits.Select(h => Render(h, found, readable)).ToList() };
+            var readable = await ReadableAsync(user, result.Hits, found, ct);
+            var tablesById = readable.ToDictionary(r => r.Key, r => r.Value.Table);
+            var hits = result.Hits.Select(h => Render(h, found, tablesById)).ToList();
+            return result with { Hits = await PreviewAsync(hits, readable, ct) };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -50,12 +64,69 @@ public sealed class PassageTables(ITablePassageLinks links, ITableStore tables, 
     public static PassageTable Describe(TableInfo table, bool hidden = false) =>
         new(table.Id, table.ContainerId, table.Name, table.Placement?.Page, table.Placement?.Number, hidden);
 
-    /// <summary>The linked tables the caller may read, checked per document, by id.</summary>
-    private async Task<Dictionary<Guid, TableInfo>> ReadableAsync(
+    /// <summary>
+    /// The preview of a described table: its first <see cref="PreviewColumns"/> sampled columns and
+    /// <see cref="PreviewRows"/> sample rows, each cell on one line and cut at <see cref="PreviewCell"/> characters.
+    /// </summary>
+    public static TablePreview Preview(TableDescription described)
+    {
+        ArgumentNullException.ThrowIfNull(described);
+        IReadOnlyList<string> columns = described.SampleRows.Columns;
+        int shown = Math.Min(columns.Count, PreviewColumns);
+        var rows = described.SampleRows.Rows.Take(PreviewRows)
+            .Select(r => (IReadOnlyList<string>)r.Take(shown).Select(Cell).ToList()).ToList();
+        return new TablePreview(columns.Take(shown).ToList(), columns.Count - shown, rows, described.RowCount);
+    }
+
+    private static string Cell(object? value)
+    {
+        string text = Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "";
+        text = string.Join(' ', text.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        return text.Length <= PreviewCell ? text : text[..(PreviewCell - 1)] + "…";
+    }
+
+    /// <summary>
+    /// The hits with a preview on the first one naming each table. A table whose preview can't be read keeps no
+    /// preview; the rest of the result is unchanged.
+    /// </summary>
+    private async Task<List<SearchHit>> PreviewAsync(
+        List<SearchHit> hits, Dictionary<Guid, (TableInfo Table, TableAccess Access)> readable, CancellationToken ct)
+    {
+        if (queries is null)
+            return hits;
+        var previewed = new HashSet<Guid>();
+        for (int i = 0; i < hits.Count; i++)
+        {
+            if (hits[i].Tables is not { Count: > 0 } named)
+                continue;
+            var withPreviews = new List<PassageTable>(named.Count);
+            foreach (PassageTable table in named)
+            {
+                TablePreview? preview = null;
+                if (previewed.Add(table.Id) && readable.TryGetValue(table.Id, out var entry))
+                {
+                    try
+                    {
+                        preview = Preview(await queries.DescribeAsync(entry.Table.ContainerId, entry.Access, table.Id, ct));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        preview = null;
+                    }
+                }
+                withPreviews.Add(table with { Preview = preview });
+            }
+            hits[i] = hits[i] with { Tables = withPreviews };
+        }
+        return hits;
+    }
+
+    /// <summary>The linked tables the caller may read, checked per document, by id, with the access that read them.</summary>
+    private async Task<Dictionary<Guid, (TableInfo Table, TableAccess Access)>> ReadableAsync(
         ClaimsPrincipal user, IReadOnlyList<SearchHit> hits,
         IReadOnlyDictionary<Guid, IReadOnlyList<TablePassageLink>> found, CancellationToken ct)
     {
-        var readable = new Dictionary<Guid, TableInfo>();
+        var readable = new Dictionary<Guid, (TableInfo Table, TableAccess Access)>();
         var byDocument = hits
             .Where(h => Guid.TryParse(h.ChunkId, out Guid c) && found.ContainsKey(c) && Guid.TryParse(h.DocumentId, out _))
             .GroupBy(h => Guid.Parse(h.DocumentId));
@@ -70,7 +141,7 @@ public sealed class PassageTables(ITablePassageLinks links, ITableStore tables, 
             if (!check.Checked)
                 throw new InvalidOperationException(TableAccess.UncheckedMessage);
             foreach (TableInfo table in mine.Where(check.CanRead))
-                readable[table.Id] = table;
+                readable[table.Id] = (table, check);
         }
         return readable;
     }

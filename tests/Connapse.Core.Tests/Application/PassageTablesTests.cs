@@ -181,6 +181,106 @@ public class PassageTablesTests
                 }
             }, iter: 1000);
 
+    private readonly ITableQueryService _queries = Substitute.For<ITableQueryService>();
+
+    private PassageTables Previewing => new(_links, _tables, _documents, _access, _queries);
+
+    private static TableDescription Described(TableInfo table, long rowCount, IReadOnlyList<string> columns, params object?[][] rows) =>
+        new(table.Id, table.Name, null, table.Columns, rowCount,
+            new TableQueryResult(columns, rows.Select(r => (IReadOnlyList<object?>)r).ToList(), false, null), false, []);
+
+    [Fact]
+    public async Task Apply_TableNamedByTwoHits_PreviewsItOnTheFirstOnlyWithTheCallersAccess()
+    {
+        TableInfo table = Table("Revenue", 1);
+        Guid first = Guid.NewGuid(), second = Guid.NewGuid();
+        _tables.ListByDocumentAsync(_container, _document, Arg.Any<CancellationToken>()).Returns([table]);
+        _links.ForChunksAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<Guid, IReadOnlyList<TablePassageLink>>
+            {
+                [first] = [new TablePassageLink(table.Id, first, Prose.Length, Grid.Length)],
+                [second] = [new TablePassageLink(table.Id, second, 0, Grid.Length)],
+            });
+        _queries.DescribeAsync(_container, Arg.Any<TableAccess>(), table.Id, Arg.Any<CancellationToken>())
+            .Returns(Described(table, 2, ["Region", "Revenue"], ["East", 10L], ["West", 7L]));
+        var result = new SearchResult(
+            [new SearchHit(first.ToString(), _document.ToString(), Prose + Grid, 0.9f, []),
+             new SearchHit(second.ToString(), _document.ToString(), Grid, 0.8f, [])], 2, TimeSpan.Zero);
+
+        var hits = (await Previewing.ApplyAsync(Caller.User, result)).Hits;
+
+        hits[0].Tables!.Single().Preview.Should().BeEquivalentTo(new TablePreview(["Region", "Revenue"], 0, [["East", "10"], ["West", "7"]], 2));
+        hits[1].Tables!.Single().Preview.Should().BeNull("one preview per table per search keeps the output small");
+        await _queries.Received(1).DescribeAsync(_container,
+            Arg.Is<TableAccess>(a => a.Checked && a.ReadableDocuments.Contains(_document)), table.Id, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Apply_HiddenOrUnreadableTable_ReadsNoPreview(bool hidden, bool unreadable)
+    {
+        if (unreadable)
+            _unreadable.Add(_document.ToString());
+        TableInfo table = Table("Salaries", 1, hidden);
+        var result = Hit(Prose + Grid, (table, Prose.Length, Grid.Length));
+
+        SearchHit hit = (await Previewing.ApplyAsync(Caller.User, result)).Hits.Single();
+
+        hit.Tables.Should().BeNull();
+        _queries.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Apply_PreviewCantBeRead_StillNamesTheTable()
+    {
+        TableInfo table = Table("Revenue", 1);
+        var result = Hit(Prose + Grid, (table, Prose.Length, Grid.Length));
+        _queries.DescribeAsync(Arg.Any<Guid>(), Arg.Any<TableAccess>(), Arg.Any<Guid>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("db down"));
+
+        SearchHit hit = (await Previewing.ApplyAsync(Caller.User, result)).Hits.Single();
+
+        hit.Content.Should().Be(Prose + PassageTables.Note(table));
+        hit.Tables.Should().ContainSingle().Which.Should().Be(new PassageTable(table.Id, _container, "Revenue", 3, 1));
+    }
+
+    [Fact]
+    public void Preview_WideTableWithLongCells_KeepsItSmall()
+    {
+        TableInfo table = Table("Wide", 1);
+        string[] columns = Enumerable.Range(1, 12).Select(i => $"c{i}").ToArray();
+        object?[] row = [new string('x', 100) + "\nmore", null, .. Enumerable.Range(0, 10).Select(i => (object?)i)];
+
+        TablePreview preview = PassageTables.Preview(Described(table, 500, columns, row, row, row, row, row));
+
+        preview.Columns.Should().Equal(columns.Take(PassageTables.PreviewColumns));
+        preview.MoreColumns.Should().Be(4);
+        preview.Rows.Should().HaveCount(PassageTables.PreviewRows);
+        preview.Rows[0][0].Should().HaveLength(PassageTables.PreviewCell).And.EndWith("…").And.NotContain("\n");
+        preview.Rows[0][1].Should().BeEmpty();
+        preview.RowCount.Should().Be(500);
+    }
+
+    [Fact]
+    [Trait("Size", "Medium")]
+    public void Preview_AnyTable_StaysWithinItsCaps() =>
+        Gen.Select(Gen.Int[0, 20], Gen.Int[0, 10], Gen.String[Gen.Char["ab\n\r\t |"], 0, 120])
+            .Sample((width, height, cell) =>
+            {
+                TableInfo table = Table("t", 1);
+                var columns = Enumerable.Range(0, width).Select(i => $"c{i}").ToList();
+                var rows = Enumerable.Range(0, height).Select(_ => Enumerable.Repeat((object?)cell, width).ToArray()).ToArray();
+
+                TablePreview preview = PassageTables.Preview(Described(table, height, columns, rows));
+
+                preview.Columns.Count.Should().Be(Math.Min(width, PassageTables.PreviewColumns));
+                (preview.Columns.Count + preview.MoreColumns).Should().Be(width);
+                preview.Rows.Count.Should().Be(Math.Min(height, PassageTables.PreviewRows));
+                preview.Rows.SelectMany(r => r).Should().OnlyContain(c => c.Length <= PassageTables.PreviewCell
+                    && !c.Contains('\n') && !c.Contains('\r') && !c.Contains('\t'));
+            }, iter: 1000);
+
     private GetFileTables Files(IContainerStore containers, IOperationAuthorizer authorizer) =>
         new(containers, _documents, _access, _tables, authorizer);
 

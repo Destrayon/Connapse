@@ -185,6 +185,7 @@ public partial class McpTools
             resultText += $"Chunk: {chunkIndex ?? "0"}\n";
             resultText += $"DocumentId: {hit.DocumentId}\n";
             resultText += TablesLine(hit.Tables);
+            resultText += TablePreviews(hit.Tables);
             resultText += $"Content:\n{hit.Content}\n\n";
         }
 
@@ -204,6 +205,29 @@ public partial class McpTools
             ? "Tables: " + string.Join("; ", tables.Select(t => $"\"{t.Name}\" (id {t.Id}{(t.Page is int page ? $", page {page}" : "")})"))
               + " (query directly: pass the id as \"table\" to table_read or table_aggregate; no table_list needed)\n"
             : "";
+
+    /// <summary>
+    /// A short preview of each named table that carries one (CON-312): its columns, a few sample rows and its row
+    /// count, ending with how to query the whole table. Empty when no table has a preview.
+    /// </summary>
+    internal static string TablePreviews(IReadOnlyList<PassageTable>? tables)
+    {
+        if (tables is null)
+            return "";
+        var text = new System.Text.StringBuilder();
+        foreach (PassageTable table in tables)
+        {
+            if (table.Preview is not { } preview)
+                continue;
+            string more = preview.MoreColumns > 0 ? $" (+{preview.MoreColumns} more columns)" : "";
+            string rows = preview.RowCount == 1 ? "1 row" : $"{preview.RowCount} rows";
+            text.Append($"Table preview \"{table.Name}\" ({rows}; sample of {preview.Rows.Count}): {string.Join(" | ", preview.Columns)}{more}\n");
+            foreach (IReadOnlyList<string> row in preview.Rows)
+                text.Append("  ").AppendJoin(" | ", row).Append('\n');
+            text.Append($"Preview only. Query the full table with table_read or table_aggregate using \"table\": \"{table.Id}\". {TableQueryResult.UntrustedDataNotice}\n");
+        }
+        return text.ToString();
+    }
 
     internal static string PendingNote(int pendingDocuments) =>
         SearchNotes.Pending(pendingDocuments) is { } note ? $"\nNote: {note} Text files can already be read with get_document." : "";
