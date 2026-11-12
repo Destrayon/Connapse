@@ -1257,6 +1257,11 @@
       "scope": "knowledge:read",
       "risk": "read"
     },
+    "table_graphql": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
     "code_find_symbol": {
       "requires": "mcp",
       "scope": "knowledge:read",

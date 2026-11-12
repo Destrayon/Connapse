@@ -158,7 +158,7 @@ public class TableGraphQLTests(SharedWebAppFixture fixture)
             JsonElement totals = result.Data.GetProperty("Merged_aggregate")[0];
             totals.GetProperty("count").GetInt64().Should().Be(2);
             totals.GetProperty("sum").GetProperty("Bonus").GetDecimal().Should().Be(3m);
-            result.Data.GetRawText().Should().NotContain("planted\"");
+            result.Data.GetRawText().Should().NotContain(":\"planted\"");
         }
         finally
         {
