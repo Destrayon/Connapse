@@ -26,6 +26,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<MemoryFactEntity> MemoryFacts => Set<MemoryFactEntity>();
     public DbSet<MemoryFactSourceEntity> MemoryFactSources => Set<MemoryFactSourceEntity>();
     public DbSet<MemorySpaceStarEntity> MemorySpaceStars => Set<MemorySpaceStarEntity>();
+    public DbSet<MemoryCheckDefaultEntity> MemoryCheckDefaults => Set<MemoryCheckDefaultEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +96,9 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.AuthorName).HasColumnName("author_name").HasMaxLength(200);
             // Personal by default, so a row written without a scope is seen by no one but its author.
             entity.Property(e => e.Scope).HasColumnName("scope").HasDefaultValue((short)0);
+            entity.Property(e => e.CheckBy).HasColumnName("check_by");
+            entity.Property(e => e.CheckAfterDays).HasColumnName("check_after_days");
+            entity.Property(e => e.ConfirmedAt).HasColumnName("confirmed_at");
             // Subject counts most, then attribute, value and the reason a writer gave (which names its ticket). Punctuation
             // becomes a space first, as in the query's words: the parser would read "HAL-17" as "hal" and the number -17.
             entity.Property(e => e.SearchVector)
@@ -127,6 +131,17 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.Ordinal).HasColumnName("ordinal");
             entity.Property(e => e.Kind).HasColumnName("kind");
             entity.Property(e => e.Ref).HasColumnName("ref").HasMaxLength(512).IsRequired();
+        });
+
+        modelBuilder.Entity<MemoryCheckDefaultEntity>(entity =>
+        {
+            entity.ToTable("memory_check_defaults", t => t.HasCheckConstraint("ck_memory_check_defaults_days",
+                "days BETWEEN 1 AND 3650"));
+            entity.HasKey(e => new { e.ContainerId, e.Attribute });
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.Attribute).HasColumnName("attribute").HasMaxLength(200);
+            entity.Property(e => e.Days).HasColumnName("days");
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 

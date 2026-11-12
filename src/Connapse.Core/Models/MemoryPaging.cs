@@ -18,9 +18,15 @@ public enum MemoryFactStatus { Current = 0, All = 1 }
 public enum MemoryCites { Any = 0, Some = 1, None = 2 }
 
 /// <summary>
+/// Facts by their check-by date (CON-340). <see cref="Due"/>: current and past it, so unconfirmed. <see cref="Fresh"/>:
+/// every other fact, those with no date included.
+/// </summary>
+public enum MemoryFactCheck { Any = 0, Due = 1, Fresh = 2 }
+
+/// <summary>
 /// Which facts of a space to list or count. <paramref name="Subject"/> matches exactly, in any case;
 /// <paramref name="Author"/> is a user or agent id; <paramref name="From"/> and <paramref name="To"/> bound when the
-/// fact was recorded (inclusive).
+/// fact was recorded (inclusive); <paramref name="Check"/> keeps the facts past their check-by date, or those that aren't.
 /// </summary>
 public sealed record MemoryFactFilter(
     string? Text = null,
@@ -29,7 +35,8 @@ public sealed record MemoryFactFilter(
     MemoryCites Cites = MemoryCites.Any,
     DateTimeOffset? From = null,
     DateTimeOffset? To = null,
-    MemoryFactStatus Status = MemoryFactStatus.Current);
+    MemoryFactStatus Status = MemoryFactStatus.Current,
+    MemoryFactCheck Check = MemoryFactCheck.Any);
 
 /// <summary>
 /// Where the last page ended: the last fact's sort values and id. Only the values its sort uses are set:

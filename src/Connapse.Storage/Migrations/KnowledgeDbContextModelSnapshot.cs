@@ -21,7 +21,7 @@ namespace Connapse.Storage.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.7")
+                .HasAnnotation("ProductVersion", "10.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
@@ -751,6 +751,29 @@ namespace Connapse.Storage.Migrations
                     b.ToTable("link_node_facts", (string)null);
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryCheckDefaultEntity", b =>
+                {
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<string>("Attribute")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("attribute");
+
+                    b.Property<int>("Days")
+                        .HasColumnType("integer")
+                        .HasColumnName("days");
+
+                    b.HasKey("ContainerId", "Attribute");
+
+                    b.ToTable("memory_check_defaults", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_memory_check_defaults_days", "days BETWEEN 1 AND 3650");
+                        });
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -780,6 +803,18 @@ namespace Connapse.Storage.Migrations
                     b.Property<Guid>("ChainId")
                         .HasColumnType("uuid")
                         .HasColumnName("chain_id");
+
+                    b.Property<int?>("CheckAfterDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("check_after_days");
+
+                    b.Property<DateTimeOffset?>("CheckBy")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("check_by");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at");
 
                     b.Property<Guid>("ContainerId")
                         .HasColumnType("uuid")
@@ -1228,6 +1263,15 @@ namespace Connapse.Storage.Migrations
                         .IsRequired();
 
                     b.Navigation("Container");
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryCheckDefaultEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Connapse.Storage.Data.Entities.MemoryFactEntity", b =>

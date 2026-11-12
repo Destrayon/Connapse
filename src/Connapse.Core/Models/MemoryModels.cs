@@ -35,6 +35,10 @@ public sealed record MemoryCaller(Guid? UserId, Guid? AgentId, string? Name)
 /// in the world (null: open); <paramref name="RecordedAt"/> and <paramref name="SupersededAt"/> are when memory
 /// held it (superseded: a correction said it was wrong). Every fact of one correction chain shares
 /// <paramref name="ChainId"/>, which is what forgetting deletes. <paramref name="Scope"/> is stored on each version.
+/// <paramref name="CheckBy"/> is when the fact should be checked against its real source again (null: never), and
+/// <paramref name="CheckAfterDays"/> the period a confirm or a re-save sets it to from then. <paramref name="Unconfirmed"/>:
+/// the fact is current and past its check-by date, as of when it was read. It is still a fact: being unconfirmed never
+/// hides or ends it (CON-340).
 /// </summary>
 public sealed record MemoryFact(
     Guid Id,
@@ -51,13 +55,41 @@ public sealed record MemoryFact(
     string? Reason,
     MemoryCaller Author,
     IReadOnlyList<MemorySource> Sources,
-    MemoryScope Scope = MemoryScope.Personal);
+    MemoryScope Scope = MemoryScope.Personal,
+    DateTimeOffset? CheckBy = null,
+    int? CheckAfterDays = null,
+    DateTimeOffset? ConfirmedAt = null,
+    bool Unconfirmed = false);
+
+/// <summary>
+/// When a saved fact should be checked again (CON-340): <paramref name="At"/> a set date, <paramref name="Days"/> a period
+/// from when it is saved or confirmed, or neither for never. A set date also resets by the whole days it lay ahead.
+/// </summary>
+public sealed record MemoryCheckBy(DateTimeOffset? At, int? Days)
+{
+    /// <summary>The longest period a check may be put off: ten years.</summary>
+    public const int MaxDays = 3650;
+
+    /// <summary>Never checked: the fact has no check-by date.</summary>
+    public static MemoryCheckBy Never { get; } = new(null, null);
+
+    /// <summary>Checked <paramref name="days"/> after it is saved or confirmed.</summary>
+    public static MemoryCheckBy After(int days) => new(null, days);
+
+    public bool IsNever => At is null && Days is null;
+
+    /// <summary>The check-by date and reset period for a fact saved at <paramref name="now"/>.</summary>
+    public (DateTimeOffset? CheckBy, int? Days) From(DateTimeOffset now) => At is { } at
+        ? (at, Math.Clamp((int)Math.Ceiling((at - now).TotalDays), 1, MaxDays))
+        : Days is { } days ? (now.AddDays(days), days) : (null, null);
+}
 
 /// <summary>
 /// A fact to write. Dates are when it became (and stopped being) true; null means not known or still open.
 /// <paramref name="Sources"/> null means none were given: a new fact has none, and a correction keeps the old fact's.
 /// <paramref name="Scope"/> null on a new fact means the scope its sources gave before scopes existed (team with
-/// sources, personal without); a correction always keeps the old fact's scope.
+/// sources, personal without); a correction always keeps the old fact's scope. <paramref name="Check"/> null means the
+/// space's default for the attribute (a correction without one: that, else the old fact's period).
 /// </summary>
 public sealed record NewMemoryFact(
     string Subject,
@@ -67,7 +99,8 @@ public sealed record NewMemoryFact(
     DateTimeOffset? ValidTo,
     IReadOnlyList<MemorySource>? Sources,
     string? Reason = null,
-    MemoryScope? Scope = null)
+    MemoryScope? Scope = null,
+    MemoryCheckBy? Check = null)
 {
     /// <summary>The scope a new fact is saved with.</summary>
     public MemoryScope ScopeOrDefault => Scope ?? (Sources is { Count: > 0 } ? MemoryScope.Team : MemoryScope.Personal);
@@ -85,6 +118,7 @@ public enum MemoryCorrection { Changed = 0, Wrong = 1 }
 /// with <paramref name="AsOf"/>, the facts true then. <paramref name="History"/> also returns ended and superseded
 /// facts. <paramref name="ChangedFrom"/>/<paramref name="ChangedTo"/> keep facts that started or ended in that window.
 /// <paramref name="ChainId"/> keeps one fact's versions, every one of them (a fact's history).
+/// <paramref name="Check"/> keeps only the facts past their check-by date, or only those that aren't.
 /// </summary>
 public sealed record MemoryQuery(
     Guid ContainerId,
@@ -96,7 +130,8 @@ public sealed record MemoryQuery(
     DateTimeOffset? ChangedFrom = null,
     DateTimeOffset? ChangedTo = null,
     int Limit = 10,
-    Guid? ChainId = null);
+    Guid? ChainId = null,
+    MemoryFactCheck Check = MemoryFactCheck.Any);
 
 /// <summary>
 /// A fact as one reader may see it. Only facts whose every source the reader can read are returned, and a personal

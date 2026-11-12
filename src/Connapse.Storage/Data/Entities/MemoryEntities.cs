@@ -23,8 +23,25 @@ public class MemoryFactEntity
 
     /// <summary>A <see cref="Connapse.Core.MemoryScope"/>: 0 personal, 1 team.</summary>
     public short Scope { get; set; }
+
+    /// <summary>When the fact should be checked again (CON-340); null: never. Moved by a confirm, never by a read.</summary>
+    public DateTimeOffset? CheckBy { get; set; }
+
+    /// <summary>The days a confirm sets <see cref="CheckBy"/> to from then.</summary>
+    public int? CheckAfterDays { get; set; }
+
+    /// <summary>When someone last confirmed the fact still holds.</summary>
+    public DateTimeOffset? ConfirmedAt { get; set; }
     public NpgsqlTsVector SearchVector { get; set; } = null!;
     public List<MemoryFactSourceEntity> Sources { get; set; } = [];
+}
+
+/// <summary>A space's default check-by period for one attribute, kept in lower case (CON-340).</summary>
+public class MemoryCheckDefaultEntity
+{
+    public Guid ContainerId { get; set; }
+    public string Attribute { get; set; } = string.Empty;
+    public int Days { get; set; }
 }
 
 /// <summary>One source a fact cites: a document id or a link node id.</summary>
