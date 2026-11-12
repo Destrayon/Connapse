@@ -32,3 +32,9 @@ in that plan on 2026-11-10. The pass bar is copied into the PR description befor
 - Phase 4 restarted (2026-11-11 23:52Z, user approved via the PM): fresh full run; the partial attempt is in
   `E:\tmp\con-328\set-aside-attempt-1` and is not merged. `supervise.ps1` runs it at BelowNormal and pauses the eval
   and its agent processes below 8 GB free (resumes at 10 GB), logging each pause to `supervise.log`.
+- Phase 4 done (2026-11-12 03:54Z): all 1,080 runs finished; the run's report step then failed to load
+  `MathNet.Numerics` because its worktree had been replaced mid-run. Added `tables-arms-score`, which scores a saved
+  `runs.jsonl` with the same code, and scored the run from it (conforming). Nothing was rerun.
+- Phase 5 done: `docs/research/con-328-table-head-to-head-2026-11-12.md`. SQL loses on right answers (156 vs 180,
+  McNemar p = 1.2e-7), tool calls and cost (3.09×); no leaks. Don't ship `table_sql` in 0.5.0; `Tables.AgentSql` already
+  defaults to off. All 24 SQL misses trace to `table_sql`'s table listing being cut at 4,000 characters. Next: CI.
