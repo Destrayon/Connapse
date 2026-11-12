@@ -86,6 +86,7 @@ public class McpAuthorizationTests(SharedWebAppFixture fixture)
             ["memory_remember"] = new() { ["containerId"] = missing, ["subject"] = "probe", ["attribute"] = "probe", ["value"] = "probe" },
             ["memory_correct"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString(), ["value"] = "probe", ["kind"] = "wrong" },
             ["memory_forget"] = new() { ["containerId"] = missing, ["factId"] = Guid.NewGuid().ToString() },
+            ["memory_confirm"] = new() { ["factId"] = Guid.NewGuid().ToString() },
             ["memory_space_create"] = new() { ["name"] = "NOT A VALID NAME", ["kind"] = "team" },
             ["request_deletions"] = new() { ["items"] = new[] { new { kind = "file", container = missing, target = "/probe.txt", reason = "probe" } } },
             ["deletion_status"] = new() { ["batchId"] = Guid.NewGuid().ToString() },

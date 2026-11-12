@@ -4217,6 +4217,200 @@
         }
       }
     },
+    "/api/memory/spaces/{spaceId}/check-defaults": {
+      "get": {
+        "tags": [
+          "Memory"
+        ],
+        "description": "A memory space's default check-by periods: for each attribute, how many days after a save or confirm its facts should be checked against their source again. A fact past that date is still recalled, marked unconfirmed.",
+        "operationId": "memorySpaces.checkDefaults",
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryCheckDefaults"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "memorySpaces.checkDefaults",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
+        }
+      },
+      "put": {
+        "tags": [
+          "Memory"
+        ],
+        "description": "Replace a memory space's default check-by periods with days by attribute (1 to 3650 each, at most 100); {} clears them. Facts already saved keep their dates; the defaults apply to saves and corrections from now on.",
+        "operationId": "memorySpaces.setCheckDefaults",
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryCheckDefaultsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryCheckDefaults"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "memorySpaces.setCheckDefaults",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Off"
+        }
+      }
+    },
     "/api/sources": {
       "get": {
         "tags": [
@@ -8314,6 +8508,13 @@
             }
           },
           {
+            "name": "check",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "sort",
             "in": "query",
             "schema": {
@@ -8423,7 +8624,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them",
+        "description": "Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them. checkBy sets when it should be checked again; saving a fact that is already there word for word confirms it instead, and the response says confirmed",
         "operationId": "memory.remember",
         "parameters": [
           {
@@ -8585,6 +8786,13 @@
           },
           {
             "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "check",
             "in": "query",
             "schema": {
               "type": "string"
@@ -8922,7 +9130,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites",
+        "description": "Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites. check=due keeps only the facts past their check-by date, which come back unconfirmed: check them against their source, then confirm or correct them",
         "operationId": "memory.recall",
         "parameters": [
           {
@@ -8981,6 +9189,13 @@
           },
           {
             "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "check",
             "in": "query",
             "schema": {
               "type": "string"
@@ -9435,6 +9650,119 @@
         },
         "x-connapse-operation": {
           "id": "memory.correct",
+          "scope": "knowledge:write",
+          "risk": "Write",
+          "mcp": "Off"
+        }
+      }
+    },
+    "/api/memory/facts/{id}/confirm": {
+      "post": {
+        "tags": [
+          "Memory"
+        ],
+        "description": "Records that a current fact was checked against its source and is still true: it stops being unconfirmed and its check-by date moves on by its period, or to checkBy when given. A fact that changed should be corrected instead. Needs knowledge:read as well as knowledge:write",
+        "operationId": "memory.confirm",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ConfirmMemoryFactRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryConfirmedResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "memory.confirm",
           "scope": "knowledge:write",
           "risk": "Write",
           "mcp": "Off"
@@ -16837,6 +17165,17 @@
           }
         }
       },
+      "ConfirmMemoryFactRequest": {
+        "type": "object",
+        "properties": {
+          "checkBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ConfluenceSourceSettings": {
         "required": [
           "spaceId",
@@ -17755,6 +18094,12 @@
             ]
           },
           "attribute": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "checkBy": {
             "type": [
               "null",
               "string"
@@ -19867,6 +20212,62 @@
           }
         }
       },
+      "MemoryCheckDefaults": {
+        "required": [
+          "spaceId",
+          "days"
+        ],
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string"
+          },
+          "days": {
+            "type": "object",
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        }
+      },
+      "MemoryCheckDefaultsRequest": {
+        "required": [
+          "days"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        }
+      },
+      "MemoryConfirmedResponse": {
+        "required": [
+          "fact"
+        ],
+        "type": "object",
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/MemoryFact"
+          }
+        }
+      },
       "MemoryCopyResponse": {
         "required": [
           "fact",
@@ -19991,6 +20392,33 @@
           },
           "scope": {
             "$ref": "#/components/schemas/MemoryScope"
+          },
+          "checkBy": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "checkAfterDays": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "confirmedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "unconfirmed": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -20100,6 +20528,10 @@
           },
           "savedTo": {
             "$ref": "#/components/schemas/MemorySpaceRef"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -21355,6 +21787,12 @@
             }
           },
           "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "checkBy": {
             "type": [
               "null",
               "string"

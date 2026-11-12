@@ -106,10 +106,14 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
         new(null, null, null),
     ];
 
-    private async Task MigrateAsync(string? target = null)
+    /// <summary>Migrates to <paramref name="target"/>; with <paramref name="readable"/>, a stopped schema also gets the
+    /// check-by columns, so today's store can read it. A later migrate reverts them first.</summary>
+    private async Task MigrateAsync(string? target = null, bool readable = true)
     {
         await using var context = new KnowledgeDbContext(Options());
         await context.GetService<IMigrator>().MigrateAsync(target);
+        if (target is not null && readable)
+            await MemoryCheckBySchema.AddAsync(context);
     }
 
     private async Task<Guid> ContainerAsync(string name, string kind = "documents", Guid? ownerUser = null, Guid? ownerAgent = null)
@@ -293,7 +297,8 @@ public class MemorySpaceMigrationTests(ITestOutputHelper output) : IAsyncLifetim
     [Fact]
     public async Task Migrate_CorrectionHoldingTheChainLock_ItsNewVersionMovesWithTheChain()
     {
-        await MigrateAsync(BeforeMove);
+        // Nothing is read before the move, and the columns would make the migration revert them under the lock first.
+        await MigrateAsync(BeforeMove, readable: false);
         Guid halcyon = await ContainerAsync("halcyon");
         Guid[] alices = await ChainAsync(halcyon, (_alice, null, Personal, null));
 

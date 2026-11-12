@@ -475,11 +475,67 @@ internal static class MemorySpaceStars
     }
 }
 
+/// <summary>A space's default check-by periods: days by attribute, lower-cased (CON-340).</summary>
+public sealed record MemoryCheckDefaults(string SpaceId, IReadOnlyDictionary<string, int> Days);
+
+/// <summary>
+/// A space's default check-by periods: how many days after a save a fact on each attribute should be checked against
+/// its real source again. A fact saved without a check-by of its own takes its attribute's default; one with no default
+/// is never due.
+/// </summary>
+[Operation("memorySpaces.checkDefaults", Scope = MemoryRules.ReadScope, Risk = RiskTier.Read)]
+public sealed class GetMemoryCheckDefaults(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<MemoryCheckDefaults, MemorySpaceStatus>> RunAsync(OperationContext context, Guid spaceId, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
+            return MemorySpaceRules.Fail<MemoryCheckDefaults>(MemorySpaceStatus.Forbidden, "Reading a memory space needs knowledge:read.");
+        MemoryCaller viewer = MemoryRules.Caller(context.User);
+        (_, Attempt<MemoryCheckDefaults, MemorySpaceStatus>? refused) =
+            await MemorySpaceRules.MemorySpaceAsync<MemoryCheckDefaults>(containers, spaceId, viewer, ct);
+        if (refused is not null)
+            return refused;
+        return Attempt<MemoryCheckDefaults, MemorySpaceStatus>.Succeed(
+            new MemoryCheckDefaults(spaceId.ToString(), await memory.CheckDefaultsAsync(spaceId, ct)));
+    }
+}
+
+/// <summary>
+/// Replaces a space's default check-by periods with the ones given; an empty set clears them. Facts already saved keep
+/// their dates: a default applies to saves and corrections from now on. Write access; a personal space only by its owner.
+/// </summary>
+[Operation("memorySpaces.setCheckDefaults", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
+public sealed class SetMemoryCheckDefaults(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<MemoryCheckDefaults, MemorySpaceStatus>> RunAsync(
+        OperationContext context, Guid spaceId, IReadOnlyDictionary<string, int>? days, CancellationToken ct = default)
+    {
+        if (!await MemoryRules.WriterAsync(authorizer, context))
+            return MemorySpaceRules.Fail<MemoryCheckDefaults>(MemorySpaceStatus.Forbidden, "Changing a memory space needs write access (knowledge:write).");
+        if (days is null)
+            return MemorySpaceRules.Fail<MemoryCheckDefaults>(MemorySpaceStatus.Invalid, "days is required; send {} to clear the defaults.", "days");
+        MemoryCaller viewer = MemoryRules.Caller(context.User);
+        (_, Attempt<MemoryCheckDefaults, MemorySpaceStatus>? refused) =
+            await MemorySpaceRules.MemorySpaceAsync<MemoryCheckDefaults>(containers, spaceId, viewer, ct);
+        if (refused is not null)
+            return refused;
+        if (await memory.SetCheckDefaultsAsync(spaceId, days, viewer, ct) is { } error)
+            return MemorySpaceRules.Fail<MemoryCheckDefaults>(MemorySpaceStatus.Invalid,
+                error.StartsWith("Error: ", StringComparison.Ordinal) ? error[7..] : error, "days");
+        return Attempt<MemoryCheckDefaults, MemorySpaceStatus>.Succeed(
+            new MemoryCheckDefaults(spaceId.ToString(), await memory.CheckDefaultsAsync(spaceId, ct)));
+    }
+}
+
 /// <summary>Every memory space operation in one place, for the Memory page.</summary>
 public sealed class MemorySpaceOperations(
     ListMemorySpaces list, CreateMemorySpace create, UpdateMemorySpace update, DeleteMemorySpace delete,
-    StarMemorySpace star, UnstarMemorySpace unstar)
+    StarMemorySpace star, UnstarMemorySpace unstar, GetMemoryCheckDefaults checkDefaults, SetMemoryCheckDefaults setCheckDefaults)
 {
+    public GetMemoryCheckDefaults CheckDefaults { get; } = checkDefaults;
+
+    public SetMemoryCheckDefaults SetCheckDefaults { get; } = setCheckDefaults;
+
     public ListMemorySpaces List { get; } = list;
 
     public CreateMemorySpace Create { get; } = create;

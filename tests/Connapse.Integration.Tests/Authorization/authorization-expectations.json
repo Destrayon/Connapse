@@ -335,6 +335,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/memory/spaces/{spaceId:guid}/check-defaults": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/settings/embedding-models": {
       "requires": "admin",
       "risk": "read",
@@ -780,6 +785,11 @@
       "risk": "write",
       "scope": "knowledge:write"
     },
+    "POST /api/memory/facts/{id}/confirm": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "POST /api/memory/facts/{id}/copy": {
       "requires": "editor",
       "risk": "write",
@@ -995,6 +1005,11 @@
       "risk": "write",
       "scope": "admin:sources"
     },
+    "PUT /api/memory/spaces/{spaceId:guid}/check-defaults": {
+      "requires": "editor",
+      "risk": "write",
+      "scope": "knowledge:write"
+    },
     "PUT /api/memory/spaces/{spaceId:guid}/star": {
       "requires": "viewer",
       "risk": "write",
@@ -1198,6 +1213,11 @@
       "risk": "read"
     },
     "memory_remember": {
+      "requires": "mcp",
+      "scope": "knowledge:write",
+      "risk": "write"
+    },
+    "memory_confirm": {
       "requires": "mcp",
       "scope": "knowledge:write",
       "risk": "write"

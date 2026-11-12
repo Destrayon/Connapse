@@ -1084,6 +1084,14 @@
       "mcp": "memory_correct"
     },
     {
+      "id": "memory.confirm",
+      "capability": "Confirm a fact is still true, resetting its check-by date",
+      "routes": [
+        "POST /api/memory/facts/{id}/confirm"
+      ],
+      "mcp": "memory_confirm"
+    },
+    {
       "id": "memory.forget",
       "capability": "Forget a fact and every version of it",
       "routes": [
@@ -1158,6 +1166,24 @@
       ],
       "mcp": null,
       "mcpOff": "Agents read spaces with memory_spaces but don't manage them: people do that on the Memory page or over REST."
+    },
+    {
+      "id": "memorySpaces.checkDefaults",
+      "capability": "See a memory space's default check-by periods",
+      "routes": [
+        "GET /api/memory/spaces/{spaceId:guid}/check-defaults"
+      ],
+      "mcp": null,
+      "mcpOff": "Agents set a check-by date on each fact they save; a space's defaults are set by people over REST."
+    },
+    {
+      "id": "memorySpaces.setCheckDefaults",
+      "capability": "Set a memory space's default check-by periods",
+      "routes": [
+        "PUT /api/memory/spaces/{spaceId:guid}/check-defaults"
+      ],
+      "mcp": null,
+      "mcpOff": "Agents set a check-by date on each fact they save; a space's defaults are set by people over REST."
     },
     {
       "id": "memory.list",

@@ -31,13 +31,14 @@ public static class MemoryFactsEndpoints
             [FromQuery] string? from,
             [FromQuery] string? to,
             [FromQuery] string? status,
+            [FromQuery] string? check,
             [FromQuery] string? sort,
             [FromQuery] string? cursor,
             [FromQuery] int? limit,
             [FromServices] ListMemoryFacts list,
             CancellationToken ct) =>
         {
-            if (Filter(q, subject, author, cites, from, to, status) is not { } filter)
+            if (Filter(q, subject, author, cites, from, to, status, check) is not { } filter)
                 return FilterProblem(author, cites, from, to, status);
             if (!TryEnum(sort, MemoryFactSort.Recorded, out MemoryFactSort order))
                 return ApiProblem.BadRequest("sort must be \"recorded\", \"subject\", \"validFrom\" or \"relevance\".", field: "sort");
@@ -63,10 +64,11 @@ public static class MemoryFactsEndpoints
             [FromQuery] string? from,
             [FromQuery] string? to,
             [FromQuery] string? status,
+            [FromQuery] string? check,
             [FromServices] CountMemoryFacts count,
             CancellationToken ct) =>
         {
-            if (Filter(q, subject, author, cites, from, to, status) is not { } filter)
+            if (Filter(q, subject, author, cites, from, to, status, check) is not { } filter)
                 return FilterProblem(author, cites, from, to, status);
 
             var counted = await count.RunAsync(Rest(http), id, filter, ct);
@@ -135,14 +137,17 @@ public static class MemoryFactsEndpoints
             [FromQuery] bool? includeHistory,
             [FromQuery] int? limit,
             [FromQuery] string? cursor,
+            [FromQuery] string? check,
             [FromServices] RecallMemory recall,
             CancellationToken ct) =>
         {
             if (!MemoryInput.TryDate(asOf, out DateTimeOffset? at))
                 return ApiProblem.BadRequest("asOf must be an ISO 8601 date or time.", field: "asOf");
+            if (MemoryInput.Check(check) is not { } which)
+                return ApiProblem.BadRequest(CheckRule, field: "check");
 
             var recalled = await recall.RecallAsync(Rest(http),
-                new MemoryRecallRequest(space, q, subject, attribute, at, includeHistory ?? false, limit ?? 10, cursor), ct);
+                new MemoryRecallRequest(space, q, subject, attribute, at, includeHistory ?? false, limit ?? 10, cursor, which), ct);
             return recalled.Succeeded ? Results.Ok(RecallResponse(recalled.Result!)) : OperationProblems.Result(recalled);
         })
         .Produces<MemoryRecallResponse>()
@@ -150,7 +155,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.recall")
-        .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites");
+        .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites. check=due keeps only the facts past their check-by date, which come back unconfirmed: check them against their source, then confirm or correct them");
 
         // GET /api/memory/timeline - Facts in date order, as the memory_timeline tool reads them
         group.MapGet("/timeline", async (
@@ -221,14 +226,14 @@ public static class MemoryFactsEndpoints
             CancellationToken ct) =>
         {
             (NewMemoryFact? fact, IResult? problem) = NewFact(request.Subject, request.Attribute, request.Value,
-                request.ValidFrom, request.ValidTo, request.Sources, request.Reason, keepSourcesWhenNone: false);
+                request.ValidFrom, request.ValidTo, request.Sources, request.Reason, keepSourcesWhenNone: false, request.CheckBy);
             if (fact is null)
                 return problem!;
 
             var written = await remember.RunAsync(Rest(http), MemoryTarget.Space(id), fact, ct);
             return written.Succeeded
                 ? Results.Created($"/api/memory/facts/{written.Result!.Fact.Id}/history",
-                    new MemoryRememberedResponse(written.Result.Fact, Space(written.Result.SavedTo!)))
+                    new MemoryRememberedResponse(written.Result.Fact, Space(written.Result.SavedTo!), written.Result.Confirmed))
                 : OperationProblems.Result(written);
         })
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
@@ -237,7 +242,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.remember")
-        .WithDescription("Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them");
+        .WithDescription("Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them. checkBy sets when it should be checked again; saving a fact that is already there word for word confirms it instead, and the response says confirmed");
 
         // POST /api/memory/facts/{id}/correct - Replace a fact, keeping the old one in history
         writes.MapPost("/facts/{id}/correct", async (
@@ -250,7 +255,7 @@ public static class MemoryFactsEndpoints
             if (MemoryInput.Correction(request.Kind) is not { } kind)
                 return ApiProblem.BadRequest("kind must be \"changed\" or \"wrong\".", field: "kind");
             (NewMemoryFact? fact, IResult? problem) = NewFact(request.Subject, request.Attribute, request.Value,
-                request.ValidFrom, request.ValidTo, request.Sources, request.Reason, keepSourcesWhenNone: true);
+                request.ValidFrom, request.ValidTo, request.Sources, request.Reason, keepSourcesWhenNone: true, request.CheckBy);
             if (fact is null)
                 return problem!;
 
@@ -266,6 +271,28 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.correct")
         .WithDescription("Replaces a fact and keeps the old one in history. kind \"changed\" (the default): the old fact ends at validFrom, which is required. kind \"wrong\": the old fact is marked superseded and the new value takes its dates. Subject, attribute and sources default to the old fact's. Needs knowledge:read as well as knowledge:write");
+
+        // POST /api/memory/facts/{id}/confirm - Say a fact is still true, resetting its check-by date
+        writes.MapPost("/facts/{id}/confirm", async (
+            HttpContext http,
+            string id,
+            [FromBody] ConfirmMemoryFactRequest? request,
+            [FromServices] ConfirmFact confirm,
+            CancellationToken ct) =>
+        {
+            if (!MemoryInput.TryCheckBy(request?.CheckBy, out MemoryCheckBy? check))
+                return ApiProblem.BadRequest(MemoryInput.CheckByRule, field: "checkBy");
+
+            var confirmed = await confirm.RunAsync(Rest(http), id, check, ct);
+            return confirmed.Succeeded ? Results.Ok(new MemoryConfirmedResponse(confirmed.Result!.Fact)) : OperationProblems.Result(confirmed);
+        })
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
+        .Produces<MemoryConfirmedResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("memory.confirm")
+        .WithDescription("Records that a current fact was checked against its source and is still true: it stops being unconfirmed and its check-by date moves on by its period, or to checkBy when given. A fact that changed should be corrected instead. Needs knowledge:read as well as knowledge:write");
 
         // DELETE /api/memory/facts/{id} - Forget a fact and every version of it
         writes.MapDelete("/facts/{id}", async (
@@ -293,7 +320,7 @@ public static class MemoryFactsEndpoints
     /// fact's" (a correction) rather than "none".
     /// </summary>
     internal static (NewMemoryFact? Fact, IResult? Problem) NewFact(string? subject, string? attribute, string? value,
-        string? validFrom, string? validTo, string?[]? sources, string? reason, bool keepSourcesWhenNone)
+        string? validFrom, string? validTo, string?[]? sources, string? reason, bool keepSourcesWhenNone, string? checkBy = null)
     {
         if (!MemoryInput.TryDate(validFrom, out DateTimeOffset? from))
             return (null, ApiProblem.BadRequest("validFrom must be an ISO 8601 date or time.", field: "validFrom"));
@@ -301,8 +328,10 @@ public static class MemoryFactsEndpoints
             return (null, ApiProblem.BadRequest("validTo must be an ISO 8601 date or time.", field: "validTo"));
         if (MemoryInput.Sources(sources) is not { } cited)
             return (null, ApiProblem.BadRequest("each source must be a document id (UUID) or \"node:<id>\".", field: "sources"));
+        if (!MemoryInput.TryCheckBy(checkBy, out MemoryCheckBy? check))
+            return (null, ApiProblem.BadRequest(MemoryInput.CheckByRule, field: "checkBy"));
         return (new NewMemoryFact(subject ?? "", attribute ?? "", value ?? "", from, to,
-            keepSourcesWhenNone && sources is null ? null : cited, reason), null);
+            keepSourcesWhenNone && sources is null ? null : cited, reason, Check: check), null);
     }
 
     internal static MemoryRecallResponse RecallResponse(SpacedRecall recalled) => new(
@@ -317,14 +346,17 @@ public static class MemoryFactsEndpoints
 
     /// <summary>The filter the query names, or null when one of its values can't be read.</summary>
     private static MemoryFactFilter? Filter(
-        string? q, string? subject, string? author, string? cites, string? from, string? to, string? status)
+        string? q, string? subject, string? author, string? cites, string? from, string? to, string? status, string? check)
     {
         if (!TryGuid(author, out Guid? by) || !TryEnum(cites, MemoryCites.Any, out MemoryCites cited)
             || !TryDate(from, out DateTimeOffset? since) || !TryDate(to, out DateTimeOffset? until)
-            || !TryEnum(status, MemoryFactStatus.Current, out MemoryFactStatus which))
+            || !TryEnum(status, MemoryFactStatus.Current, out MemoryFactStatus which)
+            || MemoryInput.Check(check) is not { } checkedBy)
             return null;
-        return new MemoryFactFilter(q, subject, by, cited, since, until, which);
+        return new MemoryFactFilter(q, subject, by, cited, since, until, which, checkedBy);
     }
+
+    private const string CheckRule = "check must be \"any\", \"due\" or \"fresh\".";
 
     /// <summary>Which of the filter's values couldn't be read, as the first failing check in <see cref="Filter"/> finds it.</summary>
     private static IResult FilterProblem(string? author, string? cites, string? from, string? to, string? status)
@@ -337,7 +369,9 @@ public static class MemoryFactsEndpoints
             return ApiProblem.BadRequest("from must be an ISO 8601 date or time.", field: "from");
         if (!TryDate(to, out _))
             return ApiProblem.BadRequest("to must be an ISO 8601 date or time.", field: "to");
-        return ApiProblem.BadRequest("status must be \"current\" or \"all\".", field: "status");
+        if (!TryEnum(status, MemoryFactStatus.Current, out MemoryFactStatus _))
+            return ApiProblem.BadRequest("status must be \"current\" or \"all\".", field: "status");
+        return ApiProblem.BadRequest(CheckRule, field: "check");
     }
 
     /// <summary>A named value of <typeparamref name="T"/> in any case, the fallback when blank; numbers are refused.</summary>
@@ -392,9 +426,14 @@ public sealed record MemoryFactCountResponse(long Count, bool Capped);
 /// (ISO 8601, a bare date being midnight UTC); the document ids or "node:&lt;id&gt;" link nodes it was learned from;
 /// and why.
 /// </summary>
+/// <remarks>
+/// <c>CheckBy</c>: when to check it against its source again, as a date, "&lt;n&gt;d" (n days after each save or
+/// confirm), or "never"; left out, the space's default for the attribute.
+/// </remarks>
 public sealed record RememberMemoryFactRequest(
     string? Subject, string? Attribute, string? Value,
-    string? ValidFrom = null, string? ValidTo = null, string?[]? Sources = null, string? Reason = null);
+    string? ValidFrom = null, string? ValidTo = null, string?[]? Sources = null, string? Reason = null,
+    string? CheckBy = null);
 
 /// <summary>
 /// A correction: the new value, and whether the world <c>changed</c> (the default) or the old fact was <c>wrong</c>.
@@ -403,13 +442,25 @@ public sealed record RememberMemoryFactRequest(
 public sealed record CorrectMemoryFactRequest(
     string? Value, string? Kind = null,
     string? ValidFrom = null, string? ValidTo = null, string?[]? Sources = null, string? Reason = null,
-    string? Subject = null, string? Attribute = null);
+    string? Subject = null, string? Attribute = null, string? CheckBy = null);
+
+/// <summary>
+/// Confirms a fact: <c>CheckBy</c> optionally changes when it is checked next (a date, "&lt;n&gt;d" or "never");
+/// left out, its own period starts again.
+/// </summary>
+public sealed record ConfirmMemoryFactRequest(string? CheckBy = null);
+
+/// <summary>The fact as confirmed, with its new check-by date.</summary>
+public sealed record MemoryConfirmedResponse(MemoryFact Fact);
 
 /// <summary>A memory space a fact is in: its id, name, and whether it is personal (only its owner sees it) or team.</summary>
 public sealed record MemorySpaceRef(string Id, string Name, MemoryScope Audience);
 
-/// <summary>The fact stored and the space it went into.</summary>
-public sealed record MemoryRememberedResponse(MemoryFact Fact, MemorySpaceRef SavedTo);
+/// <summary>
+/// The fact stored and the space it went into. <c>Confirmed</c>: the same fact was already there, so it was confirmed
+/// rather than saved twice.
+/// </summary>
+public sealed record MemoryRememberedResponse(MemoryFact Fact, MemorySpaceRef SavedTo, bool Confirmed = false);
 
 /// <summary>The new version of the fact and the one it replaced, which history keeps.</summary>
 public sealed record MemoryCorrectedResponse(MemoryFact Fact, MemoryFact Replaced);

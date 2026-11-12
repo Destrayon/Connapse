@@ -135,6 +135,44 @@ public static class MemorySpacesEndpoints
         .WithDescription("Remove your star from a memory space. Removing one that isn't there changes nothing.")
         .RequireAuthorization("RequireViewer", "Scope:KnowledgeRead");
 
+        // GET /api/memory/spaces/{spaceId}/check-defaults - How long after a save each attribute's facts are checked again
+        group.MapGet("/{spaceId:guid}/check-defaults", async (
+            Guid spaceId,
+            [FromServices] GetMemoryCheckDefaults read,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var defaults = await read.RunAsync(Rest(http), spaceId, ct);
+            return defaults.Succeeded ? Results.Ok(defaults.Result) : OperationProblems.Result(defaults);
+        })
+        .Produces<MemoryCheckDefaults>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .WithName("memorySpaces.checkDefaults")
+        .WithDescription("A memory space's default check-by periods: for each attribute, how many days after a save or confirm its facts "
+            + "should be checked against their source again. A fact past that date is still recalled, marked unconfirmed.")
+        .RequireAuthorization("RequireViewer", "Scope:KnowledgeRead");
+
+        // PUT /api/memory/spaces/{spaceId}/check-defaults - Replace a space's default check-by periods
+        group.MapPut("/{spaceId:guid}/check-defaults", async (
+            Guid spaceId,
+            [FromBody] MemoryCheckDefaultsRequest request,
+            [FromServices] SetMemoryCheckDefaults set,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var defaults = await set.RunAsync(Rest(http), spaceId, request.Days, ct);
+            return defaults.Succeeded ? Results.Ok(defaults.Result) : OperationProblems.Result(defaults);
+        })
+        .Produces<MemoryCheckDefaults>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .WithName("memorySpaces.setCheckDefaults")
+        .WithDescription("Replace a memory space's default check-by periods with days by attribute (1 to 3650 each, at most 100); {} clears them. "
+            + "Facts already saved keep their dates; the defaults apply to saves and corrections from now on.")
+        .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite");
+
         return app;
     }
 
@@ -144,3 +182,6 @@ public static class MemorySpacesEndpoints
 
     private static OperationContext Rest(HttpContext http) => new(http.User, OperationSurface.Rest);
 }
+
+/// <summary>A space's new default check-by periods: days by attribute. An empty object clears them.</summary>
+public sealed record MemoryCheckDefaultsRequest(Dictionary<string, int>? Days);

@@ -64,4 +64,61 @@ public class MemoryInputTests
     [InlineData("superseded", null)]
     public void Correction_ChangedByDefault_WrongByName_AnythingElseIsNull(string? kind, MemoryCorrection? expected) =>
         MemoryInput.Correction(kind).Should().Be(expected);
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("  ")]
+    public void TryCheckBy_Blank_IsNoCheckBySoTheDefaultApplies(string? text)
+    {
+        MemoryInput.TryCheckBy(text, out MemoryCheckBy? value).Should().BeTrue();
+        value.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("never")]
+    [InlineData(" NEVER ")]
+    public void TryCheckBy_Never_InAnyCase_IsNever(string text)
+    {
+        MemoryInput.TryCheckBy(text, out MemoryCheckBy? value).Should().BeTrue();
+        value.Should().Be(MemoryCheckBy.Never);
+    }
+
+    [Theory]
+    [InlineData("1d", 1)]
+    [InlineData(" 30D ", 30)]
+    [InlineData("3650d", 3650)]
+    public void TryCheckBy_DaysFrom1To3650_IsAPeriod(string text, int days)
+    {
+        MemoryInput.TryCheckBy(text, out MemoryCheckBy? value).Should().BeTrue();
+        value.Should().Be(MemoryCheckBy.After(days));
+    }
+
+    [Fact]
+    public void TryCheckBy_ADate_IsThatDateWithNoPeriod()
+    {
+        MemoryInput.TryCheckBy("2026-03-01", out MemoryCheckBy? value).Should().BeTrue();
+        value.Should().Be(new MemoryCheckBy(new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero), null));
+    }
+
+    [Theory]
+    [InlineData("0d")]
+    [InlineData("3651d")]
+    [InlineData("99999999999d")]
+    [InlineData("-5d")]
+    [InlineData("d")]
+    [InlineData("30 days")]
+    [InlineData("soon")]
+    public void TryCheckBy_AnythingElse_Fails(string text) =>
+        MemoryInput.TryCheckBy(text, out _).Should().BeFalse();
+
+    [Theory]
+    [InlineData(null, MemoryFactCheck.Any)]
+    [InlineData("", MemoryFactCheck.Any)]
+    [InlineData(" ANY ", MemoryFactCheck.Any)]
+    [InlineData("Due", MemoryFactCheck.Due)]
+    [InlineData("fresh", MemoryFactCheck.Fresh)]
+    [InlineData("stale", null)]
+    [InlineData("1", null)]
+    public void Check_AnyByDefault_DueOrFreshByName_AnythingElseIsNull(string? check, MemoryFactCheck? expected) =>
+        MemoryInput.Check(check).Should().Be(expected);
 }

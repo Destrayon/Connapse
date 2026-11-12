@@ -100,6 +100,8 @@ internal static class MemoryPaging
             return ("status must be \"current\" or \"all\".", "status");
         if (filter.From is { } from && filter.To is { } to && from > to)
             return ("from must not be after to.", "from");
+        if (!Enum.IsDefined(filter.Check))
+            return ("check must be \"due\" or \"fresh\".", "check");
         return null;
     }
 
@@ -107,7 +109,7 @@ internal static class MemoryPaging
     public static object?[] Parts(Guid space, MemoryFactFilter filter) =>
     [
         space, filter.Text?.Trim(), filter.Subject?.Trim().ToLowerInvariant(), filter.Author, filter.Cites,
-        filter.From?.UtcTicks, filter.To?.UtcTicks, filter.Status,
+        filter.From?.UtcTicks, filter.To?.UtcTicks, filter.Status, filter.Check,
     ];
 
     /// <summary>The space named, or the failure: forbidden without read access, invalid when refused, else not found.</summary>

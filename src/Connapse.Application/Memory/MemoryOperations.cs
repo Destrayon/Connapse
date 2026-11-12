@@ -34,8 +34,9 @@ public enum MemoryStatus
 /// <summary>
 /// A fact written, and the one it replaced when it was a correction. <see cref="SavedTo"/> is the space a new fact went
 /// into, which for an old-style save without sources is the caller's own personal space rather than the space named.
+/// <see cref="Confirmed"/>: the write confirmed <see cref="Fact"/>, which memory already held, instead of adding one.
 /// </summary>
-public sealed record MemoryWritten(MemoryFact Fact, MemoryFact? Replaced, Container? SavedTo = null);
+public sealed record MemoryWritten(MemoryFact Fact, MemoryFact? Replaced, Container? SavedTo = null, bool Confirmed = false);
 
 /// <summary>
 /// Where a save is aimed. <see cref="IsSpace"/>: named as a space, so the space alone decides personal or team.
@@ -135,7 +136,7 @@ internal static class MemoryRules
 
     public static Attempt<MemoryWritten, MemoryStatus> Written(MemoryWriteResult result, Container? savedTo = null) =>
         result.Error is not { } error
-            ? Attempt<MemoryWritten, MemoryStatus>.Succeed(new MemoryWritten(result.Fact!, result.Replaced, savedTo))
+            ? Attempt<MemoryWritten, MemoryStatus>.Succeed(new MemoryWritten(result.Fact!, result.Replaced, savedTo, result.Confirmed))
             : Fail<MemoryWritten>(result.Failure switch
             {
                 MemoryWriteFailure.NotFound => MemoryStatus.FactNotFound,
@@ -248,6 +249,33 @@ public sealed class CorrectFact(IContainerStore containers, IMemoryService memor
             return MemoryRules.FactNotFound<MemoryWritten>(factId);
 
         return MemoryRules.Written(await memory.CorrectAsync(id, kind, replacement, caller, teamWriter: true, ct));
+    }
+}
+
+/// <summary>
+/// Says a fact is still true after checking its real source: records when, and moves its check-by date on by the
+/// period asked for or, without one, by the fact's own (CON-340). The fact keeps its id, value and dates; a fact that
+/// is no longer true is corrected instead. A fact the caller cannot see reads as missing. Needs write access, and read
+/// access, since the answer shows the fact.
+/// </summary>
+[Operation("memory.confirm", Scope = MemoryRules.WriteScope, Risk = RiskTier.Write)]
+public sealed class ConfirmFact(IContainerStore containers, IMemoryService memory, IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<MemoryWritten, MemoryStatus>> RunAsync(
+        OperationContext context, string factId, MemoryCheckBy? check, CancellationToken ct = default)
+    {
+        if (!await MemoryRules.WriterAsync(authorizer, context))
+            return MemoryRules.WriteForbidden<MemoryWritten>();
+        if (!await authorizer.AllowsAsync(context.User, Policies.KnowledgeRead))
+            return MemoryRules.Fail<MemoryWritten>(MemoryStatus.Forbidden, "confirming memory also needs knowledge:read: the answer shows the fact.");
+        MemoryCaller caller = MemoryRules.Caller(context.User);
+        if (!Guid.TryParse(factId, out Guid id))
+            return MemoryRules.FactNotFound<MemoryWritten>(factId);
+        if (await memory.SpaceOfAsync(id, ct) is { } spaceId
+            && await containers.GetAsync(spaceId, caller, ct) is { Kind: not ContainerKind.Memory })
+            return MemoryRules.FactNotFound<MemoryWritten>(factId);
+
+        return MemoryRules.Written(await memory.ConfirmAsync(id, check, caller, teamWriter: true, ct));
     }
 }
 
@@ -396,7 +424,7 @@ public sealed class RecallMemory(
         if (!string.IsNullOrWhiteSpace(request.Space) && request.AsOf is null && string.IsNullOrWhiteSpace(request.Attribute))
         {
             MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject,
-                Status: request.History ? MemoryFactStatus.All : MemoryFactStatus.Current);
+                Status: request.History ? MemoryFactStatus.All : MemoryFactStatus.Current, Check: request.Check);
             MemoryFactSort sort = string.IsNullOrWhiteSpace(request.Text) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
             return PageAsync(context, request.Space,
                 new MemoryFactListing(filter, sort, request.Cursor, Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
@@ -404,9 +432,12 @@ public sealed class RecallMemory(
         if (!string.IsNullOrWhiteSpace(request.Cursor))
             return Task.FromResult(MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid,
                 "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor"));
+        if (!Enum.IsDefined(request.Check))
+            return Task.FromResult(MemoryRules.Fail<SpacedRecall>(MemoryStatus.Invalid, "check must be \"due\" or \"fresh\".", "check"));
 
         return SpacesAsync(context, request.Space,
-            new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
+            new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit,
+                Check: request.Check), ct);
     }
 
     /// <summary>
@@ -473,6 +504,7 @@ public sealed class RecallMemory(
 /// facts matching <paramref name="Text"/>, <paramref name="Subject"/> and <paramref name="Attribute"/>, true at
 /// <paramref name="AsOf"/> (now when null), ended and corrected ones too with <paramref name="History"/>; at most
 /// <paramref name="Limit"/>; and the <paramref name="Cursor"/> a previous page of one space returned.
+/// <paramref name="Check"/> keeps only the facts past their check-by date (due), or only the rest (fresh).
 /// </summary>
 public sealed record MemoryRecallRequest(
     string? Space = null,
@@ -482,7 +514,8 @@ public sealed record MemoryRecallRequest(
     DateTimeOffset? AsOf = null,
     bool History = false,
     int Limit = 10,
-    string? Cursor = null);
+    string? Cursor = null,
+    MemoryFactCheck Check = MemoryFactCheck.Any);
 
 /// <summary>
 /// What a timeline reads: one <paramref name="Space"/> by id or name, or every space the caller can see when it is
@@ -540,8 +573,10 @@ public sealed record SpacedRecall(
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
 public sealed class MemoryOperations(
     RememberFact remember, CorrectFact correct, ForgetFact forget, RecallMemory recall, ListMemoryHistory history,
-    ListMemoryFacts list, CountMemoryFacts count, ListMemorySubjects subjects)
+    ListMemoryFacts list, CountMemoryFacts count, ListMemorySubjects subjects, ConfirmFact confirm)
 {
+    public ConfirmFact Confirm { get; } = confirm;
+
     public ListMemoryFacts List { get; } = list;
 
     public CountMemoryFacts Count { get; } = count;

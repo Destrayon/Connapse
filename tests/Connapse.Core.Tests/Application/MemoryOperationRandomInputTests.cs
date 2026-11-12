@@ -478,4 +478,103 @@ public class MemoryOperationRandomInputTests
 
                 audience.Should().Be(new MemorySpaceAudience(writerRole && writeScope, hasDirectory ? accounts : null));
             }, iter: 200);
+
+    // ── memory.confirm and check-by defaults (CON-340) ────────────────────────────────────────────
+
+    /// <summary>A check-by a call can pass: none (the fact's own period), never, a period, or a date.</summary>
+    private static readonly Gen<MemoryCheckBy?> AnyCheck = Gen.OneOf(
+        Gen.OneOfConst<MemoryCheckBy?>(null, MemoryCheckBy.Never),
+        Gen.Int[1, MemoryCheckBy.MaxDays].Select(d => (MemoryCheckBy?)MemoryCheckBy.After(d)),
+        Gen.Int[-30, 30].Select(d => (MemoryCheckBy?)new MemoryCheckBy(DateTimeOffset.UnixEpoch.AddDays(d), null)));
+
+    [Fact]
+    [RandomInputTestOf(typeof(ConfirmFact))]
+    public Task Confirm_AnyCall_ReachesMemoryOnlyForAWriterWhoCanReadAFactInAMemorySpace() =>
+        Gen.Select(AnyCaller, Gen.Bool, Gen.Bool, AnySpace, Gen.Bool, Gen.Bool, Gen.Enum<MemoryWriteFailure>())
+            .SelectMany(t => Gen.Select(FactId, AnyCheck, (factId, check) => (t, factId, check)))
+            .SampleAsync(async s =>
+            {
+                var ((caller, reader, writer, space, exists, located, failure), factId, check) = s;
+                var world = new World(reader, writer, space, exists);
+                Guid spaceId = Guid.Parse(space.Id);
+                world.Memory.SpaceOfAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns(located ? spaceId : null);
+                world.Memory.ConfirmAsync(Arg.Any<Guid>(), check, Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>())
+                    .Returns(world.Answers(failure, spaceId));
+
+                var confirmed = await new ConfirmFact(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, factId.Text, check);
+
+                // A fact in a documents container is not memory, so it reads as missing like one the caller can't see.
+                bool documents = located && exists && space.Kind == ContainerKind.Documents;
+                MemoryStatus expected = !(writer && reader) ? MemoryStatus.Forbidden
+                    : !factId.IsId || documents ? MemoryStatus.FactNotFound
+                    : StatusOf(failure);
+                confirmed.Status.Should().Be(expected);
+                bool asked = writer && reader && factId.IsId;
+                world.Memory.ReceivedCalls().Should().HaveCount(!asked ? 0 : documents ? 1 : 2, "where the fact is, then the confirm");
+                if (asked && !documents)
+                    await world.Memory.Received(1).ConfirmAsync(Guid.Parse(factId.Text), check, Arg.Any<MemoryCaller>(), true, Arg.Any<CancellationToken>());
+            }, iter: 1000);
+
+    /// <summary>The status a space lookup must give, written out: missing, a documents container, or found.</summary>
+    private static MemorySpaceStatus? SpaceRefusal(Container space, bool exists) =>
+        !exists ? MemorySpaceStatus.NotFound
+        : space.Kind == ContainerKind.Documents ? MemorySpaceStatus.DocumentContainer
+        : null;
+
+    private static readonly Gen<IReadOnlyDictionary<string, int>> AnyDefaults =
+        Gen.Dictionary(Gen.String[Gen.Char["ab_"], 1, 4], Gen.Int[1, 400])[0, 4].Select(d => (IReadOnlyDictionary<string, int>)d);
+
+    [Fact]
+    [RandomInputTestOf(typeof(GetMemoryCheckDefaults))]
+    public Task CheckDefaults_AnyCall_ReadsOnlyAMemorySpaceTheReaderCanSee() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnySpace, Gen.Bool, AnyDefaults)
+            .SampleAsync(async s =>
+            {
+                var (caller, reader, space, exists, defaults) = s;
+                var world = new World(reader, false, space, exists);
+                Guid spaceId = Guid.Parse(space.Id);
+                world.Memory.CheckDefaultsAsync(spaceId, Arg.Any<CancellationToken>()).Returns(defaults);
+
+                var read = await new GetMemoryCheckDefaults(world.Containers, world.Memory, world.Authorizer).RunAsync(caller, spaceId);
+
+                MemorySpaceStatus expected = !reader ? MemorySpaceStatus.Forbidden : SpaceRefusal(space, exists) ?? MemorySpaceStatus.Success;
+                read.Status.Should().Be(expected);
+                if (expected == MemorySpaceStatus.Success)
+                    read.Result.Should().Be(new MemoryCheckDefaults(space.Id, defaults));
+                else
+                    world.Memory.ReceivedCalls().Should().BeEmpty();
+            }, iter: 500);
+
+    [Fact]
+    [RandomInputTestOf(typeof(SetMemoryCheckDefaults))]
+    public Task SetCheckDefaults_AnyCall_WritesOnlyForAWriterToAMemorySpaceAndPassesRefusalsBack() =>
+        Gen.Select(AnyCaller, Gen.Bool, AnySpace, Gen.Bool, AnyDefaults, Gen.Bool, Gen.OneOfConst<string?>(null, "Error: days must be 1 to 3650.", "too many"))
+            .SampleAsync(async s =>
+            {
+                var (caller, writer, space, exists, defaults, given, error) = s;
+                var world = new World(true, writer, space, exists);
+                Guid spaceId = Guid.Parse(space.Id);
+                world.Memory.SetCheckDefaultsAsync(spaceId, defaults, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(error);
+                world.Memory.CheckDefaultsAsync(spaceId, Arg.Any<CancellationToken>()).Returns(defaults);
+
+                var set = await new SetMemoryCheckDefaults(world.Containers, world.Memory, world.Authorizer)
+                    .RunAsync(caller, spaceId, given ? defaults : null);
+
+                MemorySpaceStatus? refused = !writer ? MemorySpaceStatus.Forbidden
+                    : !given ? MemorySpaceStatus.Invalid
+                    : SpaceRefusal(space, exists);
+                MemorySpaceStatus expected = refused ?? (error is null ? MemorySpaceStatus.Success : MemorySpaceStatus.Invalid);
+                set.Status.Should().Be(expected);
+                if (refused is null)
+                    await world.Memory.Received(1).SetCheckDefaultsAsync(spaceId, defaults, Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+                else
+                    world.Memory.ReceivedCalls().Should().BeEmpty();
+                if (expected == MemorySpaceStatus.Success)
+                    set.Result.Should().Be(new MemoryCheckDefaults(space.Id, defaults));
+                else if (refused is null)
+                {
+                    set.Field.Should().Be("days");
+                    set.Detail.Should().NotStartWith("Error: ");
+                }
+            }, iter: 500);
 }

@@ -54,6 +54,7 @@ public class MemoryPageTests : IDisposable
         ctx.Services.AddSingleton(people);
         ctx.Services.AddSingleton<IMemorySpaceStore>(spaces);
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
+        ctx.Services.AddSingleton(Substitute.For<IMemoryService>());
         ctx.Services.AddApplication();
     }
 

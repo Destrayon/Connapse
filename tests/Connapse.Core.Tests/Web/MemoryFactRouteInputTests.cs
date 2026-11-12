@@ -60,6 +60,26 @@ public class MemoryFactRouteInputTests
     }
 
     [Fact]
+    public void NewFact_CheckBy_IsReadLikeTheToolReadsIt()
+    {
+        MemoryFactsEndpoints.NewFact("s", "a", "v", null, null, null, null, keepSourcesWhenNone: false, checkBy: "30d")
+            .Fact!.Check.Should().Be(MemoryCheckBy.After(30));
+        MemoryFactsEndpoints.NewFact("s", "a", "v", null, null, null, null, keepSourcesWhenNone: false)
+            .Fact!.Check.Should().BeNull("no checkBy means the space's default");
+    }
+
+    [Fact]
+    public void NewFact_UnreadableCheckBy_IsA400NamingIt()
+    {
+        var (fact, problem) = MemoryFactsEndpoints.NewFact("s", "a", "v", null, null, null, null, keepSourcesWhenNone: false, checkBy: "0d");
+
+        fact.Should().BeNull();
+        ProblemHttpResult result = problem.Should().BeOfType<ProblemHttpResult>().Subject;
+        result.StatusCode.Should().Be(400);
+        result.ProblemDetails.Extensions["field"].Should().Be("checkBy");
+    }
+
+    [Fact]
     public void RecallResponse_ListsEachSpaceOnce_ByName_WithItsAudience()
     {
         DateTime at = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);

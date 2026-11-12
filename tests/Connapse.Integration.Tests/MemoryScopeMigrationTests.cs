@@ -109,6 +109,7 @@ public class MemoryScopeMigrationTests : IAsyncLifetime
 
             // Stops short of DeleteContainerMemory, which would delete these facts from their documents container.
             await context.GetService<IMigrator>().MigrateAsync("20261104204230_MemoryPagingIndexes");
+            await MemoryCheckBySchema.AddAsync(context);
         }
 
         Dictionary<Guid, HashSet<string>> readable = new() { [alice] = [shared, restricted], [bob] = [shared, restricted], [carol] = [shared] };

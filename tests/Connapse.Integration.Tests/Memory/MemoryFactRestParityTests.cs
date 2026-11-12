@@ -267,6 +267,83 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
         }
     }
 
+    /// <summary>
+    /// CON-340: a fact past its check-by date still comes back from recall, marked unconfirmed, on both surfaces; the
+    /// due filter returns only those; confirming one or saving it again word for word moves its date on; and a space's
+    /// default period applies to a fact saved without one.
+    /// </summary>
+    [Fact]
+    public async Task CheckBy_PastDueFact_IsRecalledUnconfirmed_FilteredAsDue_AndConfirmingClearsIt()
+    {
+        HttpClient rest = fixture.AdminClient;
+        string space = await CreateSpaceAsync(rest, $"fact-check-{Guid.NewGuid():N}"[..40]);
+        string subject = $"con-{Guid.NewGuid():N}";
+        try
+        {
+            await using McpClient mcp = await ConnectAsync(
+                await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Admin), "knowledge:read", "knowledge:write"));
+
+            HttpResponseMessage set = await rest.PutAsJsonAsync($"/api/memory/spaces/{space}/check-defaults",
+                new { days = new Dictionary<string, int> { ["status"] = 7 } });
+            set.StatusCode.Should().Be(HttpStatusCode.OK, await set.Content.ReadAsStringAsync());
+            JsonElement defaults = await Json(await rest.GetAsync($"/api/memory/spaces/{space}/check-defaults"));
+            defaults.GetProperty("days").GetProperty("status").GetInt32().Should().Be(7);
+
+            HttpResponseMessage stale = await rest.PostAsJsonAsync($"/api/memory/spaces/{space}/facts",
+                new { subject, attribute = "waiting_on", value = "a review", checkBy = "2020-01-01" });
+            stale.StatusCode.Should().Be(HttpStatusCode.Created, await stale.Content.ReadAsStringAsync());
+            string waiting = (await Json(stale)).GetProperty("fact").GetProperty("id").GetString()!;
+
+            string owner = Id(await CallAsync(mcp, "memory_remember", new()
+            {
+                ["space"] = space, ["subject"] = subject, ["attribute"] = "owner", ["value"] = "Ana", ["checkBy"] = "never",
+            }), "remembered");
+            HttpResponseMessage status = await rest.PostAsJsonAsync($"/api/memory/spaces/{space}/facts",
+                new { subject, attribute = "status", value = "in review" });
+            JsonElement statusFact = (await Json(status)).GetProperty("fact");
+            DateTimeOffset.Parse(statusFact.GetProperty("checkBy").GetString()!)
+                .Should().BeCloseTo(DateTimeOffset.UtcNow.AddDays(7), TimeSpan.FromHours(1), "the space's default for status applies");
+
+            // Past its date the fact is still recalled, marked, with when it was saved and that it was never confirmed.
+            string all = await CallAsync(mcp, "memory_recall", new() { ["space"] = space, ["subject"] = subject });
+            JsonElement shown = JsonDocument.Parse(all).RootElement.GetProperty("facts").EnumerateArray()
+                .Single(f => f.GetProperty("id").GetString() == waiting);
+            shown.GetProperty("unconfirmed").GetBoolean().Should().BeTrue();
+            shown.GetProperty("check").GetString().Should().Contain("last confirmed never");
+            (await McpRecallAsync(mcp, new() { ["space"] = space, ["subject"] = subject })).Should().HaveCount(3);
+
+            (await McpRecallAsync(mcp, new() { ["space"] = space, ["subject"] = subject, ["due"] = true }))
+                .Select(f => f.Id).Should().Equal(waiting);
+            (await RestRecallAsync(rest, $"space={space}&subject={subject}&check=due")).Select(f => f.Id).Should().Equal(waiting);
+            (await RestRecallAsync(rest, $"space={space}&subject={subject}&check=fresh")).Select(f => f.Id)
+                .Should().BeEquivalentTo([owner, statusFact.GetProperty("id").GetString()]);
+            await RefusedAsync(await rest.GetAsync($"/api/memory/facts?space={space}&check=stale"), "check");
+            await RefusedAsync(await rest.PostAsJsonAsync($"/api/memory/spaces/{space}/facts",
+                new { subject, attribute = "x", value = "y", checkBy = "0d" }), "checkBy");
+
+            // Confirming keeps the fact and moves its date on, so nothing is due any more.
+            HttpResponseMessage confirmed = await rest.PostAsJsonAsync($"/api/memory/facts/{waiting}/confirm", new { checkBy = "30d" });
+            confirmed.StatusCode.Should().Be(HttpStatusCode.OK, await confirmed.Content.ReadAsStringAsync());
+            JsonElement fact = (await Json(confirmed)).GetProperty("fact");
+            fact.GetProperty("id").GetString().Should().Be(waiting);
+            fact.GetProperty("unconfirmed").GetBoolean().Should().BeFalse();
+            fact.GetProperty("confirmedAt").ValueKind.Should().Be(JsonValueKind.String);
+            (await McpRecallAsync(mcp, new() { ["space"] = space, ["subject"] = subject, ["due"] = true })).Should().BeEmpty();
+
+            // The same fact saved again word for word confirms it rather than saving it twice.
+            string again = await CallAsync(mcp, "memory_remember", new()
+            {
+                ["space"] = space, ["subject"] = subject, ["attribute"] = "owner", ["value"] = "Ana",
+            });
+            JsonDocument.Parse(again).RootElement.GetProperty("confirmed").GetBoolean().Should().BeTrue(again);
+            (await CallAsync(mcp, "memory_confirm", new() { ["factId"] = Guid.NewGuid().ToString() })).Should().ContainEquivalentOf("not found");
+        }
+        finally
+        {
+            await DeleteSpacesAsync(space);
+        }
+    }
+
     private static async Task<List<Recalled>> RestTimelineAsync(HttpClient http, string query)
     {
         HttpResponseMessage response = await http.GetAsync($"/api/memory/timeline?{query}");

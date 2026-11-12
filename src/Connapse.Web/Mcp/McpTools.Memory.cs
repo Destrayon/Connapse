@@ -134,7 +134,7 @@ public partial class McpTools
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name a `space` that exists: memory_spaces lists yours, and memory_space_create makes one if none fits. No space is made for you. "
         + SaveTest
-        + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead.")]
+        + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead. Saving a fact that is already there word for word confirms it (the answer says `confirmed`) rather than saving it twice. Pass `checkBy` for a value that goes stale, such as a status or who something waits on.")]
     public static async Task<string> MemoryRemember(
         RememberFact remember,
         ListMemorySpaces spaces,
@@ -148,6 +148,7 @@ public partial class McpTools
         [Description("Sources: document IDs, or link node IDs as \"node:<id>\"")] string[]? sources = null,
         [Description("Why or how it was learned, e.g. the ticket that made the change")] string? reason = null,
         [Description("Older name for the space to save to; use `space` instead. A fact citing no sources saved this way goes to your own `<space>-personal` space")] string? containerId = null,
+        [Description("When to check it against its source again: a date (YYYY-MM-DD), \"<n>d\" for n days after each save or confirm, or \"never\". Omit for the space's default for this attribute")] string? checkBy = null,
         CancellationToken ct = default)
     {
         MemoryTarget target;
@@ -162,11 +163,18 @@ public partial class McpTools
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
         if (ParseSources(sources) is not { } parsed)
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
+        if (!MemoryInput.TryCheckBy(checkBy, out MemoryCheckBy? check))
+            return "Error: " + MemoryInput.CheckByRule;
 
         var written = await remember.RunAsync(Mcp(http), target,
-            new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), ct);
+            new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason, Check: check), ct);
         return written.Succeeded
-            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson)
+            ? JsonSerializer.Serialize(new
+            {
+                remembered = Shown(written.Result!.Fact, null),
+                savedTo = SavedTo(written.Result.SavedTo),
+                confirmed = written.Result.Confirmed ? true : (bool?)null,
+            }, MemoryJson)
             : Refused(written);
     }
 
@@ -237,6 +245,7 @@ public partial class McpTools
         [Description("Why it changed, e.g. the ticket")] string? reason = null,
         [Description("New subject, if it changed")] string? subject = null,
         [Description("New attribute, if it changed")] string? attribute = null,
+        [Description("When to check it against its source again: a date (YYYY-MM-DD), \"<n>d\" for n days after each save or confirm, or \"never\". Omit for the space's default for this attribute")] string? checkBy = null,
         CancellationToken ct = default)
     {
         if (MemoryInput.Correction(kind) is not { } correction)
@@ -245,12 +254,33 @@ public partial class McpTools
             return "Error: dates must be YYYY-MM-DD or ISO 8601.";
         if (ParseSources(sources) is not { } parsed)
             return "Error: a source must be a document ID (UUID) or \"node:<id>\".";
+        if (!MemoryInput.TryCheckBy(checkBy, out MemoryCheckBy? check))
+            return "Error: " + MemoryInput.CheckByRule;
 
         var written = await correct.RunAsync(Mcp(http), containerId, factId, correction,
-            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, sources is null ? null : parsed, reason), ct);
+            new NewMemoryFact(subject ?? "", attribute ?? "", value, dates.From, dates.To, sources is null ? null : parsed, reason, Check: check), ct);
         return written.Succeeded
             ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), replaced = Shown(written.Result.Replaced!, null) }, MemoryJson)
             : Refused(written);
+    }
+
+    [McpServerTool(Name = "memory_confirm", Destructive = false, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
+     Description("Record that you checked a fact against its real source and it is still true. An unconfirmed fact (past its check-by date) stops being unconfirmed, and its check-by date moves on by its period, or to `checkBy` when you pass one. Only confirm what you checked: if the value changed, call memory_correct; if it ended, correct it with the date it ended.")]
+    public static async Task<string> MemoryConfirm(
+        ConfirmFact confirm,
+        IHttpContextAccessor http,
+        [Description("ID of the fact to confirm (from memory_recall)")] string factId,
+        [Description("When to check it next: a date (YYYY-MM-DD), \"<n>d\" for n days from now and after each confirm, or \"never\". Omit to start its own period again")] string? checkBy = null,
+        CancellationToken ct = default)
+    {
+        if (!MemoryInput.TryCheckBy(checkBy, out MemoryCheckBy? check))
+            return "Error: " + MemoryInput.CheckByRule;
+
+        var confirmed = await confirm.RunAsync(Mcp(http), factId, check, ct);
+        return confirmed.Succeeded
+            ? JsonSerializer.Serialize(new { confirmed = Shown(confirmed.Result!.Fact, null) }, MemoryJson)
+            : Refused(confirmed);
     }
 
     [McpServerTool(Name = "memory_forget", Destructive = true),
@@ -269,7 +299,7 @@ public partial class McpTools
 
     [McpServerTool(Name = "memory_recall", ReadOnly = true, Idempotent = true),
      Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
-     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, or leave it out to read every space you can see. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its space, whether it is personal (only you see it) or team, its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\"). Reading one named space without `asOf` or `attribute` returns `nextCursor` when there are more facts: pass it back as `cursor` for the next page.")]
+     Description("Read facts from memory: what is true now, or on a past date with `asOf`. Name a `space` to read one space, or leave it out to read every space you can see. Filter by subject or attribute, or pass a question as `query`. Each fact comes with its space, whether it is personal (only you see it) or team, its dates, author and sources. Use includeHistory to also get ended and corrected facts (for \"which ticket changed X\" or \"when did X change\"). Reading one named space without `asOf` or `attribute` returns `nextCursor` when there are more facts: pass it back as `cursor` for the next page. A fact marked `unconfirmed` is past its check-by date and may no longer be true: check it against its source before acting on it, then memory_confirm or memory_correct it. Pass `due` to get only those.")]
     public static async Task<string> MemoryRecall(
         RecallMemory recall,
         IHttpContextAccessor http,
@@ -282,13 +312,15 @@ public partial class McpTools
         [Description("At most this many facts (1-100). Default 10")] int limit = 10,
         [Description("Older name for `space`")] string? containerId = null,
         [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
+        [Description("Only the facts past their check-by date, which need checking against their source")] bool due = false,
         CancellationToken ct = default)
     {
         if (ParseDates(asOf, null) is not { } at)
             return "Error: asOf must be YYYY-MM-DD or ISO 8601.";
 
         return RecallJson(await recall.RecallAsync(Mcp(http),
-            new MemoryRecallRequest(NamedSpace(space, containerId), query, subject, attribute, at.From, includeHistory, limit, cursor), ct));
+            new MemoryRecallRequest(NamedSpace(space, containerId), query, subject, attribute, at.From, includeHistory, limit, cursor,
+                due ? MemoryFactCheck.Due : MemoryFactCheck.Any), ct));
     }
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),
@@ -349,12 +381,20 @@ public partial class McpTools
         status = fact.SupersededAt is not null ? "corrected" : fact.ValidTo is not null ? "ended" : "current",
         fact.RecordedAt,
         fact.SupersededAt,
+        fact.CheckBy,
+        fact.ConfirmedAt,
+        unconfirmed = fact.Unconfirmed ? true : (bool?)null,
+        check = fact.Unconfirmed ? UnconfirmedNote(fact) : null,
         replaces = fact.ReplacesId,
         fact.Reason,
         author = new { userId = fact.Author.UserId, agentId = fact.Author.AgentId, name = fact.Author.Name },
         sources = sources?.Select(s => new { kind = s.Kind, id = s.Ref, title = s.Title })
             ?? fact.Sources.Select(s => new { kind = s.Kind, id = s.Ref, title = (string?)null }),
     };
+
+    /// <summary>What an agent should do with a fact past its check-by date, with when it was saved and last confirmed.</summary>
+    internal static string UnconfirmedNote(MemoryFact fact) => string.Create(CultureInfo.InvariantCulture,
+        $"Unconfirmed: past its check-by date. Saved {fact.RecordedAt:yyyy-MM-dd}, last confirmed {(fact.ConfirmedAt is { } at ? at.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "never")}. Check it against its source before relying on it.");
 
     /// <summary>Both dates parsed (a missing one as null), or null when either is not a date. A bare date is midnight UTC.</summary>
     internal static (DateTimeOffset? From, DateTimeOffset? To)? ParseDates(string? from, string? to) => MemoryInput.Dates(from, to);
