@@ -321,6 +321,52 @@ public class TablesArmsEvalTests
     }
 
     [Fact]
+    public void ReadRun_RunLinesReadBack_ScoreTheSameReport()
+    {
+        TableQuestion a = Question("a", family: "lookup", user: "restricted");
+        TableQuestion b = Question("b", family: "aggregate");
+        List<ArmRun> runs =
+        [
+            Run(a, "structured", 0, true, calls: 3, tools: ["search_knowledge"]), Run(a, "sql", 0, true, calls: 1, cost: 0.2),
+            Run(a, "sql", 1, false, calls: 2), Run(a, "structured", 1, true, calls: 4),
+            Run(b, "structured", 0, false, outcome: AgentOutcome.OutOfCalls), Run(b, "sql", 0, true, calls: 2),
+            Run(b, "sql", 1, true, calls: 3, tools: ["get_document"]), Run(b, "structured", 1, false, calls: 6),
+        ];
+
+        List<ArmRun> readBack = [.. TablesArmsEval.RunLines(runs).Select(TablesArmsEval.ReadRun)];
+
+        readBack.Select(r => (r.Question.Id, r.Arm, r.Run, r.ToolCalls, r.SearchCalls, r.ConfidentWrong, r.Question.Restricted))
+            .Should().Equal(runs.Select(r => (r.Question.Id, r.Arm, r.Run, r.ToolCalls, r.SearchCalls, r.ConfidentWrong, r.Question.Restricted)));
+        TablesArmsEval.Report(Options(runs: 2), 2, readBack).ToJsonString()
+            .Should().Be(TablesArmsEval.Report(Options(runs: 2), 2, runs).ToJsonString());
+    }
+
+    [Fact]
+    public async Task ScoreAsync_RunsFile_WritesTheReport()
+    {
+        string runsPath = Path.Combine(Path.GetTempPath(), $"score-{Guid.NewGuid():N}.runs.jsonl");
+        string outPath = Path.ChangeExtension(runsPath, ".json");
+        await File.WriteAllLinesAsync(runsPath, TablesArmsEval.RunLines([Run(Question("a"), "sql", 0, true), Run(Question("a"), "structured", 0, false)]));
+        try
+        {
+            TablesArmsEval.Options options = Options(runs: 1) with { Base = Options().Base with { OutPath = outPath } };
+
+            int code = await TablesArmsEval.ScoreAsync(options, runsPath, TextWriter.Null, CancellationToken.None);
+
+            code.Should().Be(0);
+            JsonNode report = JsonNode.Parse(await File.ReadAllTextAsync(outPath))!;
+            report["questions"]!.GetValue<int>().Should().Be(1);
+            report["comparison"]!["correctAnswers"]!["onlySql"]!.GetValue<int>().Should().Be(1);
+            report["scoredFrom"]!.GetValue<string>().Should().Be(Path.GetFileName(runsPath));
+        }
+        finally
+        {
+            File.Delete(runsPath);
+            File.Delete(outPath);
+        }
+    }
+
+    [Fact]
     public async Task RunJournal_AppendAsync_WritesEachRunAsItFinishes()
     {
         string path = Path.Combine(Path.GetTempPath(), $"runjournal-{Guid.NewGuid():N}.runs.jsonl");

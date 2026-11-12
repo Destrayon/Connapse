@@ -69,6 +69,13 @@ internal static class EvalEntryPoint
                     cli.Option("effort") ?? "medium", cli.PositiveInt("limit-tasks"), cli.List("ids"), cli.PositiveInt("workers") ?? 1,
                     cli.Option("out"), cli.Option("agent-dir"), cli.PositiveInt("stall-minutes"),
                     cli.PositiveInt("min-free-gb") is int nestedGb ? nestedGb * 1024L * 1024 * 1024 : TablesLinkedEval.DefaultMinFreeMemory), cts.Token),
+                "tables-arms-score" => await TablesArmsEval.ScoreAsync(new TablesArmsEval.Options(
+                    new TablesRagEval.Options(
+                        cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
+                        cli.Option("effort") ?? "medium", cli.PositiveInt("limit-tasks"), cli.List("ids"), SkipMixed: true,
+                        1, cli.Option("out"), Tables: cli.List("tables")),
+                    TableArm.Parse(cli.List("arms")), cli.PositiveInt("runs") ?? TablesArmsEval.RegisteredRuns),
+                    cli.Required("runs-file"), Console.Out, cts.Token),
                 "memory-learned" => await new MemoryLearnedEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
@@ -310,6 +317,7 @@ internal static class Commands
               tables-arms [--arms structured,sql] [--runs 3] [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (CON-327: the structured table tools against table_sql on the same tables-v1 questions, with the CON-320 pass bar's McNemar and Wilcoxon; runs `claude -p` on your Claude subscription)
               tables-linked [--config hybrid] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--reserve] [--min-free-gb 8] [--out <file>]   (CON-312: the linked-set reports asked with all six tools, with passage links (both-linked) and without (both-unlinked), scored on the passage-link bar; --reserve asks the sealed reserve set once instead, after checking its pinned SHA-256; each run waits while free memory is under --min-free-gb; runs `claude -p` on your Claude subscription)
               tables-nested [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--min-free-gb 8] [--out <file>]   (CON-335: nested JSON, JSON Lines, XML and YAML files asked with the four table tools, scored on the nested-files bar; runs `claude -p` on your Claude subscription)
+              tables-arms-score --runs-file <runs.jsonl> [--out <file>] [the tables-arms options the run used]   (scores a finished tables-arms run from its .runs.jsonl without asking again)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
 }

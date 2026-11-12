@@ -164,6 +164,8 @@ not downloaded, so build them once before the first run, then try a slice:
   `--skip-mixed` (mixed questions are not asked). Anything but both arms, 3 runs and the 180 test questions is marked
   diagnostic only. Every run lands in `<out>.runs.jsonl` with its arm, run number, calls, cost and wall time as soon
   as it finishes, so a run that is cut short keeps what it measured; a finished run rewrites the file in schedule order.
+- `tables-arms-score --runs-file <out>.runs.jsonl --out <file>` builds the report from those lines without asking
+  anything again, using each run's recorded grade. Pass the same options the run used; it needs no Docker or Ollama.
 
 ## Files and reports
 
