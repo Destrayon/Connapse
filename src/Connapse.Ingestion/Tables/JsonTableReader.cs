@@ -60,9 +60,19 @@ internal static class JsonTableReader
 
         file.Position = 0;
         JsonDocument document = await JsonDocument.ParseAsync(file, DocumentOptions, ct);
+        return await FlattenOwnedAsync(document, One(document.RootElement), fileName, documentId, ct);
+    }
+
+    /// <summary>
+    /// The tables of a value held in <paramref name="document"/>, which becomes their owner, or none, with the document
+    /// disposed, when the value isn't a table.
+    /// </summary>
+    public static async Task<(IReadOnlyList<TableLoad> Tables, string? Warning, IDisposable? Owner)> FlattenOwnedAsync(
+        JsonDocument document, RecordSource source, string fileName, Guid? documentId, CancellationToken ct)
+    {
         try
         {
-            IReadOnlyList<TableLoad> tables = await TreeFlattener.FlattenAsync(One(document.RootElement), fileName, documentId, ct);
+            IReadOnlyList<TableLoad> tables = await TreeFlattener.FlattenAsync(source, fileName, documentId, ct);
             if (tables.Count == 0)
             {
                 document.Dispose();

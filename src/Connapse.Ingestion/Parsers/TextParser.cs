@@ -15,6 +15,8 @@ public class TextParser : IDocumentParser
         ".csv",
         ".log",
         ".json",
+        ".jsonl",
+        ".ndjson",
         ".xml",
         ".yaml",
         ".yml"
@@ -45,6 +47,7 @@ public class TextParser : IDocumentParser
                 ".md" or ".markdown" => "Markdown",
                 ".csv" => "CSV",
                 ".json" => "JSON",
+                ".jsonl" or ".ndjson" => "JSON Lines",
                 ".xml" => "XML",
                 ".yaml" or ".yml" => "YAML",
                 ".log" => "Log",
