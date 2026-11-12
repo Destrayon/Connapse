@@ -29,6 +29,7 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
     public DbSet<ContainerTableEntity> ContainerTables => Set<ContainerTableEntity>();
     public DbSet<RetiredTableEntity> RetiredTables => Set<RetiredTableEntity>();
     public DbSet<TablePassageLinkEntity> TablePassageLinks => Set<TablePassageLinkEntity>();
+    public DbSet<TableSavedQueryEntity> TableSavedQueries => Set<TableSavedQueryEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -119,6 +120,24 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
             entity.Property(e => e.RetiredAt).HasColumnName("retired_at").HasDefaultValueSql("now()");
             entity.HasIndex(e => e.RetiredAt).HasDatabaseName("ix_retired_tables_retired_at");
             // The container's schema is dropped with the container, taking its retired tables with it.
+            entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TableSavedQueryEntity>(entity =>
+        {
+            entity.ToTable("table_saved_queries", t => t.HasCheckConstraint("ck_table_saved_queries_kind",
+                "kind IN ('read', 'aggregate')"));
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.ContainerId).HasColumnName("container_id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(64).IsRequired();
+            entity.Property(e => e.Description).HasColumnName("description").IsRequired();
+            entity.Property(e => e.Kind).HasColumnName("kind").HasMaxLength(16).IsRequired();
+            entity.Property(e => e.Request).HasColumnName("request").IsRequired();
+            entity.Property(e => e.ParametersJson).HasColumnName("parameters").HasColumnType("jsonb").IsRequired();
+            entity.Property(e => e.SavedBy).HasColumnName("saved_by").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.SavedAt).HasColumnName("saved_at").HasDefaultValueSql("now()");
+            entity.HasIndex(e => new { e.ContainerId, e.Name }).IsUnique().HasDatabaseName("ix_table_saved_queries_container_name");
             entity.HasOne<ContainerEntity>().WithMany().HasForeignKey(e => e.ContainerId).OnDelete(DeleteBehavior.Cascade);
         });
     }

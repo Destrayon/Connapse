@@ -101,6 +101,39 @@
       "note": "Off unless an administrator turns on the container's Tables.AgentSql setting. Only tables from files the caller may read are visible, and none with hidden columns."
     },
     {
+      "id": "tables.queries.list",
+      "capability": "List the saved queries the caller may run",
+      "routes": [
+        "GET /api/containers/{containerId:guid}/tables/queries"
+      ],
+      "mcp": "table_query_list"
+    },
+    {
+      "id": "tables.queries.run",
+      "capability": "Run a saved query; its answer is marked trusted",
+      "routes": [
+        "POST /api/containers/{containerId:guid}/tables/queries/{name}/run"
+      ],
+      "mcp": "table_query_run",
+      "note": "Login parameters are filled from the caller and can't be sent. A query over a table the caller can't read fails like a missing one."
+    },
+    {
+      "id": "tables.queries.save",
+      "capability": "Save a vetted query with typed parameters",
+      "routes": [
+        "PUT /api/containers/{containerId:guid}/tables/queries/{name}"
+      ],
+      "mcp": "generic"
+    },
+    {
+      "id": "tables.queries.delete",
+      "capability": "Delete a saved query",
+      "routes": [
+        "DELETE /api/containers/{containerId:guid}/tables/queries/{name}"
+      ],
+      "mcp": "generic"
+    },
+    {
       "id": "tables.hideColumns",
       "capability": "Hide a table's columns from every caller",
       "routes": [

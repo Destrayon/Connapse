@@ -1356,6 +1356,69 @@ namespace Connapse.Storage.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.TableSavedQueryEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("ContainerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_id");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ParametersJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("parameters");
+
+                    b.Property<string>("Request")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("request");
+
+                    b.Property<DateTime>("SavedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("saved_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("SavedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("saved_by");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContainerId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_table_saved_queries_container_name");
+
+                    b.ToTable("table_saved_queries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_table_saved_queries_kind", "kind IN ('read', 'aggregate')");
+                        });
+                });
+
             modelBuilder.Entity("Connapse.Storage.Data.Entities.BatchDocumentEntity", b =>
                 {
                     b.HasOne("Connapse.Storage.Data.Entities.BatchEntity", "Batch")
@@ -1516,6 +1579,15 @@ namespace Connapse.Storage.Migrations
                     b.HasOne("Connapse.Storage.Data.Entities.ContainerTableEntity", null)
                         .WithMany()
                         .HasForeignKey("TableId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Connapse.Storage.Data.Entities.TableSavedQueryEntity", b =>
+                {
+                    b.HasOne("Connapse.Storage.Data.Entities.ContainerEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ContainerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

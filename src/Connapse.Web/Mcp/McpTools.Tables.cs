@@ -177,6 +177,62 @@ public partial class McpTools
         return changed.Succeeded ? JsonSerializer.Serialize(changed.Result, MemoryJson) : TableRefused(changed);
     }
 
+    [McpServerTool(Name = "table_query_list", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
+     Description("List the queries admins saved and vetted for a container that you may run: name, description, its parameters with their types and defaults, and which ones are filled from your login (you can't send those). Prefer a saved query over writing table_read or table_aggregate yourself when one answers the question: run it with table_query_run, and its answer is marked trusted.")]
+    public static async Task<string> TableQueryList(
+        ListTableQueries list,
+        GetContainer getContainer,
+        IHttpContextAccessor http,
+        [Description("Container ID or name")] string containerId,
+        CancellationToken ct = default)
+    {
+        var (id, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
+        if (id is null)
+            return missing!;
+        var listed = await list.RunAsync(Mcp(http), id.Value, ct);
+        if (!listed.Succeeded)
+            return Refused(listed);
+        return JsonSerializer.Serialize(new
+        {
+            queries = listed.Result!.Select(SavedQueryResponse.From).Select(q => new
+            {
+                q.Name,
+                q.Description,
+                q.Kind,
+                Parameters = q.Parameters,
+            }),
+        }, MemoryJson);
+    }
+
+    [McpServerTool(Name = "table_query_run", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
+     Description("Run a saved query by name, from table_query_list. `arguments` is a JSON object of its parameters, such as {\"region\": \"east\"}; leave out any with a default to use it, and never send one filled from your login. The answer is marked trusted: an admin wrote and vetted the query. Only rows you may read come back.")]
+    public static async Task<string> TableQueryRun(
+        RunTableQuery run,
+        GetContainer getContainer,
+        IHttpContextAccessor http,
+        [Description("Container ID or name")] string containerId,
+        [Description("The saved query's name, from table_query_list")] string name,
+        [Description("The query's arguments, as a JSON object")] JsonElement? arguments = null,
+        CancellationToken ct = default)
+    {
+        var (id, missing) = await ContainerIdAsync(getContainer, http, containerId, ct);
+        if (id is null)
+            return missing!;
+        JsonElement? args;
+        try
+        {
+            args = arguments is { } a ? TableRequestObject(a) : null;
+        }
+        catch (TableQueryException)
+        {
+            return $"Error: arguments must be a JSON object, such as {{\"region\": \"east\"}}. {TableRetryHint}";
+        }
+        var ran = await run.RunAsync(Mcp(http), id.Value, name, args, ct);
+        return ran.Succeeded ? JsonSerializer.Serialize(ran.Result, MemoryJson) : TableRefused(ran);
+    }
+
     /// <summary>
     /// The request object, also when an agent sent it as a JSON string; anything else is left for the parser to refuse
     /// with what it expected.

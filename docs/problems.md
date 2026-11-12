@@ -151,6 +151,17 @@ what changed or read the table as seen at an earlier time. Read its rows as they
 
 A column to hide isn't one of the table's columns. Name columns by their headers, as the table lists them.
 
+## saved-query-not-found
+
+The container has no saved query by that name, or the query reads a table the caller can't read. The two look
+the same on purpose. List the container's saved queries to see the ones you can run.
+
+## login-value-missing
+
+The saved query fills a parameter from the caller's login, such as their email address, and this login doesn't
+carry it. Agent keys never carry an email address. Sign in as a person whose login has it, or ask an admin for a
+query that uses the user id instead.
+
 ## memory-container
 
 The container is an agent memory container: it holds memory facts, not documents, so uploads, file listings,

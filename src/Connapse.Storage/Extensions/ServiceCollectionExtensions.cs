@@ -167,6 +167,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITableStore>(sp => sp.GetRequiredService<Tables.PostgresTableStore>());
         services.AddScoped<ITablePassageLinks, Tables.PostgresTablePassageLinks>();
 
+        // Queries admins saved for agents (CON-311)
+        services.AddScoped<ISavedQueryStore, Tables.PostgresSavedQueryStore>();
+
         // Agents' table queries run on a read-only login with its own pool (CON-303)
         services.AddSingleton(sp => new Tables.TableReaderLogin(
             dataSource, connectionString, configuration, sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Tables.TableReaderLogin>>()));

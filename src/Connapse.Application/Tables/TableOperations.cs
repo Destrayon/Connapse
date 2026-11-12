@@ -45,6 +45,12 @@ public enum TableStatus
 
     [Failure(400, "query-not-run", "Query not run")]
     QueryNotRun,
+
+    [Failure(404, "saved-query-not-found", "Saved query not found")]
+    SavedQueryNotFound,
+
+    [Failure(403, "login-value-missing", "Login value missing")]
+    LoginValueMissing,
 }
 
 /// <summary>One page of a container's tables, by name, with how many it holds in all and whether another page follows.</summary>

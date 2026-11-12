@@ -59,6 +59,29 @@ public class TablePassageLinkEntity
 }
 
 /// <summary>
+/// A query an admin saved for a container's tables (CON-311), unique by name in its container. <see cref="Request"/>
+/// is kept as the admin wrote it, as text, so the strict parser sees exactly what was checked when it was saved.
+/// </summary>
+public class TableSavedQueryEntity
+{
+    public Guid Id { get; set; }
+    public Guid ContainerId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary><c>read</c> or <c>aggregate</c>.</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    public string Request { get; set; } = string.Empty;
+
+    /// <summary>The typed parameters, as a JSON array.</summary>
+    public string ParametersJson { get; set; } = "[]";
+
+    public string SavedBy { get; set; } = string.Empty;
+    public DateTime SavedAt { get; set; }
+}
+
+/// <summary>
 /// A table no catalog entry points at any more, waiting to be dropped. Dropping waits a grace period, so a reader
 /// that resolved the old name just before a reload still finds its table.
 /// </summary>

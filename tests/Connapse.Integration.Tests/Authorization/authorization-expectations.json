@@ -315,6 +315,26 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "GET /api/containers/{containerId:guid}/tables/queries": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
+    "PUT /api/containers/{containerId:guid}/tables/queries/{name}": {
+      "requires": "admin",
+      "risk": "write",
+      "scope": "admin:settings"
+    },
+    "DELETE /api/containers/{containerId:guid}/tables/queries/{name}": {
+      "requires": "admin",
+      "risk": "destructive",
+      "scope": "admin:settings"
+    },
+    "POST /api/containers/{containerId:guid}/tables/queries/{name}/run": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "POST /api/containers/{containerId:guid}/tables/read": {
       "requires": "viewer",
       "risk": "read",
@@ -1243,6 +1263,16 @@
       "risk": "read"
     },
     "table_changes": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_query_list": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_query_run": {
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"
