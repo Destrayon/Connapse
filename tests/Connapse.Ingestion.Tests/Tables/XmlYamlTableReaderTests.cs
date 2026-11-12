@@ -131,6 +131,16 @@ public class XmlYamlTableReaderTests
     }
 
     [Fact]
+    public async Task ReadAsync_YamlTopLevelList_LoadsOneRowPerItem()
+    {
+        Read read = await ReadAsync("- name: a\n  port: 80\n- name: b\n  port: 443\n", "fleet.yaml");
+
+        read.Names.Should().Equal("fleet");
+        read.Columns("fleet").Should().Equal("name", "port");
+        read.RowsOf("fleet").Select(r => (r[0], r[1])).Should().Equal(("a", (object)80L), ("b", 443L));
+    }
+
+    [Fact]
     public async Task ReadAsync_YamlAliasBomb_IsRefusedAsUnreadable()
     {
         var yaml = new StringBuilder("a: &a [x, x, x, x, x, x, x, x, x, x]\n");

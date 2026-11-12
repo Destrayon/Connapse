@@ -9,8 +9,9 @@ namespace Connapse.Ingestion.Tables;
 
 /// <summary>
 /// Turns a YAML file into typed tables (CON-335) by reading it as the JSON it maps to and handing that to
-/// <see cref="TreeFlattener"/>. One document is one record, loaded like a top-level JSON object; a stream of several
-/// documents is one record per document, loaded like JSON Lines. Plain scalars follow YAML 1.2's core schema for null
+/// <see cref="TreeFlattener"/>. One document is one record, loaded like a top-level JSON object, unless it is a list,
+/// which loads like a top-level JSON array; a stream of several documents is one record per document, loaded like JSON
+/// Lines. Plain scalars follow YAML 1.2's core schema for null
 /// and true/false; every other scalar is text, typed by the CSV loader's rules, so <c>no</c> and <c>on</c> stay words.
 /// Anchors and aliases are expanded and <c>&lt;&lt;</c> merge keys applied, up to <see cref="MaxValues"/> values in all,
 /// so a file of nested aliases can't blow up memory.
@@ -65,7 +66,8 @@ internal static class YamlTableReader
         }
         JsonDocument json = JsonDocument.Parse(buffer.WrittenMemory, new JsonDocumentOptions { MaxDepth = MaxDepth + 8 });
         JsonElement root = json.RootElement;
-        RecordSource source = documents.Count == 1
+        // A single document that is a list loads like a top-level JSON array: one record per item.
+        RecordSource source = documents.Count == 1 && documents[0] is not Sequence
             ? JsonTableReader.One(root)
             : new RecordSource(_ => Items(root), singleRecord: false);
         return await JsonTableReader.FlattenOwnedAsync(json, source, fileName, documentId, ct);
