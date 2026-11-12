@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Npgsql;
-using NpgsqlTypes;
 using Pgvector;
 
 namespace Connapse.Storage.Tables;
@@ -30,7 +29,20 @@ public sealed class PgTableCardIndex(
         ArgumentNullException.ThrowIfNull(cards);
         try
         {
-            await EmbedStaleAsync(containerId, cards, int.MaxValue, ct);
+            string model = ModelId;
+            Guid[] ids = [.. cards.Select(c => c.TableId).Distinct()];
+            Dictionary<Guid, string> hashes;
+            await using (var context = await factory.CreateDbContextAsync(ct))
+            {
+                hashes = await context.TableCardVectors
+                    .Where(v => v.ModelId == model && ids.Contains(v.TableId))
+                    .Select(v => new { v.TableId, v.TextHash })
+                    .ToDictionaryAsync(v => v.TableId, v => v.TextHash, ct);
+            }
+
+            List<TableCard> stale = [.. cards.DistinctBy(c => c.TableId).Where(c => hashes.GetValueOrDefault(c.TableId) != c.Hash)];
+            if (stale.Count > 0)
+                await EmbedAndSaveAsync(containerId, model, stale, [.. hashes.Keys], ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -49,59 +61,85 @@ public sealed class PgTableCardIndex(
         float[] vector;
         try
         {
-            await EmbedStaleAsync(containerId, cards, MaxEmbedPerCall, ct);
             vector = await embeddings.EmbedAsync(query, EmbeddingInputType.Query, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Couldn't embed table cards or the search in container {ContainerId}", containerId);
+            logger.LogWarning(ex, "Couldn't embed the table search in container {ContainerId}", containerId);
             return TableCardSimilarities.Unavailable(cards.Count);
         }
 
+        string model = ModelId;
         int dims = vector.Length;
-        await using var context = await factory.CreateDbContextAsync(ct);
-        // Only vectors of the query's size are comparable, and only those made from the card as it is now.
+        // One round trip that sends only the query vector: sending every card's id and hash made searches over 876
+        // tables stall past their 50 ms bar. Hashes are compared here instead, and a vector of another size has no score.
         string sql = $"""
-            SELECT v.table_id AS "TableId", 1 - (v.embedding::vector({dims}) <=> @query) AS "Similarity"
-            FROM table_card_vectors v
-            JOIN unnest(@ids, @hashes) AS c(id, hash) ON c.id = v.table_id AND c.hash = v.text_hash
-            WHERE v.container_id = @container AND v.model_id = @model AND vector_dims(v.embedding) = {dims}
+            SELECT table_id AS "TableId", text_hash AS "TextHash",
+                   CASE WHEN vector_dims(embedding) = {dims} THEN 1 - (embedding::vector({dims}) <=> @query) END AS "Similarity"
+            FROM table_card_vectors
+            WHERE container_id = @container AND model_id = @model
             """;
-        List<CardScore> rows = await context.Database.SqlQueryRaw<CardScore>(sql,
-                new NpgsqlParameter("@query", new Vector(vector)),
-                new NpgsqlParameter("@ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = cards.Select(c => c.TableId).ToArray() },
-                new NpgsqlParameter("@hashes", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = cards.Select(c => c.Hash).ToArray() },
-                new NpgsqlParameter("@container", containerId),
-                new NpgsqlParameter("@model", ModelId))
-            .ToListAsync(ct);
+        List<StoredScore> rows;
+        await using (var context = await factory.CreateDbContextAsync(ct))
+        {
+            rows = await context.Database.SqlQueryRaw<StoredScore>(sql,
+                    new NpgsqlParameter("@query", new Vector(vector)),
+                    new NpgsqlParameter("@container", containerId),
+                    new NpgsqlParameter("@model", model))
+                .ToListAsync(ct);
+        }
 
-        Dictionary<Guid, double> scores = rows.Where(r => !double.IsNaN(r.Similarity)).ToDictionary(r => r.TableId, r => r.Similarity);
+        Dictionary<Guid, StoredScore> stored = rows.ToDictionary(r => r.TableId);
+        Dictionary<Guid, double> scores = [];
+        List<TableCard> stale = [];
+        foreach (TableCard card in cards.DistinctBy(c => c.TableId))
+        {
+            if (!stored.TryGetValue(card.TableId, out StoredScore? row) || row.TextHash != card.Hash)
+                stale.Add(card);
+            else if (row.Similarity is double similarity && !double.IsNaN(similarity))
+                scores[card.TableId] = similarity;
+        }
+
+        if (stale.Count > 0)
+        {
+            List<TableCard> batch = [.. stale.Take(MaxEmbedPerCall)];
+            try
+            {
+                IReadOnlyList<float[]> vectors = await EmbedAndSaveAsync(containerId, model, batch, [.. stored.Keys], ct);
+                for (int i = 0; i < batch.Count; i++)
+                    if (Cosine(vector, vectors[i]) is double similarity)
+                        scores[batch[i].TableId] = similarity;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // A stale card stays unscored rather than ranked by its old vector.
+                logger.LogWarning(ex, "Couldn't embed {Count} table cards in container {ContainerId}", batch.Count, containerId);
+            }
+        }
+
         return new TableCardSimilarities(scores, cards.Count - scores.Count, scores.Count > 0);
     }
 
     private string ModelId => EmbeddingIdentity.For(settings.CurrentValue);
 
-    /// <summary>Embeds up to <paramref name="limit"/> cards whose vector is missing or stale, in the order given.</summary>
-    private async Task EmbedStaleAsync(Guid containerId, IReadOnlyList<TableCard> cards, int limit, CancellationToken ct)
+    /// <summary>Embeds <paramref name="stale"/> and saves each vector, updating the rows already in <paramref name="existing"/>.</summary>
+    private async Task<IReadOnlyList<float[]>> EmbedAndSaveAsync(
+        Guid containerId, string model, List<TableCard> stale, HashSet<Guid> existing, CancellationToken ct)
     {
-        string model = ModelId;
-        Guid[] ids = [.. cards.Select(c => c.TableId).Distinct()];
-        await using var context = await factory.CreateDbContextAsync(ct);
-        Dictionary<Guid, TableCardVectorEntity> stored = await context.TableCardVectors
-            .Where(v => v.ModelId == model && ids.Contains(v.TableId))
-            .ToDictionaryAsync(v => v.TableId, ct);
-        List<TableCard> stale = [.. cards
-            .DistinctBy(c => c.TableId)
-            .Where(c => !stored.TryGetValue(c.TableId, out TableCardVectorEntity? v) || v.TextHash != c.Hash)
-            .Take(limit)];
-        if (stale.Count == 0)
-            return;
-
         IReadOnlyList<float[]> vectors = await embeddings.EmbedBatchAsync(stale.Select(c => c.Text), EmbeddingInputType.Document, ct);
+
+        await using var context = await factory.CreateDbContextAsync(ct);
+        Guid[] staleIds = [.. stale.Select(c => c.TableId).Where(existing.Contains)];
+        Dictionary<Guid, TableCardVectorEntity> rows = staleIds.Length == 0
+            ? []
+            : await context.TableCardVectors
+                .Where(v => v.ModelId == model && staleIds.Contains(v.TableId))
+                .ToDictionaryAsync(v => v.TableId, ct);
+
         for (int i = 0; i < stale.Count; i++)
         {
             TableCard card = stale[i];
-            if (stored.TryGetValue(card.TableId, out TableCardVectorEntity? row))
+            if (rows.TryGetValue(card.TableId, out TableCardVectorEntity? row))
             {
                 row.TextHash = card.Hash;
                 row.Embedding = new Vector(vectors[i]);
@@ -130,7 +168,25 @@ public sealed class PgTableCardIndex(
             // Another search or load embedded the same cards, or a table was deleted, meanwhile; theirs stands.
             logger.LogDebug(ex, "Table card vectors in container {ContainerId} changed while embedding", containerId);
         }
+
+        return vectors;
     }
 
-    private sealed record CardScore(Guid TableId, double Similarity);
+    /// <summary>Cosine similarity as pgvector's <c>1 - (a &lt;=&gt; b)</c> gives it; none when sizes differ or a vector is zero.</summary>
+    private static double? Cosine(float[] a, float[] b)
+    {
+        if (a.Length != b.Length)
+            return null;
+        double dot = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.Length; i++)
+        {
+            dot += (double)a[i] * b[i];
+            na += (double)a[i] * a[i];
+            nb += (double)b[i] * b[i];
+        }
+
+        return na == 0 || nb == 0 ? null : dot / Math.Sqrt(na * nb);
+    }
+
+    private sealed record StoredScore(Guid TableId, string TextHash, double? Similarity);
 }

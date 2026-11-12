@@ -224,6 +224,27 @@ not change once results exist.
   seed 13 from Spider's train questions over the same 876 tables, unopened until then.
 - **Bar 3, 4 or 5 fails:** blocked until fixed.
 
+### Result (2026-11-11, scored once)
+
+**Hybrid ships.** On the 885 test questions, 876 tables, 0 load failures and 0 unresolved gold tables:
+
+| | Found in top 10 |
+|---|---|
+| keyword | 82.7% |
+| hybrid | 89.4% |
+
+1. Passed: 89.4% ≥ 75%.
+2. Passed: +6.7 points; 60 questions only hybrid found, 1 only keyword found, exact McNemar p = 5.4e-17.
+3. Passed: 0 LLM tokens, one query embedding per search, every card embedded at load (none left at search time),
+   ranking p95 5.0 ms (p50 2.0 ms). The harness subtracts a second, cached read of the query vector from each
+   timing; adding that read's own p95 (8.4 ms) back still leaves the ranking far under 50 ms.
+4. and 5. Passed: the existing `table_list` tests pass unchanged, and `TableListSearchTests` and `TableCardIndexTests`
+   cover hidden columns.
+
+Only the `tune` split was used for building: there keyword found 89.3% and hybrid 94.0% of 149 questions. Ranking
+first missed bar 3 there (p95 78 ms), because each search sent every card's id and hash to the database twice; it was
+redesigned to send only the query vector before the test split was opened.
+
 ## Baselines
 
 Recorded on 2026-10-24 with the `hybrid` config (nomic-embed-text through Ollama, reranker off) from the commit
