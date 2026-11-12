@@ -24,7 +24,7 @@ public partial class McpTools
         SpacedRecall result = recalled.Result!;
         string? note = result.SkippedSpaces > 0
             ? $"Read the {RecallMemory.MaxSpaces} most recently changed spaces; {result.SkippedSpaces} more were not read. Name a `space` to read one of them."
-            : NearestNote(result);
+            : NearestNote(result) ?? PartialNote(result);
 
         if (detailed)
         {

@@ -87,6 +87,51 @@ public sealed class MemorySearchTests(SharedWebAppFixture fixture) : IAsyncDispo
             "Halcyon's owner matches \"owns\" alone, below everything Wicket's description brought");
     }
 
+    [Fact]
+    public async Task Coverage_ShownFactsHoldingOnlyNearWords_IsPartial_AndNamesTheMissingWord()
+    {
+        (PostgresMemoryStore store, Guid space) = await SpaceAsync(
+            [("Hollis", "owner", "Dana Whitlock", null), ("Hollis", "database", "PostgreSQL 15", null)]);
+        IReadOnlyList<MemoryFact> found = await SearchAsync(store, space, "Hollis backup owner");
+
+        MemoryWordCoverage coverage = await store.CoverageAsync(space, "Who is the Hollis backup owner?", [.. found.Select(f => f.Id)]);
+
+        found.Should().NotBeEmpty("ranking still shows Hollis's facts");
+        coverage.Partial.Should().BeTrue();
+        coverage.Missing.Should().Equal("backup");
+        coverage.Words.Should().NotContain(["who", "is", "the"], "stop words don't count");
+    }
+
+    [Fact]
+    public async Task Coverage_OneShownFactHoldingEveryWordByStemOrPrefix_IsWhole()
+    {
+        (PostgresMemoryStore store, Guid space) = await SpaceAsync(
+            [("Copperline", "code reviewer", "Ana Ruiz", null), ("Copperline", "database", "PostgreSQL 15", null)]);
+        IReadOnlyList<MemoryFact> found = await SearchAsync(store, space, "Copperline code reviews Postgres");
+
+        MemoryWordCoverage coverage = await store.CoverageAsync(space, "Copperline code reviews", [.. found.Select(f => f.Id)]);
+
+        coverage.Partial.Should().BeFalse("\"reviews\" and \"reviewer\" share a stem");
+        (await store.CoverageAsync(space, "Copperline Postgres", [.. found.Select(f => f.Id)])).Partial
+            .Should().BeFalse("\"Postgres\" is the start of \"PostgreSQL\"");
+    }
+
+    [Fact]
+    public async Task Coverage_WordsSpreadAcrossFacts_OrHeldOnlyByAFactNotShown_IsPartial()
+    {
+        (PostgresMemoryStore store, Guid space) = await SpaceAsync(
+            [("Copperline", "owner", "Ana Ruiz", null), ("Lantern", "code reviewer", "Ravi Banerjee", null)]);
+        IReadOnlyList<MemoryFact> all = await SearchAsync(store, space, "Copperline reviewer");
+
+        MemoryWordCoverage spread = await store.CoverageAsync(space, "Copperline reviewer", [.. all.Select(f => f.Id)]);
+        MemoryWordCoverage unshown = await store.CoverageAsync(space, "Copperline reviewer",
+            [.. all.Where(f => f.Subject == "Copperline").Select(f => f.Id)]);
+
+        spread.Partial.Should().BeTrue();
+        spread.Missing.Should().BeEmpty();
+        unshown.Missing.Should().Equal("reviewer");
+    }
+
     private async Task<(PostgresMemoryStore Store, Guid Space)> SpaceAsync(
         IReadOnlyList<(string Subject, string Attribute, string Value, string? Reason)> facts)
     {

@@ -203,6 +203,10 @@ internal sealed class FakeMemory(Guid space) : IMemoryService
         }
     }
 
+    public Task<MemoryWordCoverage?> CoverageAsync(
+        Guid containerId, string text, IReadOnlyCollection<Guid> factIds, CancellationToken ct = default) =>
+        Task.FromResult<MemoryWordCoverage?>(null);
+
     public Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default)
     {
         lock (facts)

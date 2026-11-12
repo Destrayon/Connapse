@@ -365,6 +365,21 @@ public partial class McpTools
             + "or one `query` holding several other words for what you want.";
     }
 
+    /// <summary>
+    /// What a search says when no fact it shows holds all its words (CON-337): which words are missing, or that they are
+    /// only spread across facts, and that facts which don't answer the question are not the answer.
+    /// </summary>
+    internal static string? PartialNote(SpacedRecall result)
+    {
+        if (result.Coverage is not { Partial: true } coverage || result.Facts.Count == 0)
+            return null;
+        string held = coverage.Missing.Count > 0
+            ? $"no fact above holds {string.Join(" or ", coverage.Missing.Select(w => $"\"{w}\""))}"
+            : $"no single fact above holds all of {string.Join(", ", coverage.Words.Select(w => $"\"{w}\""))}";
+        return $"Partial match: {held}. If none of these facts answers the question, memory does not hold the answer: "
+            + "say so and cite none of them.";
+    }
+
     private static object Shown(MemoryFact fact, IReadOnlyList<ShownMemorySource>? sources, Connapse.Core.Container? space = null, string? handle = null) => new
     {
         handle,

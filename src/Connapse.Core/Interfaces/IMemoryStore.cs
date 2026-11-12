@@ -81,6 +81,13 @@ public interface IMemoryStore
     /// <summary>The container a fact is in, or null when there is no such fact. Says nothing about who may read it.</summary>
     Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Which of <paramref name="text"/>'s words the facts <paramref name="factIds"/> of <paramref name="containerId"/>
+    /// hold. Says nothing about who may read them, so the ids must be facts the caller was already shown.
+    /// </summary>
+    Task<MemoryWordCoverage> CoverageAsync(
+        Guid containerId, string text, IReadOnlyCollection<Guid> factIds, CancellationToken ct = default);
+
     /// <summary>The most matches a search lists.</summary>
     const int MaxSearchResults = 1000;
 }
@@ -137,4 +144,12 @@ public interface IMemoryService
     /// caller must check access to that container and answer as for a missing fact when it can't.
     /// </summary>
     Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Which of <paramref name="text"/>'s words the facts <paramref name="factIds"/> of <paramref name="containerId"/>
+    /// hold; null when it could not be worked out. Reveals only which words the given facts hold, so the ids must be
+    /// facts the caller was just shown.
+    /// </summary>
+    Task<MemoryWordCoverage?> CoverageAsync(
+        Guid containerId, string text, IReadOnlyCollection<Guid> factIds, CancellationToken ct = default);
 }

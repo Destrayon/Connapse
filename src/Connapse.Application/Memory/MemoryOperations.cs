@@ -462,6 +462,17 @@ public sealed class RecallMemory(
                 read = Attempt<SpacedRecall, MemoryStatus>.Succeed(await FillSmallSubjectsAsync(found, totals, request.Text, caller, ct) with { SubjectTotals = totals });
         }
 
+        // A first search of one space that found facts says when none of them holds the whole search, so an agent shown
+        // only near facts doesn't take one of them for the answer (CON-337).
+        if (read.Succeeded && read.Result is { Facts.Count: > 0, Spaces.Count: 1 } shown && !request.History
+            && string.IsNullOrWhiteSpace(request.Cursor) && !string.IsNullOrWhiteSpace(request.Text))
+        {
+            MemoryWordCoverage? coverage = await memory.CoverageAsync(
+                shown.Spaces.Keys.Single(), request.Text, [.. shown.Facts.Select(f => f.Fact.Id)], ct);
+            if (coverage is not null)
+                read = Attempt<SpacedRecall, MemoryStatus>.Succeed(shown with { Coverage = coverage });
+        }
+
         // A first search of one space that found nothing names the subjects nearest to what was asked, so the next call
         // can go straight to one of them rather than guessing at other words.
         string asked = string.Join(' ', new[] { request.Text, request.Subject }.Where(s => !string.IsNullOrWhiteSpace(s)));
@@ -734,10 +745,13 @@ public sealed record MemoryTimelineRequest(
 /// subjects closest to a search of one space that found nothing, and is null otherwise. <paramref name="SubjectTotals"/>
 /// holds, for the first page of a search of one space, how many current facts the caller can see under each subject
 /// shown (keyed by the subject in lower case), so an answer can say when a subject is shown whole; it is null otherwise.
+/// <paramref name="Coverage"/> says, for the first page of a text search of one space that found facts, which of the
+/// search's words the facts shown hold, so an answer can say when none holds the whole search; it is null otherwise.
 /// </summary>
 public sealed record SpacedRecall(
     IReadOnlyList<RecalledFact> Facts, IReadOnlyDictionary<Guid, Container> Spaces, int SkippedSpaces, string? NextCursor = null,
-    IReadOnlyList<string>? Nearest = null, IReadOnlyDictionary<string, long>? SubjectTotals = null);
+    IReadOnlyList<string>? Nearest = null, IReadOnlyDictionary<string, long>? SubjectTotals = null,
+    MemoryWordCoverage? Coverage = null);
 
 /// <summary>Every memory operation in one place, for the container page's Memory tab.</summary>
 public sealed class MemoryOperations(

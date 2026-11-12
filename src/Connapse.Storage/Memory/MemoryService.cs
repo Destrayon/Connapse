@@ -222,6 +222,20 @@ public sealed class MemoryService(
 
     public Task<Guid?> SpaceOfAsync(Guid factId, CancellationToken ct = default) => store.SpaceOfAsync(factId, ct);
 
+    public async Task<MemoryWordCoverage?> CoverageAsync(
+        Guid containerId, string text, IReadOnlyCollection<Guid> factIds, CancellationToken ct = default)
+    {
+        try
+        {
+            return await store.CoverageAsync(containerId, text, factIds, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check which search words the shown facts hold");
+            return null;
+        }
+    }
+
     /// <summary>The caller with the sources it can read among those the container (or one chain) cites. Throws when it cannot tell.</summary>
     private async Task<MemoryViewer> ViewerAsync(Guid containerId, Guid? chainId, MemoryCaller caller, CancellationToken ct) =>
         new(caller, await ReadableAsync(await store.CitedSourcesAsync(containerId, chainId, ct), caller.UserId, ct));
