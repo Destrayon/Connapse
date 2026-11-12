@@ -330,6 +330,34 @@ stays as written. See `docs/research/memory-findability-plan-2026-11-10.md`.
 All must hold. If stage 1 fails, stage 2 (embeddings) is built and judged the same way on a second sealed set. The grep
 arm is built and committed with the sealed set, before any stage-1 code.
 
+### Saying when a fact isn't stored (CON-337)
+
+Written on 2026-11-11, before the change below was run on any question. CON-322 lost to ripgrep on absent questions
+on sealed-3 (0.792 against 0.917). In every one of its absent misses on the four sets, the agent rightly said memory
+had no such fact but cited the nearby facts it had read, and the search result never said that no fact matched the
+whole search. The change makes `memory_recall` say so plainly when no fact it shows holds every word searched for.
+
+- **Question sets.** All four sets that ran CON-322's final change: `memory-agent` (test split), `memory-agent-sealed-1`,
+  `-sealed-2` and `-sealed-3`. All four have been seen, so this is a check on known questions, not a held-out test;
+  the change is a fixed rule, not tuned to any task. 32 absent tasks, 302 other find tasks and 96 save tasks.
+- **Runs.** Model, effort, 3 repetitions, 12-call limit, scoring and container caps as in the CON-322 runs. The change
+  runs every task of the four sets. Ripgrep is re-run on the absent tasks of the four sets in the same window, so the
+  gated comparison is not split across days.
+- **Baselines** (recorded in `E:\tmp\con-322\results2`, pooled over the four sets): CON-322 absent 0.927, ripgrep absent
+  0.906; on sealed-3 alone, CON-322 0.792, ripgrep 0.917. The other kinds, CON-322 (score, calls, cost): exact 1.000,
+  1.00, $0.0051; reworded 0.953, 1.06, $0.0068; indirect 0.937, 1.31, $0.0084; partial 1.000, 1.12, $0.0071; new 1.000,
+  2.06, $0.0116; update 1.000, 2.00, $0.0119; duplicate 0.986, 0.97, $0.0063.
+- **Pass** only when all hold:
+  1. absent, pooled over the four sets: the change's score is at least the re-run ripgrep's and at least 0.906;
+  2. absent on sealed-3: the change's score is at least the re-run ripgrep's on sealed-3;
+  3. absent, pooled: the change's mean tool calls and cost per run are at most the re-run ripgrep's;
+  4. every other kind, pooled over the four sets, against CON-322's recorded runs: score at most 0.03 below, mean tool
+     calls at most 0.1 above, and cost per run at most 10% above;
+  5. pooled over the other find kinds (302 tasks) and over save tasks (96), paired by task: the lower end of the 90%
+     BCa interval of the score difference (`PairedStats.Compare`) is above −0.03, and pooled find cost is at most 5%
+     above CON-322's;
+  6. the memory integration tests pass.
+
 ## Baselines
 
 Recorded on 2026-10-24 with the `hybrid` config (nomic-embed-text through Ollama, reranker off) from the commit
