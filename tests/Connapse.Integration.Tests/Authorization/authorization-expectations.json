@@ -335,6 +335,11 @@
       "risk": "read",
       "scope": "knowledge:read"
     },
+    "POST /api/containers/{containerId:guid}/tables/graphql": {
+      "requires": "viewer",
+      "risk": "read",
+      "scope": "knowledge:read"
+    },
     "GET /api/memory/facts": {
       "requires": "viewer",
       "risk": "read",
@@ -1248,6 +1253,11 @@
       "risk": "read"
     },
     "table_sql": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
+    "table_graphql": {
       "requires": "mcp",
       "scope": "knowledge:read",
       "risk": "read"

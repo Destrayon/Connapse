@@ -231,4 +231,35 @@ public partial class McpTools
             return Refused(ran);
         return JsonSerializer.Serialize(TableSqlResponse.From(ran.Result!), TableJson);
     }
+
+    [McpServerTool(Name = "table_graphql", ReadOnly = true, Idempotent = true),
+     Authorize(Policy = "Scope:KnowledgeRead"), McpToolRisk(RiskTier.Read),
+     Description("Answer one GraphQL query over a container's tables (the tables loaded from its CSV, spreadsheet and JSON files). "
+        + "Query { _schema } first for the tables and their fields. Each table is a root field returning rows: "
+        + "orders(where: {status: {_eq: \"open\"}, total: {_gt: 100}}, order_by: [{total: desc}], limit: 10, offset: 0) { id total }. "
+        + "Operators: _eq _neq _lt _lte _gt _gte _in _nin _between _is_null _contains _starts_with; combine with _and, _or, _not. "
+        + "<table>_aggregate groups by the plain columns you select: orders_aggregate(where: ..., having: {count: {_gt: 5}}, "
+        + "order_by: {sum: {total: desc}}) { region count sum { total } avg { total } } (also count_distinct, min, max). "
+        + "join: {table: customers, on: {customer_id: id}, kind: left} adds the other table's columns as customers { name }, usable in "
+        + "where and order_by the same way. Child tables split from lists in JSON nest as fields: orders { id items { sku qty } }; "
+        + "any table nests by naming the matching columns: customers { id orders(on: {id: customer_id}, limit: 3) { total } }. "
+        + "Use aliases to ask several things at once. No fragments, variables, directives or introspection. "
+        + "At most 1024 rows per list and about 64 KB come back.")]
+    public static async Task<string> TableGraphQL(
+        GetContainer getContainer,
+        RunTableGraphQL run,
+        IHttpContextAccessor http,
+        [Description("Container ID or name")] string containerId,
+        [Description("One GraphQL query")] string query,
+        CancellationToken ct = default)
+    {
+        var (id, error) = await ContainerIdAsync(getContainer, http, containerId, ct);
+        if (id is null)
+            return error!;
+
+        var ran = await run.RunAsync(Mcp(http), id.Value, query, ct);
+        if (!ran.Succeeded)
+            return Refused(ran);
+        return JsonSerializer.Serialize(TableGraphQLResponse.From(ran.Result!), TableJson);
+    }
 }

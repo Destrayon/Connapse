@@ -34,8 +34,14 @@ public sealed class TableSqlService(
     /// <summary>The longest database error message passed on, in characters.</summary>
     internal const int MaxErrorMessage = 200;
 
-    /// <summary>The longest table listing put in a refusal or error, in characters.</summary>
-    internal const int MaxListing = 4000;
+    /// <summary>
+    /// How many characters of a refusal's table listing may list columns. Tables past it are still named, so every
+    /// table an agent may query can be named; a hard cut here hid 6 of 11 tables in CON-328.
+    /// </summary>
+    internal const int MaxListing = 16000;
+
+    /// <summary>The most tables a listing names; past it, it says how many more there are.</summary>
+    internal const int MaxListedTables = 500;
 
     /// <summary>
     /// Whether queries go through <see cref="TableSqlCheck"/>. Only tests turn it off, to show the database layers hold
@@ -124,29 +130,44 @@ public sealed class TableSqlService(
 
     /// <summary>
     /// The tables an agent may query, one per line, by the names its SQL must use, with the headers they came from:
-    /// <c>t_… "Sales" (12 rows): c_1 "Region" text, c_2 "Amount" numeric</c>. Cut at <see cref="MaxListing"/>.
+    /// <c>t_… "Sales" (12 rows): c_1 "Region" text, c_2 "Amount" numeric</c>. Once the lines reach
+    /// <see cref="MaxListing"/> characters, later tables are named without their columns but with their table id, so
+    /// each can still be queried: table_describe gives its headers in c_1, c_2 order. At most
+    /// <see cref="MaxListedTables"/> tables are named.
     /// </summary>
     internal static string Listing(IReadOnlyList<TableInfo> readable)
     {
         StringBuilder text = new();
+        bool withColumns = true;
+        int listed = 0;
         foreach (TableInfo table in readable)
         {
+            if (listed == MaxListedTables)
+            {
+                text.Append("- (").Append(readable.Count - listed).Append(" more tables not shown)");
+                break;
+            }
+
             StringBuilder line = new();
             line.Append("- ").Append(table.StorageName).Append(' ').Append(Quoted(table.Name))
-                .Append(" (").Append(table.RowCount).Append(" rows): ");
-            line.AppendJoin(", ", table.Columns.Select((column, i) =>
+                .Append(" (").Append(table.RowCount).Append(" rows)");
+            int head = line.Length;
+            line.Append(": ").AppendJoin(", ", table.Columns.Select((column, i) =>
                 $"{TableDdl.ColumnName(i)} {Quoted(column.Name)} {TableDdl.SqlType(column.Type)}"));
             if (table.IsMerged)
                 line.Append($"; merged from several files, each row's file id in {TableDdl.DocumentColumn} (uuid)");
             if (table.HasHistory)
                 line.Append($"; with history in {TableHistory.SeenFrom} and {TableHistory.SeenUntil} (timestamptz), current rows have {TableHistory.SeenUntil} = 'infinity'");
 
-            if (text.Length + line.Length + 1 > MaxListing)
+            if (withColumns && text.Length + line.Length + 1 > MaxListing)
+                withColumns = false;
+            if (!withColumns)
             {
-                text.Append("- (more tables not shown)");
-                break;
+                line.Length = head;
+                line.Append(", table id ").Append(table.Id).Append(": columns c_1, c_2, ... in the order table_describe lists them");
             }
             text.Append(line).Append('\n');
+            listed++;
         }
         return text.ToString().TrimEnd('\n');
     }

@@ -357,3 +357,44 @@ public sealed class RunTableSql(
         }
     }
 }
+
+/// <summary>
+/// Answers a GraphQL query over a container's tables (CON-336). Open to viewers and reading agent keys with no setting
+/// to turn on, since it can do no more than the structured table tools: the schema names only the tables whose source
+/// document the caller may read and their visible columns, and every read goes through the same trimmed query service.
+/// </summary>
+[Operation("tables.graphql", Scope = "knowledge:read", Risk = RiskTier.Read)]
+public sealed class RunTableGraphQL(
+    IContainerStore containers,
+    ITableStore tables,
+    IDocumentStore documents,
+    IDocumentAccess access,
+    ITableGraphQLService graphql,
+    IOperationAuthorizer authorizer)
+{
+    public async Task<Attempt<TableGraphQLResult, TableStatus>> RunAsync(
+        OperationContext context, Guid containerId, string? query, CancellationToken ct = default)
+    {
+        if (!await authorizer.AllowsAsync(context.User, Policies.Reader))
+            return Attempt<TableGraphQLResult, TableStatus>.Fail(TableStatus.Forbidden, "You don't have permission to query tables.");
+        if (string.IsNullOrWhiteSpace(query))
+            return Attempt<TableGraphQLResult, TableStatus>.Fail(TableStatus.QueryNotRun, "query is required", "query");
+        if (await containers.GetAsync(containerId, ContainerRules.Viewer(context), ct) is not { } container)
+            return Attempt<TableGraphQLResult, TableStatus>.Fail(TableStatus.ContainerNotFound, $"Container {containerId} not found");
+        if (container.Kind == ContainerKind.Memory)
+            return Attempt<TableGraphQLResult, TableStatus>.Fail(TableStatus.MemoryContainer, ContainerRules.MemoryOnly(container));
+
+        IReadOnlyList<TableInfo> all = await tables.ListAsync(containerId, ct);
+        TableAccess readable = await TableRules.AccessAsync(documents, access, context.User, containerId, all, ct);
+        if (!readable.Checked)
+            return Attempt<TableGraphQLResult, TableStatus>.Fail(TableStatus.AccessUnchecked, TableAccess.UncheckedMessage);
+        try
+        {
+            return Attempt<TableGraphQLResult, TableStatus>.Succeed(await graphql.RunAsync(containerId, readable, query, ct));
+        }
+        catch (TableQueryException ex)
+        {
+            return Attempt<TableGraphQLResult, TableStatus>.Fail(TableStatus.QueryNotRun, ex.Message, "query");
+        }
+    }
+}

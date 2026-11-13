@@ -3389,6 +3389,124 @@
         }
       }
     },
+    "/api/containers/{containerId}/tables/graphql": {
+      "post": {
+        "tags": [
+          "Containers"
+        ],
+        "description": "Answer one GraphQL query over the container's tables. Each table is a root field that returns rows, and <table>_aggregate returns counts, sums, averages, minimums and maximums by group; where, order_by, limit, offset and join arguments filter, sort and join; child tables split from lists nest under their parent's rows. { _schema } returns the schema. Only tables from files the caller may read and their visible columns are in it; no fragments, variables, directives or introspection; at most 1024 rows per list and about 64 KB come back.",
+        "operationId": "tables.graphql",
+        "parameters": [
+          {
+            "name": "containerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TableGraphQLRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableGraphQLResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: the rate limit for this caller is used up. Retry-After, when present, says when to try again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        },
+        "x-connapse-operation": {
+          "id": "tables.graphql",
+          "scope": "knowledge:read",
+          "risk": "Read",
+          "mcp": "Off"
+        }
+      }
+    },
     "/api/containers/{containerId}/tables/{tableId}/hidden-columns": {
       "put": {
         "tags": [
@@ -24015,6 +24133,46 @@
           },
           "sampleRows": {
             "$ref": "#/components/schemas/TableQueryResult"
+          }
+        }
+      },
+      "TableGraphQLRequest": {
+        "required": [
+          "query"
+        ],
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TableGraphQLResponse": {
+        "required": [
+          "data",
+          "truncated",
+          "truncatedReason",
+          "notice"
+        ],
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "truncatedReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "notice": {
+            "type": "string"
           }
         }
       },

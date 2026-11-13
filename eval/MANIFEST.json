@@ -1537,6 +1537,41 @@
           "name": "nested-questions.jsonl",
           "url": "repo:tables/nested/questions.jsonl",
           "sha256": "87ac93df445338d41a50adc96c77a78d8e32717cbf0e22ad4fece80e4f34226e"
+        },
+        {
+          "name": "flex-catalog.json",
+          "url": "repo:tables/flex/docs/catalog.json",
+          "sha256": "001cd1365b45d7ad799ea93bc0e17e9c0f603df3ac3233cf6939a670ffb732cc"
+        },
+        {
+          "name": "flex-meters.csv",
+          "url": "repo:tables/flex/docs/meters.csv",
+          "sha256": "664c0bd0d407f71a2cabc508c250cb3a852e5e5d217037616c455745e49b4052"
+        },
+        {
+          "name": "flex-returns.csv",
+          "url": "repo:tables/flex/docs/returns.csv",
+          "sha256": "155a9e7297662ef762bc36409eb95842229b5db56d449a6345589735f19b325e"
+        },
+        {
+          "name": "flex-sales.csv",
+          "url": "repo:tables/flex/docs/sales.csv",
+          "sha256": "f2b9131decd6473bb7eb279a57138d8fabb89e1c9b0f329af77b93f8ac3d64db"
+        },
+        {
+          "name": "flex-staff.csv",
+          "url": "repo:tables/flex/docs/staff.csv",
+          "sha256": "79c5fbaaa9775ff2b198c710750e4c10b8fe204db0e28e0f4056e064e92d818b"
+        },
+        {
+          "name": "flex-stores.csv",
+          "url": "repo:tables/flex/docs/stores.csv",
+          "sha256": "9cac8a27c00482329879102a0e526004bd5ee7caffffe88d5eeadf90dd7f338a"
+        },
+        {
+          "name": "flex-questions.jsonl",
+          "url": "repo:tables/flex/questions.jsonl",
+          "sha256": "1cceed34e0ea4fe5906c447c2cec62d561dc49dadeaf8d1c9a058c74bb2cf2bd"
         }
       ]
     }

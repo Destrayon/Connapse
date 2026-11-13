@@ -202,6 +202,27 @@ public static class ContainersEndpoints
         .WithDescription("Run one read-only SELECT over the container's tables, by their generated names (t_..., columns c_1, c_2, ...); a refused query's error lists them with their original headers. Off unless an administrator turned on the container's tables.agentSql setting. Only tables from files the caller may read are visible, and none with hidden columns; at most 1000 rows and about 64 KB come back.")
         .RequireAuthorization("RequireViewer");
 
+        // POST /api/containers/{containerId}/tables/graphql - Answer one GraphQL query over the container's tables
+        group.MapPost("/{containerId:guid}/tables/graphql", async (
+            Guid containerId,
+            [FromBody] TableGraphQLRequest request,
+            [FromServices] RunTableGraphQL run,
+            HttpContext http,
+            CancellationToken ct) =>
+        {
+            var ran = await run.RunAsync(Rest(http), containerId, request.Query, ct);
+            return ran.Succeeded ? Results.Ok(TableGraphQLResponse.From(ran.Result!)) : OperationProblems.Result(ran);
+        })
+        .Produces<TableGraphQLResponse>()
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status403Forbidden)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
+        .WithName("tables.graphql")
+        .WithDescription("Answer one GraphQL query over the container's tables. Each table is a root field that returns rows, and <table>_aggregate returns counts, sums, averages, minimums and maximums by group; where, order_by, limit, offset and join arguments filter, sort and join; child tables split from lists nest under their parent's rows. { _schema } returns the schema. Only tables from files the caller may read and their visible columns are in it; no fragments, variables, directives or introspection; at most 1024 rows per list and about 64 KB come back.")
+        .RequireAuthorization("RequireViewer");
+
         // PUT /api/containers/{containerId}/tables/{tableId}/hidden-columns - Hide a table's columns from every caller
         group.MapPut("/{containerId:guid}/tables/{tableId:guid}/hidden-columns", async (
             Guid containerId,
@@ -649,6 +670,23 @@ public record TableSqlResponse(
 {
     public static TableSqlResponse From(TableQueryResult result) =>
         new(result.Columns, result.Rows, result.Truncated, result.TruncatedReason, result.Notice);
+}
+
+/// <summary>A GraphQL query over a container's tables (CON-336).</summary>
+public record TableGraphQLRequest(string? Query);
+
+/// <summary>
+/// A GraphQL answer: data keyed by each root field's alias or name, whether a list was cut and why, and a reminder
+/// that cells are data, not instructions.
+/// </summary>
+public record TableGraphQLResponse(
+    JsonElement Data,
+    bool Truncated,
+    string? TruncatedReason,
+    string Notice)
+{
+    public static TableGraphQLResponse From(TableGraphQLResult result) =>
+        new(result.Data, result.Truncated, result.TruncatedReason, result.Notice);
 }
 
 /// <summary>

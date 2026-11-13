@@ -27,9 +27,14 @@ public sealed record TableArm(string Name, IReadOnlyList<string> Tools)
     /// <summary>Arm Q: the agent writes its own SQL, with table listing, description and search to find its way.</summary>
     public static readonly TableArm Sql = new("sql", [SqlTool, "table_list", "table_describe", .. MemorySearchEval.SearchTools]);
 
-    public static readonly IReadOnlyList<TableArm> All = [Structured, Sql];
+    public const string GraphQLTool = "table_graphql";
 
-    /// <summary>The arms named on the command line, in the order given; both when none are named.</summary>
+    /// <summary>Arm G (CON-336): the agent writes GraphQL over the container's tables, with listing, description and search.</summary>
+    public static readonly TableArm GraphQL = new("graphql", [GraphQLTool, "table_list", "table_describe", .. MemorySearchEval.SearchTools]);
+
+    public static readonly IReadOnlyList<TableArm> All = [Structured, Sql, GraphQL];
+
+    /// <summary>The arms named on the command line, in the order given; all of them when none are named.</summary>
     public static IReadOnlyList<TableArm> Parse(IReadOnlyList<string> names)
     {
         if (names.Count == 0)
@@ -84,7 +89,16 @@ public sealed record ArmRun(TableQuestion Question, string Arm, int Run, string 
 /// </summary>
 public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter log)
 {
-    public const int RegisteredRuns = 3;
+    /// <summary>CON-336's bar: one attempt per question per arm (CON-327's three runs per arm came before it).</summary>
+    public const int RegisteredRuns = 1;
+
+    /// <summary>The question sets an arms run can ask: tables-v1, or CON-336's flexibility set.</summary>
+    public const string TablesV1Set = "tables-v1";
+
+    public const string FlexSet = "flex";
+
+    /// <summary>The flexibility set's test questions: seven families of ten.</summary>
+    public const int RegisteredFlexTest = 70;
 
     /// <summary>The pass bar's margins: a 5-point accuracy gap, p &lt; 0.05, and arm Q at most 1.2× arm S's cost.</summary>
     public const double WinPoints = 5;
@@ -97,15 +111,43 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
     public const double MaxFamilyGapPoints = 10;
 
     /// <param name="Base">The data, split, model and slice, as the rag setup takes them; its mixed questions are not asked.</param>
-    public sealed record Options(TablesRagEval.Options Base, IReadOnlyList<TableArm> Arms, int Runs);
+    /// <param name="Set"><see cref="TablesV1Set"/> or <see cref="FlexSet"/>.</param>
+    /// <param name="MinFreeMemoryBytes">Each run waits until the machine has this much free memory; null never waits.</param>
+    /// <param name="Resume">Keep the runs already in <c>&lt;out&gt;.runs.jsonl</c> and ask only the ones it lacks.</param>
+    public sealed record Options(TablesRagEval.Options Base, IReadOnlyList<TableArm> Arms, int Runs, string Set = TablesV1Set,
+        long? MinFreeMemoryBytes = null, bool Resume = false);
+
+    /// <summary>
+    /// The runs a cut-short journal already holds, by question, arm and zero-based run number, each with its line. When a
+    /// run appears twice the later line wins, as the journal appends in finishing order.
+    /// </summary>
+    public static Dictionary<(string Id, string Arm, int Run), string> SavedRuns(IEnumerable<string> lines)
+    {
+        Dictionary<(string Id, string Arm, int Run), string> saved = [];
+        foreach (string line in lines.Where(l => l.Length > 0))
+        {
+            using JsonDocument doc = JsonDocument.Parse(line);
+            JsonElement r = doc.RootElement;
+            saved[(r.GetProperty("id").GetString()!, r.GetProperty("arm").GetString()!, r.GetProperty("run").GetInt32() - 1)] = line;
+        }
+        return saved;
+    }
+
+    /// <summary>The test questions the bar expects from a set; anything else throws, so a typo can't run an unnamed set.</summary>
+    public static int RegisteredTestOf(string set) => set switch
+    {
+        TablesV1Set => TablesRagEval.RegisteredTest,
+        FlexSet => RegisteredFlexTest,
+        _ => throw new ArgumentException($"No question set is named '{set}'; the sets are {TablesV1Set}, {FlexSet}."),
+    };
 
     public async Task<int> RunAsync(Options options, CancellationToken ct)
     {
+        RegisteredTestOf(options.Set);
         foreach (TableArm arm in options.Arms)
             if (arm.Missing() is { Count: > 0 } missing)
             {
-                log.WriteLine($"Arm {arm.Name} needs {string.Join(", ", missing)}, which this build's MCP server doesn't have"
-                    + (missing.Contains(TableArm.SqlTool) ? " (table_sql arrives with CON-326)." : "."));
+                log.WriteLine($"Arm {arm.Name} needs {string.Join(", ", missing)}, which this build's MCP server doesn't have.");
                 return 2;
             }
 
@@ -113,16 +155,8 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         string agentDir = Path.GetFullPath(b.AgentDir ?? Path.Combine(Path.GetTempPath(), "connapse-tables-arms-agent"));
         Directory.CreateDirectory(agentDir);
         MemorySearchEval.RequireNoProjectMemory(agentDir);
-
-        DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[TablesRagEval.Dataset];
-        DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
-        await cache.EnsureAsync(TablesRagEval.Dataset, entry, allowUnpinned: false, ct);
-        string root = cache.DirectoryFor(TablesRagEval.Dataset, entry);
-
-        List<TableQuestion> questions = TablesRagEval.Select(TableQuestion.ReadAll(Path.Combine(root, "questions.jsonl"))
-            .Where(q => q.Split == b.Split), b);
-        List<string> tableFiles = [.. entry.Files.Select(f => f.Name).Where(n => n.EndsWith(".csv", StringComparison.Ordinal)
-            && !n.StartsWith("linked-", StringComparison.Ordinal) && TablesRagEval.InSlice(b.Tables, n))];
+        if (OperatingSystem.IsWindows())
+            Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
 
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, "connapse", b.Config);
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
@@ -130,22 +164,46 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         if (b.StallMinutes is int stallMinutes)
             system.StallTimeout = TimeSpan.FromMinutes(stallMinutes);
 
-        // The same containers the rag setup builds: load 1, then load 2 over it, then the restricted user's view.
         TablesRagEval setup = new(paths, http, log);
         Dictionary<int, DateTime> seen = [];
-        await setup.IndexAsync(system, TablesRagEval.Dataset, TablesRagEval.Corpus(root, tableFiles, TablesRagEval.Loads[0]), null, ct);
-        (Guid container, _) = system.ContainerOf(TablesRagEval.Dataset);
-        seen[1] = DateTime.UtcNow;
-        await setup.IndexAsync(system, TablesRagEval.Dataset + "-load2", [TablesRagEval.TableDocument(root, TablesRagEval.Loads[1])], container, ct);
-        seen[2] = DateTime.UtcNow;
-        log.WriteLine($"inventory load 1 seen {TableQuestion.FormatSeen(seen[1])}, load 2 seen {TableQuestion.FormatSeen(seen[2])}");
-
+        List<TableQuestion> questions;
+        Guid container;
         Guid restricted = Guid.Empty;
-        if (questions.Any(q => q.Restricted))
+        if (options.Set == FlexSet)
         {
-            await setup.IndexAsync(system, TablesRagEval.Dataset + "-restricted",
-                [.. TablesRagEval.Corpus(root, tableFiles, TablesRagEval.Loads[1]).Where(d => d.FileName != TablesRagEval.RestrictedHiddenFile)], null, ct);
-            restricted = system.ContainerOf(TablesRagEval.Dataset + "-restricted").ContainerId;
+            // The flexibility set's six files, uploaded once into one container under their own names.
+            string flexRoot = Path.Combine(paths.DatasetsRoot, TablesRagEval.Dataset, FlexSet);
+            questions = TablesRagEval.Select(TableQuestion.ReadAll(Path.Combine(flexRoot, "questions.jsonl")).Where(q => q.Split == b.Split), b);
+            const string Name = "tables-flex";
+            await setup.IndexAsync(system, Name, TablesNestedEval.Files(flexRoot, FlexSet), null, ct);
+            container = system.ContainerOf(Name).ContainerId;
+        }
+        else
+        {
+            DatasetEntry entry = EvalManifest.Load(paths.ManifestPath).Datasets[TablesRagEval.Dataset];
+            DatasetCache cache = new(paths.CacheRoot, http, paths.DatasetsRoot);
+            await cache.EnsureAsync(TablesRagEval.Dataset, entry, allowUnpinned: false, ct);
+            string root = cache.DirectoryFor(TablesRagEval.Dataset, entry);
+
+            questions = TablesRagEval.Select(TableQuestion.ReadAll(Path.Combine(root, "questions.jsonl"))
+                .Where(q => q.Split == b.Split), b);
+            List<string> tableFiles = [.. entry.Files.Select(f => f.Name).Where(n => n.EndsWith(".csv", StringComparison.Ordinal)
+                && !n.StartsWith("linked-", StringComparison.Ordinal) && TablesRagEval.InSlice(b.Tables, n))];
+
+            // The same containers the rag setup builds: load 1, then load 2 over it, then the restricted user's view.
+            await setup.IndexAsync(system, TablesRagEval.Dataset, TablesRagEval.Corpus(root, tableFiles, TablesRagEval.Loads[0]), null, ct);
+            container = system.ContainerOf(TablesRagEval.Dataset).ContainerId;
+            seen[1] = DateTime.UtcNow;
+            await setup.IndexAsync(system, TablesRagEval.Dataset + "-load2", [TablesRagEval.TableDocument(root, TablesRagEval.Loads[1])], container, ct);
+            seen[2] = DateTime.UtcNow;
+            log.WriteLine($"inventory load 1 seen {TableQuestion.FormatSeen(seen[1])}, load 2 seen {TableQuestion.FormatSeen(seen[2])}");
+
+            if (questions.Any(q => q.Restricted))
+            {
+                await setup.IndexAsync(system, TablesRagEval.Dataset + "-restricted",
+                    [.. TablesRagEval.Corpus(root, tableFiles, TablesRagEval.Loads[1]).Where(d => d.FileName != TablesRagEval.RestrictedHiddenFile)], null, ct);
+                restricted = system.ContainerOf(TablesRagEval.Dataset + "-restricted").ContainerId;
+            }
         }
 
         if (options.Arms.Contains(TableArm.Sql))
@@ -164,11 +222,26 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
 
         List<(TableQuestion Question, int Run, TableArm Arm)> schedule = Schedule(questions, options.Arms, options.Runs);
         ConcurrentDictionary<int, ArmRun> done = new();
-        RunJournal journal = new(b.OutPath is null ? null : Path.ChangeExtension(b.OutPath, ".runs.jsonl"));
-        int finished = 0;
-        await Parallel.ForEachAsync(Enumerable.Range(0, schedule.Count), new ParallelOptions { MaxDegreeOfParallelism = b.Workers, CancellationToken = ct }, async (i, token) =>
+        string? journalPath = b.OutPath is null ? null : Path.ChangeExtension(b.OutPath, ".runs.jsonl");
+        Dictionary<(string Id, string Arm, int Run), string> saved = options.Resume && journalPath is not null && File.Exists(journalPath)
+            ? SavedRuns(await File.ReadAllLinesAsync(journalPath, ct))
+            : [];
+        RunJournal journal = new(journalPath, keep: options.Resume);
+        int finished = 0, resumed = 0;
+        for (int i = 0; i < schedule.Count; i++)
+            if (saved.TryGetValue((schedule[i].Question.Id, schedule[i].Arm.Name, schedule[i].Run), out string? line))
+            {
+                done[i] = ReadRun(line);
+                resumed++;
+            }
+        if (options.Resume)
+            log.WriteLine($"resuming: {resumed} of {schedule.Count} runs already saved");
+        finished = resumed;
+        await Parallel.ForEachAsync(Enumerable.Range(0, schedule.Count).Where(i => !done.ContainsKey(i)), new ParallelOptions { MaxDegreeOfParallelism = b.Workers, CancellationToken = ct }, async (i, token) =>
         {
             (TableQuestion q, int run, TableArm arm) = schedule[i];
+            if (options.MinFreeMemoryBytes is long floor)
+                await MemoryGate.WaitAsync(floor, MemoryGate.Available, TimeSpan.FromSeconds(30), log, token);
             string asked = q.Ask(seen);
             Stopwatch wall = Stopwatch.StartNew();
             AgentRun result = await agent.RunAsync(toolboxes[arm.Name], TablesRagEval.BasePrompt(q.Restricted ? restricted : container), asked, token);
@@ -184,11 +257,14 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         List<ArmRun> runs = [.. Enumerable.Range(0, schedule.Count).Select(i => done[i])];
 
         JsonObject report = Report(options, questions.Count, runs);
-        report["inventorySeen"] = new JsonObject
-        {
-            ["load1"] = TableQuestion.FormatSeen(seen[1]),
-            ["load2"] = TableQuestion.FormatSeen(seen[2]),
-        };
+        if (seen.Count > 0)
+            report["inventorySeen"] = new JsonObject
+            {
+                ["load1"] = TableQuestion.FormatSeen(seen[1]),
+                ["load2"] = TableQuestion.FormatSeen(seen[2]),
+            };
+        if (options.Resume)
+            report["resumedRuns"] = resumed;
         report["subscription"] = new JsonObject
         {
             ["atFirstRun"] = agent.FirstLimit?.ToString(),
@@ -199,7 +275,8 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         {
             await File.WriteAllTextAsync(b.OutPath, json + "\n", ct);
             // The journal holds every run in finishing order; rewrite it in schedule order now that all are in.
-            await File.WriteAllLinesAsync(Path.ChangeExtension(b.OutPath, ".runs.jsonl"), RunLines(runs), ct);
+            await File.WriteAllLinesAsync(Path.ChangeExtension(b.OutPath, ".runs.jsonl"),
+                schedule.Select((s, i) => saved.TryGetValue((s.Question.Id, s.Arm.Name, s.Run), out string? kept) ? kept : RunLines([runs[i]]).Single()), ct);
         }
         log.WriteLine(json);
         return 0;
@@ -273,7 +350,7 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
 
     public static List<string> Nonconforming(Options options, int questions)
     {
-        List<string> reasons = TablesRagEval.NonconformingTest(options.Base, questions);
+        List<string> reasons = TablesRagEval.NonconformingTest(options.Base, questions, RegisteredTestOf(options.Set));
         if (options.Runs != RegisteredRuns)
             reasons.Add($"{options.Runs} runs per arm, not {RegisteredRuns}");
         if (!TableArm.All.All(options.Arms.Contains))
@@ -288,9 +365,16 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         foreach (TableArm arm in options.Arms)
             arms[arm.Name] = ArmReport([.. runs.Where(r => r.Arm == arm.Name)], ByQuestion(runs, arm.Name));
 
+        JsonObject? Pair(TableArm baseline, TableArm challenger) =>
+            options.Arms.Contains(baseline) && options.Arms.Contains(challenger)
+                ? Compare(ByQuestion(runs, baseline.Name), ByQuestion(runs, challenger.Name),
+                    [.. runs.Where(r => r.Arm == baseline.Name)], [.. runs.Where(r => r.Arm == challenger.Name)], baseline.Name, challenger.Name)
+                : null;
+
         return new JsonObject
         {
             ["setup"] = "arms",
+            ["set"] = options.Set,
             ["config"] = options.Base.Config,
             ["split"] = options.Base.Split,
             ["model"] = options.Base.Model,
@@ -299,10 +383,9 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
             ["runsPerArm"] = options.Runs,
             ["questions"] = questions,
             ["arms"] = arms,
-            ["comparison"] = options.Arms.Contains(TableArm.Structured) && options.Arms.Contains(TableArm.Sql)
-                ? Compare(ByQuestion(runs, TableArm.Structured.Name), ByQuestion(runs, TableArm.Sql.Name),
-                    [.. runs.Where(r => r.Arm == TableArm.Structured.Name)], [.. runs.Where(r => r.Arm == TableArm.Sql.Name)])
-                : null,
+            ["comparison"] = Pair(TableArm.Structured, TableArm.Sql),
+            ["comparisonGraphql"] = Pair(TableArm.Structured, TableArm.GraphQL),
+            ["comparisonSqlOverGraphql"] = Pair(TableArm.GraphQL, TableArm.Sql),
             ["conforming"] = nonconforming.Count == 0,
             ["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]),
         };
@@ -372,18 +455,20 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
 
     /// <summary>
     /// The pass bar's comparisons (items 2–4): exact McNemar on each question's majority right-or-wrong, the family gaps,
-    /// paired Wilcoxon on tool calls where both arms got the question right, and arm Q's cost against arm S's.
+    /// paired Wilcoxon on tool calls where both arms got the question right, and the challenger's cost against the
+    /// baseline's. Keys are named after the arms, so structured against sql reads onlyStructured, onlySql,
+    /// sqlMinusStructuredPoints and sqlOverStructured.
     /// </summary>
-    public static JsonObject Compare(IReadOnlyList<QuestionArm> structured, IReadOnlyList<QuestionArm> sql,
-        IReadOnlyList<ArmRun> structuredRuns, IReadOnlyList<ArmRun> sqlRuns)
+    public static JsonObject Compare(IReadOnlyList<QuestionArm> baseline, IReadOnlyList<QuestionArm> challenger,
+        IReadOnlyList<ArmRun> baselineRuns, IReadOnlyList<ArmRun> challengerRuns, string baselineName = "structured", string challengerName = "sql")
     {
-        Dictionary<string, QuestionArm> s = structured.ToDictionary(q => q.Question.Id, StringComparer.Ordinal);
-        List<(QuestionArm S, QuestionArm Q)> pairs = [.. sql.Where(q => s.ContainsKey(q.Question.Id)).Select(q => (s[q.Question.Id], q))];
+        Dictionary<string, QuestionArm> s = baseline.ToDictionary(q => q.Question.Id, StringComparer.Ordinal);
+        List<(QuestionArm S, QuestionArm Q)> pairs = [.. challenger.Where(q => s.ContainsKey(q.Question.Id)).Select(q => (s[q.Question.Id], q))];
 
-        int onlyStructured = pairs.Count(p => p.S.Correct && !p.Q.Correct);
-        int onlySql = pairs.Count(p => !p.S.Correct && p.Q.Correct);
-        double points = pairs.Count == 0 ? 0 : 100.0 * (onlySql - onlyStructured) / pairs.Count;
-        double mcnemar = PairedTests.McNemarExact(onlyStructured, onlySql);
+        int onlyBaseline = pairs.Count(p => p.S.Correct && !p.Q.Correct);
+        int onlyChallenger = pairs.Count(p => !p.S.Correct && p.Q.Correct);
+        double points = pairs.Count == 0 ? 0 : 100.0 * (onlyChallenger - onlyBaseline) / pairs.Count;
+        double mcnemar = PairedTests.McNemarExact(onlyBaseline, onlyChallenger);
 
         JsonObject familyGaps = [];
         foreach (string family in pairs.Select(p => p.S.Question.Family).Distinct().Order(StringComparer.Ordinal))
@@ -398,54 +483,58 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         double medianS = Median([.. calls.Select(c => c.S)]);
         double medianQ = Median([.. calls.Select(c => c.Q)]);
 
-        double costS = CostPerQuestion(structuredRuns);
-        double costQ = CostPerQuestion(sqlRuns);
+        double costS = CostPerQuestion(baselineRuns);
+        double costQ = CostPerQuestion(challengerRuns);
         double? costRatio = costS > 0 ? costQ / costS : null;
 
+        string b = baselineName;
+        string c = challengerName;
         return new JsonObject
         {
             ["pairs"] = pairs.Count,
             ["correctAnswers"] = new JsonObject
             {
-                ["onlyStructured"] = onlyStructured,
-                ["onlySql"] = onlySql,
-                ["sqlMinusStructuredPoints"] = Math.Round(points, 2),
+                [$"only{Title(b)}"] = onlyBaseline,
+                [$"only{Title(c)}"] = onlyChallenger,
+                [$"{c}Minus{Title(b)}Points"] = Math.Round(points, 2),
                 ["mcnemarExactP"] = mcnemar,
-                ["verdict"] = CorrectVerdict(points, mcnemar),
+                ["verdict"] = CorrectVerdict(points, mcnemar, c),
                 ["familyGapPoints"] = familyGaps,
             },
             ["toolCallsWhenBothRight"] = new JsonObject
             {
                 ["questions"] = calls.Count,
-                ["structuredMedian"] = Math.Round(medianS, 2),
-                ["sqlMedian"] = Math.Round(medianQ, 2),
+                [$"{b}Median"] = Math.Round(medianS, 2),
+                [$"{c}Median"] = Math.Round(medianQ, 2),
                 ["wilcoxonP"] = double.IsNaN(wilcoxon) ? null : wilcoxon,
-                ["verdict"] = CallsVerdict(medianS, medianQ, wilcoxon),
+                ["verdict"] = CallsVerdict(medianS, medianQ, wilcoxon, b, c),
             },
             ["cost"] = new JsonObject
             {
-                ["structuredPerQuestionUsd"] = Math.Round(costS, 4),
-                ["sqlPerQuestionUsd"] = Math.Round(costQ, 4),
-                ["sqlOverStructured"] = costRatio is double r ? Math.Round(r, 3) : null,
+                [$"{b}PerQuestionUsd"] = Math.Round(costS, 4),
+                [$"{c}PerQuestionUsd"] = Math.Round(costQ, 4),
+                [$"{c}Over{Title(b)}"] = costRatio is double r ? Math.Round(r, 3) : null,
                 ["withinBar"] = costRatio is double ratio ? ratio <= MaxCostRatio : null,
             },
         };
     }
 
+    private static string Title(string name) => char.ToUpperInvariant(name[0]) + name[1..];
+
     private static double Median(IReadOnlyList<double> values) =>
         values.Count == 0 ? 0 : SortedArrayStatistics.QuantileCustom([.. values.Order()], 0.5, QuantileDefinition.R7);
 
-    /// <summary>Pass bar item 2: arm Q wins or loses at a 5-point gap with p &lt; 0.05; anything else ties.</summary>
-    public static string CorrectVerdict(double sqlMinusStructuredPoints, double p) =>
+    /// <summary>Pass bar item 2: the challenger wins or loses at a 5-point gap with p &lt; 0.05; anything else ties.</summary>
+    public static string CorrectVerdict(double challengerMinusBaselinePoints, double p, string challenger = "sql") =>
         p >= Alpha ? "tie"
-        : sqlMinusStructuredPoints >= WinPoints ? "sql wins"
-        : sqlMinusStructuredPoints <= -WinPoints ? "sql loses"
+        : challengerMinusBaselinePoints >= WinPoints ? $"{challenger} wins"
+        : challengerMinusBaselinePoints <= -WinPoints ? $"{challenger} loses"
         : "tie";
 
     /// <summary>Pass bar item 3: the lower median wins at p &lt; 0.05.</summary>
-    public static string CallsVerdict(double structuredMedian, double sqlMedian, double p) =>
-        double.IsNaN(p) || p >= Alpha || structuredMedian == sqlMedian ? "tie"
-        : sqlMedian < structuredMedian ? "sql wins" : "structured wins";
+    public static string CallsVerdict(double baselineMedian, double challengerMedian, double p, string baseline = "structured", string challenger = "sql") =>
+        double.IsNaN(p) || p >= Alpha || baselineMedian == challengerMedian ? "tie"
+        : challengerMedian < baselineMedian ? $"{challenger} wins" : $"{baseline} wins";
 
     public static IEnumerable<string> RunLines(IEnumerable<ArmRun> runs)
     {
@@ -525,10 +614,11 @@ public sealed class RunJournal
     private readonly string? _path;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public RunJournal(string? path)
+    /// <param name="keep">Append after the lines already in the file, for a resumed run, instead of emptying it.</param>
+    public RunJournal(string? path, bool keep = false)
     {
         _path = path;
-        if (path is not null)
+        if (path is not null && !(keep && File.Exists(path)))
             File.WriteAllText(path, "");
     }
 
