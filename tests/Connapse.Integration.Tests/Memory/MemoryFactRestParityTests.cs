@@ -119,14 +119,21 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
             // Another attribute of the same subject is not listed beside it.
             string lead = Id(await CallAsync(mcp, "memory_remember", new()
             {
-                ["space"] = space, ["subject"] = subject, ["attribute"] = "lead", ["value"] = "Ada",
+                ["space"] = space,
+                ["subject"] = subject,
+                ["attribute"] = "lead",
+                ["value"] = "Ada",
             }), "remembered");
             lead.Should().NotBeEmpty();
 
             // A second status save over the tool, with the subject in other case, still succeeds and lists the first.
             string second = await CallAsync(mcp, "memory_remember", new()
             {
-                ["space"] = space, ["subject"] = subject.ToUpperInvariant(), ["attribute"] = "Status", ["value"] = "Done", ["validFrom"] = "2026-05-01",
+                ["space"] = space,
+                ["subject"] = subject.ToUpperInvariant(),
+                ["attribute"] = "Status",
+                ["value"] = "Done",
+                ["validFrom"] = "2026-05-01",
             });
             JsonElement listed = JsonDocument.Parse(second).RootElement.GetProperty("existing").EnumerateArray().Single();
             listed.GetProperty("id").GetString().Should().Be(inProgress);
