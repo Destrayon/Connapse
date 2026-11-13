@@ -38,7 +38,9 @@ A token's switch can only add tools: when the server shows every tool, a token c
 
 `/mcp` admits the Owner and Admin roles and agent keys. An agent key or personal access token goes in the `X-Api-Key` header; an MCP client that supports OAuth can sign in instead, and receives the `knowledge:read` and `knowledge:write` scopes it asks for.
 
-The tool list a client sees is filtered by the caller's scopes: a tool the token can't call isn't listed. Named read tools need `knowledge:read` and named write tools need `knowledge:write`. The generic tools are listed when the token holds a scope that some operation reachable through them needs.
+The tool list a client sees is filtered by the caller's scopes, with every tool shown or with the compact list: a tool the token can't call isn't listed. Named read tools need `knowledge:read` and named write tools need `knowledge:write`, which every delete needs too. The generic tools are listed when the token holds a scope that some operation reachable through them needs.
+
+On the compact list, `find_tools` and each call tool are listed only when the token may use at least one tool behind them. A `knowledge:read` token or agent key, for example, sees `find_tools` and `call_read` but not `call_write` or `call_destructive`. `find_tools` never returns a tool the token can't call, and a call tool refuses one if the agent names it anyway.
 
 A browser request to `/mcp` must come from a loopback origin or one listed in `Cors:AllowedOrigins`, or it gets `403`. Clients outside a browser send no `Origin` header and aren't affected.
 
