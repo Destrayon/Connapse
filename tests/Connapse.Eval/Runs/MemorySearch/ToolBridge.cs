@@ -25,7 +25,20 @@ public sealed class BridgeSession(IToolbox toolbox, AgentRules? rules = null)
 
     public const string TaskOver = "The task is over. Do not call any more tools; stop now.";
 
-    public IReadOnlyList<ToolSpec> Tools { get; } = [.. toolbox.Tools, (rules ?? AgentRules.Default).Answer];
+    /// <summary>
+    /// The toolbox's tools and the answer tool. The answer tool is marked to load up front, so a client that defers
+    /// tools behind its own tool search never has to search for it.
+    /// </summary>
+    public IReadOnlyList<ToolSpec> Tools { get; } = [.. toolbox.Tools, AlwaysLoaded((rules ?? AgentRules.Default).Answer)];
+
+    public string? Instructions => toolbox.Instructions;
+
+    private static ToolSpec AlwaysLoaded(ToolSpec answer)
+    {
+        JsonObject wire = ToolBridge.ToolJson(answer).AsObject();
+        wire["_meta"] = new JsonObject { ["anthropic/alwaysLoad"] = true };
+        return answer with { Wire = wire };
+    }
 
     public IReadOnlyList<ToolTrace> Calls => _calls;
 
@@ -69,10 +82,10 @@ public sealed class BridgeSession(IToolbox toolbox, AgentRules? rules = null)
                 Outcome = AgentOutcome.OutOfCalls;
                 return ($"You have used all {_rules.MaxToolCalls} tool calls. " + TaskOver, true);
             }
-            string output;
+            ToolOutput output;
             try
             {
-                output = await toolbox.CallAsync(name, input, ct);
+                output = await toolbox.InvokeAsync(name, input, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -80,8 +93,8 @@ public sealed class BridgeSession(IToolbox toolbox, AgentRules? rules = null)
                 (Outcome, Error) = (AgentOutcome.Error, $"{name}: {ex.GetType().Name}: {ex.Message}");
                 return ("The tool failed. " + TaskOver, true);
             }
-            _calls.Add(new ToolTrace(name, input, output));
-            return (output, false);
+            _calls.Add(new ToolTrace(name, input, output.Text, output.IsError));
+            return (output.Text, output.IsError);
         }
         finally
         {
@@ -133,12 +146,15 @@ public sealed class ToolBridge : IAsyncDisposable
         switch (method)
         {
             case "initialize":
-                return Result(new JsonObject
+                JsonObject initialized = new()
                 {
                     ["protocolVersion"] = message["params"]?["protocolVersion"]?.GetValue<string>() ?? "2025-06-18",
                     ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
                     ["serverInfo"] = new JsonObject { ["name"] = ServerName, ["version"] = "eval" },
-                });
+                };
+                if (session.Instructions is { } instructions)
+                    initialized["instructions"] = instructions;
+                return Result(initialized);
             case "ping":
                 return Result(new JsonObject());
             case "tools/list":
@@ -159,7 +175,7 @@ public sealed class ToolBridge : IAsyncDisposable
         }
     }
 
-    public static JsonNode ToolJson(ToolSpec tool) => new JsonObject
+    public static JsonNode ToolJson(ToolSpec tool) => tool.Wire?.DeepClone() ?? new JsonObject
     {
         ["name"] = tool.Name,
         ["description"] = tool.Description,

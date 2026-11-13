@@ -81,11 +81,17 @@ public sealed record SubscriptionLimit(string Status, IReadOnlyDictionary<string
 /// <summary>What one <c>claude -p</c> stream-json run reported.</summary>
 public sealed record CliResult(
     bool Finished, bool IsError, string? Subtype, string? StopReason, int Turns, TokenUsage Usage, string? Text,
-    IReadOnlyList<string> Tools, SubscriptionLimit? Limit)
+    IReadOnlyList<string> Tools, SubscriptionLimit? Limit, IReadOnlyList<string>? ToolUses = null)
 {
-    public static readonly CliResult None = new(false, false, null, null, 0, TokenUsage.Zero, null, [], null);
+    public static readonly CliResult None = new(false, false, null, null, 0, TokenUsage.Zero, null, [], null, []);
 
-    /// <summary>Reads the init event (tools), the last rate-limit event and the result event; other lines are ignored.</summary>
+    /// <summary>How many times the agent called Claude Code's own ToolSearch tool (CON-346).</summary>
+    public int ToolSearchCalls => (ToolUses ?? []).Count(t => t == ClaudeCliAgent.ToolSearchTool);
+
+    /// <summary>
+    /// Reads the init event (tools), the last rate-limit event, the result event and the names of the tools each
+    /// assistant message used; other lines are ignored.
+    /// </summary>
     public static CliResult Parse(IEnumerable<string> lines)
     {
         CliResult parsed = None;
@@ -104,6 +110,15 @@ public sealed record CliResult(
             {
                 case "system" when e["subtype"]?.GetValue<string>() == "init":
                     parsed = parsed with { Tools = [.. (e["tools"] as JsonArray ?? []).Select(t => t?.GetValue<string>()).OfType<string>()] };
+                    break;
+                case "assistant":
+                    if (e["message"] is JsonObject message && message["content"] is JsonArray content)
+                        parsed = parsed with
+                        {
+                            ToolUses = [.. (parsed.ToolUses ?? []), .. content.OfType<JsonObject>()
+                                .Where(c => c["type"]?.GetValue<string>() == "tool_use")
+                                .Select(c => c["name"]?.GetValue<string>()).OfType<string>()],
+                        };
                     break;
                 case "rate_limit_event" when e["rate_limit_info"] is JsonObject info:
                     Dictionary<string, double> windows = new(StringComparer.Ordinal);
@@ -155,10 +170,18 @@ public sealed class SubscriptionLimitException(SubscriptionLimit limit)
 /// only tools are the run's <see cref="ToolBridge"/> session: no built-in tools, no settings files, CLAUDE.md, skills,
 /// plugins or other MCP servers, and no API key, so the usage comes out of the subscription.
 /// </summary>
+/// <param name="toolSearch">
+/// Claude Code's own tool search (CON-346): null leaves Claude Code's default; false turns it off
+/// (<c>ENABLE_TOOL_SEARCH=false</c>, every tool loaded up front, as Claude Desktop does); true turns it on with
+/// ToolSearch the only built-in tool, so MCP tools not marked to always load are found through it.
+/// </param>
 public sealed class ClaudeCliAgent(
     ToolBridge bridge, string model, string effort, string workDir, IProcessRunner? runner = null,
-    string executable = "claude", TimeSpan? timeout = null, AgentRules? rules = null) : IAgentRunner
+    string executable = "claude", TimeSpan? timeout = null, AgentRules? rules = null, bool? toolSearch = null) : IAgentRunner
 {
+    public const string ToolSearchTool = "ToolSearch";
+    public const string ToolSearchVariable = "ENABLE_TOOL_SEARCH";
+
     /// <summary>
     /// Variables that would make Claude Code bill an API account or a cloud provider instead of the subscription. The
     /// provider selectors take precedence over subscription sign-in.
@@ -183,7 +206,9 @@ public sealed class ClaudeCliAgent(
         (string id, BridgeSession session) = bridge.Open(toolbox, rules);
         try
         {
+            long started = Stopwatch.GetTimestamp();
             ProcessResult process = await _runner.RunAsync(StartInfo(bridge.UrlFor(id), system, question), _timeout, ct);
+            double seconds = Stopwatch.GetElapsedTime(started).TotalSeconds;
             CliResult result = CliResult.Parse(process.Stdout);
             if (result.Limit is { } limit)
                 lock (_lock)
@@ -191,7 +216,7 @@ public sealed class ClaudeCliAgent(
             if (result.Limit is { Allowed: false } blocked && session.Outcome is null)
                 throw new SubscriptionLimitException(blocked);
             RequireSubscription(result, session.Outcome is not null || session.Calls.Count > 0);
-            return Compose(session, result, process);
+            return Compose(session, result, process) with { ToolSearchCalls = result.ToolSearchCalls, Seconds = seconds };
         }
         finally
         {
@@ -214,15 +239,19 @@ public sealed class ClaudeCliAgent(
     public ProcessStartInfo StartInfo(string mcpUrl, string system, string question)
     {
         ProcessStartInfo start = new(executable) { WorkingDirectory = workDir };
-        foreach (string a in Arguments(mcpUrl, system, question, model, effort))
+        foreach (string a in Arguments(mcpUrl, system, question, model, effort, toolSearch))
             start.ArgumentList.Add(a);
         foreach (string v in RemovedVariables)
             start.Environment.Remove(v);
+        if (toolSearch is { } on)
+            start.Environment[ToolSearchVariable] = on ? "true" : "false";
         return start;
     }
 
-    public static List<string> Arguments(string mcpUrl, string system, string question, string model, string effort)
+    public static List<string> Arguments(string mcpUrl, string system, string question, string model, string effort, bool? toolSearch = null)
     {
+        string tools = toolSearch == true ? ToolSearchTool : "";
+        string allowed = toolSearch == true ? $"mcp__{ToolBridge.ServerName},{ToolSearchTool}" : $"mcp__{ToolBridge.ServerName}";
         string config = new JsonObject
         {
             ["mcpServers"] = new JsonObject { [ToolBridge.ServerName] = new JsonObject { ["type"] = "http", ["url"] = mcpUrl } },
@@ -235,8 +264,8 @@ public sealed class ClaudeCliAgent(
             "--system-prompt", system,
             "--mcp-config", config,
             "--strict-mcp-config",
-            "--tools", "",
-            "--allowedTools", $"mcp__{ToolBridge.ServerName}",
+            "--tools", tools,
+            "--allowedTools", allowed,
             "--permission-mode", "dontAsk",
             "--restricted",
             "--setting-sources", "",

@@ -11,14 +11,28 @@ public sealed record TokenUsage(long Input, long Output, long CacheRead, long Ca
         new(Input + other.Input, Output + other.Output, CacheRead + other.CacheRead, CacheWrite + other.CacheWrite, CostUsd + other.CostUsd);
 }
 
-/// <summary>A tool as the model sees it: JSON Schema properties and the required ones.</summary>
-public sealed record ToolSpec(string Name, string Description, IReadOnlyDictionary<string, JsonElement> Properties, IReadOnlyList<string> Required);
+/// <summary>
+/// A tool as the model sees it: JSON Schema properties and the required ones. <paramref name="Wire"/> is the tool
+/// exactly as a real MCP server listed it (schema, annotations, _meta); when set, the bridge lists that instead.
+/// </summary>
+public sealed record ToolSpec(string Name, string Description, IReadOnlyDictionary<string, JsonElement> Properties, IReadOnlyList<string> Required,
+    System.Text.Json.Nodes.JsonObject? Wire = null);
+
+/// <summary>What a tool returned, and whether it reported an error.</summary>
+public sealed record ToolOutput(string Text, bool IsError);
 
 public interface IToolbox
 {
     IReadOnlyList<ToolSpec> Tools { get; }
 
+    /// <summary>The server instructions an MCP client receives on initialize, if any.</summary>
+    string? Instructions => null;
+
     Task<string> CallAsync(string name, IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct);
+
+    /// <summary>The call with its error flag; a toolbox that has none reports every result as not an error.</summary>
+    async Task<ToolOutput> InvokeAsync(string name, IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct) =>
+        new(await CallAsync(name, input, ct), false);
 }
 
 /// <summary>Runs one agent to the end of one question with the given tools.</summary>
@@ -29,8 +43,8 @@ public interface IAgentRunner
 
 public enum AgentOutcome { Answered, NoAnswer, OutOfCalls, Refused, Error }
 
-/// <summary>One tool call the agent made and what the tool returned.</summary>
-public sealed record ToolTrace(string Name, IReadOnlyDictionary<string, JsonElement> Input, string Output);
+/// <summary>One tool call the agent made, what the tool returned, and whether it returned an error.</summary>
+public sealed record ToolTrace(string Name, IReadOnlyDictionary<string, JsonElement> Input, string Output, bool IsError = false);
 
 /// <summary>How one run ended, what it cited, and what it cost.</summary>
 public sealed record AgentRun(
@@ -41,7 +55,9 @@ public sealed record AgentRun(
     TokenUsage Usage,
     int Turns,
     string? Error,
-    JsonElement? AnswerValue = null);
+    JsonElement? AnswerValue = null,
+    int ToolSearchCalls = 0,
+    double Seconds = 0);
 
 /// <summary>
 /// A suite's rules: how many tool calls a run may make and the answer tool it ends with. A typed answer takes any JSON

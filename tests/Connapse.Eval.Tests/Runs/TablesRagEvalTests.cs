@@ -79,7 +79,8 @@ public class TablesRagEvalTests
     {
         BridgeSession session = new(new FakeTools(), TablesRagEval.Rules);
 
-        session.Tools.Last().Should().BeSameAs(AgentContract.TypedAnswer);
+        session.Tools.Last().Should().Be(AgentContract.TypedAnswer with { Wire = session.Tools.Last().Wire });
+        ((bool)session.Tools.Last().Wire!["_meta"]!["anthropic/alwaysLoad"]!).Should().BeTrue();
         AgentContract.TypedAnswer.Required.Should().Equal("answer");
     }
 
@@ -92,7 +93,7 @@ public class TablesRagEvalTests
         (string _, bool isError) = await session.CallAsync("answer", Input(new { answer = 12 }), CancellationToken.None);
 
         isError.Should().BeTrue("the default answer tool still takes a string");
-        session.Tools.Last().Should().BeSameAs(AgentContract.Answer);
+        session.Tools.Last().Should().Be(AgentContract.Answer with { Wire = session.Tools.Last().Wire });
     }
 
     [Fact]

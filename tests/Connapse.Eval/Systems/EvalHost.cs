@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Runtime.ExceptionServices;
 using Connapse.Core;
 using Connapse.Core.Interfaces;
@@ -42,6 +43,65 @@ public sealed class EvalHost : IAsyncDisposable
     }
 
     public IServiceProvider Services => _factory.Services;
+
+    /// <summary>
+    /// A client of the in-process server signed in as the harness's throwaway admin (CON-346), which an MCP client
+    /// uses to reach <c>/mcp</c> the way a real agent does. Its token is renewed before it expires.
+    /// </summary>
+    public HttpClient CreateAdminClient()
+    {
+        HttpClient login = _factory.CreateClient();
+        HttpClient client = _factory.CreateDefaultClient(new AdminTokenHandler(login));
+        client.Timeout = Timeout.InfiniteTimeSpan;
+        return client;
+    }
+
+    /// <summary>Adds the admin's bearer token to each request, logging in again when the token is ten minutes old.</summary>
+    private sealed class AdminTokenHandler(HttpClient login) : DelegatingHandler
+    {
+        private static readonly TimeSpan Renew = TimeSpan.FromMinutes(10);
+        private readonly SemaphoreSlim _gate = new(1, 1);
+        private string? _token;
+        private DateTime _issued;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", await TokenAsync(ct));
+            return await base.SendAsync(request, ct);
+        }
+
+        private async Task<string> TokenAsync(CancellationToken ct)
+        {
+            await _gate.WaitAsync(ct);
+            try
+            {
+                if (_token is null || DateTime.UtcNow - _issued > Renew)
+                {
+                    using HttpResponseMessage response = await login.PostAsJsonAsync("/api/v1/auth/token",
+                        new LoginRequest(AdminEmail, AdminPassword), ct);
+                    response.EnsureSuccessStatusCode();
+                    TokenResponse? body = await response.Content.ReadFromJsonAsync<TokenResponse>(ct);
+                    _token = body?.AccessToken ?? throw new InvalidOperationException("The token response had no access token.");
+                    _issued = DateTime.UtcNow;
+                }
+                return _token;
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                login.Dispose();
+                _gate.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+    }
 
     /// <summary>True when the database was restored from <c>snapshotVolume</c> before Connapse started.</summary>
     public bool Restored { get; }

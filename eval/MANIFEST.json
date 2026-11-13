@@ -53,6 +53,9 @@
     "memory-search-v1": [
       "memory-search"
     ],
+    "tool-routing-v1": [
+      "tool-routing"
+    ],
     "memory-learned-v1": [
       "memory-learned"
     ],
@@ -1189,6 +1192,25 @@
           "name": "tasks.jsonl.gz",
           "url": "repo:memory-agent-sealed-3/tasks.jsonl.gz",
           "sha256": "1847d7f8755fac3429516bb00f7d5462eb019ed8f9469ca701492ba10d09d4e1"
+        }
+      ]
+    },
+    "tool-routing": {
+      "adapter": "tool-routing",
+      "version": "con-346",
+      "tags": [
+        "shape:tools"
+      ],
+      "files": [
+        {
+          "name": "fixtures.json",
+          "url": "repo:tool-routing/fixtures.json",
+          "sha256": "c0cb785d25db6c08f01c87bb940df084781354f9179b14453982775bb22ae306"
+        },
+        {
+          "name": "tasks.jsonl",
+          "url": "repo:tool-routing/tasks.jsonl",
+          "sha256": "e073e750dd621bb3dac6ee16f1e31a9679540c07fecafc1e024bb8872bd701c5"
         }
       ]
     },

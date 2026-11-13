@@ -47,8 +47,16 @@ internal static class EvalEntryPoint
                 "memory-search" => await new MemorySearchEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
+                    cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"),
+                    MemorySearchEval.ParseToolList(cli.Option("tool-list")), MemorySearchEval.ParseToolSearch(cli.Option("tool-search"))), cts.Token),
+                "tool-routing" => await new ToolRoutingEval(paths, http, Console.Out).RunAsync(new ToolRoutingEval.Options(
+                    MemorySearchEval.ParseToolList(cli.Option("tool-list")) ?? throw new ArgumentException("tool-routing needs --tool-list full|compact"),
+                    MemorySearchEval.ParseToolSearch(cli.Option("tool-search")), cli.Option("split") ?? "test",
+                    cli.Option("model") ?? MemorySearchEval.RegisteredModel, cli.Option("effort") ?? MemorySearchEval.RegisteredEffort,
+                    cli.PositiveInt("repetitions") ?? MemorySearchEval.RegisteredRepetitions, cli.PositiveInt("limit-tasks"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
-                "tables-rag" => await new TablesRagEval(paths, http, Console.Out).RunAsync(new TablesRagEval.Options(
+                "tool-arms" => ToolArms.Run(cli.Required("full"), cli.Required("compact"), Console.Out),
+                "tables-rag" =>await new TablesRagEval(paths, http, Console.Out).RunAsync(new TablesRagEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("limit-tasks"), cli.List("ids"), cli.Flag("skip-mixed"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tables"),
@@ -282,7 +290,9 @@ internal static class Commands
               pool    <runDir>... --out <file>
               datasets list | verify | fetch | pin --suite <name> [--datasets a,b]
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
-              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
+              memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--tool-list full|compact] [--tool-search on|off] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
+              tool-routing --tool-list full|compact [--tool-search on|off] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (tool-routing-v1: does the agent reach the one tool a task needs; runs `claude -p` on your Claude subscription)
+              tool-arms --full <report.json> --compact <report.json>   (pairs two memory-search or tool-routing reports by task: the CON-346 non-inferiority and token bars)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: an agent answering the session-2 questions with search alone, after the late documents)
               memory-agent [--config keyword] [--arm all|retrieval|find|save] [--search memory|grep|ripgrep] [--dataset memory-agent|memory-agent-sealed-1|memory-agent-sealed-2|memory-agent-sealed-3] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--kinds exact,reworded] [--min-free-mb N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (memory-agent-v1: an agent finding and saving facts in its memory space; --min-free-mb stops the run when free memory drops under N MB; --arm retrieval needs no agent, the others run `claude -p` on your Claude subscription)
               tables-rag [--config hybrid] [--split test|tune] [--model claude-sonnet-5-5] [--effort medium] [--ids a,b] [--tables a,b] [--limit-tasks N] [--skip-mixed] [--workers 1] [--agent-dir <dir>] [--stall-minutes 30] [--out <file>]   (tables-v1 rag setup: an agent answering table questions over CSVs as documents; runs `claude -p` on your Claude subscription)
