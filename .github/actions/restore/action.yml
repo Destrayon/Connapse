@@ -35,8 +35,10 @@ runs:
   # Saved straight after the restore rather than when the job ends, so a failing test still leaves it.
   # Only a whole-solution restore saves: one project's packages under the shared key would leave every
   # other job that hits it downloading the rest.
+  # A PR's cache is readable only by that PR, and each is about 1.6 GB of the repository's 10 GB, so PRs that
+  # changed a project file evicted the caches branches share, mutation baselines among them (CON-349).
   - name: Save NuGet cache
-    if: inputs.project == '' && steps.nuget.outputs.cache-hit != 'true'
+    if: inputs.project == '' && steps.nuget.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
     uses: actions/cache/save@v4
     with:
       path: ~/.nuget/packages
