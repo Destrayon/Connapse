@@ -154,9 +154,8 @@ public class SpreadsheetTableUploadTests(SharedWebAppFixture fixture)
                 grid.Id, ["value"], Where: new TableCondition(new TableField("value"), TableFilterOperator.Contains, ["3"])));
             json.Rows.Should().ContainSingle().Which[0].Should().Be("[3]");
 
-            TableQueryResult sql = await scope.ServiceProvider.GetRequiredService<ITableSqlService>().RunAsync(containerId, access,
-                $"SELECT c_2 AS i, jsonb_array_length(c_3) AS n, c_3->>0 AS first FROM {grid.StorageName} ORDER BY c_2");
-            sql.Rows.Select(r => (r[0], r[1], r[2])).Should().Equal((0L, (object)2, (object)"1"), (1L, 1, "3"));
+            TableQueryResult arrays = await service.ReadAsync(containerId, access, new TableReadRequest(grid.Id, ["value"]));
+            arrays.Rows.Select(r => r[0]).Should().BeEquivalentTo(["[1, 2]", "[3]"]);
         }
         finally
         {

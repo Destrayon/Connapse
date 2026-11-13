@@ -145,31 +145,27 @@ what the same tokens would cost at API list price. If the subscription limit is 
 
 ## Table approaches side by side
 
-`tables-arms` asks the same questions of agents that differ only in their tools (CON-327, then CON-336 with a third
-arm and a second set). Arm `structured` gets `table_list`, `table_describe`, `table_read` and `table_aggregate`; arm
-`sql` gets `table_sql` (the agent writes its own SELECT), `table_list` and `table_describe`; arm `graphql` gets
-`table_graphql` (the agent writes a GraphQL query), `table_list` and `table_describe`. All also get
-`search_knowledge` and `get_document`. Data, prompt, agent and grading are the `tables-rag` setup's. Each question
-runs once per arm by default (CON-336's bar), interleaved; with `--runs 3` a question counts as right for an arm when
-2 of the 3 runs are. `--set flex` asks the flexibility set (`eval/datasets/tables/flex`) instead, its six files
-uploaded into one container. The report gives each arm's accuracy (overall, per family, admin and restricted), tool
-calls, search calls, confident wrong answers, tokens, cost and wall time, then a comparison for each pair of arms
-that ran (`comparison` for structured against sql, `comparisonGraphql` for structured against graphql,
-`comparisonSqlOverGraphql` for graphql against sql): exact McNemar on the right answers, the per-family gaps, paired
-Wilcoxon on tool calls where both arms were right, and the cost ratio. The run turns on `Tables.AgentSql` in its own
-containers, and stops before starting anything if the build lacks an arm's tool. Each run waits for 8 GB of free
-memory (`--min-free-gb`). It needs Docker and Ollama for the search side. The tables-v1 CSVs are built locally,
-not downloaded, so build them once before the first run, then try a slice:
+`tables-arms` asks the tables questions of an agent given one arm's tools (CON-327, then CON-336 with a second
+set). Arm `structured`, the only arm, gets `table_list`, `table_describe`, `table_read`, `table_aggregate`,
+`search_knowledge` and `get_document`. The free-form SQL and GraphQL arms were removed with their tools in CON-345
+(`docs/research/con-345-free-form-table-tools-removed.md`). Data, prompt, agent and grading are the `tables-rag`
+setup's. Each question runs once by default (CON-336's bar); with `--runs 3` a question counts as right when 2 of the
+3 runs are. `--set flex` asks the flexibility set (`eval/datasets/tables/flex`) instead, its six files uploaded into
+one container. The report gives the arm's accuracy (overall, per family, admin and restricted), tool calls, search
+calls, confident wrong answers, tokens, cost and wall time. The run stops before starting anything if the build lacks
+one of the arm's tools. Each run waits for 8 GB of free memory (`--min-free-gb`). It needs Docker and Ollama for the
+search side. The tables-v1 CSVs are built locally, not downloaded, so build them once before the first run, then try
+a slice:
 
     python eval/tools/tables/build_tables.py
     dotnet run --project tests/Connapse.Eval -- tables-arms --split tune --limit-tasks 10 --out eval/runs/tables-arms-dry.json
 
-- Options: `--arms structured,sql,graphql` (default all three), `--runs` (default 1), `--set tables-v1|flex`, and the
-  `tables-rag` options except `--skip-mixed` (mixed questions are not asked). Anything but all three arms, 1 run and
-  the set's full test questions (180 for tables-v1, 70 for flex) is marked diagnostic only. Every run lands in `<out>.runs.jsonl` with its arm, run number, calls, cost and wall time as soon
-  as it finishes, so a run that is cut short keeps what it measured; a finished run rewrites the file in schedule order.
-  Run the same command again with `--resume` to keep those saved runs and ask only the missing ones; the report
-  counts them under `resumedRuns`.
+- Options: `--arms structured` (the default), `--runs` (default 1), `--set tables-v1|flex`, and the `tables-rag`
+  options except `--skip-mixed` (mixed questions are not asked). Anything but 1 run and the set's full test questions
+  (180 for tables-v1, 70 for flex) is marked diagnostic only. Every run lands in `<out>.runs.jsonl` with its arm, run
+  number, calls, cost and wall time as soon as it finishes, so a run that is cut short keeps what it measured; a
+  finished run rewrites the file in schedule order. Run the same command again with `--resume` to keep those saved
+  runs and ask only the missing ones; the report counts them under `resumedRuns`.
 - `tables-arms-score --runs-file <out>.runs.jsonl --out <file>` builds the report from those lines without asking
   anything again, using each run's recorded grade. Pass the same options the run used; it needs no Docker or Ollama.
 
