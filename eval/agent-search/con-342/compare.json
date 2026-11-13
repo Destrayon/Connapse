@@ -1,0 +1,26 @@
+{
+  "tasks": 152,
+  "r1TextRead": {
+    "today": 3266.3,
+    "newest": 4126.8,
+    "meanDifference": 860.5,
+    "ci95": [
+      495.1,
+      1227.5
+    ],
+    "verdict": "FAIL",
+    "rule": "PASS when the 95% BCa upper bound of (newest - today) text read is below 0"
+  },
+  "r2Right": {
+    "today": 0.9013,
+    "newest": 0.8618,
+    "meanDifference": -0.0395,
+    "ci90": [
+      -0.0757,
+      -0.0066
+    ],
+    "verdict": "FAIL",
+    "rule": "PASS when the 90% BCa lower bound of (newest - today) right answers is above -0.05"
+  },
+  "verdict": "FAIL"
+}

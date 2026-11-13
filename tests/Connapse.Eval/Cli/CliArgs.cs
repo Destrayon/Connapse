@@ -65,6 +65,8 @@ public sealed class CliArgs
             ["memory"] = ["config", "split", "out"],
             ["memory-search"] = ["config", "split", "out", "model", "effort", "repetitions", "limit-tasks", "workers", "agent-dir", "tools"],
             ["memory-search-compare"] = ["margin"],
+            ["memory-recall"] = ["arm", "config", "out", "model", "effort", "repetitions", "limit-tasks", "workers", "agent-dir"],
+            ["memory-recall-compare"] = [],
             ["memory-learned"] = ["config", "split", "out", "model", "effort", "repetitions", "limit-tasks", "workers", "agent-dir", "tools"],
             ["code"] = ["config", "split", "out"],
             ["datasets"] = ["suite", "datasets"],

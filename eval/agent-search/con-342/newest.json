@@ -1,0 +1,69 @@
+{
+  "arm": "newest",
+  "config": "hybrid",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 2,
+  "all": {
+    "tasks": 152,
+    "right": 0.8618,
+    "textRead": 4126.8059,
+    "recallCalls": 1.227
+  },
+  "kinds": {
+    "current": {
+      "tasks": 40,
+      "right": 0.975,
+      "textRead": 3723.6875,
+      "recallCalls": 1.35
+    },
+    "as_of": {
+      "tasks": 39,
+      "right": 1,
+      "textRead": 1488.2436,
+      "recallCalls": 1
+    },
+    "changed": {
+      "tasks": 10,
+      "right": 1,
+      "textRead": 11917,
+      "recallCalls": 1
+    },
+    "when": {
+      "tasks": 63,
+      "right": 0.6825,
+      "textRead": 4779.6111,
+      "recallCalls": 1.3254
+    }
+  },
+  "recallCallsPassingOrder": 208,
+  "recallCalls": 373,
+  "runsPassingOrder": 206,
+  "runs": 304,
+  "limitsPassed": {
+    "3": 1,
+    "5": 56,
+    "10": 292,
+    "20": 1,
+    "30": 3,
+    "40": 1,
+    "50": 17,
+    "100": 2
+  },
+  "outcomes": {
+    "Answered": 304
+  },
+  "tokens": {
+    "input": 1962,
+    "cacheWrite": 644748,
+    "cacheRead": 2913587,
+    "output": 112505,
+    "apiListPriceUsd": 3.9993
+  },
+  "conforming": true,
+  "diagnosticOnly": [],
+  "subscription": {
+    "atFirstRun": "allowed_warning (seven_day 93%)",
+    "atLastRun": "allowed_warning (seven_day 94%)"
+  }
+}

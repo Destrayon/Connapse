@@ -172,7 +172,7 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
     }
 
     /// <summary>Every value the asked fact ever had in this project, for reading an answer as baseline.py does.</summary>
-    private static string[] AskedValues(Question q, JsonObject timeline)
+    public static string[] AskedValues(Question q, JsonObject timeline)
     {
         string? noun = FactOf.Keys.FirstOrDefault(k => q.Text.Contains($"'s {k}", StringComparison.Ordinal));
         return noun is null ? [] : [.. timeline[q.Code]![FactOf[noun]]!.AsArray().Select(s => (string)s!["value"]!).Distinct()];
@@ -305,12 +305,12 @@ public sealed partial class MemoryEval(RepoPaths paths, HttpClient http, TextWri
 
     private static DateTimeOffset? Date(string? text) => text is null ? null : Dates(text)[0];
 
-    private static IEnumerable<Question> ReadQuestions(string path) =>
+    public static IEnumerable<Question> ReadQuestions(string path) =>
         File.ReadLines(path).Select(l => JsonNode.Parse(l)!.AsObject()).Select(q => new Question(
             (string)q["id"]!, (string)q["code"]!, (string)q["split"]!, (string)q["kind"]!, (string)q["question"]!,
             q["answer"]!.AsObject(), [.. q["evidence"]!.AsArray().Select(e => (string)e!)]));
 
-    private static List<Op> ReadOps(string path) =>
+    public static List<Op> ReadOps(string path) =>
         File.Exists(path)
             ? [.. File.ReadLines(path).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).Select(o => new Op(
                 (string)o["session"]!, (string)o["op"]!, (string)o["id"]!, (string?)o["target"], (string?)o["kind"],

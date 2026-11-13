@@ -48,6 +48,11 @@ internal static class EvalEntryPoint
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tools")), cts.Token),
                 "memory-search-compare" => Commands.MemorySearchCompare(cli),
+                "memory-recall" => await new MemoryRecallEval(paths, http, Console.Out).RunAsync(new MemoryRecallEval.Options(
+                    cli.Required("arm"), cli.Option("config") ?? "hybrid", cli.Option("model") ?? "claude-sonnet-5-5",
+                    cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? MemoryRecallEval.RegisteredRepetitions,
+                    cli.PositiveInt("limit-tasks"), cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
+                "memory-recall-compare" => Commands.MemoryRecallCompare(cli),
                 "memory-learned" => await new MemoryLearnedEval(paths, http, Console.Out).RunAsync(new MemorySearchEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("repetitions") ?? 3, cli.PositiveInt("limit-tasks"),
@@ -248,6 +253,15 @@ internal static class Commands
         return 0;
     }
 
+    public static int MemoryRecallCompare(CliArgs cli)
+    {
+        if (cli.Positionals.Count != 2)
+            throw new ArgumentException("memory-recall-compare needs two run logs: <today.runs.jsonl> <newest.runs.jsonl>.");
+        JsonObject result = MemoryRecallEval.Compare([.. File.ReadLines(cli.Positionals[0])], [.. File.ReadLines(cli.Positionals[1])]);
+        Console.WriteLine(result.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        return 0;
+    }
+
     public static int Report(CliArgs cli)
     {
         RunFolder run = RunFolder.Open(cli.Positionals.FirstOrDefault()
@@ -284,6 +298,8 @@ internal static class Commands
               memory   [--config hybrid] [--split heldout|tuning] [--out <file>]   (memory-v1: agent memory against notes as documents)
               memory-search [--config hybrid] [--split test|dev] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 3] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--tools a,b] [--out <file>]   (memory-search-v1: an agent answering with search alone; runs `claude -p` on your Claude subscription)
               memory-search-compare <baseline.runs.jsonl> <candidate.runs.jsonl> [--margin 0.05]   (paired per-task scores; PASS when the 90% interval's low end is above -margin)
+              memory-recall --arm today|newest [--config hybrid] [--model claude-sonnet-5-5] [--effort medium] [--repetitions 2] [--limit-tasks N] [--workers 1] [--agent-dir <dir>] [--out <file>]   (CON-342: agents answering held-out memory questions with memory_recall alone)
+              memory-recall-compare <today.runs.jsonl> <newest.runs.jsonl>   (CON-342's R1 text read and R2 right answers)
               memory-learned [same options as memory-search; --limit-tasks counts families]   (memory-learned-v1: an agent answering the session-2 questions with search alone, after the late documents)
               code     [--config code] [--split heldout|tuning] [--out <file>]   (code-v1: code tools against grep)
             """;
