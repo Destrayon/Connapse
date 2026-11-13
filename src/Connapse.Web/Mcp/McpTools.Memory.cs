@@ -134,7 +134,7 @@ public partial class McpTools
      Authorize(Policy = "Scope:KnowledgeWrite"), McpToolRisk(RiskTier.Write),
      Description("Store one fact in a memory space: a subject (\"Halcyon\"), an attribute (\"database\") and a value (\"PostgreSQL 15\"), with the date it became true and the documents you learned it from. Name a `space` that exists: memory_spaces lists yours, and memory_space_create makes one if none fits. No space is made for you. "
         + SaveTest
-        + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead.")]
+        + " Cite the document IDs that `search_knowledge` or `get_document` gave you: a fact citing sources is shown only to people who can read all of them. The answer says who can see what you saved. When a value you stored before has changed, call `memory_correct` instead. If the answer lists facts already current with the same subject and attribute, and you meant to replace one, correct it instead of leaving both.")]
     public static async Task<string> MemoryRemember(
         RememberFact remember,
         ListMemorySpaces spaces,
@@ -166,7 +166,12 @@ public partial class McpTools
         var written = await remember.RunAsync(Mcp(http), target,
             new NewMemoryFact(subject, attribute, value, dates.From, dates.To, parsed, reason), ct);
         return written.Succeeded
-            ? JsonSerializer.Serialize(new { remembered = Shown(written.Result!.Fact, null), savedTo = SavedTo(written.Result.SavedTo) }, MemoryJson)
+            ? JsonSerializer.Serialize(new
+            {
+                remembered = Shown(written.Result!.Fact, null),
+                savedTo = SavedTo(written.Result.SavedTo),
+                existing = Endpoints.MemoryExistingFact.From(written.Result.Existing),
+            }, MemoryJson)
             : Refused(written);
     }
 

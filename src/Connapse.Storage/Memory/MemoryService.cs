@@ -44,7 +44,36 @@ public sealed class MemoryService(
         MemoryFact written = await store.AddAsync(containerId, fact, caller, ct);
         await audit.LogAsync("memory.remembered", "memory_fact", written.Id.ToString(),
             new { ContainerId = containerId, caller.UserId, caller.AgentId, Sources = written.Sources.Count, Scope = written.Scope.ToString() }, ct);
-        return new MemoryWriteResult(written, null, null);
+        return new MemoryWriteResult(written, null, null, Existing: await AlsoCurrentAsync(containerId, written, caller, ct));
+    }
+
+    /// <summary>The most facts a save's answer lists beside it, and how many facts on its subject are looked through for them.</summary>
+    internal const int MaxExisting = 10;
+    internal const int ExistingScan = 500;
+
+    /// <summary>
+    /// The other current facts in the space with <paramref name="written"/>'s subject and attribute (ignoring case) that
+    /// <paramref name="caller"/> can see, newest first. Read as a list is, so nothing hidden is named; when it can't be
+    /// read the list is empty, since the save itself already succeeded.
+    /// </summary>
+    private async Task<IReadOnlyList<MemoryFact>> AlsoCurrentAsync(Guid containerId, MemoryFact written, MemoryCaller caller, CancellationToken ct)
+    {
+        MemoryFactFilter filter = new(Subject: written.Subject, Status: MemoryFactStatus.Current);
+        List<MemoryFact> same = [];
+        MemoryFactKey? after = null;
+        int scanned = 0;
+        do
+        {
+            MemoryFactPage page = await ListAsync(containerId, filter, MemoryFactSort.Recorded, after, MaxPage, caller, ct);
+            if (page.Denied)
+                return [];
+            same.AddRange(page.Facts.Select(f => f.Fact).Where(f =>
+                f.Id != written.Id && string.Equals(f.Attribute, written.Attribute, StringComparison.OrdinalIgnoreCase)));
+            scanned += page.Facts.Count;
+            after = page.Next;
+        }
+        while (after is not null && scanned < ExistingScan && same.Count < MaxExisting);
+        return [.. same.Take(MaxExisting)];
     }
 
     public async Task<MemoryWriteResult> CorrectAsync(

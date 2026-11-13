@@ -228,7 +228,8 @@ public static class MemoryFactsEndpoints
             var written = await remember.RunAsync(Rest(http), MemoryTarget.Space(id), fact, ct);
             return written.Succeeded
                 ? Results.Created($"/api/memory/facts/{written.Result!.Fact.Id}/history",
-                    new MemoryRememberedResponse(written.Result.Fact, Space(written.Result.SavedTo!)))
+                    new MemoryRememberedResponse(written.Result.Fact, Space(written.Result.SavedTo!),
+                        MemoryExistingFact.From(written.Result.Existing)))
                 : OperationProblems.Result(written);
         })
         .RequireAuthorization("RequireEditor", "Scope:KnowledgeWrite")
@@ -237,7 +238,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.remember")
-        .WithDescription("Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them");
+        .WithDescription("Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them. The save always adds a fact; when other current facts with the same subject and attribute that you can see are in the space, `existing` lists them (id, value, dates). If you meant to replace one, correct it instead of leaving both");
 
         // POST /api/memory/facts/{id}/correct - Replace a fact, keeping the old one in history
         writes.MapPost("/facts/{id}/correct", async (
@@ -408,8 +409,22 @@ public sealed record CorrectMemoryFactRequest(
 /// <summary>A memory space a fact is in: its id, name, and whether it is personal (only its owner sees it) or team.</summary>
 public sealed record MemorySpaceRef(string Id, string Name, MemoryScope Audience);
 
-/// <summary>The fact stored and the space it went into.</summary>
-public sealed record MemoryRememberedResponse(MemoryFact Fact, MemorySpaceRef SavedTo);
+/// <summary>
+/// The fact stored and the space it went into. <c>existing</c>, present only when there are some, lists other current
+/// facts with the same subject and attribute that you can see: if you meant to replace one, correct it (CON-341).
+/// </summary>
+public sealed record MemoryRememberedResponse(
+    MemoryFact Fact, MemorySpaceRef SavedTo,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<MemoryExistingFact>? Existing = null);
+
+/// <summary>A current fact a save landed beside: its id, value, the dates it is true, and when it was recorded.</summary>
+public sealed record MemoryExistingFact(Guid Id, string Value, DateTimeOffset? ValidFrom, DateTimeOffset? ValidTo, DateTimeOffset RecordedAt)
+{
+    /// <summary>The listed facts, or null when there are none, so a save beside nothing answers as before.</summary>
+    public static IReadOnlyList<MemoryExistingFact>? From(IReadOnlyList<MemoryFact>? facts) =>
+        facts is { Count: > 0 } ? [.. facts.Select(f => new MemoryExistingFact(f.Id, f.Value, f.ValidFrom, f.ValidTo, f.RecordedAt))] : null;
+}
 
 /// <summary>The new version of the fact and the one it replaced, which history keeps.</summary>
 public sealed record MemoryCorrectedResponse(MemoryFact Fact, MemoryFact Replaced);
