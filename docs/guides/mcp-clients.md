@@ -18,7 +18,7 @@ Connapse serves MCP (the Model Context Protocol, the standard way AI agents call
 
 The tools a client sees are the ones its scopes allow: a `knowledge:read` key gets the search and read tools only. The [MCP tools reference](../reference/mcp-tools.md) lists them.
 
-The client lists eight tools at first. The agent finds the rest with `find_tools` when it needs them and runs them through `call_read`, `call_write` or `call_destructive`, so there's nothing to set up. [Tool lists](../reference/mcp-tools.md#tool-lists) explains how this works and how to show every tool instead. A client with its own tool search, such as Claude Code, may do better with every tool: tick **Show every MCP tool (no tool search)** when you create its key.
+The client lists eight tools at first. The agent finds the rest with `find_tools` when it needs them and runs them through `call_read`, `call_write` or `call_destructive`, so there's nothing to set up. [Tool lists](../reference/mcp-tools.md#tool-lists) explains how this works and how to show every tool instead.
 
 ## Steps
 

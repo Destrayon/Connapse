@@ -17,8 +17,7 @@ public record RefreshTokenRequest(string RefreshToken);
 
 [ValidatableType]
 /// <param name="RequiresApproval">Whether a high-impact MCP call from the token waits for a person to approve it. On unless turned off.</param>
-/// <param name="FullToolList">Whether MCP clients using the token see every tool instead of the compact list with tool search. Off unless turned on.</param>
-public record PatCreateRequest([Required, MaxLength(256)] string Name, string[]? Scopes = null, DateTime? ExpiresAt = null, bool RequiresApproval = true, bool FullToolList = false);
+public record PatCreateRequest([Required, MaxLength(256)] string Name, string[]? Scopes = null, DateTime? ExpiresAt = null, bool RequiresApproval = true);
 
 public record PatCreateResponse(
     Guid Id,
@@ -37,8 +36,7 @@ public record PatListItem(
     DateTime? ExpiresAt,
     DateTime? LastUsedAt,
     bool IsRevoked,
-    bool RequiresApproval = true,
-    bool FullToolList = false);
+    bool RequiresApproval = true);
 
 public record UserListItem(
     Guid Id,
@@ -60,8 +58,7 @@ public record AssignRolesRequest(IReadOnlyList<string> Roles);
 public record CreateAgentRequest(string Name, string? Description = null);
 
 /// <param name="RequiresApproval">Whether a high-impact MCP call from the key waits for a person to approve it. On unless turned off.</param>
-/// <param name="FullToolList">Whether MCP clients using the key see every tool instead of the compact list with tool search. Off unless turned on.</param>
-public record CreateAgentKeyRequest(string Name, string[]? Scopes = null, DateTime? ExpiresAt = null, bool RequiresApproval = true, bool FullToolList = false);
+public record CreateAgentKeyRequest(string Name, string[]? Scopes = null, DateTime? ExpiresAt = null, bool RequiresApproval = true);
 
 public record SetAgentActiveRequest(bool IsActive);
 
@@ -74,8 +71,7 @@ public record AgentKeyListItem(
     DateTime? ExpiresAt,
     DateTime? LastUsedAt,
     bool IsRevoked,
-    bool RequiresApproval = true,
-    bool FullToolList = false);
+    bool RequiresApproval = true);
 
 public record AgentDto(
     Guid Id,

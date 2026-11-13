@@ -16,8 +16,5 @@ public class AgentApiKeyEntity
     /// <summary>Whether a high-impact MCP call from this key waits for a person to approve it (#782). On unless turned off at creation.</summary>
     public bool RequiresApproval { get; set; } = true;
 
-    /// <summary>Whether MCP clients using this key see every tool instead of the compact list with tool search (CON-346). Off unless turned on.</summary>
-    public bool FullToolList { get; set; }
-
     public AgentEntity Agent { get; set; } = null!;
 }

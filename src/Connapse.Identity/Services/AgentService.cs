@@ -97,7 +97,6 @@ public class AgentService(
             ExpiresAt = request.ExpiresAt,
             CreatedAt = DateTime.UtcNow,
             RequiresApproval = request.RequiresApproval,
-            FullToolList = request.FullToolList,
         };
 
         dbContext.AgentApiKeys.Add(keyEntity);
@@ -155,8 +154,7 @@ public class AgentService(
                 k.ExpiresAt,
                 k.LastUsedAt,
                 k.RevokedAt != null,
-                k.RequiresApproval,
-                k.FullToolList))
+                k.RequiresApproval))
             .ToList();
     }
 
@@ -215,8 +213,7 @@ public class AgentService(
             k.ExpiresAt,
             k.LastUsedAt,
             k.RevokedAt != null,
-            k.RequiresApproval,
-            k.FullToolList)).ToList());
+            k.RequiresApproval)).ToList());
 
     private static string[] SplitScopes(string scopes) =>
         string.IsNullOrWhiteSpace(scopes)

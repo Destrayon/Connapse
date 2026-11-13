@@ -669,7 +669,7 @@ public record UploadSettings
 
 /// <summary>
 /// What MCP clients see at <c>/mcp</c> (CON-346): the compact list, a few tools plus a tool search, or every tool.
-/// A token or agent key created with the full list, or a connection to <c>/mcp/full</c>, gets every tool whatever this says.
+/// A connection to <c>/mcp/full</c> gets every tool whatever this says.
 /// </summary>
 public record McpSettings
 {

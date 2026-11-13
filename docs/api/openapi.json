@@ -14781,10 +14781,6 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
-          },
-          "fullToolList": {
-            "type": "boolean",
-            "default": false
           }
         }
       },
@@ -17633,10 +17629,6 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
-          },
-          "fullToolList": {
-            "type": "boolean",
-            "default": false
           }
         }
       },
@@ -20613,10 +20605,6 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
-          },
-          "fullToolList": {
-            "type": "boolean",
-            "default": false
           }
         }
       },
@@ -20713,10 +20701,6 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
-          },
-          "fullToolList": {
-            "type": "boolean",
-            "default": false
           }
         }
       },

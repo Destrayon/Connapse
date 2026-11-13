@@ -36,7 +36,6 @@ public class PatService(
             ExpiresAt = request.ExpiresAt,
             CreatedAt = DateTime.UtcNow,
             RequiresApproval = request.RequiresApproval,
-            FullToolList = request.FullToolList,
         };
 
         dbContext.PersonalAccessTokens.Add(entity);
@@ -73,8 +72,7 @@ public class PatService(
             p.ExpiresAt,
             p.LastUsedAt,
             p.RevokedAt != null,
-            p.RequiresApproval,
-            p.FullToolList))
+            p.RequiresApproval))
             .ToList();
     }
 

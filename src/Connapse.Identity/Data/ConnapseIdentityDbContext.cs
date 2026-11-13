@@ -195,10 +195,6 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .HasColumnName("requires_approval")
                 .HasDefaultValue(true);
 
-            entity.Property(e => e.FullToolList)
-                .HasColumnName("full_tool_list")
-                .HasDefaultValue(false);
-
             entity.HasIndex(e => e.TokenHash)
                 .HasDatabaseName("ix_personal_access_tokens_token_hash")
                 .IsUnique();
@@ -483,10 +479,6 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.Property(e => e.RequiresApproval)
                 .HasColumnName("requires_approval")
                 .HasDefaultValue(true);
-
-            entity.Property(e => e.FullToolList)
-                .HasColumnName("full_tool_list")
-                .HasDefaultValue(false);
 
             entity.HasIndex(e => e.TokenHash)
                 .HasDatabaseName("ix_agent_api_keys_token_hash")

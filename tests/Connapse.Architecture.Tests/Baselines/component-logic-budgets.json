@@ -91,7 +91,7 @@
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
-    "CodeLines": 213,
+    "CodeLines": 211,
     "Injects": 4,
     "Complexity": 37,
     "MarkupLogic": 33,
@@ -189,7 +189,7 @@
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
-    "CodeLines": 135,
+    "CodeLines": 133,
     "Injects": 4,
     "Complexity": 29,
     "MarkupLogic": 32,

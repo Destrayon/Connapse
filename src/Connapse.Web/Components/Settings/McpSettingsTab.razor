@@ -13,7 +13,7 @@
             <small class="form-text text-muted">
                 What MCP clients see at <code>/mcp</code>. Compact shows a few tools and lets the agent search for the
                 rest, which keeps its context small. Every tool suits clients that search tools themselves, like
-                Claude Code. A token or agent key created with "Show every MCP tool" always gets every tool, and
+                Claude Code. A client can also pick for itself: <code>/mcp</code> follows this setting, and
                 <code>/mcp/full</code> always shows every tool.
             </small>
             <ValidationMessage For="() => localSettings.ToolList" />

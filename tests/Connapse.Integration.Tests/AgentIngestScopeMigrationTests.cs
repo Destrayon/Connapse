@@ -55,15 +55,30 @@ public class AgentIngestScopeMigrationTests : IAsyncLifetime
             var agent = new AgentEntity { Id = Guid.NewGuid(), Name = "agent", CreatedByUserId = user.Id };
             context.Users.Add(user);
             context.Agents.Add(agent);
-            await context.SaveChangesAsync();
-            // Written in SQL: the token entities now map columns this older schema lacks (full_tool_list, CON-346).
             for (int i = 0; i < stored.Length; i++)
             {
-                await context.Database.ExecuteSqlAsync(
-                    $"INSERT INTO agent_api_keys (id, agent_id, name, token_hash, token_prefix, scopes) VALUES ({keyIds[i]}, {agent.Id}, {$"key-{i}"}, {$"k{i}"}, 'k', {stored[i]})");
-                await context.Database.ExecuteSqlAsync(
-                    $"INSERT INTO personal_access_tokens (id, user_id, name, token_hash, token_prefix, scopes) VALUES ({patIds[i]}, {user.Id}, {$"pat-{i}"}, {$"p{i}"}, 'p', {stored[i]})");
+                context.AgentApiKeys.Add(new AgentApiKeyEntity
+                {
+                    Id = keyIds[i],
+                    AgentId = agent.Id,
+                    Name = $"key-{i}",
+                    TokenHash = $"k{i}",
+                    TokenPrefix = "k",
+                    Scopes = stored[i],
+                    CreatedAt = DateTime.UtcNow,
+                });
+                context.PersonalAccessTokens.Add(new PersonalAccessTokenEntity
+                {
+                    Id = patIds[i],
+                    UserId = user.Id,
+                    Name = $"pat-{i}",
+                    TokenHash = $"p{i}",
+                    TokenPrefix = "p",
+                    Scopes = stored[i],
+                    CreatedAt = DateTime.UtcNow,
+                });
             }
+            await context.SaveChangesAsync();
 
             await context.GetService<IMigrator>().MigrateAsync();
         }

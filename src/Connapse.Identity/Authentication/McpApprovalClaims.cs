@@ -11,13 +11,6 @@ public static class McpApprovalClaims
 {
     public const string RequiresApproval = "requires_approval";
 
-    /// <summary>"full" when a PAT or agent key was created to see every MCP tool rather than the compact list (CON-346).</summary>
-    public const string ToolList = "mcp_tool_list";
-
-    /// <summary>Whether the token asked for every MCP tool. Anything else, or no claim, leaves the server's choice.</summary>
-    public static bool WantsFullToolList(ClaimsPrincipal? user) =>
-        string.Equals(user?.FindFirst(ToolList)?.Value, "full", StringComparison.Ordinal);
-
     /// <summary>
     /// True unless the token was created with approval off. A session or OAuth token has no setting, so
     /// it requires approval: failing closed is the only safe reading of a missing answer.
