@@ -70,6 +70,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         if (options.LimitTasks is int limit)
             tasks = [.. tasks.Take(limit)];
         List<EvalDocument> corpus = ReadCorpus(Path.Combine(root, "corpus.jsonl"));
+        using FreeMemoryFloor floor = FreeMemoryFloor.Start(options.ToolList is null ? null : ToolRoutingEval.FreeMemoryFloorMb, log, ct);
+        ct = floor.Token;
 
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, "connapse", options.Config);
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
@@ -101,9 +103,13 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         List<(SearchTask Task, int Rep)> jobs = [.. tasks.SelectMany(t => Enumerable.Range(0, options.Repetitions).Select(r => (t, r)))];
         ConcurrentDictionary<(string, int), (AgentRun, RunScore)> done = new();
         int finished = 0;
+        // CON-346 arms retry a provider error, as eval/pass-bars.md registers; earlier suites score it 0 at once.
+        int attempts = options.ToolList is null ? 1 : ToolRoutingEval.ProviderAttempts;
         await Parallel.ForEachAsync(jobs, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (job, token) =>
         {
             AgentRun run = await agent.RunAsync(tools, prompt, job.Task.Question, token);
+            for (int attempt = 1; attempt < attempts && run.Outcome == AgentOutcome.Error; attempt++)
+                run = await agent.RunAsync(tools, prompt, job.Task.Question, token);
             RunScore score = MemorySearchScoring.Score(job.Task, run, index);
             done[(job.Task.Id, job.Rep)] = (run, score);
             int n = Interlocked.Increment(ref finished);

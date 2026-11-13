@@ -57,6 +57,9 @@ public sealed class ToolRoutingEval(RepoPaths paths, HttpClient http, TextWriter
     /// <summary>Attempts per run when Claude Code itself fails (a provider error); after the last, the run scores 0.</summary>
     public const int ProviderAttempts = 1 + 3;
 
+    /// <summary>A CON-346 run stops when free memory falls under this, so it never starves the machine it shares.</summary>
+    public const int FreeMemoryFloorMb = 8192;
+
     /// <summary>A routing run ends with a one-line report of what the agent did; there is nothing to cite.</summary>
     public static readonly AgentRules Rules = new(AgentContract.MaxToolCalls, AgentContract.TypedAnswer, TypedAnswer: true);
 
@@ -85,6 +88,8 @@ public sealed class ToolRoutingEval(RepoPaths paths, HttpClient http, TextWriter
         if (options.LimitTasks is int limit)
             tasks = [.. tasks.Take(limit)];
         Fixtures fixtures = ReadFixtures(Path.Combine(root, "fixtures.json"));
+        using FreeMemoryFloor floor = FreeMemoryFloor.Start(FreeMemoryFloorMb, log, ct);
+        ct = floor.Token;
 
         // Search quality is not what this suite measures, so the documents are embedded by hashing, without Ollama.
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, "connapse", MemorySearchEval.RegisteredConfig);
