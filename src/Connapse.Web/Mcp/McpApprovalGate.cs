@@ -58,7 +58,7 @@ public sealed class McpApprovalGate(IMcpApprovalStore store, ApiCatalog catalog)
                 new TextContentBlock
                 {
                     Text = $"'{tool}'{(operation is null ? "" : $" ({operation})")} is pending approval: it changes or removes data, so a person must approve it first. "
-                        + $"Ask the person to approve request {request.Id} at /approvals. Call {McpTools.ApprovalStatusName} with requestId {request.Id} "
+                        + $"Ask the person to approve request {request.Id} at /approvals. Call {McpTools.ApprovalStatusName} (through {McpToolSearch.CallReadName} if it isn't in your tool list) with requestId {request.Id} "
                         + "(waitSeconds up to 50 waits for the decision) to learn whether they approved; once approved, repeat this exact call with the same arguments. "
                         + $"The request expires at {request.ExpiresAt:u}.",
                 },

@@ -142,12 +142,15 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
     options.ServerInfo = new() { Name = "Connapse", Version = assemblyVersion };
     options.ServerInstructions = Connapse.Web.Mcp.McpServerConfig.McpServerInstructions;
 })
-.WithHttpTransport()
+.WithHttpTransport(transport => transport.ConfigureSessionOptions = Connapse.Web.Mcp.McpToolList.ConfigureSession)
 .WithToolsFromAssembly()
+.WithRequestFilters(filters => filters.AddListToolsFilter(Connapse.Web.Mcp.McpToolList.Filter))
 .AddAuthorizationFilters()
 .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
     context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)));
 builder.Services.AddScoped<Connapse.Web.Mcp.McpApprovalGate>();
+// find_tools and the call tools (CON-346).
+builder.Services.AddScoped<Connapse.Web.Mcp.McpToolSearch>();
 // The generic connapse_api_* tools, built from the committed spec (CON-20).
 builder.Services.AddSingleton<Connapse.Web.Services.GenericApi.ApiCatalog>();
 builder.Services.AddScoped<Connapse.Web.Services.GenericApi.ApiDispatcher>();
@@ -270,6 +273,7 @@ builder.Services.AddConnapseIdentity(builder.Configuration);
 builder.Services.AddConnapseAuthentication(builder.Configuration);
 builder.Services.AddConnapseAuthorization();
 Connapse.Web.Services.GenericApi.GenericApiPolicies.AddGenericApiPolicies(builder.Services.AddAuthorizationBuilder());
+Connapse.Web.Mcp.SignedInRequirement.AddToolSearchPolicy(builder.Services.AddAuthorizationBuilder());
 
 // Provide auth state to Blazor components via cascading parameter
 builder.Services.AddCascadingAuthenticationState();
@@ -575,9 +579,15 @@ static void RequireAdminToRegister(EndpointBuilder endpoint)
 // Map MCP server (Streamable HTTP + legacy SSE transport)
 var mcpEndpoint = app.MapMcp("/mcp")
     .RequireRateLimiting(RateLimitingExtensions.McpPolicy);
+// Every tool listed directly, for clients and evals that want the full list (CON-346).
+var mcpFullEndpoint = app.MapMcp(Connapse.Web.Mcp.McpToolList.FullPath)
+    .RequireRateLimiting(RateLimitingExtensions.McpPolicy);
 
 if (!allowAnonDiscovery)
+{
     mcpEndpoint.RequireAuthorization("RequireAgent");
+    mcpFullEndpoint.RequireAuthorization("RequireAgent");
+}
 
 // Map SignalR hub
 app.MapHub<IngestionHub>("/hubs/ingestion");

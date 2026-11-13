@@ -113,7 +113,8 @@ public class McpDiscoveryTests(SharedWebAppFixture fixture)
         // Verify we get actual tool definitions back
         body.Should().Contain("container_list");
         body.Should().Contain("search_knowledge");
-        body.Should().Contain("code_find_symbol");
+        // /mcp lists the compact set; a registry reaches the rest of the tools through find_tools (CON-346).
+        body.Should().Contain("find_tools").And.Contain("call_destructive");
     }
 
     [Fact]

@@ -12,15 +12,19 @@ namespace Connapse.Web.Mcp;
 /// the anonymous call-tool filter then refuses the call itself with "Authentication required". It is
 /// registered only in that mode, and never applies to a signed-in user or a token.
 /// </summary>
-public sealed class AnonymousMcpDiscoveryHandler : AuthorizationHandler<ScopeRequirement>
+public sealed class AnonymousMcpDiscoveryHandler : IAuthorizationHandler
 {
-    protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, ScopeRequirement requirement)
+    public Task HandleAsync(AuthorizationHandlerContext context)
     {
-        if (context.User.Identity?.IsAuthenticated != true
-            && context.Resource is RequestContext<ListToolsRequestParams> or RequestContext<CallToolRequestParams>)
+        if (context.User.Identity?.IsAuthenticated == true
+            || context.Resource is not (RequestContext<ListToolsRequestParams> or RequestContext<CallToolRequestParams>))
         {
-            context.Succeed(requirement);
+            return Task.CompletedTask;
         }
+
+        // find_tools and the call tools are how an agent reaches every other tool, so a registry lists them too (CON-346).
+        foreach (var requirement in context.PendingRequirements.Where(r => r is ScopeRequirement or SignedInRequirement).ToList())
+            context.Succeed(requirement);
         return Task.CompletedTask;
     }
 }
