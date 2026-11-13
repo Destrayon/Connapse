@@ -1,0 +1,17 @@
+{
+  "toolSearch": false,
+  "tasks": 60,
+  "fullMean": 1,
+  "compactMean": 1,
+  "difference": 0,
+  "ci90Low": 0,
+  "ci90High": 0,
+  "nonInferior": true,
+  "medianInputTokens": {
+    "full": 34843,
+    "compact": 22837
+  },
+  "tokenRatio": 0.6554,
+  "tokenBarMet": true,
+  "diagnosticOnly": []
+}
