@@ -287,7 +287,7 @@ public partial class McpTools
         [Description("At most this many facts (1-100). Default 10")] int limit = 10,
         [Description("Older name for `space`")] string? containerId = null,
         [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
-        [Description("\"newest\": the facts that took effect most recently first, so a small `limit` gets the latest ones. Leave out for the usual order")] string? order = null,
+        [Description("\"newest\": the facts that took effect most recently first, so a small `limit` gets the latest ones. Ignored with `query`, which always returns the best matches first. Leave out for the usual order")] string? order = null,
         CancellationToken ct = default)
     {
         if (ParseDates(asOf, null) is not { } at)

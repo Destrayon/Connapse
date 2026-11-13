@@ -367,6 +367,13 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
                     .Should().Equal(["Released", "Building"], query);
             }
 
+            // Words keep their relevance ranking: newest is ignored when there is a query.
+            foreach (string query in new[] { $"space={space}&q=Released&includeHistory=true", $"q=Released&subject={subject}&includeHistory=true" })
+            {
+                (await RestRecallAsync(rest, $"{query}&order=newest&limit=2")).Select(f => f.Id)
+                    .Should().Equal((await RestRecallAsync(rest, $"{query}&limit=2")).Select(f => f.Id), query);
+            }
+
             (await McpRecallAsync(mcp, new() { ["space"] = space, ["subject"] = subject, ["includeHistory"] = true, ["order"] = "newest", ["limit"] = 2 }))
                 .Select(f => f.Value).Should().Equal("Released", "Building");
             (await McpRecallAsync(mcp, new() { ["space"] = space, ["subject"] = subject, ["attribute"] = "status", ["order"] = "NEWEST", ["limit"] = 2 }))

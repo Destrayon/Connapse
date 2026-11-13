@@ -103,8 +103,8 @@ public sealed record MemoryQuery(
 /// <summary>
 /// How recalled facts are ordered. <see cref="Usual"/>: as recall always has, by relevance when there is text, else by
 /// when they were recorded or, for history and windows, by start date. <see cref="Newest"/>: the latest start date
-/// first (facts with none last), ties newest recorded first, so a small limit keeps the facts that took effect last;
-/// text then only filters.
+/// first (facts with none last), ties newest recorded first, so a small limit keeps the facts that took effect last.
+/// A recall with text keeps its relevance ranking and ignores <see cref="Newest"/>.
 /// </summary>
 public enum MemoryRecallOrder { Usual = 0, Newest = 1 }
 

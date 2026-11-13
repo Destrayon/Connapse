@@ -395,6 +395,9 @@ public sealed class RecallMemory(
     public Task<Attempt<SpacedRecall, MemoryStatus>> RecallAsync(
         OperationContext context, MemoryRecallRequest request, CancellationToken ct = default)
     {
+        // Words keep their relevance ranking: newest replaces the usual order only on a read without text.
+        if (!string.IsNullOrWhiteSpace(request.Text))
+            request = request with { Order = MemoryRecallOrder.Usual };
         if (!string.IsNullOrWhiteSpace(request.Space) && request.AsOf is null && string.IsNullOrWhiteSpace(request.Attribute))
         {
             MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject,

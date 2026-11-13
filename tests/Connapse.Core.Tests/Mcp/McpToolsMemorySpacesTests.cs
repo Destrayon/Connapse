@@ -658,5 +658,18 @@ public class McpToolsMemorySpacesTests
         await _memory.DidNotReceiveWithAnyArgs().RecallAsync(default!, default!, default);
     }
 
+    [Theory]
+    [InlineData("rate limit", MemoryRecallOrder.Usual)]
+    [InlineData(null, MemoryRecallOrder.Newest)]
+    public async Task MemoryRecall_Newest_IsIgnoredWithAQuery_SoRankingStays(string? query, MemoryRecallOrder expected)
+    {
+        Lists(Space("on-call", MemorySpaceKind.Team));
+        _memory.RecallAsync(Arg.Any<MemoryQuery>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>()).Returns(new MemoryRecall([]));
+
+        await McpTools.MemoryRecall(Recall(), Signed, query: query, attribute: "status", order: "newest");
+
+        await _memory.Received().RecallAsync(Arg.Is<MemoryQuery>(q => q.Order == expected), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>());
+    }
+
     private static OperationContext McpContext() => new(Signed.HttpContext!.User, OperationSurface.Mcp);
 }

@@ -153,7 +153,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.recall")
-        .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. order=newest puts the facts that took effect most recently first. Each fact is shown only when the caller can read every source it cites");
+        .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. order=newest puts the facts that took effect most recently first; it is ignored with q, which always returns the best matches first. Each fact is shown only when the caller can read every source it cites");
 
         // GET /api/memory/timeline - Facts in date order, as the memory_timeline tool reads them
         group.MapGet("/timeline", async (
