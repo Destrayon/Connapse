@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **No more "Could not check memory sources; counting nothing" warning when a memory space opens** (CON-348, #1201). The page started counting facts while it was being prerendered, and the count ran on after that first render's database scope had closed. The count shown to you was never wrong: the live page counts again, and the failed count was never displayed. The page now counts only once it is live, and stops a count that is still running when you leave. Reading a saved setting also no longer logs EF's "First/FirstOrDefault without OrderBy" warning.
+- **No more "Could not check memory sources; counting nothing" warning when a memory space opens** (CON-348, #1201). The page started counting facts while it was being prerendered, and the count ran on after that first render's database scope had closed. The count shown to you was never wrong: the live page counts again, and the failed count was never displayed. The page now reads and counts its facts only once it is live, and stops a count that is still running when you leave. Reading a saved setting also no longer logs EF's "First/FirstOrDefault without OrderBy" warning.
 
 ## [v0.4.1] - 2026-11-10
 

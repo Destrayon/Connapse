@@ -135,8 +135,8 @@ public class MemoryFactListTests : IDisposable
         AddMany(3);
         var cut = Render(address: address, interactive: false);
 
-        cut.WaitForAssertion(() => memory.Lists.Should().NotBeEmpty());
-        cut.WaitForState(() => cut.FindAll(".memory-row").Count == 3 || cut.FindAll(".memory-group").Count == 3);
+        cut.FindAll(".memory-row").Should().BeEmpty("the interactive render that follows reads the facts");
+        memory.Lists.Should().BeEmpty();
         memory.Counts.Should().BeEmpty("the interactive render that follows counts, in a scope that outlives it");
     }
 

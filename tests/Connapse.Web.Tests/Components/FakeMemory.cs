@@ -185,7 +185,7 @@ internal sealed class FakeMemory(Guid space) : IMemoryService
         }
         if (!holdingCounts)
             gate.SetResult();
-        await gate.Task.WaitAsync(ct);
+        await gate.Task;
         Interlocked.Increment(ref countsAnswered);
         return new MemoryFactCount(total, false);
     }
