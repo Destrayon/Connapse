@@ -1,0 +1,232 @@
+{
+  "today": {
+    "rightRate": 1.0,
+    "wronglyReplaced": 0,
+    "reps": [
+      {
+        "rep": "rep1",
+        "rightRate": 1.0,
+        "right": 79,
+        "questions": 79,
+        "wronglyReplaced": 0,
+        "projects": {
+          "ASH": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "HAL": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 20
+          },
+          "KST": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          },
+          "MRW": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "QFT": {
+            "right": 15,
+            "questions": 15,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          }
+        }
+      },
+      {
+        "rep": "rep2",
+        "rightRate": 1.0,
+        "right": 79,
+        "questions": 79,
+        "wronglyReplaced": 0,
+        "projects": {
+          "ASH": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "HAL": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 20
+          },
+          "KST": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          },
+          "MRW": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "QFT": {
+            "right": 15,
+            "questions": 15,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          }
+        }
+      }
+    ]
+  },
+  "listed": {
+    "rightRate": 1.0,
+    "wronglyReplaced": 0,
+    "reps": [
+      {
+        "rep": "rep1",
+        "rightRate": 1.0,
+        "right": 79,
+        "questions": 79,
+        "wronglyReplaced": 0,
+        "projects": {
+          "ASH": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "HAL": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 20
+          },
+          "KST": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          },
+          "MRW": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "QFT": {
+            "right": 15,
+            "questions": 15,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          }
+        }
+      },
+      {
+        "rep": "rep2",
+        "rightRate": 1.0,
+        "right": 79,
+        "questions": 79,
+        "wronglyReplaced": 0,
+        "projects": {
+          "ASH": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "HAL": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 20
+          },
+          "KST": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          },
+          "MRW": {
+            "right": 16,
+            "questions": 16,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 24
+          },
+          "QFT": {
+            "right": 15,
+            "questions": 15,
+            "wronglyReplaced": 0,
+            "savesListed": 0,
+            "followedByCorrect": 0,
+            "duplicatesLeft": 0,
+            "ops": 22
+          }
+        }
+      }
+    ]
+  },
+  "Q1": true,
+  "Q2": true
+}
