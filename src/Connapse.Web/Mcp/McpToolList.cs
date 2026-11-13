@@ -27,7 +27,8 @@ public static class McpToolList
 
 
         More tools are available through `find_tools`; run each with the call tool it names. Search for what you
-        want to do, or for a tool's exact name:
+        want to do, or for a tool's exact name. Prefer a fitting tool here to search_knowledge; for where a symbol is
+        defined or used, use the Code tools.
 
         - Containers: container_create, container_delete, container_stats, container_describe
         - Files: upload_file, bulk_upload, append_to_file, get_documents, delete_file, bulk_delete
