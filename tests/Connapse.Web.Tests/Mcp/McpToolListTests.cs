@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Security.Claims;
+using Connapse.Identity.Authentication;
 using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
@@ -32,6 +34,21 @@ public class McpToolListTests
     [InlineData("/mcp/fuller", null, false)]
     public void IsFull_PathOrSetting(string path, string? setting, bool full) =>
         McpToolList.IsFull(Request(path), Config(setting)).Should().Be(full);
+
+    [Theory]
+    [InlineData("full", null, true)]
+    [InlineData("compact", null, false)]
+    [InlineData("compact", "full", true)]
+    [InlineData("FULL", null, false)]
+    [InlineData(null, null, false)]
+    public void IsFull_TokenFlag_FullUnlessTheServerAlreadyIs(string? claim, string? setting, bool full)
+    {
+        var http = Request("/mcp");
+        if (claim is not null)
+            http.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(McpApprovalClaims.ToolList, claim)], "test"));
+
+        McpToolList.IsFull(http, Config(setting)).Should().Be(full);
+    }
 
     [Fact]
     public void IsFull_NoHttpContext_FollowsSetting()

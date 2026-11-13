@@ -24,7 +24,15 @@ A call tool runs the same tool method a direct call would, after the same scope 
 
 **Why one call tool per risk.** A single call tool would have to be marked as possibly destructive, so a client that asks before destructive tools would ask before every hidden read, or, marked read-only, would let a delete through without asking. With one per risk each call tool's read-only and destructive hints stay true: `call_read` is read-only and can never run a tool that writes or deletes, and a client's "ask before destructive actions" setting still applies to `call_destructive` alone. The cost is three call tools instead of one, and an agent that picks the wrong one gets an error naming the right one.
 
-The server instructions name every hidden tool by area, so the agent knows what it can find before it searches. A client that loads tools on demand by itself, such as Claude Code with tool search on, works the same way. To show every tool directly instead, connect to `/mcp/full` or set `Mcp:ToolList` to `full`; that list leaves out `find_tools` and the call tools.
+The server instructions name every hidden tool by area, so the agent knows what it can find before it searches.
+
+**Showing every tool.** A client with its own tool search, such as Claude Code, may do better with every tool listed, because it already loads tools on demand and the compact list puts a second search on top of its own. In [our test](../../eval/agent-search/con-346/results.md) with Claude Code's tool search on, agents given every tool used fewer tokens per task (14,175 against 19,106) and scored slightly higher on memory tasks (0.699 against 0.670). With its tool search off, the compact list used a third fewer tokens and scored the same. Every tool is shown, without `find_tools` and the call tools, when any of these holds:
+
+- The token or agent key was created with **Show every MCP tool (no tool search)** ticked, or `"fullToolList": true` in the API.
+- An administrator chose **Every tool** under **Settings** → **MCP**, or set `Mcp:ToolList` to `full`. This covers every token at `/mcp`.
+- The client connects to `/mcp/full`.
+
+A token's switch can only add tools: when the server shows every tool, a token created without the switch sees every tool too.
 
 ## Who can connect
 

@@ -92,6 +92,10 @@
                             <input class="form-check-input" type="checkbox" id="new-pat-approval" @bind="newTokenRequiresApproval" />
                             <label class="form-check-label" for="new-pat-approval">Ask me before it deletes anything over MCP</label>
                         </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="new-pat-full-tools" @bind="newTokenFullToolList" />
+                            <label class="form-check-label" for="new-pat-full-tools" title="Off: the client sees a short list and searches for the rest. On: it sees every tool, which suits clients with their own tool search, like Claude Code.">Show every MCP tool (no tool search)</label>
+                        </div>
                     </div>
                     <div class="col-12">
                         <label class="form-label mb-1">Scopes</label>
@@ -234,6 +238,7 @@
     private string newTokenName = "";
     private DateTime? newTokenExpiry;
     private bool newTokenRequiresApproval = true;
+    private bool newTokenFullToolList;
     private readonly HashSet<string> newTokenScopes = [TokenScopeChoices.Default];
     private bool isProcessing;
     private bool showCreateForm;
@@ -328,7 +333,7 @@
             Scopes: [.. TokenScopeChoices.PersonalToken.Where(newTokenScopes.Contains)],
             // The date picker's midnight has no time zone, which the operation reads as UTC.
             ExpiresAt: newTokenExpiry,
-            RequiresApproval: newTokenRequiresApproval));
+            RequiresApproval: newTokenRequiresApproval, FullToolList: newTokenFullToolList));
         if (!created.Succeeded)
         {
             Say(created.Detail, false);
@@ -339,6 +344,7 @@
         newTokenName = "";
         newTokenExpiry = null;
         newTokenRequiresApproval = true;
+        newTokenFullToolList = false;
         newTokenScopes.Clear();
         newTokenScopes.Add(TokenScopeChoices.Default);
         showCreateForm = false;

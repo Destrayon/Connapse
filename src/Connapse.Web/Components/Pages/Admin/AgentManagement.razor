@@ -220,6 +220,10 @@
                                 <input class="form-check-input" type="checkbox" id="new-key-approval-@agent.Id" @bind="newKeyRequiresApproval" />
                                 <label class="form-check-label small" for="new-key-approval-@agent.Id">Ask before it deletes anything over MCP</label>
                             </div>
+                            <div class="form-check mb-1">
+                                <input class="form-check-input" type="checkbox" id="new-key-full-tools-@agent.Id" @bind="newKeyFullToolList" />
+                                <label class="form-check-label small" for="new-key-full-tools-@agent.Id" title="Off: the client sees a short list and searches for the rest. On: it sees every tool, which suits clients with their own tool search, like Claude Code.">Show every MCP tool (no tool search)</label>
+                            </div>
                             <div class="mb-1">
                                 @foreach (var scope in TokenScopeChoices.AgentKey)
                                 {
@@ -249,6 +253,7 @@
     private string newAgentDescription = "";
     private string newKeyName = "";
     private bool newKeyRequiresApproval = true;
+    private bool newKeyFullToolList;
     // A key can do only what its scopes allow over MCP; one issued with none can call no tool (#932).
     private readonly HashSet<string> newKeyScopes = [TokenScopeChoices.Default];
     private bool isProcessing;
@@ -359,6 +364,7 @@
             selectedAgentId = agentId;
             newKeyName = "";
             newKeyRequiresApproval = true;
+            newKeyFullToolList = false;
             newKeyScopes.Clear();
             newKeyScopes.Add(TokenScopeChoices.Default);
             newKeyResponse = null;
@@ -420,7 +426,7 @@
     private Task CreateKeyAsync(Guid agentId) => RunAsync("The key couldn't be created. Try again.", async () =>
     {
         var created = await Agents.CreateKey.RunAsync(context, new CreateAgentKeyCommand(agentId, new CreateAgentKeyRequest(newKeyName,
-            [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval)));
+            [.. TokenScopeChoices.AgentKey.Where(newKeyScopes.Contains)], RequiresApproval: newKeyRequiresApproval, FullToolList: newKeyFullToolList)));
         if (!created.Succeeded)
         {
             Say(created.Detail, false);

@@ -289,6 +289,8 @@ builder.Services.Configure<LlmSettings>(
     builder.Configuration.GetSection("Knowledge:LLM"));
 builder.Services.Configure<UploadSettings>(
     builder.Configuration.GetSection("Knowledge:Upload"));
+builder.Services.Configure<McpSettings>(
+    builder.Configuration.GetSection(McpSettings.SectionName));
 
 // Add rate limiting
 builder.Services.AddConnapseRateLimiting(builder.Configuration);

@@ -21,6 +21,23 @@ public class PatServiceTests
     private static PatService CreateService(ConnapseIdentityDbContext db) =>
         new(db, NullLogger<PatService>.Instance);
 
+    // ── Tool list ────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateAsync_FullToolList_StoredAndListed(bool fullToolList)
+    {
+        using var db = CreateDbContext();
+        var sut = CreateService(db);
+        var userId = Guid.NewGuid();
+
+        var created = await sut.CreateAsync(userId, new PatCreateRequest("Token", FullToolList: fullToolList));
+
+        db.PersonalAccessTokens.Single(p => p.Id == created.Id).FullToolList.Should().Be(fullToolList);
+        (await sut.ListAsync(userId)).Single().FullToolList.Should().Be(fullToolList);
+    }
+
     // ── Token format ─────────────────────────────────────────────────────
 
     [Fact]

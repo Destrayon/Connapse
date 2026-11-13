@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Connapse.Identity.Authentication;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -6,8 +7,9 @@ namespace Connapse.Web.Mcp;
 
 /// <summary>
 /// Which tools <c>tools/list</c> shows (CON-346). The compact list shows the four question-answering tools plus
-/// <c>find_tools</c> and the call tools; every other tool is found by search. <c>Mcp:ToolList = full</c>, or a
-/// connection to <c>/mcp/full</c>, shows every tool directly and hides the search and call tools instead.
+/// <c>find_tools</c> and the call tools; every other tool is found by search. <c>Mcp:ToolList = full</c>, a
+/// connection to <c>/mcp/full</c>, or a token created with the full list shows every tool directly and hides the
+/// search and call tools instead.
 /// </summary>
 public static class McpToolList
 {
@@ -41,6 +43,7 @@ public static class McpToolList
     /// <summary>Whether this request gets every tool directly rather than the compact list.</summary>
     public static bool IsFull(HttpContext? http, IConfiguration configuration) =>
         (http is not null && http.Request.Path.StartsWithSegments(FullPath, StringComparison.OrdinalIgnoreCase))
+        || McpApprovalClaims.WantsFullToolList(http?.User)
         || string.Equals(configuration[SettingKey], "full", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a tool appears in <c>tools/list</c> for the given list.</summary>

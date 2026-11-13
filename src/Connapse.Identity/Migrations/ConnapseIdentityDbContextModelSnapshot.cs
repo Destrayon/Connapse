@@ -44,6 +44,12 @@ namespace Connapse.Identity.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
 
+                    b.Property<bool>("FullToolList")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("full_tool_list");
+
                     b.Property<DateTime?>("LastUsedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_used_at");
@@ -574,6 +580,12 @@ namespace Connapse.Identity.Migrations
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at");
+
+                    b.Property<bool>("FullToolList")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("full_tool_list");
 
                     b.Property<DateTime?>("LastUsedAt")
                         .HasColumnType("timestamp with time zone")

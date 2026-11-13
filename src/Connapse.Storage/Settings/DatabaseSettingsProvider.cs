@@ -31,6 +31,7 @@ public class DatabaseSettingsProvider : ConfigurationProvider
         ["permissionenforcement"] = "Identity:PermissionEnforcement",
         ["azure"] = "Providers:Azure",
         ["azuread"] = "Identity:AzureAd",
+        ["mcp"] = "Mcp",
     };
 
     /// <param name="optionsAction">Configures the context that reads the settings table.</param>

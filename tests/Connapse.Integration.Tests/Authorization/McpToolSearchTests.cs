@@ -43,6 +43,69 @@ public class McpToolSearchTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task CompactEndpoint_PatCreatedWithFullList_GetsEveryToolAndListsTheFlag()
+    {
+        var issued = await fixture.AdminClient.PostAsJsonAsync("/api/v1/auth/pats",
+            new PatCreateRequest($"full-{Guid.NewGuid():N}", ["knowledge:read", "knowledge:write"], RequiresApproval: false, FullToolList: true));
+        var pat = (await issued.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<PatCreateResponse>())!;
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, pat.Token);
+        await using var mcp = await McpTestClient.ConnectAsync(http, path: McpTestClient.Compact);
+
+        var names = (await mcp.ListToolsAsync()).Select(t => t.Name).ToList();
+
+        names.Should().Contain(McpToolList.Core).And.Contain("container_delete");
+        names.Should().NotContain(McpToolSearch.Names);
+        mcp.ServerInstructions.Should().NotBe(McpToolList.CompactInstructions);
+        var listed = await fixture.AdminClient.GetFromJsonAsync<List<PatListItem>>("/api/v1/auth/pats");
+        listed!.Single(p => p.Id == pat.Id).FullToolList.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CompactEndpoint_AgentKeys_OnlyTheKeyCreatedWithFullListGetsEveryTool()
+    {
+        var created = await fixture.AdminClient.PostAsJsonAsync("/api/v1/agents", new CreateAgentRequest($"tool-list-{Guid.NewGuid():N}"));
+        var agent = (await created.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<AgentDto>())!;
+        try
+        {
+            await using var full = await AgentKeyClientAsync(agent.Id, fullToolList: true);
+            await using var compact = await AgentKeyClientAsync(agent.Id, fullToolList: false);
+
+            var fullNames = (await full.ListToolsAsync()).Select(t => t.Name).ToList();
+            var compactNames = (await compact.ListToolsAsync()).Select(t => t.Name).ToList();
+
+            fullNames.Should().Contain("search_knowledge").And.NotContain(McpToolSearch.Names);
+            compactNames.Should().Contain(McpToolSearch.FindName).And.NotContain("container_delete");
+            var keys = await fixture.AdminClient.GetFromJsonAsync<List<AgentKeyListItem>>($"/api/v1/agents/{agent.Id}/keys");
+            keys!.Select(k => k.FullToolList).Should().BeEquivalentTo([true, false]);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/v1/agents/{agent.Id}");
+        }
+    }
+
+    [Fact]
+    public async Task CompactEndpoint_ServerSettingSavedAsFull_ShowsEveryToolWithoutARestart()
+    {
+        try
+        {
+            (await fixture.AdminClient.PutAsJsonAsync($"/api/settings/{McpSettings.Category}",
+                new McpSettings { ToolList = McpSettings.Full })).EnsureSuccessStatusCode();
+            await using var full = await AdminTokenAsync(["knowledge:read"], requiresApproval: false, McpTestClient.Compact);
+
+            (await full.ListToolsAsync()).Select(t => t.Name).Should().NotContain(McpToolSearch.Names);
+        }
+        finally
+        {
+            (await fixture.AdminClient.DeleteAsync($"/api/v1/settings/{McpSettings.Category}")).EnsureSuccessStatusCode();
+        }
+
+        await using var compact = await AdminTokenAsync(["knowledge:read"], requiresApproval: false, McpTestClient.Compact);
+        (await compact.ListToolsAsync()).Select(t => t.Name).Should().Contain(McpToolSearch.Names);
+    }
+
+    [Fact]
     public async Task FullList_EverySchemaUsesOnlyKeywordsTheCallToolsCheck()
     {
         await using var mcp = await Surfaces.McpAsync(fixture);
@@ -175,6 +238,16 @@ public class McpToolSearchTests(SharedWebAppFixture fixture)
         var http = fixture.Factory.CreateClient();
         http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, await PatAsync(scopes, requiresApproval));
         return await McpTestClient.ConnectAsync(http, path: path);
+    }
+
+    private async Task<McpClient> AgentKeyClientAsync(Guid agentId, bool fullToolList)
+    {
+        var issued = await fixture.AdminClient.PostAsJsonAsync($"/api/v1/agents/{agentId}/keys",
+            new CreateAgentKeyRequest($"key-{Guid.NewGuid():N}", ["knowledge:read"], RequiresApproval: false, FullToolList: fullToolList));
+        var key = (await issued.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<CreateAgentKeyResponse>())!;
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, key.Token);
+        return await McpTestClient.ConnectAsync(http, path: McpTestClient.Compact);
     }
 
     private async Task<HttpClient> WithAdminPatAsync(HttpClient http)

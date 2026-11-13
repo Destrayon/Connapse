@@ -27,7 +27,8 @@ Both kinds start with `cnp_` and are shown once, when you create them.
 2. Enter a **Name**, such as `backup-script`, and optionally an **Expires** date.
 3. Tick the **Scopes** the token needs. `knowledge:read` is ticked to start with; the [scope table](#scopes) says what each one allows.
 4. Leave **Ask me before it deletes anything over MCP** ticked unless the token will never be used by an agent.
-5. Choose **Create Token** and copy the token.
+5. Tick **Show every MCP tool (no tool search)** only if the token is for a client with its own tool search, such as Claude Code. Otherwise the agent sees a short list and finds the rest itself ([Tool lists](../reference/mcp-tools.md#tool-lists)).
+6. Choose **Create Token** and copy the token.
 
 To revoke it, choose **Revoke** on its row, then **Confirm Revoke**. Only you can see and revoke your tokens, and only while signed in yourself: a token can't create or revoke tokens.
 
@@ -36,7 +37,8 @@ To revoke it, choose **Revoke** on its row, then **Confirm Revoke**. Only you ca
 1. Open **Agents** in the navigation (`/admin/agents`).
 2. Under **New Agent**, enter a **Name** of 2 to 64 letters, digits, hyphens and underscores, and optionally a **Description**. Choose **Create Agent**.
 3. On the agent's row, choose **API Keys**, enter a **Key name**, and tick its scopes. An agent key can hold only `knowledge:read` and `knowledge:write`.
-4. Leave **Ask before it deletes anything over MCP** ticked, then choose **Add Key** and copy the key.
+4. Leave **Ask before it deletes anything over MCP** ticked. Tick **Show every MCP tool (no tool search)** only for a client with its own tool search, such as Claude Code.
+5. Choose **Add Key** and copy the key.
 
 **Disable** on the agent's row stops all of its keys until you choose **Enable**. **Delete** removes the agent and revokes every key it has.
 
@@ -74,7 +76,7 @@ curl -X POST http://localhost:5001/api/v1/agents/AGENT_ID/keys \
   -d '{ "name": "ci", "scopes": ["knowledge:read", "knowledge:write"], "requiresApproval": true }'
 ```
 
-The second answer holds the key, which is never shown again. `PUT /api/v1/agents/{id}/active` with `{ "isActive": false }` disables an agent, `DELETE /api/v1/agents/{id}/keys/{keyId}` revokes a key, and `DELETE /api/v1/agents/{id}` deletes the agent.
+The second answer holds the key, which is never shown again. Add `"fullToolList": true` to the key's request to have it see every MCP tool rather than the short list. `PUT /api/v1/agents/{id}/active` with `{ "isActive": false }` disables an agent, `DELETE /api/v1/agents/{id}/keys/{keyId}` revokes a key, and `DELETE /api/v1/agents/{id}` deletes the agent.
 
 ## Related
 

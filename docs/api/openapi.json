@@ -10196,9 +10196,12 @@
                     },
                     {
                       "$ref": "#/components/schemas/UploadSettings"
+                    },
+                    {
+                      "$ref": "#/components/schemas/McpSettings"
                     }
                   ],
-                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
+                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, mcp: McpSettings."
                 }
               }
             }
@@ -10274,9 +10277,12 @@
                   },
                   {
                     "$ref": "#/components/schemas/UploadSettings"
+                  },
+                  {
+                    "$ref": "#/components/schemas/McpSettings"
                   }
                 ],
-                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
+                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, mcp: McpSettings."
               }
             }
           },
@@ -14775,6 +14781,10 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
+          },
+          "fullToolList": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -17623,6 +17633,10 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
+          },
+          "fullToolList": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -19537,6 +19551,14 @@
           "Used"
         ]
       },
+      "McpSettings": {
+        "type": "object",
+        "properties": {
+          "toolList": {
+            "type": "string"
+          }
+        }
+      },
       "MemoryCaller": {
         "required": [
           "userId",
@@ -20591,6 +20613,10 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
+          },
+          "fullToolList": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -20687,6 +20713,10 @@
           "requiresApproval": {
             "type": "boolean",
             "default": true
+          },
+          "fullToolList": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
