@@ -5,7 +5,6 @@ using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
 
 namespace Connapse.Web.Tests.Mcp;
@@ -85,17 +84,12 @@ public class McpToolListTests
     [Fact]
     public async Task ConfigureSession_CompactGetsCompactInstructions_FullKeepsDefault()
     {
-        var services = new ServiceCollection().AddSingleton(Config()).BuildServiceProvider();
         var compact = new McpServerOptions { ServerInstructions = "default" };
-        var http = Request("/mcp");
-        http.RequestServices = services;
-        await McpToolList.ConfigureSession(http, compact, CancellationToken.None);
+        await McpToolList.ConfigureSession(Request("/mcp"), compact, Config());
         compact.ServerInstructions.Should().Be(McpToolList.CompactInstructions);
 
         var full = new McpServerOptions { ServerInstructions = "default" };
-        var fullHttp = Request("/mcp/full");
-        fullHttp.RequestServices = services;
-        await McpToolList.ConfigureSession(fullHttp, full, CancellationToken.None);
+        await McpToolList.ConfigureSession(Request("/mcp/full"), full, Config());
         full.ServerInstructions.Should().Be("default");
     }
 }

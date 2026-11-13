@@ -50,22 +50,33 @@ public static class McpToolList
     public static bool Shows(string name, bool full) =>
         full ? !McpToolSearch.Names.Contains(name) : Core.Contains(name) || McpToolSearch.Names.Contains(name);
 
-    /// <summary>Hides the tools the current list doesn't show. Hidden tools can still be called by name.</summary>
-    public static McpRequestHandler<ListToolsRequestParams, ListToolsResult> Filter(McpRequestHandler<ListToolsRequestParams, ListToolsResult> next) =>
-        async (context, ct) =>
-        {
-            var result = await next(context, ct);
-            var services = context.Services!;
-            bool full = IsFull(services.GetService<IHttpContextAccessor>()?.HttpContext, services.GetRequiredService<IConfiguration>());
-            result.Tools = [.. result.Tools.Where(t => Shows(t.Name, full))];
-            return result;
-        };
-
     /// <summary>Sets the instructions for the list this session gets.</summary>
-    public static Task ConfigureSession(HttpContext http, McpServerOptions options, CancellationToken ct)
+    public static Task ConfigureSession(HttpContext http, McpServerOptions options, IConfiguration configuration)
     {
-        if (!IsFull(http, http.RequestServices.GetRequiredService<IConfiguration>()))
+        if (!IsFull(http, configuration))
             options.ServerInstructions = CompactInstructions;
         return Task.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Narrows <c>tools/list</c> to the current list and to what the caller may use. The SDK's authorization filter
+/// already drops each tool whose scope the caller lacks; this drops <c>find_tools</c> and the call tools when
+/// nothing behind them is usable. Hidden tools can still be called by name, and each still checks its caller.
+/// </summary>
+public sealed class McpToolListFilter(IHttpContextAccessor http, IConfiguration configuration, McpToolSearch search)
+{
+    public async Task<ListToolsResult> ApplyAsync(RequestContext<ListToolsRequestParams> context, ListToolsResult result)
+    {
+        bool full = McpToolList.IsFull(http.HttpContext, configuration);
+        var shown = result.Tools.Where(t => McpToolList.Shows(t.Name, full)).ToList();
+        // An anonymous registry reads every schema (Mcp:AllowAnonymousDiscovery), the search tools included.
+        if (!full && context.User?.Identity?.IsAuthenticated == true)
+        {
+            var listed = await search.ListedSearchToolsAsync(context.Server, context.User, context);
+            shown.RemoveAll(t => McpToolSearch.Names.Contains(t.Name) && !listed.Contains(t.Name));
+        }
+        result.Tools = shown;
+        return result;
     }
 }

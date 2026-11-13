@@ -61,13 +61,29 @@ public sealed class McpToolSearch(
     };
 
     /// <summary>The tools and API operations this caller may use, best match for the query first.</summary>
-    public async Task<IReadOnlyList<McpToolEntry>> FindAsync(RequestContext<CallToolRequestParams> context, string? query, CancellationToken ct)
+    public Task<IReadOnlyList<McpToolEntry>> FindAsync(RequestContext<CallToolRequestParams> context, string? query, CancellationToken ct) =>
+        FindAsync(context.Server, context.User, context, query);
+
+    /// <summary>
+    /// The search and call tools worth listing to this caller: <c>find_tools</c> when it may use any tool the list
+    /// hides, and each call tool that runs one of those. Listing the rest would offer tools that can only refuse.
+    /// </summary>
+    public async Task<IReadOnlySet<string>> ListedSearchToolsAsync(McpServer server, ClaimsPrincipal? user, object resource)
+    {
+        var hidden = (await FindAsync(server, user, resource, null)).Where(e => !McpToolList.Core.Contains(e.Name)).ToList();
+        var listed = new HashSet<string>(hidden.Select(e => e.CallTool), StringComparer.Ordinal);
+        if (hidden.Count > 0)
+            listed.Add(FindName);
+        return listed;
+    }
+
+    private async Task<IReadOnlyList<McpToolEntry>> FindAsync(McpServer server, ClaimsPrincipal? user, object resource, string? query)
     {
         string[] words = Words(query);
         string exact = (query ?? "").Trim();
         var entries = new List<McpToolEntry>();
-        foreach (var tool in Tools(context))
-            if (Entry(tool) is { } entry && await AllowedAsync(tool, context.User, context))
+        foreach (var tool in Tools(server))
+            if (Entry(tool) is { } entry && await AllowedAsync(tool, user, resource))
                 entries.Add(entry);
         // The dispatcher lists only operations the caller's token has the scope for.
         entries.AddRange(api.Search(null).Select(Entry));
@@ -124,7 +140,7 @@ public sealed class McpToolSearch(
         if (Arguments(arguments) is not { } given)
             return Error("arguments must be a JSON object of the tool's argument names to values.");
 
-        var tools = Tools(context).ToDictionary(t => t.ProtocolTool.Name, StringComparer.Ordinal);
+        var tools = Tools(context.Server).ToDictionary(t => t.ProtocolTool.Name, StringComparer.Ordinal);
         McpToolEntry? entry = tools.TryGetValue(name, out var found) ? Entry(found) : null;
         if (entry is null && catalog.RoutesFor(name) is { Count: > 0 } routes)
             entry = Entry(routes);
@@ -174,8 +190,8 @@ public sealed class McpToolSearch(
         }
     }
 
-    private static IEnumerable<McpServerTool> Tools(RequestContext<CallToolRequestParams> context) =>
-        context.Server.ServerOptions.ToolCollection?.ToArray() ?? [];
+    private static IEnumerable<McpServerTool> Tools(McpServer server) =>
+        server.ServerOptions.ToolCollection?.ToArray() ?? [];
 
     /// <summary>The entry for a Connapse tool, or null for one that declares no risk (the search, call and generic tools).</summary>
     public static McpToolEntry? Entry(McpServerTool tool)

@@ -142,15 +142,18 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
     options.ServerInfo = new() { Name = "Connapse", Version = assemblyVersion };
     options.ServerInstructions = Connapse.Web.Mcp.McpServerConfig.McpServerInstructions;
 })
-.WithHttpTransport(transport => transport.ConfigureSessionOptions = Connapse.Web.Mcp.McpToolList.ConfigureSession)
+.WithHttpTransport(transport => transport.ConfigureSessionOptions = (http, options, ct) =>
+    Connapse.Web.Mcp.McpToolList.ConfigureSession(http, options, http.RequestServices.GetRequiredService<IConfiguration>()))
 .WithToolsFromAssembly()
-.WithRequestFilters(filters => filters.AddListToolsFilter(Connapse.Web.Mcp.McpToolList.Filter))
+.WithRequestFilters(filters => filters.AddListToolsFilter(next => async (context, ct) =>
+    await context.Services!.GetRequiredService<Connapse.Web.Mcp.McpToolListFilter>().ApplyAsync(context, await next(context, ct))))
 .AddAuthorizationFilters()
 .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
     context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)));
 builder.Services.AddScoped<Connapse.Web.Mcp.McpApprovalGate>();
 // find_tools and the call tools (CON-346).
 builder.Services.AddScoped<Connapse.Web.Mcp.McpToolSearch>();
+builder.Services.AddScoped<Connapse.Web.Mcp.McpToolListFilter>();
 // The generic connapse_api_* tools, built from the committed spec (CON-20).
 builder.Services.AddSingleton<Connapse.Web.Services.GenericApi.ApiCatalog>();
 builder.Services.AddScoped<Connapse.Web.Services.GenericApi.ApiDispatcher>();

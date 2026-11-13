@@ -275,6 +275,86 @@ public class McpToolSearchTests
     }
 
     [Fact]
+    public async Task ListedSearchToolsAsync_Reader_OmitsCallToolWithNothingUsable()
+    {
+        var context = Context(Reader);
+        var listed = await Search.ListedSearchToolsAsync(context.Server, Reader, context);
+
+        listed.Should().BeEquivalentTo(["find_tools", "call_read", "call_destructive"],
+            "the reader may use no write tool (widget_create needs the Writer policy), so call_write could only refuse");
+    }
+
+    [Fact]
+    public async Task ListedSearchToolsAsync_Writer_ListsEveryCallTool()
+    {
+        var context = Context(Writer);
+        var listed = await Search.ListedSearchToolsAsync(context.Server, Writer, context);
+
+        listed.Should().BeEquivalentTo(["find_tools", "call_read", "call_write", "call_destructive"]);
+    }
+
+    [Fact]
+    public async Task ListedSearchToolsAsync_NoUsableHiddenTool_ListsNone()
+    {
+        foreach (var tool in _tools.Where(t => t.ProtocolTool.Name != "widget_create" && !McpToolSearch.Names.Contains(t.ProtocolTool.Name)).ToList())
+            _tools.Remove(tool);
+        var context = Context(Reader);
+
+        (await Search.ListedSearchToolsAsync(context.Server, Reader, context)).Should().BeEmpty("find_tools would find nothing the reader may use");
+    }
+
+    private Task<ListToolsResult> ApplyListFilter(ClaimsPrincipal user, string path)
+    {
+        var http = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = user, Request = { Path = path } } };
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+        var filter = new McpToolListFilter(http, configuration, Search);
+        var server = Substitute.For<McpServer>();
+        server.ServerOptions.Returns(new McpServerOptions { ToolCollection = _tools });
+        var context = new RequestContext<ListToolsRequestParams>(server, new JsonRpcRequest { Method = "tools/list" }, new ListToolsRequestParams())
+        {
+            Services = _services,
+            User = user,
+        };
+        // What the SDK's authorization filter hands on: every tool the caller's policies allow, plus a core tool.
+        var tools = _tools.Select(t => t.ProtocolTool).Append(new Tool { Name = "search_knowledge" })
+            .Where(t => t.Name != "widget_create" || user.IsInRole("Writer")).ToList();
+        return filter.ApplyAsync(context, new ListToolsResult { Tools = tools });
+    }
+
+    [Fact]
+    public async Task ListFilter_CompactReader_ShowsCoreAndUsableSearchToolsOnly()
+    {
+        var result = await ApplyListFilter(Reader, "/mcp");
+
+        result.Tools.Select(t => t.Name).Should().BeEquivalentTo(["search_knowledge", "find_tools", "call_read", "call_destructive"]);
+    }
+
+    [Fact]
+    public async Task ListFilter_CompactWriter_ShowsEveryCallTool()
+    {
+        var result = await ApplyListFilter(Writer, "/mcp");
+
+        result.Tools.Select(t => t.Name).Should().BeEquivalentTo(["search_knowledge", "find_tools", "call_read", "call_write", "call_destructive"]);
+    }
+
+    [Fact]
+    public async Task ListFilter_Full_ShowsAllowedToolsWithoutSearchTools()
+    {
+        var result = await ApplyListFilter(Reader, "/mcp/full");
+
+        result.Tools.Select(t => t.Name).Should().Contain(["search_knowledge", "widget_read", "widget_delete"])
+            .And.NotContain(McpToolSearch.Names).And.NotContain("widget_create");
+    }
+
+    [Fact]
+    public async Task ListFilter_Anonymous_KeepsEverySearchToolForDiscovery()
+    {
+        var result = await ApplyListFilter(new ClaimsPrincipal(new ClaimsIdentity()), "/mcp");
+
+        result.Tools.Select(t => t.Name).Should().Contain(McpToolSearch.Names);
+    }
+
+    [Fact]
     public void Entry_ApiOperation_ShapesParametersAndBody()
     {
         var endpoint = new RouteEndpoint(_ => Task.CompletedTask, RoutePatternFactory.Parse("/x"), 0, null, null);

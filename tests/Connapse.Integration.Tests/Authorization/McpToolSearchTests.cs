@@ -102,7 +102,7 @@ public class McpToolSearchTests(SharedWebAppFixture fixture)
         }
 
         await using var compact = await AdminTokenAsync(["knowledge:read"], requiresApproval: false, McpTestClient.Compact);
-        (await compact.ListToolsAsync()).Select(t => t.Name).Should().Contain(McpToolSearch.Names);
+        (await compact.ListToolsAsync()).Select(t => t.Name).Should().Contain([McpToolSearch.FindName, McpToolSearch.CallReadName]);
     }
 
     [Fact]
@@ -208,6 +208,87 @@ public class McpToolSearchTests(SharedWebAppFixture fixture)
         }
     }
 
+    /// <summary>Tools that change or delete data, which a knowledge:read token may not use.</summary>
+    private static readonly string[] WriteAndDeleteTools =
+        ["container_create", "container_delete", "upload_file", "delete_file", "bulk_delete", "memory_forget", McpApiTools.WriteName];
+
+    [Fact]
+    public async Task ToolLists_ReadOnlyToken_ShowOnlyWhatItMayUseInBothModes()
+    {
+        string pat = await PatAsync(["knowledge:read"], requiresApproval: false);
+        await using var full = await TokenClientAsync(pat, McpTestClient.Full);
+        await using var compact = await TokenClientAsync(pat, McpTestClient.Compact);
+
+        await ShouldSeeReadOnlyAsync(full, compact);
+    }
+
+    [Fact]
+    public async Task ToolLists_AgentKeyWithoutDelete_ShowOnlyWhatItMayUseInBothModes()
+    {
+        // An agent key's scopes are knowledge:read and knowledge:write; every delete needs knowledge:write, so a
+        // key without delete is a knowledge:read key.
+        var created = await fixture.AdminClient.PostAsJsonAsync("/api/v1/agents", new CreateAgentRequest($"read-key-{Guid.NewGuid():N}"));
+        var agent = (await created.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<AgentDto>())!;
+        try
+        {
+            await using var full = await AgentKeyClientAsync(agent.Id, fullToolList: false, McpTestClient.Full);
+            await using var compact = await AgentKeyClientAsync(agent.Id, fullToolList: false, McpTestClient.Compact);
+
+            await ShouldSeeReadOnlyAsync(full, compact);
+        }
+        finally
+        {
+            await fixture.AdminClient.DeleteAsync($"/api/v1/agents/{agent.Id}");
+        }
+    }
+
+    [Fact]
+    public async Task ToolLists_AdminToken_ShowEveryToolInBothModes()
+    {
+        string pat = await PatAsync([.. TokenScopeChoices.PersonalToken], requiresApproval: false);
+        await using var full = await TokenClientAsync(pat, McpTestClient.Full);
+        await using var compact = await TokenClientAsync(pat, McpTestClient.Compact);
+
+        var fullNames = (await full.ListToolsAsync()).Select(t => t.Name).ToList();
+        fullNames.Should().Contain(McpToolList.Core).And.Contain(WriteAndDeleteTools).And.NotContain(McpToolSearch.Names);
+        (await compact.ListToolsAsync()).Select(t => t.Name).Should().BeEquivalentTo(McpToolList.Core.Concat(McpToolSearch.Names));
+        foreach (string tool in WriteAndDeleteTools.Where(t => t != McpApiTools.WriteName))
+            (await FindAsync(compact, tool)).Should().Contain($"## {tool} — ");
+    }
+
+    /// <summary>
+    /// A knowledge:read caller: the full list leaves out every write and delete tool, the compact list leaves out
+    /// call_destructive (nothing behind it is usable), and find_tools finds no write or delete tool.
+    /// </summary>
+    private static async Task ShouldSeeReadOnlyAsync(McpClient full, McpClient compact)
+    {
+        var fullNames = (await full.ListToolsAsync()).Select(t => t.Name).ToList();
+        fullNames.Should().Contain(McpToolList.Core).And.Contain(McpApiTools.ReadName)
+            .And.NotContain(WriteAndDeleteTools).And.NotContain(McpToolSearch.Names);
+
+        var compactNames = (await compact.ListToolsAsync()).Select(t => t.Name).ToList();
+        compactNames.Should().Contain(McpToolList.Core).And.Contain([McpToolSearch.FindName, McpToolSearch.CallReadName])
+            .And.NotContain(McpToolSearch.CallDestructiveName).And.NotContain(WriteAndDeleteTools);
+
+        string listed = await FindAsync(compact, null);
+        listed.Should().NotContain("— Destructive").And.NotContain("[Destructive").And.NotContain("— Credential").And.NotContain("[Credential");
+        foreach (string tool in WriteAndDeleteTools.Where(t => t != McpApiTools.WriteName))
+        {
+            string found = await FindAsync(compact, tool);
+            found.Should().NotContain($"## {tool} — ").And.NotContain($"- {tool} [", "search never offers a tool the caller may not use");
+        }
+    }
+
+    private static async Task<string> FindAsync(McpClient mcp, string? query) =>
+        Text(await mcp.CallToolAsync(McpToolSearch.FindName, new Dictionary<string, object?> { ["query"] = query, ["limit"] = 50 }));
+
+    private async Task<McpClient> TokenClientAsync(string token, string path)
+    {
+        var http = fixture.Factory.CreateClient();
+        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, token);
+        return await McpTestClient.ConnectAsync(http, path: path);
+    }
+
     /// <summary>Every keyword in a JSON schema, walking into properties and items.</summary>
     private static IEnumerable<string> Keywords(JsonElement schema)
     {
@@ -240,14 +321,12 @@ public class McpToolSearchTests(SharedWebAppFixture fixture)
         return await McpTestClient.ConnectAsync(http, path: path);
     }
 
-    private async Task<McpClient> AgentKeyClientAsync(Guid agentId, bool fullToolList)
+    private async Task<McpClient> AgentKeyClientAsync(Guid agentId, bool fullToolList, string path = McpTestClient.Compact)
     {
         var issued = await fixture.AdminClient.PostAsJsonAsync($"/api/v1/agents/{agentId}/keys",
             new CreateAgentKeyRequest($"key-{Guid.NewGuid():N}", ["knowledge:read"], RequiresApproval: false, FullToolList: fullToolList));
         var key = (await issued.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<CreateAgentKeyResponse>())!;
-        var http = fixture.Factory.CreateClient();
-        http.DefaultRequestHeaders.Add(ApiKeyAuthenticationOptions.HeaderName, key.Token);
-        return await McpTestClient.ConnectAsync(http, path: McpTestClient.Compact);
+        return await TokenClientAsync(key.Token, path);
     }
 
     private async Task<HttpClient> WithAdminPatAsync(HttpClient http)
