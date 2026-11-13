@@ -40,6 +40,9 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read  # to find and download a full run's report when the cache lost the baseline
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
       since: ${{ steps.plan.outputs.since }}
@@ -63,11 +66,36 @@ jobs:
     # caches), and diffs against the commit that baseline was made at, whichever it is.
     # A push run restores its branch's newest baseline too, only to weigh the shards by last run's mutants.
     - name: Restore mutation baseline
+      id: baseline
       uses: actions/cache/restore@v4
       with:
         path: mutation-baseline
         key: mutation-baseline-${{ github.base_ref || github.ref_name }}-${{ steps.base.outputs.sha || github.sha }}
         restore-keys: mutation-baseline-${{ github.base_ref || github.ref_name }}-
+
+    # The Actions cache holds 10 GB and evicts what was used least recently. A new 1.6 GB NuGet cache on
+    # main or an epic pushed a branch merged into less often, like release/0.5.0, out of its baseline within a
+    # day, so most PRs into it ran every mutant and the check's median went from about 4 to 7 minutes (CON-349).
+    # Every full run on a branch also uploads its report as an artifact, which that limit doesn't cover, so a
+    # missing baseline comes from the newest one of those instead.
+    - name: Fetch the newest full run's report
+      if: steps.baseline.outputs.cache-matched-key == ''
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BRANCH: ${{ github.base_ref || github.ref_name }}
+      run: |
+        runs=$(gh run list -R "$GITHUB_REPOSITORY" --workflow mutation.yml --branch "$BRANCH" --status completed \
+          --limit 20 --json databaseId,event,headSha --jq '.[] | select(.event != "pull_request") | "\(.databaseId) \(.headSha)"')
+        while read -r id sha; do
+          [ -n "$id" ] || continue
+          if gh run download "$id" -R "$GITHUB_REPOSITORY" -n mutation-report-full -D mutation-baseline \
+              && [ -f mutation-baseline/mutation-report.json ]; then
+            echo "$sha" > mutation-baseline/commit
+            echo "Baseline from the report of run $id, at $sha" | tee -a "$GITHUB_STEP_SUMMARY"
+            break
+          fi
+          rm -rf mutation-baseline
+        done <<< "$runs"
 
     # A PR with a baseline re-tests only the mutants in the files changed since the baseline's commit and those
     # its changed test files cover (--since), and mutation_score.py takes every other mutant's result from the
