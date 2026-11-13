@@ -960,6 +960,11 @@
       "risk": "write",
       "scope": "knowledge:read"
     },
+    "POST /mcp/full/": {
+      "requires": "mcp",
+      "risk": "write",
+      "scope": "knowledge:read"
+    },
     "POST /oauth/register": {
       "requires": "anonymous",
       "risk": "credential",

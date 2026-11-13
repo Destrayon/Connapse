@@ -91,7 +91,7 @@
     "IsEmpty": false
   },
   "Pages/Admin/AgentManagement.razor": {
-    "CodeLines": 211,
+    "CodeLines": 213,
     "Injects": 4,
     "Complexity": 37,
     "MarkupLogic": 33,
@@ -189,7 +189,7 @@
     "IsEmpty": false
   },
   "Pages/PersonalTokens.razor": {
-    "CodeLines": 133,
+    "CodeLines": 135,
     "Injects": 4,
     "Complexity": 29,
     "MarkupLogic": 32,
@@ -224,10 +224,10 @@
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
-    "CodeLines": 58,
+    "CodeLines": 65,
     "Injects": 1,
-    "Complexity": 8,
-    "MarkupLogic": 18,
+    "Complexity": 9,
+    "MarkupLogic": 21,
     "IsEmpty": false
   },
   "Pages/SourceEdit.razor": {
@@ -354,6 +354,13 @@
     "Injects": 2,
     "Complexity": 21,
     "MarkupLogic": 9,
+    "IsEmpty": false
+  },
+  "Settings/McpSettingsTab.razor": {
+    "CodeLines": 14,
+    "Injects": 0,
+    "Complexity": 3,
+    "MarkupLogic": 1,
     "IsEmpty": false
   },
   "Settings/SamlSignInSettingsTab.razor": {

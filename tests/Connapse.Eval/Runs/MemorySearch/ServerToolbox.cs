@@ -43,13 +43,7 @@ public sealed class ServerToolbox : IToolbox, IAsyncDisposable
         IReadOnlyDictionary<string, string[]>? pinned, CancellationToken ct)
     {
         pinned ??= new Dictionary<string, string[]>();
-        McpClient client = await McpClient.CreateAsync(
-            new HttpClientTransport(
-                new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, path), TransportMode = HttpTransportMode.StreamableHttp },
-                http,
-                ownsHttpClient: false),
-            new McpClientOptions { DiscoverProbeTimeout = Timeout.InfiniteTimeSpan },
-            cancellationToken: ct);
+        McpClient client = await Connapse.Integration.Tests.McpTestClient.ConnectAsync(http, ownsHttpClient: false, path).WaitAsync(ct);
         try
         {
             List<ToolSpec> tools = [];

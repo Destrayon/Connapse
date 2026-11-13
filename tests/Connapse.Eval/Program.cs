@@ -56,7 +56,7 @@ internal static class EvalEntryPoint
                     cli.PositiveInt("repetitions") ?? MemorySearchEval.RegisteredRepetitions, cli.PositiveInt("limit-tasks"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir")), cts.Token),
                 "tool-arms" => ToolArms.Run(cli.Required("full"), cli.Required("compact"), Console.Out),
-                "tables-rag" =>await new TablesRagEval(paths, http, Console.Out).RunAsync(new TablesRagEval.Options(
+                "tables-rag" => await new TablesRagEval(paths, http, Console.Out).RunAsync(new TablesRagEval.Options(
                     cli.Option("config") ?? "hybrid", cli.Option("split") ?? "test", cli.Option("model") ?? "claude-sonnet-5-5",
                     cli.Option("effort") ?? "medium", cli.PositiveInt("limit-tasks"), cli.List("ids"), cli.Flag("skip-mixed"),
                     cli.PositiveInt("workers") ?? 1, cli.Option("out"), cli.Option("agent-dir"), cli.List("tables"),
