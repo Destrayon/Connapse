@@ -98,6 +98,71 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Remember_BesideCurrentFacts_ListsThemOnBothSurfaces_AndOneCorrectionLeavesOnlyTheNewSave()
+    {
+        HttpClient rest = fixture.AdminClient;
+        string space = await CreateSpaceAsync(rest, $"fact-beside-{Guid.NewGuid():N}"[..40]);
+        string subject = $"con-{Guid.NewGuid():N}";
+        try
+        {
+            await using McpClient mcp = await ConnectAsync(
+                await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Admin), "knowledge:read", "knowledge:write"));
+
+            // A first save lands beside nothing and answers as it always has.
+            HttpResponseMessage first = await rest.PostAsJsonAsync($"/api/memory/spaces/{space}/facts",
+                new { subject, attribute = "status", value = "In progress", validFrom = "2026-03-01" });
+            first.StatusCode.Should().Be(HttpStatusCode.Created, await first.Content.ReadAsStringAsync());
+            JsonElement firstAnswer = await Json(first);
+            firstAnswer.TryGetProperty("existing", out _).Should().BeFalse();
+            string inProgress = firstAnswer.GetProperty("fact").GetProperty("id").GetString()!;
+
+            // Another attribute of the same subject is not listed beside it.
+            string lead = Id(await CallAsync(mcp, "memory_remember", new()
+            {
+                ["space"] = space,
+                ["subject"] = subject,
+                ["attribute"] = "lead",
+                ["value"] = "Ada",
+            }), "remembered");
+            lead.Should().NotBeEmpty();
+
+            // A second status save over the tool, with the subject in other case, still succeeds and lists the first.
+            string second = await CallAsync(mcp, "memory_remember", new()
+            {
+                ["space"] = space,
+                ["subject"] = subject.ToUpperInvariant(),
+                ["attribute"] = "Status",
+                ["value"] = "Done",
+                ["validFrom"] = "2026-05-01",
+            });
+            JsonElement listed = JsonDocument.Parse(second).RootElement.GetProperty("existing").EnumerateArray().Single();
+            listed.GetProperty("id").GetString().Should().Be(inProgress);
+            listed.GetProperty("value").GetString().Should().Be("In progress");
+            string done = Id(second, "remembered");
+
+            // The same over REST lists both.
+            HttpResponseMessage third = await rest.PostAsJsonAsync($"/api/memory/spaces/{space}/facts",
+                new { subject, attribute = "status", value = "Released" });
+            (await Json(third)).GetProperty("existing").EnumerateArray().Select(e => e.GetProperty("id").GetString())
+                .Should().BeEquivalentTo(inProgress, done);
+            string released = (await Json(third)).GetProperty("fact").GetProperty("id").GetString()!;
+            (await rest.DeleteAsync($"/api/memory/facts/{released}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+            // One correction of the listed fact, keeping its value and ending it where the new one starts, leaves only
+            // the new save current while the old value still answers for the time before.
+            HttpResponseMessage ended = await rest.PostAsJsonAsync($"/api/memory/facts/{inProgress}/correct",
+                new { value = "In progress", kind = "wrong", validTo = "2026-05-01" });
+            ended.StatusCode.Should().Be(HttpStatusCode.OK, await ended.Content.ReadAsStringAsync());
+            (await RestRecallAsync(rest, $"space={space}&subject={subject}")).Select(f => f.Value).Should().BeEquivalentTo("Done", "Ada");
+            (await RestRecallAsync(rest, $"space={space}&subject={subject}&asOf=2026-04-01")).Select(f => f.Value).Should().Contain("In progress").And.NotContain("Done");
+        }
+        finally
+        {
+            await DeleteSpacesAsync(space);
+        }
+    }
+
+    [Fact]
     public async Task PersonalSpace_IsNotFoundOverRestForAnotherUser_AndAViewerCannotRememberOverRest()
     {
         HttpClient admin = fixture.AdminClient;

@@ -277,6 +277,51 @@ public class McpToolsMemorySpacesTests
     }
 
     [Fact]
+    public async Task MemoryRemember_NothingBeside_AnswersWithoutExisting()
+    {
+        Container team = Space("on-call", MemorySpaceKind.Team);
+        _containers.GetByNameAsync("on-call", Arg.Any<CancellationToken>()).Returns(team);
+        _memory.RememberAsync(Arg.Any<Guid>(), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(c => new MemoryWriteResult(Fact(c.ArgAt<Guid>(0), MemoryScope.Team), null, null, Existing: []));
+
+        string result = await McpTools.MemoryRemember(Remember(), List(), Signed, "Halcyon", "database", "x", space: "on-call");
+
+        JsonDocument.Parse(result).RootElement.TryGetProperty("existing", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MemoryRemember_CurrentFactBeside_ListsItsIdValueAndDates()
+    {
+        Container team = Space("on-call", MemorySpaceKind.Team);
+        _containers.GetByNameAsync("on-call", Arg.Any<CancellationToken>()).Returns(team);
+        MemoryFact beside = Fact(Guid.Parse(team.Id), MemoryScope.Team) with
+        {
+            Value = "PostgreSQL 14",
+            ValidFrom = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero),
+        };
+        _memory.RememberAsync(Arg.Any<Guid>(), Arg.Any<NewMemoryFact>(), Arg.Any<MemoryCaller>(), Arg.Any<CancellationToken>())
+            .Returns(c => new MemoryWriteResult(Fact(c.ArgAt<Guid>(0), MemoryScope.Team), null, null, Existing: [beside]));
+
+        string result = await McpTools.MemoryRemember(Remember(), List(), Signed, "Halcyon", "database", "x", space: "on-call");
+
+        JsonElement listed = JsonDocument.Parse(result).RootElement.GetProperty("existing").EnumerateArray().Single();
+        listed.GetProperty("id").GetGuid().Should().Be(beside.Id);
+        listed.GetProperty("value").GetString().Should().Be("PostgreSQL 14");
+        listed.GetProperty("validFrom").GetDateTimeOffset().Should().Be(beside.ValidFrom!.Value);
+        listed.GetProperty("recordedAt").GetDateTimeOffset().Should().Be(beside.RecordedAt);
+    }
+
+    [Fact]
+    public void MemoryRemember_Description_SaysToCorrectAListedFactWhenOneWasMeantToBeReplaced()
+    {
+        string description = typeof(McpTools).GetMethod(nameof(McpTools.MemoryRemember))!
+            .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
+            .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;
+
+        description.Should().Contain("If the answer lists facts already current with the same subject and attribute, and you meant to replace one, correct it instead of leaving both.");
+    }
+
+    [Fact]
     public async Task MemoryRemember_OnlyContainerId_SavesTheOldWay()
     {
         Container docs = Space("handbook", MemorySpaceKind.Team);

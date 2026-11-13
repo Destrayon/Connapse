@@ -110,8 +110,14 @@ public sealed record MemoryRecall(IReadOnlyList<RecalledFact> Facts, bool Denied
     public static MemoryRecall DeniedResult { get; } = new([], Denied: true);
 }
 
-/// <summary>The outcome of a write: the fact written (and the one it replaced), or why nothing was written.</summary>
-public sealed record MemoryWriteResult(MemoryFact? Fact, MemoryFact? Replaced, string? Error, MemoryWriteFailure Failure = MemoryWriteFailure.None)
+/// <summary>
+/// The outcome of a write: the fact written (and the one it replaced), or why nothing was written.
+/// <paramref name="Existing"/>, on a new fact, lists other facts with its subject and attribute that the writer can see
+/// and that are current, so a writer that meant to replace one can correct it (CON-341); empty when there are none.
+/// </summary>
+public sealed record MemoryWriteResult(
+    MemoryFact? Fact, MemoryFact? Replaced, string? Error, MemoryWriteFailure Failure = MemoryWriteFailure.None,
+    IReadOnlyList<MemoryFact>? Existing = null)
 {
     public static MemoryWriteResult Failed(string error, MemoryWriteFailure failure = MemoryWriteFailure.Invalid) => new(null, null, error, failure);
 }

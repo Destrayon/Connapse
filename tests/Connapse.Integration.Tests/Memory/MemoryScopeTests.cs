@@ -153,4 +153,24 @@ public class MemoryScopeTests(SharedWebAppFixture fixture) : IAsyncLifetime
         recalled.Status.Should().Be(MemoryStatus.Success);
         recalled.Result!.Select(f => f.Fact.Value).Should().Equal(["PostgreSQL 15"], "a viewer recalls the team fact, not the editor's personal one");
     }
+
+    [Fact]
+    public async Task Remember_BesideFactsTheSaverCannotSeeOrThatEnded_ListsOnlyTheCurrentOnesTheySee()
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        string secret = Guid.NewGuid().ToString();
+        var (container, service) = await ArrangeAsync(new() { [a] = [secret] });
+        MemoryCaller userA = new(a, null, null), userB = new(b, null, null);
+        NewMemoryFact Status(string value, MemoryScope scope, IReadOnlyList<MemorySource>? sources = null, DateTimeOffset? validTo = null) =>
+            new("CON-291", "status", value, Jan, validTo, sources ?? [], null, scope);
+
+        MemoryFact open = (await service.RememberAsync(container, Status("open", MemoryScope.Team), userA)).Fact!;
+        await service.RememberAsync(container, Status("mine", MemoryScope.Personal), userA);
+        await service.RememberAsync(container, Status("restricted", MemoryScope.Team, [new(MemorySourceKind.Document, secret)]), userA);
+        await service.RememberAsync(container, Status("ended", MemoryScope.Team, validTo: Jan.AddDays(1)), userA);
+
+        MemoryWriteResult written = await service.RememberAsync(container, Status("done", MemoryScope.Team), userB);
+
+        written.Existing!.Select(f => f.Id).Should().Equal([open.Id], "B sees neither A's personal fact nor one citing a document B can't read, and an ended fact isn't current");
+    }
 }

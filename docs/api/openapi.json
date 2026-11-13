@@ -8423,7 +8423,7 @@
         "tags": [
           "Memory"
         ],
-        "description": "Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them",
+        "description": "Stores one fact in a memory space, by id or name. The space must exist: none is made by saving to it. A personal space's facts only you see; a team space's everyone sees, except that a fact citing documents is shown only to people who can read all of them. The save always adds a fact; when other current facts with the same subject and attribute that you can see are in the space, `existing` lists them (id, value, dates). If you meant to replace one, correct it instead of leaving both",
         "operationId": "memory.remember",
         "parameters": [
           {
@@ -19902,6 +19902,43 @@
           }
         }
       },
+      "MemoryExistingFact": {
+        "required": [
+          "id",
+          "value",
+          "validFrom",
+          "validTo",
+          "recordedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "value": {
+            "type": "string"
+          },
+          "validFrom": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "validTo": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "MemoryFact": {
         "required": [
           "id",
@@ -20100,6 +20137,15 @@
           },
           "savedTo": {
             "$ref": "#/components/schemas/MemorySpaceRef"
+          },
+          "existing": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/MemoryExistingFact"
+            }
           }
         }
       },
