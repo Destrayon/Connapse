@@ -1,0 +1,63 @@
+{
+  "arm": "today",
+  "config": "hybrid",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 2,
+  "all": {
+    "tasks": 152,
+    "right": 0.875,
+    "textRead": 3521.9836,
+    "recallCalls": 1.0033
+  },
+  "kinds": {
+    "current": {
+      "tasks": 40,
+      "right": 1,
+      "textRead": 2300.55,
+      "recallCalls": 1
+    },
+    "as_of": {
+      "tasks": 39,
+      "right": 1,
+      "textRead": 1630.3846,
+      "recallCalls": 1.0128
+    },
+    "changed": {
+      "tasks": 10,
+      "right": 1,
+      "textRead": 11918.2,
+      "recallCalls": 1
+    },
+    "when": {
+      "tasks": 63,
+      "right": 0.6984,
+      "textRead": 4135.754,
+      "recallCalls": 1
+    }
+  },
+  "recallCallsPassingOrder": 0,
+  "recallCalls": 305,
+  "runsPassingOrder": 0,
+  "runs": 304,
+  "limitsPassed": {
+    "10": 285,
+    "100": 20
+  },
+  "outcomes": {
+    "Answered": 304
+  },
+  "tokens": {
+    "input": 1824,
+    "cacheWrite": 495850,
+    "cacheRead": 2418162,
+    "output": 93108,
+    "apiListPriceUsd": 3.1599
+  },
+  "conforming": true,
+  "diagnosticOnly": [],
+  "subscription": {
+    "atFirstRun": "allowed_warning (seven_day 94%)",
+    "atLastRun": "allowed_warning (seven_day 95%)"
+  }
+}

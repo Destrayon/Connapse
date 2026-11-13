@@ -1,55 +1,60 @@
 # CON-342 results: newest-first recall
 
-**Verdict: FAIL on both bars.** These are the bars committed in `eval/pass-bars.md` before any run. Agents told to recall newest first with a small limit read *more* text, not less. They also got slightly fewer answers right.
+**Verdict: FAIL on both bars, in both rounds.** The bars were committed in `eval/pass-bars.md` before any run and were not changed between rounds.
 
-Setup:
+Setup, the same in both rounds:
 
-- The run follows the registered plan.
-- `claude-sonnet-5-5` at medium effort answered all 152 held-out memory questions twice in each arm. Every run answered, so no run is excluded.
+- `claude-sonnet-5-5` at medium effort answered the 152 held-out memory questions twice per arm. Every run answered, so no run is excluded.
 - The questions ran against the held-out writer-agent operations, replayed into one personal space named `projects`.
 - In the Today arm, `order` is hidden from the agents. In the Newest arm, `order` is offered and the system prompt adds one sentence:
   > Recall with `order` "newest" and a small `limit`, and read further only when those facts do not answer the question.
-- The subscription was at 93–94% of its seven-day limit throughout.
+- The subscription was at 93–95% of its seven-day limit throughout.
 
-| Bar | Today | Newest | Newest − Today | Interval | Verdict |
-|---|---|---|---|---|---|
-| R1: text read per task (characters) | 3,266 | 4,127 | +860.5 | 95% BCa [+495, +1,228]; must sit below 0 | FAIL |
-| R2: right answers | 90.1% | 86.2% | −3.9 pts | 90% BCa [−7.6, −0.7]; low end must be above −5 | FAIL |
+| Round | Bar | Today | Newest | Newest − Today | Interval | Verdict |
+|---|---|---|---|---|---|---|
+| 1 | R1: text read per task (characters) | 3,266 | 4,127 | +860.5 | 95% BCa [+495, +1,228]; must sit below 0 | FAIL |
+| 1 | R2: right answers | 90.1% | 86.2% | −3.9 pts | 90% BCa [−7.6, −0.7]; low end must be above −5 | FAIL |
+| 2 | R1: text read per task (characters) | 3,522 | 3,328 | −193.7 | 95% BCa [−498, +115]; must sit below 0 | FAIL |
+| 2 | R2: right answers | 87.5% | 81.6% | −5.9 pts | 90% BCa [−9.5, −3.3]; low end must be above −5 | FAIL |
 
-## By question kind
+## Round 1: newest replaced ranking even with a query
 
-| Kind | Tasks | Right, Today → Newest | Text read, Today → Newest | Recall calls per run, Today → Newest |
-|---|---|---|---|---|
-| current | 40 | 100% → 97.5% | 1,902 → 3,724 | 1.00 → 1.35 |
-| as_of | 39 | 100% → 100% | 1,731 → 1,488 | 1.01 → 1.00 |
-| changed | 10 | 100% → 100% | 11,916 → 11,917 | 1.00 → 1.00 |
-| when | 63 | 76.2% → 68.3% | 3,710 → 4,780 | 1.00 → 1.33 |
+In round 1, `order=newest` replaced relevance ranking even when the agent gave a free-text `query`. Such a call returned the ten most recently dated loose matches across every attribute, and the fact asked about was often missing. Of 187 runs that combined `query` and `order=newest` in their first call, 69 needed a second recall. Of 93 runs that used `query` without an order, none did. The extra calls added the text.
 
-Agents used the option when offered:
+## Round 2: a query keeps its ranking
 
-- 206 of 304 Newest runs passed `order`.
-- Their limits were mostly 10 (292 calls) and 5 (56 calls).
-- Recall calls rose from 305 to 373.
-- Tokens at list price rose from $3.38 to $4.00.
+After round 1, recall was changed (commit `4a942494`). With a query, recall keeps relevance ranking and ignores `newest`. Newest order now applies only to a read without text, and the tool description says so.
 
-## Why it fails
+| Kind | Tasks | Right, Today → Newest | Text read, Today → Newest |
+|---|---|---|---|
+| current | 40 | 100% → 100% | 2,301 → 2,738 |
+| as_of | 39 | 100% → 100% | 1,630 → 1,109 |
+| changed | 10 | 100% → 100% | 11,918 → 11,917 |
+| when | 63 | 69.8% → 55.6% | 4,136 → 3,714 |
 
-The agents' first call usually combined a free-text `query` with `order=newest`. Newest order replaces relevance ranking. Such a call returns the ten most recently dated facts that loosely match, across every attribute of the project, so the fact asked about is often missing.
+Agents used the option less once it no longer applied to searches:
 
-- Of 187 runs whose first call combined `query` and `order=newest`, 69 needed a second recall by subject and attribute.
-- Of 93 runs that used `query` without an order, none needed a second call.
+- 87 of 304 Newest runs passed `order`, against 206 in round 1.
+- Every run made exactly one recall call.
 
-The extra calls account for the added text on `current` and `when` questions.
+**Text read (R1).** Newest read 5.5% less on average, mostly on `as_of` questions (−32%). The 95% interval still includes zero, so the bar is not met.
 
-The drop in `when` answers has a different cause. With the newest change listed first, agents more often named the later change date as well as the one asked about. The scoring rule counts an answer with any second date as wrong. The Today arm loses its `when` points the same way, only less often.
+**Right answers (R2).** The whole loss is on `when` questions, and it does not come from what recall returned:
 
-Newest-first does help where the agent already names the subject and attribute: `as_of` text read fell 14%, with no loss of right answers. It does not help when the order is applied to a ranked text search.
+- Only 9 of the 126 Newest `when` runs passed `order` at all. The other 117 made the same recall a Today agent could make, with the same result.
+- The losses are answers that named the date asked for and then the date of the later change, for example "2026-02-05 (…it stayed current until 2026-04-17…)". The scoring rule counts any answer with a second date as wrong.
+- Among the 117 runs without `order`, Newest got 53 wrong, all of them answers with two or more dates. On the same tasks and repetitions, Today got 37 wrong.
+
+The likeliest cause is the extra prompt sentence, which tells agents to read further, nudging them to describe what came after. That remains a guess, since nothing here isolates the sentence.
+
+Run-to-run noise is large. With identical code and prompt, Today's `when` score moved from 76.2% in round 1 to 69.8% in round 2.
 
 ## Files
 
-- `today.json` and `newest.json`: per-arm reports.
-- `today.runs.jsonl` and `newest.runs.jsonl`: every run, with its calls and answer.
-- `compare.json`: output of `memory-recall-compare`.
+- `run1/` and `run2/` each hold the same files for their round:
+  - `today.json` and `newest.json`: per-arm reports.
+  - `today.runs.jsonl` and `newest.runs.jsonl`: every run, with its calls and answer.
+  - `compare.json`: the `memory-recall-compare` output.
 
 Reproduce:
 
