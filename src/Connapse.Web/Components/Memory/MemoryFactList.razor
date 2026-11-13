@@ -482,6 +482,8 @@
     private int loadRequest;
     private Guid? me;
     private bool disposed;
+    // Cancelled when the component goes, so a count still running stops before the scope its database reads came from is disposed.
+    private readonly CancellationTokenSource lifetime = new();
     private bool isLoading = true;
     private string? errorMessage;
     private string? notice;
@@ -521,6 +523,7 @@
     public void Dispose()
     {
         disposed = true;
+        lifetime.Cancel();
         Navigation.LocationChanged -= OnLocationChanged;
     }
 
@@ -572,7 +575,9 @@
         isLoading = false;
         if (next.Cursor is not null)
             pageCursors[next.Page] = next.Cursor;
-        if (succeeded && count is null && counting != (Space, next.Filter))
+        // A prerender's scope is disposed as soon as its HTML is sent, so it starts no background count; the
+        // interactive render that follows does (#1201).
+        if (succeeded && RendererInfo.IsInteractive && count is null && counting != (Space, next.Filter))
             _ = CountAsync(Space, next.Filter);
         // The open fact was read before this refresh; show it only if it can still be read now.
         if (!succeeded)
@@ -636,7 +641,7 @@
             loaded.RemoveAll(g => g.Loaded && g.Facts.Count == 0);
         (groups, nextCursor) = (loaded, page?.NextCursor);
         facts = [.. groups.SelectMany(g => g.Facts)];
-        foreach (MemorySubjectGroup group in groups.Where(g => g.Total is null))
+        foreach (MemorySubjectGroup group in groups.Where(g => g.Total is null && RendererInfo.IsInteractive))
             _ = CountGroupAsync(context, next, group, request);
         return read.Succeeded;
     }
@@ -655,7 +660,7 @@
     /// <summary>How many of a narrowed subject's facts match, after its first facts have shown.</summary>
     private async Task CountGroupAsync(OperationContext context, MemoryListView of, MemorySubjectGroup group, int request)
     {
-        var counted = await MemoryOps.Count.RunAsync(context, Space, of.Filter with { Subject = group.Subject.Subject });
+        if (await CountOrNullAsync(context, Space, of.Filter with { Subject = group.Subject.Subject }) is not { } counted) return;
         if (disposed || request != loadRequest || !counted.Succeeded || group.Total is not null) return;
         (group.Total, group.Capped) = (counted.Result!.Count, counted.Result.Capped);
         await InvokeAsync(StateHasChanged);
@@ -681,11 +686,24 @@
     {
         int request = ++countRequest;
         counting = (space, filter);
-        var counted = await MemoryOps.Count.RunAsync(await AuthStateProvider.OperationContextAsync(), space, filter);
+        if (await CountOrNullAsync(await AuthStateProvider.OperationContextAsync(), space, filter) is not { } counted) return;
         // Kept only while the same space and filter are on screen, whichever page of them it is.
         if (disposed || request != countRequest || !counted.Succeeded) return;
         count = counted.Result;
         await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>A background count, or null when the component went while it ran: nothing is left to show it on.</summary>
+    private async Task<Attempt<MemoryFactCount, MemoryStatus>?> CountOrNullAsync(OperationContext context, string space, MemoryFactFilter filter)
+    {
+        try
+        {
+            return await MemoryOps.Count.RunAsync(context, space, filter, lifetime.Token);
+        }
+        catch (Exception) when (disposed)
+        {
+            return null;
+        }
     }
 
     /// <summary>The authors on the page, once each, for the author filter.</summary>

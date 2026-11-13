@@ -289,7 +289,7 @@ public class PostgresContainerStore(
 
         // The row stays locked from the read to the write, so a save made in between can't be overwritten with what was read.
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        var entity = await context.Containers.FromSql($"SELECT * FROM containers WHERE id = {id} FOR UPDATE").FirstOrDefaultAsync(ct);
+        var entity = await context.Containers.FromSql($"SELECT * FROM containers WHERE id = {id} FOR UPDATE").SingleOrDefaultAsync(ct);
         if (entity is null) return null;
 
         var json = entity.SettingsOverridesJson?.RootElement.GetRawText();

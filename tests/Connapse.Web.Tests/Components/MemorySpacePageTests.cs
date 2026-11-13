@@ -57,6 +57,7 @@ public class MemorySpacePageTests : IDisposable
         ctx.Services.AddSingleton(Substitute.For<IMemorySpaceStore>());
         ctx.Services.AddSingleton(Substitute.For<IAuditLogger>());
         ctx.Services.AddApplication();
+        ctx.SetRendererInfo(new RendererInfo("Server", isInteractive: true));
     }
 
     public void Dispose() => ctx.Dispose();
