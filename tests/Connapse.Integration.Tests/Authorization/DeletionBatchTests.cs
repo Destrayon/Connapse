@@ -156,6 +156,51 @@ public class DeletionBatchTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
+    public async Task Decide_FileReplacedWithSameSizeAndTypeSinceTheRequest_SkipsItAndTheNewFileSurvives()
+    {
+        var http = fixture.AdminClient;
+        await using var agent = await AgentAsync();
+        string container = await CreateContainerAsync(http, "batch-replaced", kind: null);
+        try
+        {
+            string replaced = await UploadAsync(http, container, "report.txt");
+            string unchanged = await UploadAsync(http, container, "other.txt");
+
+            var asked = Json(await agent.CallToolAsync("request_deletions", new Dictionary<string, object?>
+            {
+                ["items"] = new object[]
+                {
+                    new { kind = "file", container, target = replaced, reason = "Old report" },
+                    new { kind = "file", container, target = unchanged, reason = "Unused" },
+                },
+            }));
+            Guid batchId = asked.GetProperty("id").GetGuid();
+
+            // While the batch waits, someone uploads new content to the same path: same name, same size, same type.
+            var before = await (await http.GetAsync($"/api/containers/{container}/files/{replaced}")).Content.ReadFromJsonAsync<JsonElement>();
+            string again = await UploadAsync(http, container, "report.txt");
+            again.Should().Be(replaced, "a re-upload to the same path keeps the file's id");
+            var after = await (await http.GetAsync($"/api/containers/{container}/files/{replaced}")).Content.ReadFromJsonAsync<JsonElement>();
+            after.GetProperty("sizeBytes").GetInt64().Should().Be(before.GetProperty("sizeBytes").GetInt64());
+
+            var decided = await DecideAsync(Owner(), batchId, approve: true);
+            decided.Succeeded.Should().BeTrue(decided.Detail);
+
+            var items = decided.Result!.Items;
+            var skipped = items.Single(i => i.Target == replaced);
+            skipped.State.Should().Be("skipped", "the file's content changed after the owner was asked");
+            skipped.Outcome.Should().Contain("changed after it was requested");
+            items.Single(i => i.Target == unchanged).State.Should().Be("deleted");
+            (await http.GetAsync($"/api/containers/{container}/files/{replaced}")).IsSuccessStatusCode.Should().BeTrue("the new file survives");
+            (await http.GetAsync($"/api/containers/{container}/files/{unchanged}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+        finally
+        {
+            await http.DeleteAsync($"/api/containers/{container}");
+        }
+    }
+
+    [Fact]
     public async Task Decide_AnyoneButTheOwner_CannotDecideAndTheOwnersDenialReachesTheAgent()
     {
         var http = fixture.AdminClient;

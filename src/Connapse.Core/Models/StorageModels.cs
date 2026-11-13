@@ -162,6 +162,15 @@ public record Document(
 
     /// <summary>Ingestion attempts made on the current version of the file.</summary>
     public int AttemptCount { get; init; }
+
+    /// <summary>
+    /// New each time the file's bytes are written: an upload or re-upload to its path, or an ingestion that finds
+    /// different bytes. A re-upload keeps the id, path and creation date, and can keep the size and type, so this is
+    /// what tells a held delete the file it was asked about has been replaced (CON-347). Empty for documents built
+    /// outside the store.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Guid ContentVersion { get; init; }
 }
 
 public record StoreResult(string DocumentId, int Generation);

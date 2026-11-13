@@ -320,6 +320,10 @@ public class KnowledgeDbContext(DbContextOptions<KnowledgeDbContext> options) : 
                 .HasColumnName("content_hash")
                 .IsRequired();
 
+            entity.Property(e => e.ContentVersion)
+                .HasColumnName("content_version")
+                .HasDefaultValueSql("gen_random_uuid()");
+
             entity.Property(e => e.SizeBytes)
                 .HasColumnName("size_bytes");
 

@@ -453,6 +453,13 @@ public class IngestionPipeline : IKnowledgeIngester
             documentEntity.FileName = options.FileName ?? "unknown";
             documentEntity.ContentType = options.ContentType;
             documentEntity.Path = virtualPath;
+
+            // Different bytes than the last ingestion read, as when a source's file changed at its origin: a new
+            // version, so a delete held for the old bytes is skipped (CON-347). A blank hash means an upload has just
+            // replaced the file, and the upload already gave it a new version.
+            if (documentEntity.ContentHash.Length > 0
+                && !string.Equals(documentEntity.ContentHash, contentHash, StringComparison.OrdinalIgnoreCase))
+                documentEntity.ContentVersion = Guid.NewGuid();
             documentEntity.ContentHash = contentHash;
             documentEntity.SizeBytes = workingStream.Length;
             documentEntity.ChunkCount = chunks.Count;
