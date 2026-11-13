@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v0.4.2] - 2026-11-10
 
-v0.4.2 finishes the approval change v0.4.1 started: every knowledge delete an agent's token holds for approval, one item or many, becomes a batch that Connapse carries out once you approve it, so agents no longer repeat a held delete.
+v0.4.2 finishes the approval change v0.4.1 started: every knowledge delete an agent's token holds for approval, one item or many, becomes a batch that Connapse carries out once you approve it, so agents no longer repeat a held delete. It also folds the multi-file MCP tools into the single-file ones.
 
 ### Upgrading from v0.4.1
 
