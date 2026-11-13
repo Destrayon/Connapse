@@ -594,6 +594,7 @@ public class MemorySearchTests
         ((double)report["memorySet"]!["score"]!).Should().Be(0);
         ((double)report["holdoutSet"]!["score"]!).Should().Be(1);
         ((double)report["tokens"]!["apiListPriceUsd"]!).Should().BeGreaterThan(0);
+        report["tools"]!.AsArray().Select(t => (string)t!).Should().Equal(MemorySearchEval.SearchTools);
     }
 
     [Theory]

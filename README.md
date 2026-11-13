@@ -56,7 +56,7 @@ claude mcp add --transport http connapse http://localhost:5001/mcp --header "X-A
 
 | Group | Tools | What they do |
 |---|---|---|
-| Search and documents | `search_knowledge`, `get_document`, `list_files`, `upload_file`, `bulk_upload`, `delete_file`, `bulk_delete` | Search a container or source, read whole documents, and add or remove files |
+| Search and documents | `search_knowledge`, `get_document`, `list_files`, `upload_file`, `delete_file` | Search a container or source, read whole documents, and add or remove files |
 | Memory | `memory_spaces`, `memory_remember`, `memory_recall`, `memory_correct`, `memory_timeline`, `memory_forget` | Pick a personal or team memory space, keep dated facts there with their sources, recall them in a later session, and correct them without losing history |
 | Code | `code_find_symbol`, `code_references`, `code_impact`, `code_repo_map` | Find definitions and callers in indexed C#, TypeScript and Python, and see what a change could affect |
 | Containers | `container_list`, `container_describe`, `container_stats`, `container_create`, `container_delete` | List, inspect, create and delete containers |

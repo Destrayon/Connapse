@@ -65,6 +65,37 @@ public class McpToolsBulkUploadTests
             Arg.Any<CancellationToken>());
     }
 
+    private Task<string> UploadFile(string files, string fileName = "", string? textContent = null, string? path = null) =>
+        McpTools.UploadFile(McpCaller.Uploads(_services).Upload, McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container,
+            McpCaller.Http, ContainerId.ToString(), textContent: textContent, fileName: fileName, path: path, files: files);
+
+    [Fact]
+    public async Task UploadFile_WithFiles_UploadsEachAndGivesTheBulkUploadSummary()
+    {
+        var json = """[{"filename":"a.txt","content":"hello"},{"filename":"b.txt","content":"world"}]""";
+
+        var result = await UploadFile(json);
+
+        result.Should().Be("Uploaded 2 of 2 file(s) to container 'test'.\n\nAll files queued for ingestion (parsing, chunking, embedding).");
+        await _uploadService.Received(1).BulkUploadAsync(Arg.Is<BulkUploadRequest>(r => r.Files.Count == 2), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("a.txt", null, null)]
+    [InlineData("", "hello", null)]
+    [InlineData("", null, "/docs/")]
+    public async Task UploadFile_FilesWithASingleFilesArgument_ReturnsErrorWithoutUploading(string fileName, string? textContent, string? path)
+    {
+        var result = await UploadFile("""[{"filename":"a.txt","content":"hello"}]""", fileName, textContent, path);
+
+        result.Should().StartWith("Error: Provide either 'files' or a single file's");
+        await _uploadService.DidNotReceiveWithAnyArgs().BulkUploadAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task UploadFile_NoFileNameAndNoFiles_ReturnsError() =>
+        (await UploadFile("")).Should().Be("Error: 'fileName' is required (or 'files' for several files).");
+
     [Fact]
     public async Task BulkUpload_Base64File_DecodesAndUploads()
     {

@@ -201,12 +201,10 @@ These are the tools exposed via the MCP server. Test via the MCP endpoint or by 
 | `container_list` | List containers with doc counts | No |
 | `container_delete` | Delete container | No |
 | `container_stats` | Get container statistics | No |
-| `upload_file` | Upload single file | Yes — blocked on S3 |
-| `bulk_upload` | Upload up to 100 files | Yes |
+| `upload_file` | Upload one file, or up to 100 with `files` | Yes — blocked on S3 |
 | `list_files` | List files at path | No |
-| `get_document` | Get full parsed text | No |
-| `delete_file` | Delete single file | Yes |
-| `bulk_delete` | Delete up to 100 files | Yes |
+| `get_document` | Get full parsed text of one file, or up to 50 with `files` | No |
+| `delete_file` | Delete one file, or up to 100 with `fileIds` | Yes |
 | `search_knowledge` | Semantic/Keyword/Hybrid search | No |
 
 ---

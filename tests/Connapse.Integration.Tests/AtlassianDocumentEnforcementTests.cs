@@ -372,7 +372,7 @@ public class AtlassianDocumentEnforcementTests(SharedWebAppFixture fixture)
 
     /// <summary>MCP get_document as the caller on the scope's HTTP context.</summary>
     private static Task<string> GetDocumentAsync(IServiceProvider sp, string containerId, string fileId) =>
-        McpTools.GetDocument(sp.GetRequiredService<GetFile>(), sp.GetRequiredService<GetFileContent>(), sp.GetRequiredService<GetContainer>(),
+        McpTools.GetDocument(sp.GetRequiredService<GetFile>(), sp.GetRequiredService<GetFileContent>(), sp.GetRequiredService<GetFileContents>(), sp.GetRequiredService<GetContainer>(),
             sp.GetRequiredService<IHttpContextAccessor>(), containerId, fileId);
 
     /// <summary>Runs <paramref name="call"/> as a non-admin user linked to <paramref name="atlassianAccount"/>.</summary>

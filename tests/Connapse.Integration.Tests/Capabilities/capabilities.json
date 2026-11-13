@@ -113,7 +113,7 @@
       "routes": [
         "POST /api/containers/{containerId:guid}/files/"
       ],
-      "mcp": "bulk_upload"
+      "mcp": "upload_file"
     },
     {
       "id": "files.list",
@@ -145,7 +145,7 @@
       "routes": [
         "POST /api/containers/{containerId:guid}/files/contents"
       ],
-      "mcp": "get_documents"
+      "mcp": "get_document"
     },
     {
       "id": "files.append",
@@ -179,7 +179,7 @@
       "routes": [
         "POST /api/containers/{containerId:guid}/files/bulk-delete"
       ],
-      "mcp": "bulk_delete",
+      "mcp": "delete_file",
       "note": "REST deletes one file at a time today. Over MCP it waits for approval unless the token has approval off: the token's owner or an administrator approves it on the /approvals page, which only the UI offers, and the same call then runs once."
     },
     {

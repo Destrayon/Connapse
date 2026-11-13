@@ -1,0 +1,97 @@
+{
+  "config": "hybrid",
+  "split": "test",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "tools": [
+    "search_knowledge",
+    "get_document",
+    "get_documents"
+  ],
+  "repetitions": 3,
+  "tasks": 112,
+  "all": {
+    "tasks": 112,
+    "score": 0.6994,
+    "searches": 1.9851
+  },
+  "memorySet": {
+    "tasks": 64,
+    "score": 0.474,
+    "searches": 2.724
+  },
+  "holdoutSet": {
+    "tasks": 48,
+    "score": 1,
+    "searches": 1
+  },
+  "kinds": {
+    "alias": {
+      "tasks": 16,
+      "score": 0.5,
+      "searches": 4.0833
+    },
+    "control": {
+      "tasks": 40,
+      "score": 1,
+      "searches": 1
+    },
+    "correction": {
+      "tasks": 16,
+      "score": 0.25,
+      "searches": 1.2292
+    },
+    "current": {
+      "tasks": 16,
+      "score": 0.5,
+      "searches": 1
+    },
+    "location": {
+      "tasks": 16,
+      "score": 0.6458,
+      "searches": 4.5833
+    },
+    "stale": {
+      "tasks": 8,
+      "score": 1,
+      "searches": 1
+    }
+  },
+  "memorySetHalves": {
+    "documented": {
+      "tasks": 32,
+      "score": 0.8542,
+      "searches": 1.3854
+    },
+    "undocumented": {
+      "tasks": 32,
+      "score": 0.0937,
+      "searches": 4.0625
+    }
+  },
+  "measures": {
+    "answerAccuracy": 0.7411,
+    "staleCitations": 0.1786,
+    "runRecall": 0.9494,
+    "firstQueryMrr@10": 0.6164,
+    "searchCalls": 1.9851,
+    "toolCalls": 2.1042
+  },
+  "outcomes": {
+    "Answered": 336
+  },
+  "tokens": {
+    "runs": 336,
+    "input": 2580,
+    "cacheWrite": 1452644,
+    "cacheRead": 5703484,
+    "output": 202611,
+    "apiListPriceUsd": 8.4122
+  },
+  "conforming": true,
+  "diagnosticOnly": [],
+  "subscription": {
+    "atFirstRun": "allowed_warning (seven_day 84%)",
+    "atLastRun": "allowed_warning (seven_day 84%)"
+  }
+}

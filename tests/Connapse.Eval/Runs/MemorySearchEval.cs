@@ -32,7 +32,11 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     public const string RegisteredEffort = "medium";
 
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath,
-        string? AgentDir = null);
+        string? AgentDir = null, IReadOnlyList<string>? Tools = null)
+    {
+        /// <summary>The tools the agent gets: <see cref="SearchTools"/> unless <c>--tools</c> names others.</summary>
+        public IReadOnlyList<string> ToolSet => Tools is { Count: > 0 } ? Tools : SearchTools;
+    }
 
     /// <summary>One task's runs, in repetition order.</summary>
     public sealed record TaskResult(SearchTask Task, IReadOnlyList<(AgentRun Run, RunScore Score)> Runs);
@@ -61,7 +65,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         RequireCompleteIndex(indexed, corpus.Count, docMap.Count);
         log.WriteLine($"{corpus.Count} documents indexed");
 
-        McpToolbox tools = new(system.Services, McpToolbox.Reader(Guid.NewGuid(), "memory-search-eval"), SearchTools, Pinned);
+        McpToolbox tools = new(system.Services, McpToolbox.Reader(Guid.NewGuid(), "memory-search-eval"), options.ToolSet, Pinned);
         DocumentIndex index = new(docMap, corpus.ToDictionary(d => d.Id, d => d.FileName!, StringComparer.Ordinal));
         await using ToolBridge bridge = new();
         await bridge.StartAsync(ct);
@@ -183,6 +187,7 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             ["split"] = options.Split,
             ["model"] = options.Model,
             ["effort"] = options.Effort,
+            ["tools"] = new JsonArray([.. options.ToolSet.Select(t => (JsonNode)t)]),
             ["repetitions"] = options.Repetitions,
             ["tasks"] = results.Count,
             ["all"] = Group(results),

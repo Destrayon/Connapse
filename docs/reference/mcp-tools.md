@@ -21,7 +21,7 @@ A browser request to `/mcp` must come from a loopback origin or one listed in `C
 
 A personal access token or agent key created with **Ask before it deletes anything over MCP** (the default) has every Destructive or Credential call held for a person. Read and Write calls are never held.
 
-A held delete of knowledge (`delete_file`, `bulk_delete`, `container_delete`, `memory_forget`, or `folders.delete` through `connapse_api_write`) becomes a batch of deletions, the same kind `request_deletions` makes. The call returns the batch instead of deleting. The token's owner approves all, some or none of its items on **Approvals** (`/approvals`), and Connapse then deletes the approved items itself; the agent never repeats the call. It reads each item's outcome with `deletion_status`: `deleted`, `skipped` (the item was gone or had changed since the call), `failed`, `not_approved` or `denied`. A container must be empty when the call is made, and a batch holds at most 50 items.
+A held delete of knowledge (`delete_file` with one file or several, `container_delete`, `memory_forget`, or `folders.delete` through `connapse_api_write`) becomes a batch of deletions, the same kind `request_deletions` makes. The call returns the batch instead of deleting. The token's owner approves all, some or none of its items on **Approvals** (`/approvals`), and Connapse then deletes the approved items itself; the agent never repeats the call. It reads each item's outcome with `deletion_status`: `deleted`, `skipped` (the item was gone or had changed since the call), `failed`, `not_approved` or `denied`. A container must be empty when the call is made, and a batch holds at most 50 items.
 
 Any other held call, such as one that sets a credential or removes a user, keeps the per-call approval: the first call returns a message naming the request, its owner approves it on **Approvals**, and the same call with the same arguments then runs once. A request waits a day for a decision, and an approval must be used within 15 minutes. The agent learns the decision with `approval_status`, or `GET /api/approvals/{id}` over REST: either answers at once, or waits up to 50 seconds for a decision. The answer's state is `pending`, `approved` (repeat the exact call now), `denied` (with the reason the person typed, if any), `expired` (no one decided in time, or the approval lapsed unused) or `used`. Only the token that made a request can see it. Connapse can't run these calls itself, because it keeps their arguments only sealed, for matching, so that secrets are never stored readable.
 
@@ -38,13 +38,10 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `container_delete` | `knowledge:write` | Destructive | Deletes an empty container. Sources can't be deleted here. |
 | `search_knowledge` | `knowledge:read` | Read | Searches a container or source and returns ranked passages with their document ids and scores. |
 | `list_files` | `knowledge:read` | Read | Lists the folders and documents at a path in a container, each document with the date it was added and, if different, last updated. Sorts by name or newest first. |
-| `get_document` | `knowledge:read` | Read | Returns one document's full extracted text, by id or path. |
-| `get_documents` | `knowledge:read` | Read | Returns up to 50 documents' full text in one call, by id or path, in the order asked. A file that can't be read gets an error line and doesn't stop the others. Past 2,000,000 characters in all, the remaining files get an error line too. |
-| `upload_file` | `knowledge:write` | Write | Uploads one file to be ingested. |
+| `get_document` | `knowledge:read` | Read | Returns one document's full extracted text, by id or path, or up to 50 documents' text in one call, in the order asked. In a multi-file read, a file that can't be read gets an error line and doesn't stop the others, and past 2,000,000 characters in all the remaining files get an error line too. |
+| `upload_file` | `knowledge:write` | Write | Uploads one file to be ingested, or up to 100 files in one call. |
 | `append_to_file` | `knowledge:write` | Write | Adds text to the end of an existing text file, in the file's own encoding, and reindexes it. The file keeps its id, path and added date. Appends to one file through the same server queue behind each other; appends through different servers sharing a database are not serialized. |
-| `bulk_upload` | `knowledge:write` | Write | Uploads up to 100 files in one call. |
-| `delete_file` | `knowledge:write` | Destructive | Deletes a file and its passages. To replace a file, delete it, then upload it again. |
-| `bulk_delete` | `knowledge:write` | Destructive | Deletes up to 100 files in one call. |
+| `delete_file` | `knowledge:write` | Destructive | Deletes a file and its passages, or up to 100 files in one call. To replace a file, delete it, then upload it again. |
 | `code_find_symbol` | `knowledge:read` | Read | Finds where a function, class or other symbol is defined in indexed code (C#, Python, TypeScript), by name, by words of its name, or by meaning. |
 | `code_references` | `knowledge:read` | Read | Lists the files that use a symbol, best evidence first: calls, base types and imports with their lines, then files whose text names it. |
 | `code_impact` | `knowledge:read` | Read | Lists what a change to a symbol could affect, up to three hops through callers and subtypes, with the tests among them. |
@@ -81,24 +78,21 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `confirmLarge` | boolean | No | `true` lists a large folder in full |
 | | `sort` | string | No | `name` (default; folders first) or `newest` (most recently added first). With `limit`, `newest` gives a folder's latest entries |
 | `get_document` | `containerId` | string | Yes | Container id or name |
-| | `fileId` | string | Yes | Document id, or its path such as `/docs/readme.md` |
-| `get_documents` | `containerId` | string | Yes | Container id or name |
-| | `files` | string | Yes | A JSON array of up to 50 document ids or paths |
+| | `fileId` | string | One of the two | Document id, or its path such as `/docs/readme.md` |
+| | `files` | string | One of the two | A JSON array of up to 50 document ids or paths |
 | `append_to_file` | `containerId` | string | Yes | Container id or name |
 | | `file` | string | Yes | Document id, or its path. Only text files (`.md`, `.txt`, `.log`, `.csv`, `.json` and similar) |
 | | `text` | string | Yes | Added exactly as given; start it with a newline to put it on a new line |
 | `upload_file` | `containerId` | string | Yes | Container id or name |
-| | `fileName` | string | Yes | File name with its extension |
-| | `textContent` | string | One of the two | The file's text, for text formats |
-| | `content` | string | One of the two | The file's bytes in base64, for binary formats such as PDF |
+| | `fileName` | string | For one file | File name with its extension |
+| | `textContent` | string | For one file, one of the two | The file's text, for text formats |
+| | `content` | string | For one file, one of the two | The file's bytes in base64, for binary formats such as PDF |
 | | `path` | string | No | Destination folder, such as `/docs/2026/` |
 | | `strategy` | string | No | Chunking strategy, such as `Semantic` (default), `FixedSize` or `Recursive` |
-| `bulk_upload` | `containerId` | string | Yes | Container id or name |
-| | `files` | string | Yes | A JSON array of up to 100 `{ "filename", "content", "encoding": "text" \| "base64", "folderPath"? }` |
+| | `files` | string | For several files | A JSON array of up to 100 `{ "filename", "content", "encoding": "text" \| "base64", "folderPath"? }`, given instead of the one-file parameters |
 | `delete_file` | `containerId` | string | Yes | Container id or name |
-| | `fileId` | string | Yes | Document id |
-| `bulk_delete` | `containerId` | string | Yes | Container id or name |
-| | `fileIds` | string | Yes | A JSON array of up to 100 document ids |
+| | `fileId` | string | One of the two | Document id |
+| | `fileIds` | string | One of the two | A JSON array of up to 100 document ids |
 | `code_find_symbol` | `containerId` | string | Yes | Container or source id or name |
 | | `query` | string | Yes | The symbol's name, words of its qualified name, or a description, per `match` |
 | | `match` | string | No | `exact` (default), `words` or `meaning` |
@@ -150,6 +144,8 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | | `from`, `to` | string | No | Only facts that started or ended in this window |
 | | `limit` | integer | No | Most facts, 1 to 100; default 50 |
 | | `cursor` | string | No | As for `memory_recall`, but needs no `from`, `to` or `attribute`. Pages go from the newest facts back |
+
+`get_documents`, `bulk_upload` and `bulk_delete`, the separate multi-file tools before v0.4.2, still answer calls with the same results as `get_document` with `files`, `upload_file` with `files` and `delete_file` with `fileIds`. They are no longer listed in `tools/list`, and they will be removed after the 0.4.x releases.
 
 The file types an upload accepts are in [File types](file-types.md).
 

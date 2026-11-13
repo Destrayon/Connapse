@@ -66,6 +66,30 @@ public class McpToolsBulkDeleteTests
     }
 
     [Fact]
+    public async Task DeleteFile_WithFileIds_DeletesEachAndGivesTheBulkDeleteSummary()
+    {
+        _documentStore.GetAsync("file-1", Arg.Any<CancellationToken>()).Returns(MakeDocument("file-1", "a.txt", "/a.txt"));
+        _documentStore.GetAsync("file-2", Arg.Any<CancellationToken>()).Returns((Document?)null);
+
+        var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container,
+            McpCaller.Http, ContainerId.ToString(), fileIds: """["file-1","file-2"]""");
+
+        result.Should().StartWith("Deleted 1 of 2 file(s).").And.Contain("Failures:\n- file-2:");
+        await _documentStore.Received(1).DeleteOwingFileRemovalAsync("file-1", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteFile_WithTooManyFileIds_ReturnsTheLimitError()
+    {
+        string many = System.Text.Json.JsonSerializer.Serialize(Enumerable.Range(0, 101).Select(i => $"f{i}"));
+
+        var result = await McpTools.DeleteFile(McpCaller.Files(_services).Delete, McpCaller.Files(_services).BulkDelete, McpCaller.Files(_services).Container,
+            McpCaller.Http, ContainerId.ToString(), fileIds: many);
+
+        result.Should().Be("Error: Maximum 100 files per call.");
+    }
+
+    [Fact]
     public async Task BulkDelete_PartialFailure_ReportsEachResult()
     {
         var doc1 = MakeDocument("file-1", "a.txt", "/a.txt");

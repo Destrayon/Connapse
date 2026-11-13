@@ -32,6 +32,7 @@ before any of these features or their results existed. A change merges only when
 | **AI link extraction** (opt-in) | `links-v1` test MRR@10 at least +0.05 over links-only | All suites | Reported: tokens per passage, index time; no default-on without a new bar |
 | **Container memory for search** (suite `memory-search-v1`, CON-244; see below) | Correct-document score on the memory tasks at least +0.15 over the same agent without memory | Control and stale tasks non-inferior within 0.10 | Reported: search calls, tool calls and tokens per task |
 | **Learned container memory** (suite `memory-learned-v1`, CON-244; see below) | Same rule, session-2 memory tasks, memory written by session-1 agents | Same rule, session-2 control and stale tasks | Reported: session-1 scores and facts written |
+| **Merged get/delete/upload tools** (suite `memory-search-v1`, CON-344; see below) | — | Correct-document score non-inferior within 0.05 against the separate tools | Reported: tool-list tokens before and after, tool calls per task |
 
 ## Container memory for search (CON-244)
 
@@ -97,6 +98,36 @@ keep-or-drop decision for container memory rests on it.**
   how many cite documents).
 - **Budget:** one full run (228 session-1 and 624 session-2 runs) must use at most about 5% of the seven-day
   subscription window, on the subscription only.
+
+## One tool each for getting, deleting and uploading (CON-344)
+
+Written on 2026-11-12, before either arm ran. CON-344 merges `get_document`/`get_documents`,
+`delete_file`/`bulk_delete` and `upload_file`/`bulk_upload` into one tool each that takes one item or a list. The
+merge passes only if agents with the merged tools get no fewer answers right. `memory-search-v1` is the only agent
+eval that uses these tools, and it uses only the getting pair; deleting and uploading are held to identical
+results by the cross-surface and unit tests, not by an agent eval.
+
+- **Arms.** Both run the `memory-search` command with the same agent, model, system prompt, questions and
+  repetitions; only the tools differ, and their descriptions are the MCP server's own.
+  - **Baseline** runs on the unchanged code (`main` at 24e6a7b7) with `--tools search_knowledge,get_document,get_documents`.
+    *Corrected after the run, 2026-11-12:* `memory-search` at 24e6a7b7 has no `--tools`, so the baseline was built
+    from a0acaea8, which is 24e6a7b7 plus the harness-only commit that adds `--tools` and `memory-search-compare`.
+    That commit changes nothing under `src/`, so the MCP tools the agent saw are `main`'s. The build was
+    `dotnet build -c Release tests/Connapse.Eval -o <baseline-bin>` and the run was
+    `Connapse.Eval memory-search --config hybrid --split test --workers 1 --repetitions 3 --model claude-sonnet-5-5
+    --effort medium --tools search_knowledge,get_document,get_documents --out baseline.json`.
+  - **Merged** runs on the CON-344 branch with `--tools search_knowledge,get_document`, where `get_document` is the
+    merged tool.
+- **Fixed as in CON-244 above:** `claude-sonnet-5-5` at effort `medium`, 3 repetitions, 12 tool calls per run, Hybrid
+  search with 10 results, the `hybrid` config, the 112 `test` tasks, 1 worker, retries and the score per run. A run
+  that fails, runs out of tool calls or never answers scores 0.
+- **Rule:** `memory-search-compare <baseline.runs.jsonl> <merged.runs.jsonl>` pairs each task's mean score.
+  **PASS** when the lower end of the 90% BCa interval of (merged − baseline) over all 112 tasks is above −0.05
+  (non-inferiority at margin 0.05, a one-sided test at α = 0.05). Anything else is **FAIL**, and a failing merge
+  is redesigned, not shipped. The CON-244 Off runs put the noise at about ±0.014 on this interval, so a true tie
+  passes with room to spare.
+- **Reported, not gated:** the M and H sets, answer accuracy, tool calls per task, how often each arm used the list
+  form, outcomes, and tokens.
 
 ## Baselines
 

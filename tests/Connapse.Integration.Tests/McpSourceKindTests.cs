@@ -191,7 +191,7 @@ public class McpSourceKindTests(SharedWebAppFixture fixture)
         var source = await SeedSourceAsync(scope.ServiceProvider);
 
         string output = await McpTools.GetDocument(
-            scope.ServiceProvider.GetRequiredService<GetFile>(), scope.ServiceProvider.GetRequiredService<GetFileContent>(),
+            scope.ServiceProvider.GetRequiredService<GetFile>(), scope.ServiceProvider.GetRequiredService<GetFileContent>(), scope.ServiceProvider.GetRequiredService<GetFileContents>(),
             scope.ServiceProvider.GetRequiredService<GetContainer>(), AsAdmin(scope.ServiceProvider), source.Id.ToString(), fileId: "/anything.md");
 
         output.Should().Contain("not found");

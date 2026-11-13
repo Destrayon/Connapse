@@ -191,8 +191,8 @@ This tests the experience of a brand-new user with no seeded admin. Deploy WITHO
 - [ ] Folder deletion cascades (removes contained files)
 
 ### 4.5 Bulk Operations
-- [ ] `bulk_upload` — upload multiple files in one operation (API or MCP)
-- [ ] `bulk_delete` — delete multiple files in one operation (API or MCP)
+- [ ] `upload_file` with `files` — upload multiple files in one operation (API or MCP)
+- [ ] `delete_file` with `fileIds` — delete multiple files in one operation (API or MCP)
 - [ ] Bulk operations report per-file success/failure
 - [ ] `GET /api/batches/{id}/status` returns ingestion progress for a batch
 
@@ -272,10 +272,10 @@ Test each MCP tool directly. If connected to the test instance via MCP, use the 
 - [ ] `delete_file` removes a file
 
 ### 5.5.3 Bulk Tools
-- [ ] `bulk_upload` uploads multiple files in one call
-- [ ] `bulk_upload` reports partial failures per file
-- [ ] `bulk_delete` deletes multiple files
-- [ ] `bulk_delete` reports failures for non-existent files
+- [ ] `upload_file` with `files` uploads multiple files in one call
+- [ ] `upload_file` with `files` reports partial failures per file
+- [ ] `delete_file` with `fileIds` deletes multiple files
+- [ ] `delete_file` with `fileIds` reports failures for non-existent files
 
 ### 5.5.4 Search Tool
 - [ ] `search_knowledge` returns results with Hybrid mode (default)
