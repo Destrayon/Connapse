@@ -364,56 +364,6 @@ public class ContainerOperationTests
     }
 
     [Fact]
-    public async Task UpdateSettings_TableSettingsChangedByAnEditor_IsForbiddenAndSavesNothing()
-    {
-        // CON-326: only an administrator may let agents send their own SQL.
-        var id = Existing();
-        Deny(Policies.Admin);
-
-        var saved = await new UpdateContainerSettings(_containers, _audit, _authorizer).RunAsync(
-            Caller, id, new ContainerSettingsOverrides { Tables = new TableSettings { AgentSql = true } });
-
-        saved.Status.Should().Be(ContainerStatus.Forbidden);
-        await _containers.DidNotReceiveWithAnyArgs().UpdateSettingsOverridesAsync(default, default!);
-    }
-
-    [Fact]
-    public async Task UpdateSettings_TableSettingsChangedByAnAdministrator_SavesThem()
-    {
-        var id = Existing();
-        _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
-            .Returns(c => c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(null));
-
-        var saved = await new UpdateContainerSettings(_containers, _audit, _authorizer).RunAsync(
-            Caller, id, new ContainerSettingsOverrides { Tables = new TableSettings { AgentSql = true } });
-
-        saved.Result!.Tables.Should().Be(new TableSettings { AgentSql = true });
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task UpdateSettings_EditorLeavesTableSettingsOutOrUnchanged_KeepsTheStoredOnes(bool sendUnchanged)
-    {
-        // An editor saving search settings must not switch off what an administrator turned on.
-        var id = Existing();
-        Deny(Policies.Admin);
-        var stored = new ContainerSettingsOverrides { Tables = new TableSettings { AgentSql = true } };
-        _containers.GetSettingsOverridesAsync(id, Arg.Any<CancellationToken>()).Returns(stored);
-        _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
-            .Returns(c => c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(stored));
-
-        var saved = await new UpdateContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, id, new ContainerSettingsOverrides
-        {
-            Search = new SearchSettings { TopK = 7 },
-            Tables = sendUnchanged ? new TableSettings { AgentSql = true } : null,
-        });
-
-        saved.Result!.Tables.Should().Be(new TableSettings { AgentSql = true });
-        saved.Result.Search!.TopK.Should().Be(7);
-    }
-
-    [Fact]
     public async Task UpdateSettings_DeletedBeforeTheSave_IsNotFoundAndAuditsNothing()
     {
         var id = Existing();
@@ -432,34 +382,14 @@ public class ContainerOperationTests
     {
         var id = Guid.NewGuid();
         _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Container(id.ToString(), "box", null, Epoch, Epoch));
-        ContainerSettingsOverrides? written = null;
-        _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
-            .Returns(c => written = c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(
-                new ContainerSettingsOverrides { Search = new SearchSettings { TopK = 7 } }));
 
         var cleared = await new ResetContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, id);
 
         cleared.Succeeded.Should().BeTrue();
-        written.Should().Be(new ContainerSettingsOverrides());
+        await _containers.Received(1).SaveSettingsOverridesAsync(id,
+            Arg.Is<ContainerSettingsOverrides>(o => o == new ContainerSettingsOverrides()),
+            Arg.Any<CancellationToken>());
         await _audit.Received(1).LogAsync("container.settings_reset", "container", id.ToString(), null, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ResetSettings_TableSettingsStored_KeepsThem()
-    {
-        // CON-326: table settings have no global value and belong to administrators, so an editor's reset keeps them.
-        var id = Guid.NewGuid();
-        _containers.GetAsync(id, Arg.Any<CancellationToken>()).Returns(new Container(id.ToString(), "box", null, Epoch, Epoch));
-        _containers.UpdateSettingsOverridesAsync(id, Arg.Any<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>(), Arg.Any<CancellationToken>())
-            .Returns(c => c.Arg<Func<ContainerSettingsOverrides?, ContainerSettingsOverrides>>()(new ContainerSettingsOverrides
-            {
-                Search = new SearchSettings { TopK = 7 },
-                Tables = new TableSettings { AgentSql = true },
-            }));
-
-        var cleared = await new ResetContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, id);
-
-        cleared.Result.Should().Be(new ContainerSettingsOverrides { Tables = new TableSettings { AgentSql = true } });
     }
 
     [Fact]
@@ -468,7 +398,7 @@ public class ContainerOperationTests
         var cleared = await new ResetContainerSettings(_containers, _audit, _authorizer).RunAsync(Caller, Guid.NewGuid());
 
         cleared.Status.Should().Be(ContainerStatus.NotFound);
-        await _containers.DidNotReceiveWithAnyArgs().UpdateSettingsOverridesAsync(default, default!);
+        await _containers.DidNotReceiveWithAnyArgs().SaveSettingsOverridesAsync(default, default!);
     }
 
     [Fact]
@@ -485,7 +415,7 @@ public class ContainerOperationTests
         read.Status.Should().Be(ContainerStatus.NotFound);
         cleared.Status.Should().Be(ContainerStatus.NotFound);
         await _containers.DidNotReceiveWithAnyArgs().GetSettingsOverridesAsync(default);
-        await _containers.DidNotReceiveWithAnyArgs().UpdateSettingsOverridesAsync(default, default!);
+        await _containers.DidNotReceiveWithAnyArgs().SaveSettingsOverridesAsync(default, default!);
     }
 
     private readonly IReindexService _reindex = Substitute.For<IReindexService>();

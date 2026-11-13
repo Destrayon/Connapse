@@ -60,3 +60,7 @@ GET /api/containers/{containerId}/tables added the new `Json` enum value to the 
 GET /api/containers/{containerId}/tables/{tableId} added the new `Json` enum value to the `columns/items/type` response property for the response status `200`
 PUT /api/containers/{containerId}/tables/{tableId}/hidden added the new `Json` enum value to the `columns/items/type` response property for the response status `200`
 PUT /api/containers/{containerId}/tables/{tableId}/hidden-columns added the new `Json` enum value to the `columns/items/type` response property for the response status `200`
+# CON-345: table_sql and table_graphql are removed before release (CON-328 and CON-336 results); agents read tables
+# through the structured table requests.
+POST /api/containers/{containerId}/tables/sql api path removed without deprecation
+POST /api/containers/{containerId}/tables/graphql api path removed without deprecation

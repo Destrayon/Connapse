@@ -6,9 +6,8 @@ using Npgsql;
 namespace Connapse.Storage.Tables;
 
 /// <summary>
-/// Runs one table query on the reader login and shapes its answer (CON-303). The structured tools use it today, and
-/// <c>table_sql</c> (CON-326) is meant to run through it too, so both answer under the same limits and in the same
-/// shape (docs/plans/con-320-raw-sql-rls.md):
+/// Runs one table query on the reader login and shapes its answer (CON-303) for the structured table tools
+/// (docs/plans/con-320-raw-sql-rls.md):
 /// <list type="bullet">
 /// <item>a per-request token and the container's reader role, so the database itself refuses rows from documents the
 /// caller may not read (CON-324);</item>
@@ -100,7 +99,7 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
                     new NpgsqlParameter { Value = TableReaderLogin.WorkMem },
                     new NpgsqlParameter { Value = MaxParallelWorkersPerGather },
                     new NpgsqlParameter { Value = token },
-                    new NpgsqlParameter { Value = SearchPath(query.Schema) },
+                    new NpgsqlParameter { Value = SearchPath },
                 },
             });
             await setup.ExecuteNonQueryAsync(ct);
@@ -148,11 +147,10 @@ public sealed class TableQueryRunner(TableReaderLogin reader)
     }
 
     /// <summary>
-    /// The query's <c>search_path</c>: the catalog first, so a name in the container can never shadow a built-in one, then
-    /// the container's schema when the query names its tables unqualified (docs/research/con-326-table-sql-runner-2026-11-10.md).
+    /// The query's <c>search_path</c>: the catalog first, so a name in the container can never shadow a built-in one.
+    /// Compiled queries name every table by its schema.
     /// </summary>
-    internal static string SearchPath(string? schema) =>
-        schema is null ? "pg_catalog, pg_temp" : $"pg_catalog, {TableDdl.Quote(schema)}, pg_temp";
+    internal const string SearchPath = "pg_catalog, pg_temp";
 
     /// <summary>A cell's size in the answer: its UTF-8 bytes, with null counted as the four letters agents see.</summary>
     internal static int Size(object? value) => value switch

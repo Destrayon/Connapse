@@ -2,37 +2,27 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Connapse.Core;
-using Connapse.Core.Interfaces;
 using Connapse.Eval.Cli;
 using Connapse.Eval.Datasets;
 using Connapse.Eval.Model;
 using Connapse.Eval.Runs.MemorySearch;
-using Connapse.Eval.Statistics;
 using Connapse.Eval.Systems;
 using MathNet.Numerics.Statistics;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Connapse.Eval.Runs;
 
 /// <summary>One way for an agent to answer table questions: the MCP tools it gets.</summary>
 public sealed record TableArm(string Name, IReadOnlyList<string> Tools)
 {
-    public const string SqlTool = "table_sql";
-
     /// <summary>Arm S: the four structured table tools, plus search.</summary>
     public static readonly TableArm Structured = new("structured",
         ["table_list", "table_describe", "table_read", "table_aggregate", .. MemorySearchEval.SearchTools]);
 
-    /// <summary>Arm Q: the agent writes its own SQL, with table listing, description and search to find its way.</summary>
-    public static readonly TableArm Sql = new("sql", [SqlTool, "table_list", "table_describe", .. MemorySearchEval.SearchTools]);
-
-    public const string GraphQLTool = "table_graphql";
-
-    /// <summary>Arm G (CON-336): the agent writes GraphQL over the container's tables, with listing, description and search.</summary>
-    public static readonly TableArm GraphQL = new("graphql", [GraphQLTool, "table_list", "table_describe", .. MemorySearchEval.SearchTools]);
-
-    public static readonly IReadOnlyList<TableArm> All = [Structured, Sql, GraphQL];
+    /// <summary>
+    /// Every arm. The free-form query arms (CON-327, CON-336) were removed with their tools in CON-345; see
+    /// <c>docs/research/con-345-free-form-table-tools-removed.md</c>.
+    /// </summary>
+    public static readonly IReadOnlyList<TableArm> All = [Structured];
 
     /// <summary>The arms named on the command line, in the order given; all of them when none are named.</summary>
     public static IReadOnlyList<TableArm> Parse(IReadOnlyList<string> names)
@@ -72,7 +62,7 @@ public sealed record TableArm(string Name, IReadOnlyList<string> Tools)
 /// <summary>One run of one question by one arm.</summary>
 public sealed record ArmRun(TableQuestion Question, string Arm, int Run, string Asked, AgentRun Agent, TableGrade Grade, TimeSpan Wall)
 {
-    /// <summary>Every tool call before the answer, refused SQL and tool errors included.</summary>
+    /// <summary>Every tool call before the answer, refused queries and tool errors included.</summary>
     public int ToolCalls => Agent.Calls.Count;
 
     public int SearchCalls => Agent.Calls.Count(c => MemorySearchEval.SearchTools.Contains(c.Name));
@@ -82,9 +72,8 @@ public sealed record ArmRun(TableQuestion Question, string Arm, int Run, string 
 }
 
 /// <summary>
-/// CON-327: arm S (structured table tools) and arm Q (<c>table_sql</c>) on the same tables-v1 questions, so the CON-320
-/// head-to-head can be scored by its pass bar (<c>docs/plans/con-320-raw-sql-rls.md</c>). The data, agent, prompt and
-/// grading are the rag setup's (<see cref="TablesRagEval"/>); only the tools differ. Each question gets
+/// CON-327: an agent with one arm's table tools on the tables-v1 questions (or CON-336's flexibility set). The data,
+/// agent, prompt and grading are the rag setup's (<see cref="TablesRagEval"/>); only the tools differ. Each question gets
 /// <see cref="Options.Runs"/> runs per arm, interleaved, and counts as right for an arm when most of its runs are right.
 /// </summary>
 public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter log)
@@ -99,16 +88,6 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
 
     /// <summary>The flexibility set's test questions: seven families of ten.</summary>
     public const int RegisteredFlexTest = 70;
-
-    /// <summary>The pass bar's margins: a 5-point accuracy gap, p &lt; 0.05, and arm Q at most 1.2× arm S's cost.</summary>
-    public const double WinPoints = 5;
-
-    public const double Alpha = 0.05;
-
-    public const double MaxCostRatio = 1.2;
-
-    /// <summary>The family gap the arm that becomes the default may not exceed.</summary>
-    public const double MaxFamilyGapPoints = 10;
 
     /// <param name="Base">The data, split, model and slice, as the rag setup takes them; its mixed questions are not asked.</param>
     /// <param name="Set"><see cref="TablesV1Set"/> or <see cref="FlexSet"/>.</param>
@@ -206,14 +185,6 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
             }
         }
 
-        if (options.Arms.Contains(TableArm.Sql))
-        {
-            await using AsyncServiceScope scope = system.Services.CreateAsyncScope();
-            IContainerStore store = scope.ServiceProvider.GetRequiredService<IContainerStore>();
-            foreach (Guid id in new[] { container, restricted }.Where(id => id != Guid.Empty))
-                await TurnOnAgentSqlAsync(store, id, ct);
-        }
-
         Dictionary<string, McpToolbox> toolboxes = options.Arms.ToDictionary(a => a.Name,
             a => new McpToolbox(system.Services, McpToolbox.Reader(Guid.NewGuid(), "tables-arms-eval"), a.Tools, MemorySearchEval.Pinned));
         await using ToolBridge bridge = new();
@@ -282,39 +253,6 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         return 0;
     }
 
-    private static readonly JsonSerializerOptions OverridesJson = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-    };
-
-    /// <summary>
-    /// Turns on the container's <c>Tables.AgentSql</c> setting, which <c>table_sql</c> refuses without. Set through the
-    /// stored overrides' JSON so this compiles before the setting exists; a build without it fails here, not mid-run.
-    /// </summary>
-    private static async Task TurnOnAgentSqlAsync(IContainerStore store, Guid container, CancellationToken ct)
-    {
-        JsonObject overrides = WithAgentSql(await store.GetSettingsOverridesJsonAsync(container, ct));
-        await store.SaveSettingsOverridesAsync(container, overrides.Deserialize<ContainerSettingsOverrides>(OverridesJson)!, ct);
-        if (!AgentSqlIsOn(await store.GetSettingsOverridesJsonAsync(container, ct)))
-            throw new InvalidOperationException($"Container {container} didn't keep Tables.AgentSql; this build has no such setting.");
-    }
-
-    /// <summary>The stored overrides with <c>tables.agentSql</c> set to true and everything else kept.</summary>
-    public static JsonObject WithAgentSql(JsonElement? stored)
-    {
-        JsonObject root = stored is { ValueKind: JsonValueKind.Object } s ? JsonNode.Parse(s.GetRawText())!.AsObject() : [];
-        if (root["tables"] is not JsonObject tables)
-            root["tables"] = tables = [];
-        tables["agentSql"] = true;
-        return root;
-    }
-
-    public static bool AgentSqlIsOn(JsonElement? stored) =>
-        stored is { ValueKind: JsonValueKind.Object } s
-        && s.TryGetProperty("tables", out JsonElement tables) && tables.ValueKind == JsonValueKind.Object
-        && tables.TryGetProperty("agentSql", out JsonElement on) && on.ValueKind == JsonValueKind.True;
-
     /// <summary>
     /// Every run in the order it starts: question by question, each run of each arm. The arms swap order from one run to
     /// the next, so neither always goes first.
@@ -365,12 +303,6 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
         foreach (TableArm arm in options.Arms)
             arms[arm.Name] = ArmReport([.. runs.Where(r => r.Arm == arm.Name)], ByQuestion(runs, arm.Name));
 
-        JsonObject? Pair(TableArm baseline, TableArm challenger) =>
-            options.Arms.Contains(baseline) && options.Arms.Contains(challenger)
-                ? Compare(ByQuestion(runs, baseline.Name), ByQuestion(runs, challenger.Name),
-                    [.. runs.Where(r => r.Arm == baseline.Name)], [.. runs.Where(r => r.Arm == challenger.Name)], baseline.Name, challenger.Name)
-                : null;
-
         return new JsonObject
         {
             ["setup"] = "arms",
@@ -383,9 +315,6 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
             ["runsPerArm"] = options.Runs,
             ["questions"] = questions,
             ["arms"] = arms,
-            ["comparison"] = Pair(TableArm.Structured, TableArm.Sql),
-            ["comparisonGraphql"] = Pair(TableArm.Structured, TableArm.GraphQL),
-            ["comparisonSqlOverGraphql"] = Pair(TableArm.GraphQL, TableArm.Sql),
             ["conforming"] = nonconforming.Count == 0,
             ["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]),
         };
@@ -452,89 +381,6 @@ public sealed class TablesArmsEval(RepoPaths paths, HttpClient http, TextWriter 
             ["p90"] = Math.Round(SortedArrayStatistics.QuantileCustom(sorted, 0.9, QuantileDefinition.R7), 2),
         };
     }
-
-    /// <summary>
-    /// The pass bar's comparisons (items 2–4): exact McNemar on each question's majority right-or-wrong, the family gaps,
-    /// paired Wilcoxon on tool calls where both arms got the question right, and the challenger's cost against the
-    /// baseline's. Keys are named after the arms, so structured against sql reads onlyStructured, onlySql,
-    /// sqlMinusStructuredPoints and sqlOverStructured.
-    /// </summary>
-    public static JsonObject Compare(IReadOnlyList<QuestionArm> baseline, IReadOnlyList<QuestionArm> challenger,
-        IReadOnlyList<ArmRun> baselineRuns, IReadOnlyList<ArmRun> challengerRuns, string baselineName = "structured", string challengerName = "sql")
-    {
-        Dictionary<string, QuestionArm> s = baseline.ToDictionary(q => q.Question.Id, StringComparer.Ordinal);
-        List<(QuestionArm S, QuestionArm Q)> pairs = [.. challenger.Where(q => s.ContainsKey(q.Question.Id)).Select(q => (s[q.Question.Id], q))];
-
-        int onlyBaseline = pairs.Count(p => p.S.Correct && !p.Q.Correct);
-        int onlyChallenger = pairs.Count(p => !p.S.Correct && p.Q.Correct);
-        double points = pairs.Count == 0 ? 0 : 100.0 * (onlyChallenger - onlyBaseline) / pairs.Count;
-        double mcnemar = PairedTests.McNemarExact(onlyBaseline, onlyChallenger);
-
-        JsonObject familyGaps = [];
-        foreach (string family in pairs.Select(p => p.S.Question.Family).Distinct().Order(StringComparer.Ordinal))
-        {
-            List<(QuestionArm S, QuestionArm Q)> f = [.. pairs.Where(p => p.S.Question.Family == family)];
-            familyGaps[family] = Math.Round(100.0 * (f.Count(p => p.Q.Correct) - f.Count(p => p.S.Correct)) / f.Count, 2);
-        }
-
-        List<(double S, double Q)> calls = [.. pairs.Where(p => p.S.Correct && p.Q.Correct && p.S.CallsWhenRight is not null && p.Q.CallsWhenRight is not null)
-            .Select(p => (p.S.CallsWhenRight!.Value, p.Q.CallsWhenRight!.Value))];
-        double wilcoxon = PairedTests.WilcoxonPValue([.. calls.Select(c => c.Q - c.S)]);
-        double medianS = Median([.. calls.Select(c => c.S)]);
-        double medianQ = Median([.. calls.Select(c => c.Q)]);
-
-        double costS = CostPerQuestion(baselineRuns);
-        double costQ = CostPerQuestion(challengerRuns);
-        double? costRatio = costS > 0 ? costQ / costS : null;
-
-        string b = baselineName;
-        string c = challengerName;
-        return new JsonObject
-        {
-            ["pairs"] = pairs.Count,
-            ["correctAnswers"] = new JsonObject
-            {
-                [$"only{Title(b)}"] = onlyBaseline,
-                [$"only{Title(c)}"] = onlyChallenger,
-                [$"{c}Minus{Title(b)}Points"] = Math.Round(points, 2),
-                ["mcnemarExactP"] = mcnemar,
-                ["verdict"] = CorrectVerdict(points, mcnemar, c),
-                ["familyGapPoints"] = familyGaps,
-            },
-            ["toolCallsWhenBothRight"] = new JsonObject
-            {
-                ["questions"] = calls.Count,
-                [$"{b}Median"] = Math.Round(medianS, 2),
-                [$"{c}Median"] = Math.Round(medianQ, 2),
-                ["wilcoxonP"] = double.IsNaN(wilcoxon) ? null : wilcoxon,
-                ["verdict"] = CallsVerdict(medianS, medianQ, wilcoxon, b, c),
-            },
-            ["cost"] = new JsonObject
-            {
-                [$"{b}PerQuestionUsd"] = Math.Round(costS, 4),
-                [$"{c}PerQuestionUsd"] = Math.Round(costQ, 4),
-                [$"{c}Over{Title(b)}"] = costRatio is double r ? Math.Round(r, 3) : null,
-                ["withinBar"] = costRatio is double ratio ? ratio <= MaxCostRatio : null,
-            },
-        };
-    }
-
-    private static string Title(string name) => char.ToUpperInvariant(name[0]) + name[1..];
-
-    private static double Median(IReadOnlyList<double> values) =>
-        values.Count == 0 ? 0 : SortedArrayStatistics.QuantileCustom([.. values.Order()], 0.5, QuantileDefinition.R7);
-
-    /// <summary>Pass bar item 2: the challenger wins or loses at a 5-point gap with p &lt; 0.05; anything else ties.</summary>
-    public static string CorrectVerdict(double challengerMinusBaselinePoints, double p, string challenger = "sql") =>
-        p >= Alpha ? "tie"
-        : challengerMinusBaselinePoints >= WinPoints ? $"{challenger} wins"
-        : challengerMinusBaselinePoints <= -WinPoints ? $"{challenger} loses"
-        : "tie";
-
-    /// <summary>Pass bar item 3: the lower median wins at p &lt; 0.05.</summary>
-    public static string CallsVerdict(double baselineMedian, double challengerMedian, double p, string baseline = "structured", string challenger = "sql") =>
-        double.IsNaN(p) || p >= Alpha || baselineMedian == challengerMedian ? "tie"
-        : challengerMedian < baselineMedian ? $"{challenger} wins" : $"{baseline} wins";
 
     public static IEnumerable<string> RunLines(IEnumerable<ArmRun> runs)
     {

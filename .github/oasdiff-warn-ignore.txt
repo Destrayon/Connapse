@@ -7,3 +7,5 @@ POST /api/sources removed the enum value `filesystem` of the request property `s
 POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeJiraProjectScope]/allOf[#/components/schemas/SourceScope]/type`
 POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeS3BucketScope]/allOf[#/components/schemas/SourceScope]/type`
 POST /api/sources removed the enum value `filesystem` of the request property `scope/oneOf[#/components/schemas/SourceScopeSftpFolderScope]/allOf[#/components/schemas/SourceScope]/type`
+# CON-345: the per-container Tables.AgentSql setting existed only for table_sql, which is removed before release.
+PUT /api/containers/{containerId}/settings removed the request property `tables`

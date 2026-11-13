@@ -186,7 +186,9 @@ built with a new seed, never by changing this bar.
 
 ### Bar for GraphQL and the flexibility set
 
-Written on 2026-11-12 for CON-336, before any GraphQL run and before any run on the flexibility set. Three arms answer
+Written on 2026-11-12 for CON-336, before any GraphQL run and before any run on the flexibility set. Neither GraphQL
+nor SQL met it, and CON-345 removed both tools; this bar is kept as the record it was judged by
+(`docs/research/con-345-free-form-table-tools-removed.md`). Three arms answer
 the same questions with the same agent (`claude-sonnet-5-5` at medium effort), prompt, 25-call limit and
 `TableAnswerGrader`; only the tools differ:
 

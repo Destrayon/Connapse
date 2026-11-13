@@ -11,9 +11,6 @@ public record ContainerSettingsOverrides
     public SearchSettings? Search { get; init; }
     public UploadSettings? Upload { get; init; }
 
-    /// <summary>Table settings; only an administrator may change them, and a null section keeps the stored one.</summary>
-    public TableSettings? Tables { get; init; }
-
     /// <summary>A copy with every secret (an API key or a password) left out, as anyone reading the overrides sees them.</summary>
     public ContainerSettingsOverrides WithoutSecrets() => new()
     {
@@ -21,7 +18,6 @@ public record ContainerSettingsOverrides
         Embedding = Copy(Embedding, stored: null, keep: false),
         Search = Copy(Search, stored: null, keep: false),
         Upload = Copy(Upload, stored: null, keep: false),
-        Tables = Copy(Tables, stored: null, keep: false),
     };
 
     /// <summary>
@@ -35,7 +31,6 @@ public record ContainerSettingsOverrides
         Embedding = Copy(Embedding, stored?.Embedding, keep: true),
         Search = Copy(Search, stored?.Search, keep: true),
         Upload = Copy(Upload, stored?.Upload, keep: true),
-        Tables = Copy(Tables, stored?.Tables, keep: true),
     };
 
     private static T? Copy<T>(T? section, T? stored, bool keep) where T : class

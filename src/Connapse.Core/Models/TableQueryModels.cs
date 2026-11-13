@@ -125,7 +125,7 @@ public sealed record TableChangesRequest(
 /// Who may read what, for one request (CON-320 plan): the ids of the source documents the caller may read, worked out
 /// by Connapse's own permission check (<c>IDocumentAccess.ReadableAsync</c>) before the query runs. A table is readable
 /// only when its source document is in the set, so a table with no source document is never readable (fail closed).
-/// The structured tools and <c>table_sql</c> take the same set, and row-level security (CON-324) checks it again in the
+/// The structured tools take this set, and row-level security (CON-324) checks it again in the
 /// database.
 /// <para>
 /// A table merged from several documents (CON-304) is readable when any of its source documents is, and then shows
@@ -192,7 +192,7 @@ public sealed record TableAccess(IReadOnlySet<Guid> ReadableDocuments)
 }
 
 /// <summary>
-/// A query's answer, the same shape for the structured tools and <c>table_sql</c>. Cells are untrusted data from the
+/// A structured table query's answer. Cells are untrusted data from the
 /// table, which <see cref="Notice"/> tells the agent. <see cref="Truncated"/> says the answer was cut at the row or
 /// size cap (or a long cell was shortened), and <see cref="TruncatedReason"/> says which.
 /// </summary>

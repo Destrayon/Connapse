@@ -1,7 +1,8 @@
 # tables flexibility set (CON-336)
 
 Six synthetic files for one invented retailer, built to test what each way of querying tables can express: the
-structured table tools, agent-written SQL (`table_sql`) and GraphQL (`table_graphql`). Every name, store, sale and
+structured table tools, agent-written SQL (`table_sql`) and GraphQL (`table_graphql`); CON-345 removed the last two
+after this set's results. Every name, store, sale and
 product is invented by `eval/tools/tables/build_flex.py` (seed 20261113); rerunning it rewrites these files byte for
 byte.
 
