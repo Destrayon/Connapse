@@ -85,25 +85,9 @@ public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLo
         if (container.Kind == ContainerKind.Memory)
             return ContainerRules.MemoryOnly<ContainerSettingsOverrides>(container);
 
-        // Table settings belong to administrators (CON-326): anyone else may send them back unchanged or leave them
-        // out, and either way the stored ones are kept.
-        bool tablesChange = overrides.Tables is not null && await authorizer.AllowsAsync(context.User, Policies.Admin);
-        if (!tablesChange && overrides.Tables is not null
-            && overrides.Tables != ((await containers.GetSettingsOverridesAsync(containerId, ct))?.Tables ?? new TableSettings()))
-        {
-            return Attempt<ContainerSettingsOverrides, ContainerStatus>.Fail(
-                ContainerStatus.Forbidden, "Permission denied: only an administrator can change table settings.", "tables");
-        }
-
-        ContainerSettingsOverrides Update(ContainerSettingsOverrides? stored)
-        {
-            var next = overrides.KeepingSecretsOf(stored);
-            return tablesChange ? next : next with { Tables = stored?.Tables };
-        }
-
         var saved = searchSettingsNamed is null
-            ? await containers.UpdateSettingsOverridesAsync(containerId, Update, ct)
-            : await containers.UpdateSettingsOverridesAsync(containerId, Update, searchSettingsNamed, ct);
+            ? await containers.UpdateSettingsOverridesAsync(containerId, overrides.KeepingSecretsOf, ct)
+            : await containers.UpdateSettingsOverridesAsync(containerId, overrides.KeepingSecretsOf, searchSettingsNamed, ct);
         if (saved is null)
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
         await audit.LogAsync("container.settings_updated", "container", containerId.ToString(), cancellationToken: ct);
@@ -118,10 +102,7 @@ public sealed class UpdateContainerSettings(IContainerStore containers, IAuditLo
             await RunAsync(context, containerId, overrides, searchSettingsNamed, ct), containers, containerId, ct);
 }
 
-/// <summary>
-/// Removes every override, so the container follows the global settings again. Editors and above. Table settings have
-/// no global value and belong to administrators, so they are kept (CON-326).
-/// </summary>
+/// <summary>Removes every override, so the container follows the global settings again. Editors and above.</summary>
 [Operation("containers.settings.reset", Scope = "knowledge:write", Risk = RiskTier.Write, Mcp = McpExposure.Generic)]
 public sealed class ResetContainerSettings(IContainerStore containers, IAuditLogger audit, IOperationAuthorizer authorizer)
 {
@@ -132,8 +113,8 @@ public sealed class ResetContainerSettings(IContainerStore containers, IAuditLog
         if (await containers.GetAsync(containerId, ContainerRules.Viewer(context), ct) is null)
             return ContainerRules.NotFound<ContainerSettingsOverrides>(ContainerKey.ById(containerId));
 
-        var cleared = await containers.UpdateSettingsOverridesAsync(
-            containerId, stored => new ContainerSettingsOverrides { Tables = stored?.Tables }, ct) ?? new ContainerSettingsOverrides();
+        var cleared = new ContainerSettingsOverrides();
+        await containers.SaveSettingsOverridesAsync(containerId, cleared, ct);
         await audit.LogAsync("container.settings_reset", "container", containerId.ToString(), cancellationToken: ct);
         return Attempt<ContainerSettingsOverrides, ContainerStatus>.Succeed(cleared);
     }
