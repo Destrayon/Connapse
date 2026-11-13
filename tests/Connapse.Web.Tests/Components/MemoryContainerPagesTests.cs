@@ -61,6 +61,7 @@ public class MemoryContainerPagesTests : IDisposable
                      .Where(t => t is { IsInterface: true, IsGenericTypeDefinition: false, IsPublic: true }
                          && t.Namespace is "Connapse.Core.Interfaces" or "Connapse.Application.Ports"))
             ctx.Services.TryAddSingleton(port, _ => Substitute.For([port], []));
+        ctx.SetRendererInfo(new Microsoft.AspNetCore.Components.RendererInfo("Server", isInteractive: true));
     }
 
     public void Dispose() => ctx.Dispose();

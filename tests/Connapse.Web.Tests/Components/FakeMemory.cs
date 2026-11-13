@@ -23,6 +23,9 @@ internal sealed class FakeMemory(Guid space) : IMemoryService
     /// <summary>The filter of each count.</summary>
     public List<MemoryFactFilter> Counts { get; } = [];
 
+    /// <summary>The cancellation token each count was given.</summary>
+    public List<CancellationToken> CountTokens { get; } = [];
+
     public List<(Guid FactId, MemoryCorrection Kind, NewMemoryFact Replacement)> Corrections { get; } = [];
 
     /// <summary>Each new fact written, with the space it was written to.</summary>
@@ -176,6 +179,7 @@ internal sealed class FakeMemory(Guid space) : IMemoryService
         lock (facts)
         {
             Counts.Add(filter);
+            CountTokens.Add(ct);
             total = Matching(containerId, filter).Count();
             countGates.Add(gate);
         }

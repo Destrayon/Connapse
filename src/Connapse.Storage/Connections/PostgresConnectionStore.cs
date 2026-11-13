@@ -100,7 +100,7 @@ public class PostgresConnectionStore(
         await using var transaction = request.ExpectedUpdatedAt is null ? null : await context.Database.BeginTransactionAsync(ct);
         var entity = request.ExpectedUpdatedAt is null
             ? await context.Connections.FirstOrDefaultAsync(c => c.Id == id, ct)
-            : await context.Connections.FromSql($"SELECT * FROM connections WHERE id = {id} FOR UPDATE").FirstOrDefaultAsync(ct);
+            : await context.Connections.FromSql($"SELECT * FROM connections WHERE id = {id} FOR UPDATE").SingleOrDefaultAsync(ct);
         if (entity is null) return null;
         if (request.ExpectedUpdatedAt is { } expected && entity.UpdatedAt != expected)
             throw new ConnectionChangedException(id);

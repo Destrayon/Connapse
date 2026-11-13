@@ -87,7 +87,7 @@ public class PostgresSettingsStore(KnowledgeDbContext context, ISettingsReloader
         // with the values, in one statement, so the two always belong to the same write.
         var row = await context.Database
             .SqlQuery<RevisionedRow>($"""SELECT "values"::text AS "Values", xmin::text AS "Revision" FROM settings WHERE category = {category}""")
-            .FirstOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(cancellationToken);
 
         return row is null ? (null, null) : (JsonSerializer.Deserialize<T>(row.Values, JsonOptions), row.Revision);
     }
@@ -116,7 +116,7 @@ public class PostgresSettingsStore(KnowledgeDbContext context, ISettingsReloader
 
             var row = await context.Database
                 .SqlQuery<RevisionedRow>($"""SELECT "values"::text AS "Values", xmin::text AS "Revision" FROM settings WHERE category = {category} FOR UPDATE""")
-                .FirstAsync(cancellationToken);
+                .SingleAsync(cancellationToken);
 
             T? current = row.Values == "{}" ? null : JsonSerializer.Deserialize<T>(row.Values, JsonOptions);
 
@@ -127,7 +127,7 @@ public class PostgresSettingsStore(KnowledgeDbContext context, ISettingsReloader
                 cancellationToken);
             revision = await context.Database
                 .SqlQuery<string>($"""SELECT xmin::text AS "Value" FROM settings WHERE category = {category}""")
-                .FirstAsync(cancellationToken);
+                .SingleAsync(cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
         }

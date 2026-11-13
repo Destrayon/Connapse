@@ -47,8 +47,9 @@ public class MemoryFactListTests : IDisposable
 
     private NavigationManager Navigation => ctx.Services.GetRequiredService<NavigationManager>();
 
-    private IRenderedComponent<MemoryFactList> Render(bool canEdit = true, string? address = null)
+    private IRenderedComponent<MemoryFactList> Render(bool canEdit = true, string? address = null, bool interactive = true)
     {
+        ctx.SetRendererInfo(interactive ? new RendererInfo("Server", isInteractive: true) : new RendererInfo("Static", isInteractive: false));
         if (address is not null)
             Navigation.NavigateTo(address);
         return ctx.Render<MemoryFactList>(p => p.Add(t => t.Space, Container.ToString()).Add(t => t.CanEdit, canEdit));
@@ -123,6 +124,33 @@ public class MemoryFactListTests : IDisposable
         cut.Find("#memory-range").TextContent.Should().Contain("1–3 of …");
         memory.ReleaseCounts();
         cut.WaitForAssertion(() => cut.Find("#memory-range").TextContent.Should().Contain("1–3 of 3 facts you can see"));
+    }
+
+    // #1201: a prerender's scope is disposed once its HTML is sent, so a count it left running read a disposed DbContext.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("http://localhost/containers/x?tab=memory&group=subject&q=project")]
+    public void Prerender_StartsNoCount(string? address)
+    {
+        AddMany(3);
+        var cut = Render(address: address, interactive: false);
+
+        cut.FindAll(".memory-row").Should().BeEmpty("the interactive render that follows reads the facts");
+        memory.Lists.Should().BeEmpty();
+        memory.Counts.Should().BeEmpty("the interactive render that follows counts, in a scope that outlives it");
+    }
+
+    [Fact]
+    public async Task Dispose_CancelsTheCountStillRunning()
+    {
+        AddMany(3);
+        memory.HoldCounts();
+        var cut = Render();
+        cut.WaitForAssertion(() => memory.CountTokens.Should().ContainSingle());
+
+        await ctx.DisposeComponentsAsync();
+
+        memory.CountTokens[0].IsCancellationRequested.Should().BeTrue("the circuit's scope goes once its components do");
     }
 
     [Fact]
