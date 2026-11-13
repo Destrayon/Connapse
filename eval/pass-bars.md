@@ -34,6 +34,7 @@ before any of these features or their results existed. A change merges only when
 | **Learned container memory** (suite `memory-learned-v1`, CON-244; see below) | Same rule, session-2 memory tasks, memory written by session-1 agents | Same rule, session-2 control and stale tasks | Reported: session-1 scores and facts written |
 | **Merged get/delete/upload tools** (suite `memory-search-v1`, CON-344; see below) | — | Correct-document score non-inferior within 0.05 against the separate tools | Reported: tool-list tokens before and after, tool calls per task |
 | **Existing facts in the save answer** (CON-341; see below) | Every counted claudepm duplicate fixed in one call | Writer agents' right answers within 0.05, wrongly replaced facts at most +1 | Reported: saves that carry a list |
+| **Newest facts first in recall** (CON-342; see below) | Agents read less recall text (95% interval below 0) | Right answers non-inferior within 0.05 | Reported: order and limit use, recall calls per task |
 
 ## Container memory for search (CON-244)
 
@@ -174,6 +175,41 @@ after the save, and its `validTo` is empty or after the save, which is what the 
   plus 1.
 - **Reported, not gated:** per project, how many saves got a list, how many of those were followed by a `correct`
   of a listed fact, and duplicates left current at the end.
+
+## Newest facts first in recall (CON-342)
+
+Written on 2026-11-13, before the change was built and before any run. Recall gains an optional `order`; `newest`
+returns the facts with the latest start date first, so a small `limit` keeps the newest ones. Without `order` recall
+answers exactly as it does today, which unit and integration tests hold, not this proof. The change passes only if
+both rules below pass.
+
+- **Memory.** The held-out projects of `memory-questions` (ASH, HAL, KST, MRW, QFT): their 112 writer-agent
+  operations (`memory-ops/<CODE>.jsonl`) replayed in order through the real `IMemoryService` into one personal space
+  named `projects`, owned by the reading agent's user, with no sources. A `correct` targets the fact its op names,
+  as `memory` (`MemoryEval`) replays them.
+- **Questions:** every held-out `current` (40), `as_of` (39), `changed` (10) and `when` (63) question, 152 tasks.
+- **Arms.** Both run the new `memory-recall` command on the CON-342 branch with the same agent, model, questions and
+  repetitions, and the tool's description is the MCP server's own. `memory_recall`'s description and every
+  parameter description other than `order` keep `main`'s text (abde57be).
+  - **Today**: `order` is pinned, so the agent is not offered it and the tool answers as on `main`.
+  - **Newest**: the agent is offered `order`, and the system prompt gains one sentence: "Recall with `order`
+    \"newest\" and a small `limit`, and read further only when those facts do not answer the question."
+  - Otherwise the system prompt is the same: answer from the `projects` space, a value as written there, a date as
+    YYYY-MM-DD, and for a window every setting's new value.
+- **Fixed:** `claude-sonnet-5-5` at effort `medium`, tools `memory_recall` and the answer tool only (the older
+  `containerId` parameter pinned in both arms), 12 tool calls per run, 2 repetitions, at most 2 runs at a time, the
+  `hybrid` config. A run that fails, runs out of calls or never answers scores 0 and counts the text it read.
+- **Right answer**, read from the agent's answer text with `MemoryEval.Named`:
+  - `current` and `as_of`: names the expected value and no other value the asked setting ever had in that project.
+  - `when`: contains the expected date as YYYY-MM-DD and no other date in that form.
+  - `changed`: names every change's new value.
+- **Text read** per run: the characters of every `memory_recall` result the agent got.
+- **Rules**, each over the 152 tasks, pairing each task's mean over its repetitions across the arms:
+  - **R1 (reads less).** PASS when the upper end of the 95% BCa interval of (Newest − Today) text read is below 0.
+  - **R2 (no fewer right).** PASS when the lower end of the 90% BCa interval of (Newest − Today) right answers is
+    above −0.05, the non-inferiority rule of CON-344.
+- **Reported, not gated:** both measures by kind, how often Newest runs passed `order`, the limits passed,
+  `memory_recall` calls per task, outcomes and tokens.
 
 ## Baselines
 
