@@ -9,6 +9,10 @@ learned with remember or correct, the way an agent calls memory_remember and mem
 appended to memory-ops/<CODE>.jsonl in order, each with the session it was written in, and replayed later
 through Connapse's memory service. `show` prints the facts as memory_recall would return them now, with ids,
 so the writer can find the fact to correct. Nothing here reads the sessions or the answer key.
+
+Two options for the CON-341 comparison, given before the project code: `--ops-dir <dir>` writes and reads
+`<dir>/<CODE>.jsonl` instead, and `--list-existing` makes `remember` also list the facts already current with the same
+subject and attribute, as memory_remember's answer does.
 """
 import json
 import re
@@ -16,8 +20,19 @@ import sys
 from pathlib import Path
 
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+args = sys.argv[1:]
+ops_dir = Path(__file__).resolve().parent / "../../datasets/memory-questions/memory-ops"
+list_existing = False
+while args and args[0].startswith("--"):
+    if args[0] == "--ops-dir":
+        ops_dir, args = Path(args[1]), args[2:]
+    elif args[0] == "--list-existing":
+        list_existing, args = True, args[1:]
+    else:
+        sys.exit(f"unknown option {args[0]!r}")
+sys.argv = [sys.argv[0], *args]
 code, verb = sys.argv[1], sys.argv[2]
-path = Path(__file__).resolve().parent / f"../../datasets/memory-questions/memory-ops/{code}.jsonl"
+path = ops_dir / f"{code}.jsonl"
 ops = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
 
 
@@ -39,8 +54,12 @@ def facts() -> dict[str, dict]:
     return out
 
 
+def current() -> dict[str, dict]:
+    return {i: f for i, f in facts().items() if f.get("status") != "corrected" and not f.get("validTo")}
+
+
 if verb == "show":
-    current = {i: f for i, f in facts().items() if f.get("status") != "corrected" and not f.get("validTo")}
+    current = current()
     for i, f in current.items():
         print(json.dumps({"id": i, **{k: v for k, v in f.items() if v is not None}}, ensure_ascii=False))
     print(f"({len(current)} current facts)")
@@ -70,8 +89,17 @@ if verb == "correct":
 if errors:
     sys.exit("refused: " + "; ".join(errors))
 
+same = []
+if list_existing and verb == "remember":
+    key = (op["subject"].strip().lower(), op["attribute"].strip().lower())
+    same = [{"id": i, "value": f["value"], **({"validFrom": f["validFrom"]} if f.get("validFrom") else {})}
+            for i, f in current().items() if (f["subject"].strip().lower(), f["attribute"].strip().lower()) == key]
 op = {"session": op["session"], "op": verb, "id": f"{code}-m{len(ops) + 1}", **{k: v for k, v in op.items() if k not in ("session", "op", "id")}}
 path.parent.mkdir(parents=True, exist_ok=True)
 with path.open("a", encoding="utf-8", newline="\n") as f:
     f.write(json.dumps(op, ensure_ascii=False) + "\n")
 print(f"recorded {op['id']}")
+if same:
+    print("Also current with the same subject and attribute (if you meant to replace one, correct it):")
+    for s in same:
+        print(json.dumps(s, ensure_ascii=False))

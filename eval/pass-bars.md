@@ -33,6 +33,7 @@ before any of these features or their results existed. A change merges only when
 | **Container memory for search** (suite `memory-search-v1`, CON-244; see below) | Correct-document score on the memory tasks at least +0.15 over the same agent without memory | Control and stale tasks non-inferior within 0.10 | Reported: search calls, tool calls and tokens per task |
 | **Learned container memory** (suite `memory-learned-v1`, CON-244; see below) | Same rule, session-2 memory tasks, memory written by session-1 agents | Same rule, session-2 control and stale tasks | Reported: session-1 scores and facts written |
 | **Merged get/delete/upload tools** (suite `memory-search-v1`, CON-344; see below) | — | Correct-document score non-inferior within 0.05 against the separate tools | Reported: tool-list tokens before and after, tool calls per task |
+| **Existing facts in the save answer** (CON-341; see below) | Every counted claudepm duplicate fixed in one call | Writer agents' right answers within 0.05, wrongly replaced facts at most +1 | Reported: saves that carry a list |
 
 ## Container memory for search (CON-244)
 
@@ -128,6 +129,51 @@ results by the cross-surface and unit tests, not by an agent eval.
   passes with room to spare.
 - **Reported, not gated:** the M and H sets, answer accuracy, tool calls per task, how often each arm used the list
   form, outcomes, and tokens.
+
+## Existing facts in the save answer (CON-341)
+
+Written on 2026-11-12, before any run and before the change was built. A save that lands beside current facts with
+the same subject and attribute still succeeds, and its answer lists them (id, value, dates). The change passes only
+if each proof below passes.
+
+**Replay of ClaudePM's own memory.** A read-only copy of the `claudepm` space (870 fact versions, exported for
+CON-340) is replayed through the real memory service and Postgres store in a throwaway, capped container. A fact
+is *current at a save* when it was recorded before the save, not yet superseded, its `validFrom` is empty or not
+after the save, and its `validTo` is empty or after the save, which is what the service calls current.
+
+- **Counted set**, fixed now: the saves of a new fact, under any attribute but `note`, `lesson` and `finding`, made
+  while another fact with the same subject and attribute (ignoring case) was current. In the copy that is one save,
+  `01a1bc93-b998-705b-b340-30000eb0559f` (`CON-291` / `status`), beside `01a1bc77-f7a0-7731-aa12-dc3d9e5d3b44`,
+  which was never corrected. Four `worker` saves (`local_9671ef63`, `local_fa0dbb91`, `local_0f351564`,
+  `local_09310255`) look like duplicates but landed beside facts whose `validTo` had already passed.
+- **R1.** Every counted save's answer lists the fact it landed beside, with that fact's id, value and dates.
+- **R2.** Every counted save is fixed with one call that uses only what the answer gave: `memory_correct` on the
+  listed id, kind `wrong`, the listed value, and `validTo` set to when the new fact took effect. Afterwards the
+  subject and attribute have exactly one current fact, the new one, and the old value is still the answer as of
+  just before the save. Today's answer names no other fact, so the same fix needs a lookup first: two calls.
+- **R3.** Each of the four `worker` saves answers with no list.
+- **Reported, not gated:** how many of the copy's 830 saves would carry a list, by attribute.
+
+**Writer agents on the memory question set** (`memory-questions`, held-out projects ASH, HAL, KST, MRW, QFT).
+
+- **Arms.** Both run Claude Sonnet subagents with `eval/tools/memory-questions/memory_writer.md`, reading the
+  sessions in order with `next_session.py` and writing with `memory_op.py` into a scratch folder. **Today**: a
+  `remember` answers as it always has. **Listed**: a `remember` that lands beside current facts with the same subject
+  and attribute (ignoring case) also lists them (`memory_op.py --list-existing`), and the prompt's `remember` bullet
+  gains the sentence the MCP description gains: "If the answer lists facts already current with the same subject and
+  attribute, and you meant to replace one, correct it instead of leaving both."
+- **Repetitions:** 2 per project and arm, 20 runs, at most 2 at a time. A run that breaks the no-look-ahead rule
+  (`check_memory_ops.py`) is discarded and rerun once.
+- **Right answer**, per held-out `current` and `as_of` question (79): the facts true on the asked date (for
+  `current`, the last session's date) that name any value the asked setting ever had, read with `MemoryEval.Named`,
+  together name exactly the expected value. A stale fact left current beside the right one makes the answer wrong.
+- **Wrongly replaced fact:** a `correct` whose target names a value of setting S, and whose new value does not name
+  S's value on the date the correction takes effect (its `validFrom`, or its session's date).
+- **Q1.** Listed's right-answer rate is at least Today's minus 0.05 (means over the two repetitions).
+- **Q2.** Listed's wrongly replaced facts, summed over projects and averaged over repetitions, are at most Today's
+  plus 1.
+- **Reported, not gated:** per project, how many saves got a list, how many of those were followed by a `correct`
+  of a listed fact, and duplicates left current at the end.
 
 ## Baselines
 
