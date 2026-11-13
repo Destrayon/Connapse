@@ -487,6 +487,12 @@ namespace Connapse.Storage.Migrations
                         .HasColumnType("text")
                         .HasColumnName("content_type");
 
+                    b.Property<Guid>("ContentVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("content_version")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")

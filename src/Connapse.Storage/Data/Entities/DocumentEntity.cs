@@ -57,6 +57,9 @@ public class DocumentEntity
     /// </summary>
     public string[]? AccessKeys { get; set; }
     public string ContentHash { get; set; } = string.Empty;
+
+    /// <summary>New each time the file's bytes are written; see <see cref="Core.Document.ContentVersion"/>.</summary>
+    public Guid ContentVersion { get; set; } = Guid.NewGuid();
     public long SizeBytes { get; set; }
     public int ChunkCount { get; set; }
     public int Generation { get; set; } = 1;

@@ -266,6 +266,7 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
         await using KnowledgeDbContext context = await contextFactory.CreateDbContextAsync(ct);
         return await context.Documents.AsNoTracking()
             .Where(d => ids.Contains(d.Id))
+            .Select(d => new { d.Id, d.Path, d.FileName })
             .ToDictionaryAsync(d => d.Id.ToString(), d => string.IsNullOrEmpty(d.Path) ? d.FileName : d.Path, ct);
     }
 

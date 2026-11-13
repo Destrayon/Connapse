@@ -112,12 +112,13 @@ public class PostgresDocumentStore : IDocumentStore
         await using var cmd = conn.CreateCommand();
         cmd.Transaction = context.Database.CurrentTransaction?.GetDbTransaction();
         cmd.CommandText = """
-            INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, size_bytes, chunk_count, generation, ingestion_status, status_changed_at, created_at, metadata)
-            VALUES (@id, @cid, @fname, @ctype, @path, @hash, @size, 0, 1, 'Queued', now(), @created, @meta::jsonb)
+            INSERT INTO documents (id, container_id, file_name, content_type, path, content_hash, content_version, size_bytes, chunk_count, generation, ingestion_status, status_changed_at, created_at, metadata)
+            VALUES (@id, @cid, @fname, @ctype, @path, @hash, @version, @size, 0, 1, 'Queued', now(), @created, @meta::jsonb)
             ON CONFLICT (owner_id, path) DO UPDATE SET
                 file_name    = EXCLUDED.file_name,
                 content_type = EXCLUDED.content_type,
                 content_hash = EXCLUDED.content_hash,
+                content_version = EXCLUDED.content_version,
                 size_bytes   = EXCLUDED.size_bytes,
                 generation   = documents.generation + 1,
                 ingestion_status  = 'Queued',
@@ -134,6 +135,7 @@ public class PostgresDocumentStore : IDocumentStore
         p.Add(new NpgsqlParameter("ctype", document.ContentType));
         p.Add(new NpgsqlParameter("path", document.Path));
         p.Add(new NpgsqlParameter("hash", string.Empty));
+        p.Add(new NpgsqlParameter("version", Guid.NewGuid()));
         p.Add(new NpgsqlParameter("size", document.SizeBytes));
         p.Add(new NpgsqlParameter("created", document.CreatedAt));
         p.Add(new NpgsqlParameter("meta", NpgsqlTypes.NpgsqlDbType.Jsonb) { Value = JsonSerializer.Serialize(metadata) });
@@ -418,6 +420,7 @@ public class PostgresDocumentStore : IDocumentStore
                 ? OwnerRef.ForSource(sourceId)
                 : OwnerRef.ForContainer(entity.ContainerId!.Value),
             AttemptCount = entity.AttemptCount,
+            ContentVersion = entity.ContentVersion,
         };
     }
 }

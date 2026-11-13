@@ -91,14 +91,19 @@ public static class DeletionTargets
     /// <summary>The space as its owner sees it, so the fingerprint is the same whoever asked and whoever runs it.</summary>
     public static MemoryCaller OwnerViewer(Guid ownerUserId) => new(ownerUserId, null, null);
 
+    /// <summary>
+    /// Includes the content version: a re-upload to the same path keeps the id and creation date and can keep the
+    /// size and type, so without it an approved delete would remove a replacement the owner never saw (CON-347).
+    /// </summary>
     public static string FileFingerprint(Document document) => Hash(
-        $"file\n{document.Id}\n{document.ContainerId}\n{document.Path}\n{document.FileName}\n{document.SizeBytes}\n{document.CreatedAt.Ticks}\n{document.ContentType}");
+        $"file\n{document.Id}\n{document.ContainerId}\n{document.Path}\n{document.FileName}\n{document.SizeBytes}\n{document.CreatedAt.Ticks}\n{document.ContentType}\n{document.ContentVersion}");
 
     public static string FolderFingerprint(Guid containerId, string path, bool recorded, IEnumerable<Document> inside)
     {
         StringBuilder text = new($"folder\n{containerId}\n{path}\n{recorded}\n");
         foreach (Document document in inside.OrderBy(d => d.Id, StringComparer.Ordinal))
-            text.Append(document.Id).Append('|').Append(document.Path).Append('|').Append(document.SizeBytes).Append('|').Append(document.CreatedAt.Ticks).Append('\n');
+            text.Append(document.Id).Append('|').Append(document.Path).Append('|').Append(document.SizeBytes).Append('|').Append(document.CreatedAt.Ticks)
+                .Append('|').Append(document.ContentVersion).Append('\n');
         return Hash(text.ToString());
     }
 
