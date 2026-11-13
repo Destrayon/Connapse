@@ -53,27 +53,42 @@ public sealed class MemoryService(
 
     /// <summary>
     /// The other current facts in the space with <paramref name="written"/>'s subject and attribute (ignoring case) that
-    /// <paramref name="caller"/> can see, newest first. Read as a list is, so nothing hidden is named; when it can't be
-    /// read the list is empty, since the save itself already succeeded.
+    /// <paramref name="caller"/> can see, newest first. Only those facts' sources are checked, so a save never checks (or
+    /// caches an answer for) a source that only other facts cite. When they can't be checked the list is empty, since the
+    /// save itself already succeeded.
     /// </summary>
     private async Task<IReadOnlyList<MemoryFact>> AlsoCurrentAsync(Guid containerId, MemoryFact written, MemoryCaller caller, CancellationToken ct)
     {
-        MemoryFactFilter filter = new(Subject: written.Subject, Status: MemoryFactStatus.Current);
-        List<MemoryFact> same = [];
-        MemoryFactKey? after = null;
-        int scanned = 0;
-        do
+        try
         {
-            MemoryFactPage page = await ListAsync(containerId, filter, MemoryFactSort.Recorded, after, MaxPage, caller, ct);
-            if (page.Denied)
+            // Candidates by the scope rule alone: every cited source counts as readable here, and is checked below.
+            MemoryViewer byScope = new(caller, new HashSet<MemorySource>(await store.CitedSourcesAsync(containerId, null, ct)));
+            MemoryFactFilter filter = new(Subject: written.Subject, Status: MemoryFactStatus.Current);
+            List<MemoryFact> same = [];
+            MemoryFactKey? after = null;
+            int scanned = 0;
+            do
+            {
+                IReadOnlyList<MemoryListedFact> listed = await store.PageAsync(
+                    containerId, filter, MemoryFactSort.Recorded, after, MaxPage + 1, byScope, ct);
+                List<MemoryListedFact> page = [.. listed.Take(MaxPage)];
+                same.AddRange(page.Select(l => l.Fact).Where(f =>
+                    f.Id != written.Id && string.Equals(f.Attribute, written.Attribute, StringComparison.OrdinalIgnoreCase)));
+                scanned += page.Count;
+                after = listed.Count > MaxPage ? page[^1].Key : null;
+            }
+            while (after is not null && scanned < ExistingScan);
+
+            if (same.Count == 0)
                 return [];
-            same.AddRange(page.Facts.Select(f => f.Fact).Where(f =>
-                f.Id != written.Id && string.Equals(f.Attribute, written.Attribute, StringComparison.OrdinalIgnoreCase)));
-            scanned += page.Facts.Count;
-            after = page.Next;
+            IReadOnlySet<MemorySource> readable = await ReadableAsync(same.SelectMany(f => f.Sources), caller.UserId, ct);
+            return [.. same.Where(f => Visible(f, readable, caller)).Take(MaxExisting)];
         }
-        while (after is not null && scanned < ExistingScan && same.Count < MaxExisting);
-        return [.. same.Take(MaxExisting)];
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not check memory sources; listing no existing facts");
+            return [];
+        }
     }
 
     public async Task<MemoryWriteResult> CorrectAsync(

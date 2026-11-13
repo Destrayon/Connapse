@@ -109,6 +109,36 @@ public class MemoryServiceExistingTests
         result.Existing.Should().BeEmpty();
     }
 
+    private static MemoryFact Citing(MemoryFact fact, string document) =>
+        fact with { Sources = [new MemorySource(MemorySourceKind.Document, document)] };
+
+    [Fact]
+    public async Task RememberAsync_OtherAttributeCitesASource_NeverChecksIt()
+    {
+        // Checking it would cache its answer, and a later recall could show a fact citing a source that has since gone away.
+        StoreLists(Citing(Fact("CON-291", "lead", "Ada"), "page-only-the-lead-cites"));
+        _store.CitedSourcesAsync(Container, Arg.Any<Guid?>(), Arg.Any<CancellationToken>())
+            .Returns([new MemorySource(MemorySourceKind.Document, "page-only-the-lead-cites")]);
+
+        await SaveAsync();
+
+        await _access.DidNotReceive().ReadableAsync(Arg.Any<Guid?>(),
+            Arg.Is<IReadOnlyCollection<string>>(refs => refs.Contains("page-only-the-lead-cites")), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RememberAsync_SameKeyFactCitesAnUnreadableSource_ListsItNot()
+    {
+        MemoryFact shown = Fact("CON-291", "status", "In progress");
+        StoreLists(Citing(Fact("CON-291", "status", "Hidden"), "page-the-saver-cannot-read"), shown);
+        _access.ReadableAsync(Arg.Any<Guid?>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new HashSet<string>());
+
+        MemoryWriteResult result = await SaveAsync();
+
+        result.Existing.Should().ContainSingle().Which.Should().Be(shown);
+    }
+
     [Fact]
     public async Task RememberAsync_Refused_ListsNothingAndLooksNothingUp()
     {
