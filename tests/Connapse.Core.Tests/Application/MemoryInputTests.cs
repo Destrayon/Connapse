@@ -1,4 +1,5 @@
 using Connapse.Application.Memory;
+using Connapse.Core;
 using FluentAssertions;
 
 namespace Connapse.Core.Tests.Application;
@@ -10,6 +11,15 @@ namespace Connapse.Core.Tests.Application;
 [Trait("Category", "Unit")]
 public class MemoryInputTests
 {
+    [Theory]
+    [InlineData(null, MemoryRecallOrder.Usual)]
+    [InlineData("  ", MemoryRecallOrder.Usual)]
+    [InlineData("newest", MemoryRecallOrder.Newest)]
+    [InlineData(" NEWEST ", MemoryRecallOrder.Newest)]
+    [InlineData("oldest", null)]
+    public void Order_BlankIsUsual_NewestInAnyCase_OtherwiseNull(string? text, MemoryRecallOrder? expected) =>
+        MemoryInput.Order(text).Should().Be(expected);
+
     [Fact]
     public void Dates_BareDateIsMidnightUtc_OffsetIsKeptAsUtc_AndBlankIsNull()
     {

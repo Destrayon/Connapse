@@ -85,6 +85,7 @@ public enum MemoryCorrection { Changed = 0, Wrong = 1 }
 /// with <paramref name="AsOf"/>, the facts true then. <paramref name="History"/> also returns ended and superseded
 /// facts. <paramref name="ChangedFrom"/>/<paramref name="ChangedTo"/> keep facts that started or ended in that window.
 /// <paramref name="ChainId"/> keeps one fact's versions, every one of them (a fact's history).
+/// <paramref name="Order"/> <see cref="MemoryRecallOrder.Newest"/> returns the latest start dates first.
 /// </summary>
 public sealed record MemoryQuery(
     Guid ContainerId,
@@ -96,7 +97,16 @@ public sealed record MemoryQuery(
     DateTimeOffset? ChangedFrom = null,
     DateTimeOffset? ChangedTo = null,
     int Limit = 10,
-    Guid? ChainId = null);
+    Guid? ChainId = null,
+    MemoryRecallOrder Order = MemoryRecallOrder.Usual);
+
+/// <summary>
+/// How recalled facts are ordered. <see cref="Usual"/>: as recall always has, by relevance when there is text, else by
+/// when they were recorded or, for history and windows, by start date. <see cref="Newest"/>: the latest start date
+/// first (facts with none last), ties newest recorded first, so a small limit keeps the facts that took effect last;
+/// text then only filters.
+/// </summary>
+public enum MemoryRecallOrder { Usual = 0, Newest = 1 }
 
 /// <summary>
 /// A fact as one reader may see it. Only facts whose every source the reader can read are returned, and a personal

@@ -332,6 +332,56 @@ public class MemoryFactRestParityTests(SharedWebAppFixture fixture)
         }
     }
 
+    [Fact]
+    public async Task Recall_OrderNewest_ReturnsTheLatestStartsFirstUpToTheLimit_AndWithoutItReadsAsBefore()
+    {
+        HttpClient rest = fixture.AdminClient;
+        string space = await CreateSpaceAsync(rest, $"fact-newest-{Guid.NewGuid():N}"[..40]);
+        string subject = $"con-{Guid.NewGuid():N}";
+        try
+        {
+            await using McpClient mcp = await ConnectAsync(
+                await AgentKeyAsync(await Principals.UserIdAsync(fixture, Principal.Admin), "knowledge:read", "knowledge:write"));
+
+            // Saved out of date order: January, March, then February.
+            foreach ((string value, string from) in new[] { ("Planning", "2026-01-01"), ("Released", "2026-03-01"), ("Building", "2026-02-01") })
+            {
+                HttpResponseMessage saved = await rest.PostAsJsonAsync($"/api/memory/spaces/{space}/facts",
+                    new { subject, attribute = "status", value, validFrom = from });
+                saved.StatusCode.Should().Be(HttpStatusCode.Created, await saved.Content.ReadAsStringAsync());
+            }
+
+            // Without an order, history of one attribute still reads oldest first.
+            (await RestRecallAsync(rest, $"space={space}&subject={subject}&attribute=status&includeHistory=true")).Select(f => f.Value)
+                .Should().Equal("Planning", "Building", "Released");
+
+            // Newest first with a limit, on the paged read of one space, the unpaged read, and across every space.
+            foreach (string query in new[]
+            {
+                $"space={space}&subject={subject}&includeHistory=true",
+                $"space={space}&subject={subject}&attribute=status&includeHistory=true",
+                $"subject={subject}",
+            })
+            {
+                (await RestRecallAsync(rest, $"{query}&order=newest&limit=2")).Select(f => f.Value)
+                    .Should().Equal(["Released", "Building"], query);
+            }
+
+            (await McpRecallAsync(mcp, new() { ["space"] = space, ["subject"] = subject, ["includeHistory"] = true, ["order"] = "newest", ["limit"] = 2 }))
+                .Select(f => f.Value).Should().Equal("Released", "Building");
+            (await McpRecallAsync(mcp, new() { ["space"] = space, ["subject"] = subject, ["attribute"] = "status", ["order"] = "NEWEST", ["limit"] = 2 }))
+                .Select(f => f.Value).Should().Equal("Released", "Building");
+            (await CallAsync(mcp, "memory_recall", new() { ["subject"] = subject, ["order"] = "oldest" }))
+                .Should().Be("Error: order must be \"newest\" or left out.");
+
+            await RefusedAsync(await rest.GetAsync($"/api/memory/facts?subject={subject}&order=oldest"), "order");
+        }
+        finally
+        {
+            await DeleteSpacesAsync(space);
+        }
+    }
+
     private static async Task<List<Recalled>> RestTimelineAsync(HttpClient http, string query)
     {
         HttpResponseMessage response = await http.GetAsync($"/api/memory/timeline?{query}");

@@ -26,6 +26,12 @@ public static class MemoryInput
         return true;
     }
 
+    /// <summary>A recall order as a caller writes it: blank is the usual order, "newest" (any case) newest first; null otherwise.</summary>
+    public static MemoryRecallOrder? Order(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? MemoryRecallOrder.Usual
+        : string.Equals(text.Trim(), "newest", StringComparison.OrdinalIgnoreCase) ? MemoryRecallOrder.Newest
+        : null;
+
     /// <summary>Sources as given: a UUID is a document, "node:&lt;id&gt;" a link node. Null when one is neither.</summary>
     public static IReadOnlyList<MemorySource>? Sources(IEnumerable<string?>? sources)
     {

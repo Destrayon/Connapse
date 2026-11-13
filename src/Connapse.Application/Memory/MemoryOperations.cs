@@ -347,7 +347,7 @@ public sealed class RecallMemory(
             found.Add(each.Facts);
         }
         return Attempt<SpacedRecall, MemoryStatus>.Succeed(
-            new SpacedRecall(SpacedRecall.Merge(found, !string.IsNullOrWhiteSpace(query.Text), query.Limit), labels, skipped));
+            new SpacedRecall(SpacedRecall.Merge(found, !string.IsNullOrWhiteSpace(query.Text), query.Limit, query.Order == MemoryRecallOrder.Newest), labels, skipped));
     }
 
     /// <summary>
@@ -399,7 +399,8 @@ public sealed class RecallMemory(
         {
             MemoryFactFilter filter = new(Text: request.Text, Subject: request.Subject,
                 Status: request.History ? MemoryFactStatus.All : MemoryFactStatus.Current);
-            MemoryFactSort sort = string.IsNullOrWhiteSpace(request.Text) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
+            MemoryFactSort sort = request.Order == MemoryRecallOrder.Newest ? MemoryFactSort.ValidFrom
+                : string.IsNullOrWhiteSpace(request.Text) ? MemoryFactSort.Recorded : MemoryFactSort.Relevance;
             return PageAsync(context, request.Space,
                 new MemoryFactListing(filter, sort, request.Cursor, Math.Clamp(request.Limit, 1, MemoryPaging.MaxLimit)), ct);
         }
@@ -408,7 +409,8 @@ public sealed class RecallMemory(
                 "cursor works only when you name a `space` and leave out `asOf` and `attribute`.", "cursor"));
 
         return SpacesAsync(context, request.Space,
-            new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit), ct);
+            new MemoryQuery(Guid.Empty, request.Text, request.Subject, request.Attribute, request.AsOf, request.History, Limit: request.Limit,
+                Order: request.Order), ct);
     }
 
     /// <summary>
@@ -475,6 +477,7 @@ public sealed class RecallMemory(
 /// facts matching <paramref name="Text"/>, <paramref name="Subject"/> and <paramref name="Attribute"/>, true at
 /// <paramref name="AsOf"/> (now when null), ended and corrected ones too with <paramref name="History"/>; at most
 /// <paramref name="Limit"/>; and the <paramref name="Cursor"/> a previous page of one space returned.
+/// <paramref name="Order"/> <see cref="MemoryRecallOrder.Newest"/> puts the latest start dates first.
 /// </summary>
 public sealed record MemoryRecallRequest(
     string? Space = null,
@@ -484,7 +487,8 @@ public sealed record MemoryRecallRequest(
     DateTimeOffset? AsOf = null,
     bool History = false,
     int Limit = 10,
-    string? Cursor = null);
+    string? Cursor = null,
+    MemoryRecallOrder Order = MemoryRecallOrder.Usual);
 
 /// <summary>
 /// What a timeline reads: one <paramref name="Space"/> by id or name, or every space the caller can see when it is
@@ -513,11 +517,19 @@ public sealed record SpacedRecall(
     /// <summary>
     /// One list from several spaces' answers, at most <paramref name="limit"/> long. Ranked answers interleave by
     /// position, each space's best first, since ranks from separate reads aren't comparable; unranked ones go newest
-    /// first, ties by id so the order is stable.
+    /// first, ties by id so the order is stable. With <paramref name="newest"/> every space's facts go latest start date
+    /// first, as each space read them, ranked or not.
     /// </summary>
-    public static IReadOnlyList<RecalledFact> Merge(IReadOnlyList<IReadOnlyList<RecalledFact>> perSpace, bool ranked, int limit)
+    public static IReadOnlyList<RecalledFact> Merge(IReadOnlyList<IReadOnlyList<RecalledFact>> perSpace, bool ranked, int limit, bool newest = false)
     {
         int take = Math.Max(0, limit);
+        if (newest)
+        {
+            return [.. perSpace.SelectMany(f => f)
+                .OrderByDescending(f => f.Fact.ValidFrom ?? DateTimeOffset.MinValue)
+                .ThenByDescending(f => f.Fact.Id)
+                .Take(take)];
+        }
         if (!ranked)
         {
             return [.. perSpace.SelectMany(f => f)

@@ -287,13 +287,16 @@ public partial class McpTools
         [Description("At most this many facts (1-100). Default 10")] int limit = 10,
         [Description("Older name for `space`")] string? containerId = null,
         [Description("The `nextCursor` of the previous page, to read the next one")] string? cursor = null,
+        [Description("\"newest\": the facts that took effect most recently first, so a small `limit` gets the latest ones. Leave out for the usual order")] string? order = null,
         CancellationToken ct = default)
     {
         if (ParseDates(asOf, null) is not { } at)
             return "Error: asOf must be YYYY-MM-DD or ISO 8601.";
+        if (MemoryInput.Order(order) is not { } sorted)
+            return "Error: order must be \"newest\" or left out.";
 
         return RecallJson(await recall.RecallAsync(Mcp(http),
-            new MemoryRecallRequest(NamedSpace(space, containerId), query, subject, attribute, at.From, includeHistory, limit, cursor), ct));
+            new MemoryRecallRequest(NamedSpace(space, containerId), query, subject, attribute, at.From, includeHistory, limit, cursor, sorted), ct));
     }
 
     [McpServerTool(Name = "memory_timeline", ReadOnly = true, Idempotent = true),

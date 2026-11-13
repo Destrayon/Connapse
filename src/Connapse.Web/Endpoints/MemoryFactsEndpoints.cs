@@ -135,14 +135,17 @@ public static class MemoryFactsEndpoints
             [FromQuery] bool? includeHistory,
             [FromQuery] int? limit,
             [FromQuery] string? cursor,
+            [FromQuery] string? order,
             [FromServices] RecallMemory recall,
             CancellationToken ct) =>
         {
             if (!MemoryInput.TryDate(asOf, out DateTimeOffset? at))
                 return ApiProblem.BadRequest("asOf must be an ISO 8601 date or time.", field: "asOf");
+            if (MemoryInput.Order(order) is not { } sorted)
+                return ApiProblem.BadRequest("order must be \"newest\" or left out.", field: "order");
 
             var recalled = await recall.RecallAsync(Rest(http),
-                new MemoryRecallRequest(space, q, subject, attribute, at, includeHistory ?? false, limit ?? 10, cursor), ct);
+                new MemoryRecallRequest(space, q, subject, attribute, at, includeHistory ?? false, limit ?? 10, cursor, sorted), ct);
             return recalled.Succeeded ? Results.Ok(RecallResponse(recalled.Result!)) : OperationProblems.Result(recalled);
         })
         .Produces<MemoryRecallResponse>()
@@ -150,7 +153,7 @@ public static class MemoryFactsEndpoints
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
         .WithName("memory.recall")
-        .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. Each fact is shown only when the caller can read every source it cites");
+        .WithDescription("Facts true now, or at asOf, in one space (by id or name) or in every space the caller can see. Reading one space without asOf or attribute pages: pass nextCursor back as cursor. order=newest puts the facts that took effect most recently first. Each fact is shown only when the caller can read every source it cites");
 
         // GET /api/memory/timeline - Facts in date order, as the memory_timeline tool reads them
         group.MapGet("/timeline", async (

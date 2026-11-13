@@ -628,5 +628,35 @@ public class McpToolsMemorySpacesTests
         SpacedRecall.Merge([], ranked: true, limit: 5).Should().BeEmpty();
     }
 
+    [Fact]
+    public void Merge_Newest_PutsTheLatestStartFirstAcrossSpaces_NoneLast_TiesByNewerId()
+    {
+        Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+        RecalledFact Dated(Guid space, int month, string id) =>
+            new(Fact(space, MemoryScope.Team) with
+            {
+                Id = Guid.Parse(id),
+                ValidFrom = month == 0 ? null : new DateTimeOffset(2026, month, 1, 0, 0, 0, TimeSpan.Zero),
+            }, []);
+        RecalledFact march = Dated(a, 3, "00000000-0000-0000-0000-000000000001");
+        RecalledFact undated = Dated(a, 0, "00000000-0000-0000-0000-000000000002");
+        RecalledFact may = Dated(b, 5, "00000000-0000-0000-0000-000000000003");
+        RecalledFact marchLater = Dated(b, 3, "00000000-0000-0000-0000-000000000004");
+
+        SpacedRecall.Merge([[march, undated], [may, marchLater]], ranked: true, limit: 10, newest: true)
+            .Should().Equal(may, marchLater, march, undated);
+        SpacedRecall.Merge([[march, undated], [may, marchLater]], ranked: false, limit: 2, newest: true)
+            .Should().Equal(may, marchLater);
+    }
+
+    [Fact]
+    public async Task MemoryRecall_UnknownOrder_IsRefusedBeforeReading()
+    {
+        string result = await McpTools.MemoryRecall(Recall(), Signed, order: "oldest");
+
+        result.Should().Be("Error: order must be \"newest\" or left out.");
+        await _memory.DidNotReceiveWithAnyArgs().RecallAsync(default!, default!, default);
+    }
+
     private static OperationContext McpContext() => new(Signed.HttpContext!.User, OperationSurface.Mcp);
 }

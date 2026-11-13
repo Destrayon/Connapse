@@ -236,7 +236,14 @@ public sealed partial class PostgresMemoryStore(IDbContextFactory<KnowledgeDbCon
 
         string? terms = TsQuery(await DistinctiveWordsAsync(context, query.ContainerId, QueryWords(query.Text), ct));
         IQueryable<MemoryFactEntity> ordered;
-        if (terms is null)
+        if (query.Order == MemoryRecallOrder.Newest)
+        {
+            // Latest start date first, as the paged ValidFrom sort reads, so a capped read keeps the newest facts.
+            if (terms is not null)
+                rows = rows.Where(f => f.SearchVector.Matches(EF.Functions.ToTsQuery("english", terms)));
+            ordered = rows.OrderByDescending(f => f.ValidFrom ?? DateTimeOffset.MinValue).ThenByDescending(f => f.Id);
+        }
+        else if (terms is null)
         {
             // One chain is read newest first, so a capped read drops its oldest versions, never its latest correction.
             ordered = query.ChainId is not null ? rows.OrderByDescending(f => f.RecordedAt).ThenBy(f => f.Id)
