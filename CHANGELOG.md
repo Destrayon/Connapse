@@ -25,6 +25,14 @@ Set `CONNAPSE_VERSION=v0.4.2`, then pull and start as in [Upgrade Connapse](docs
 
 - **An approved delete skips a file replaced after the request, even with the same size and type** (CON-347, #1232). A re-upload to the same path keeps the file's ID and creation date, so a held delete's check matched the replacement and approving it deleted a file the owner never saw. Each document now carries a content version, new on every upload to its path and whenever ingestion reads different bytes, and the check includes it.
 - **No more "Could not check memory sources; counting nothing" warning when a memory space opens** (CON-348, #1201). The page started counting facts while it was being prerendered, and the count ran on after that first render's database scope had closed. The count shown to you was never wrong: the live page counts again, and the failed count was never displayed. The page now reads and counts its facts only once it is live, and stops a count that is still running when you leave. Reading a saved setting also no longer logs EF's "First/FirstOrDefault without OrderBy" warning.
+- **`deletion_status` marks a token's own batch as its own** (CON-350, #1241). It answered `"isYours": false` when the token that asked for the batch read it.
+- **`upload_file` accepts `files` as a list and explains a wrongly shaped value** (CON-350, #1241). `files` can be a JSON list of files as well as a string holding one, and any other shape gets an error that shows the expected shape instead of a generic one.
+
+### Dependencies
+
+- PDFium 159.0.8138 → 159.0.8152 (Linux, macOS and Windows packages), the library that renders PDF pages (#1240, supersedes #1243).
+- Anthropic SDK 13.3.0 → 13.8.0 (#1240, supersedes #1245).
+- AngleSharp 1.9.0 → 1.10.3, the HTML parser (CON-352, #1248).
 
 ## [v0.4.1] - 2026-11-10
 
