@@ -55,11 +55,7 @@ jobs:
       with:
         global-json-file: global.json
 
-    - name: Cache layout model
-      uses: actions/cache@v4
-      with:
-        path: .models
-        key: pdf-models-250dbad1-d57a942a
+    - uses: ./.github/actions/pdf-models
 
     - uses: ./.github/actions/restore
       with:

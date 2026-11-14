@@ -57,6 +57,12 @@
   -->
   <PropertyGroup>
     <PdfModelDir>$(MSBuildThisFileDirectory)../../.models/</PdfModelDir>
+    <!--
+      Optional mirror tried before each model's own URL (CON-351): a base URL the model's file name is
+      appended to, such as a GitHub release's download URL. Empty means download from the model's own URL
+      only. Either way the file must match its SHA-256.
+    -->
+    <PdfModelMirrorUrl Condition="'$(PdfModelMirrorUrl)' == ''"></PdfModelMirrorUrl>
   </PropertyGroup>
 
   <ItemGroup>
@@ -79,7 +85,15 @@
     </ItemGroup>
     <MakeDir Directories="$(PdfModelDir)" Condition="'@(MissingPdfModel)' != ''" />
     <!-- curl, not MSBuild's DownloadFile: ModelScope redirects to a storage host that refuses DownloadFile (403). -->
-    <Exec Command="curl -fsSL --retry 3 -o &quot;%(MissingPdfModel.FullPath).part&quot; &quot;%(MissingPdfModel.Url)&quot;" Condition="'@(MissingPdfModel)' != ''" />
+    <!--
+      Plain retry skips curl's error 92, an HTTP/2 stream ModelScope's CDN closed mid-download, which failed CI on
+      #1241 (CON-351); retrying every error covers it. A mirror that fails falls through to the model's own URL.
+    -->
+    <PropertyGroup>
+      <PdfModelCurl>curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o</PdfModelCurl>
+    </PropertyGroup>
+    <Exec Command="$(PdfModelCurl) &quot;%(MissingPdfModel.FullPath).part&quot; &quot;$(PdfModelMirrorUrl.TrimEnd('/'))/%(MissingPdfModel.Filename)%(MissingPdfModel.Extension)&quot; || $(PdfModelCurl) &quot;%(MissingPdfModel.FullPath).part&quot; &quot;%(MissingPdfModel.Url)&quot;" Condition="'@(MissingPdfModel)' != '' And '$(PdfModelMirrorUrl)' != ''" />
+    <Exec Command="$(PdfModelCurl) &quot;%(MissingPdfModel.FullPath).part&quot; &quot;%(MissingPdfModel.Url)&quot;" Condition="'@(MissingPdfModel)' != '' And '$(PdfModelMirrorUrl)' == ''" />
     <GetFileHash Files="@(DownloadedPdfModel)" Algorithm="SHA256" HashEncoding="hex" Condition="'@(DownloadedPdfModel)' != ''">
       <Output TaskParameter="Items" ItemName="HashedDownload" />
     </GetFileHash>

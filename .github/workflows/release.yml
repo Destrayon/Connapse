@@ -50,8 +50,9 @@ jobs:
           tags: |
             ghcr.io/destrayon/connapse:${{ github.ref_name }}
             ghcr.io/destrayon/connapse:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No GitHub Actions layer cache (CON-351). A tag run can read only caches saved on its own tag or on main,
+          # so each release saved about 5 GB that no later release could read (v0.4.2-alpha.1 reused no layers). That
+          # pushed the repo past its 10 GB cache limit and evicted main's PDF model and NuGet caches, which every PR reads.
 
   # The file behind the one-command start: `docker compose -f oci://ghcr.io/destrayon/connapse:compose up -d -y`.
   # Each release pins its own image, because `latest` also moves on prereleases. The `compose` tag moves only
