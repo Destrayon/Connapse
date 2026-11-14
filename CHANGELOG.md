@@ -7,13 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.2] - 2026-11-10
+
+v0.4.2 finishes the approval change v0.4.1 started: every knowledge delete an agent's token holds for approval, one item or many, becomes a batch that Connapse carries out once you approve it, so agents no longer repeat a held delete. It also folds the multi-file MCP tools into the single-file ones.
+
+### Upgrading from v0.4.1
+
+Set `CONNAPSE_VERSION=v0.4.2`, then pull and start as in [Upgrade Connapse](docs/self-host/upgrade.md). There is no change to `docker-compose.yml`. One migration adds a `content_version` column to `documents`; it runs when the app starts. An agent written for v0.4.1 that waits with `approval_status` and then repeats a held delete should read the batch with `deletion_status` instead.
+
 ### Changed
 
-- **A held delete becomes a batch that Connapse carries out** (CON-330). When a token asks before deleting, `delete_file`, `bulk_delete`, `container_delete`, `memory_forget` and `folders.delete` through `connapse_api_write` no longer return a request for the agent to repeat. Each returns a batch of deletions, one item per file, folder, container or fact, which the owner approves on **Approvals** like one from `request_deletions`. Connapse deletes the approved items itself, skipping any that changed, and the agent reads each outcome with `deletion_status`. `request_deletions` also takes empty containers (`kind: "container"`) and memory facts (`kind: "fact"`). Held calls that aren't knowledge deletions, such as setting a credential or removing a user, still use `approval_status` and a repeated call, because Connapse keeps their arguments only sealed.
-- **One MCP tool each for reading, uploading and deleting files, one or many** (CON-344). `get_document` takes `files` for up to 50 documents, `upload_file` takes `files` for up to 100, and `delete_file` takes `fileIds` for up to 100. `get_documents`, `bulk_upload` and `bulk_delete` still work and return the same results, but they are no longer listed in `tools/list` and will be removed after the 0.4.x releases. The tool list an agent loads drops from 6,704 to 6,573 tokens (o200k_base).
+- **A held delete becomes a batch that Connapse carries out** (CON-330, #1210). When a token asks before deleting, `delete_file`, `bulk_delete`, `container_delete`, `memory_forget` and `folders.delete` through `connapse_api_write` no longer return a request for the agent to repeat. Each returns a batch of deletions, one item per file, folder, container, memory space or fact (`container_delete` on a memory space gives a `memory_space` item), which the owner approves on **Approvals** like one from `request_deletions`. A held list of files is capped at 50, the most a batch holds. Connapse deletes the approved items itself, skipping any that changed, and the agent reads each outcome with `deletion_status`. `request_deletions` also takes empty containers (`kind: "container"`) and memory facts (`kind: "fact"`). Held calls that aren't knowledge deletions, such as setting a credential or removing a user, still use `approval_status` and a repeated call, because Connapse keeps their arguments only sealed.
+- **One MCP tool each for reading, uploading and deleting files, one or many** (CON-344, #1231). `get_document` takes `files` for up to 50 documents, `upload_file` takes `files` for up to 100, and `delete_file` takes `fileIds` for up to 100 (50 when the delete is held for approval). `get_documents`, `bulk_upload` and `bulk_delete` still work and return the same results, but they are no longer listed in `tools/list` and will be removed after the 0.4.x releases. The tool list an agent loads drops from 6,704 to 6,573 tokens (o200k_base).
+- **A memory save lists the current facts with the same subject and attribute** (CON-341, #1236). The save still adds the fact and nothing is refused or overwritten. When the space has other current facts with that subject and attribute that the saver can see, the REST and MCP answers include an `existing` list (id, value, dates, up to 10), so an agent that meant to replace one can correct it. A save with none answers as before.
 
 ### Fixed
 
+- **An approved delete skips a file replaced after the request, even with the same size and type** (CON-347, #1232). A re-upload to the same path keeps the file's ID and creation date, so a held delete's check matched the replacement and approving it deleted a file the owner never saw. Each document now carries a content version, new on every upload to its path and whenever ingestion reads different bytes, and the check includes it.
 - **No more "Could not check memory sources; counting nothing" warning when a memory space opens** (CON-348, #1201). The page started counting facts while it was being prerendered, and the count ran on after that first render's database scope had closed. The count shown to you was never wrong: the live page counts again, and the failed count was never displayed. The page now reads and counts its facts only once it is live, and stops a count that is still running when you leave. Reading a saved setting also no longer logs EF's "First/FirstOrDefault without OrderBy" warning.
 
 ## [v0.4.1] - 2026-11-10
@@ -393,7 +403,8 @@ These change what a search returns rather than making a call fail.
 - Ollama integration for local embeddings
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.2...HEAD
+[v0.4.2]: https://github.com/Destrayon/Connapse/compare/v0.4.1...v0.4.2
 [v0.4.1]: https://github.com/Destrayon/Connapse/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/Destrayon/Connapse/compare/v0.3.2...v0.4.0
 [v0.3.2]: https://github.com/Destrayon/Connapse/compare/v0.3.1...v0.3.2
