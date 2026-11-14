@@ -4,8 +4,10 @@ using Connapse.Application;
 using Connapse.Application.Approvals;
 using Connapse.Core;
 using Connapse.Identity.Data.Entities;
+using Connapse.Identity.Services;
 using Connapse.Web.Mcp;
 using FluentAssertions;
+using NSubstitute;
 
 namespace Connapse.Web.Tests.Approvals;
 
@@ -119,6 +121,30 @@ public class DeletionBatchUnitTests
 
         DeletionTargets.View(batch, Now, batch.OwnerUserId).IsYours.Should().BeTrue();
         DeletionTargets.View(batch, Now, Guid.NewGuid()).IsYours.Should().BeFalse();
+    }
+
+    [Fact]
+    public void View_IsYours_ForTheTokenThatAsked()
+    {
+        var batch = Batch(DeletionBatchStatus.Pending, Now.AddDays(1), DeletionItemState.Pending);
+
+        DeletionTargets.View(batch, Now, viewerToken: batch.TokenKey).IsYours.Should().BeTrue();
+        DeletionTargets.View(batch, Now, viewerToken: "pat:other").IsYours.Should().BeFalse();
+        DeletionTargets.View(batch, Now).IsYours.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Status_TokenReadingItsOwnBatch_SeesItAsItsOwn()
+    {
+        var batch = Batch(DeletionBatchStatus.Done, Now.AddDays(1), DeletionItemState.Deleted);
+        var store = Substitute.For<IDeletionBatchStore>();
+        store.GetForTokenAsync(batch.Id, batch.TokenKey, Arg.Any<CancellationToken>()).Returns(batch);
+        ClaimsPrincipal token = new(new ClaimsIdentity([new Claim("pat_id", "x"), new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())], "test"));
+
+        var result = await new GetDeletionBatchStatus(store, TimeProvider.System).ExecuteAsync(new OperationContext(token, OperationSurface.Mcp), batch.Id);
+
+        result.Succeeded.Should().BeTrue();
+        result.Result!.IsYours.Should().BeTrue();
     }
 
     [Fact]

@@ -66,8 +66,68 @@ public class McpToolsBulkUploadTests
     }
 
     private Task<string> UploadFile(string files, string fileName = "", string? textContent = null, string? path = null) =>
+        UploadFileJson(System.Text.Json.JsonSerializer.SerializeToElement(files), fileName, textContent, path);
+
+    /// <summary>Calls upload_file with 'files' as the raw JSON an MCP client sent, which need not be a string.</summary>
+    private Task<string> UploadFileJson(System.Text.Json.JsonElement? files, string fileName = "", string? textContent = null, string? path = null) =>
         McpTools.UploadFile(McpCaller.Uploads(_services).Upload, McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container,
             McpCaller.Http, ContainerId.ToString(), textContent: textContent, fileName: fileName, path: path, files: files);
+
+    private static System.Text.Json.JsonElement Json(string json) => System.Text.Json.JsonDocument.Parse(json).RootElement.Clone();
+
+    [Fact]
+    public async Task UploadFile_FilesSentAsAList_UploadsEach()
+    {
+        var result = await UploadFileJson(Json("""[{"filename":"a.txt","content":"hello"},{"filename":"b.txt","content":"world"}]"""));
+
+        result.Should().StartWith("Uploaded 2 of 2 file(s)");
+        await _uploadService.Received(1).BulkUploadAsync(Arg.Is<BulkUploadRequest>(r => r.Files.Count == 2), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("""{"filename":"a.txt","content":"hello"}""")]
+    [InlineData("42")]
+    [InlineData("true")]
+    public async Task UploadFile_FilesNeitherAListNorText_SaysWhatShapeItExpects(string json)
+    {
+        var result = await UploadFileJson(Json(json));
+
+        result.Should().Be(McpTools.FilesShapeError);
+        result.Should().Contain("JSON array of file objects").And.Contain("\"filename\"");
+        await _uploadService.DidNotReceiveWithAnyArgs().BulkUploadAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("""{"filename":"a.txt"}""")]
+    public async Task UploadFile_FilesTextNotAList_SaysWhatShapeItExpects(string files)
+    {
+        (await UploadFile(files)).Should().Be(McpTools.FilesShapeError);
+        await _uploadService.DidNotReceiveWithAnyArgs().BulkUploadAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task UploadFile_FilesListWithASingleFilesArgument_ReturnsErrorWithoutUploading()
+    {
+        var result = await UploadFileJson(Json("""[{"filename":"a.txt","content":"hello"}]"""), fileName: "a.txt");
+
+        result.Should().StartWith("Error: Provide either 'files' or a single file's");
+        await _uploadService.DidNotReceiveWithAnyArgs().BulkUploadAsync(default!, default);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("null")]
+    public async Task UploadFile_FilesAbsentOrNull_FallsBackToTheSingleFileForm(string? json)
+    {
+        var result = await UploadFileJson(json is null ? null : Json(json));
+
+        result.Should().Be("Error: 'fileName' is required (or 'files' for several files).");
+    }
+
+    [Fact]
+    public async Task UploadFile_FilesUndefined_FallsBackToTheSingleFileForm() =>
+        (await UploadFileJson(default(System.Text.Json.JsonElement))).Should().Be("Error: 'fileName' is required (or 'files' for several files).");
 
     [Fact]
     public async Task UploadFile_WithFiles_UploadsEachAndGivesTheBulkUploadSummary()
@@ -213,7 +273,7 @@ public class McpToolsBulkUploadTests
     {
         var result = await McpTools.BulkUpload(McpCaller.Uploads(_services).BulkUpload, McpCaller.Uploads(_services).Container, McpCaller.Http, ContainerId.ToString(), "not json");
 
-        result.Should().StartWith("Error:");
+        result.Should().Be(McpTools.FilesShapeError);
     }
 
     private static Container MakeContainer() => new(
