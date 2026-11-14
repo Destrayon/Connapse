@@ -37,6 +37,7 @@ before any of these features or their results existed. A change merges only when
 | **Memory on the table layer** (CON-E6 ticket 12; see below) | — | `memory-v1` Recall@5 no Holm-significant drop; memory permission and time tests pass unchanged with the restricted login | Memory p95 within the agent-memory row |
 | **Meaningful search scores** (CON-278; see below) | Unrelated questions no longer score near 1; scores track relevance better; a no-match signal that works | Rankings identical to the baseline on `v1` | Search p95 +10% at most; a search after the embedding model's idle unload measured and fixed or explained |
 | **Finding and saving memories** (suite `memory-agent-v1`, CON-313; see below) | Reworded, indirect and partial-word find tasks at least 0.85 and at least +0.15 over today's memory search | Exact, absent and save tasks non-inferior within 0.10; save tasks at least 0.90; the leak suite | Recall p95 under 300 ms; tool calls per task at most 1 more than today's |
+| **Server-side tool search** (compact tool list, CON-346; see below) | Compact `tools/list` plus server instructions at most 30% of the full list's tokens; median input tokens per routing task at most 80% of the full list's, tool search off | `memory-search` test score and routing task success non-inferior within 0.05, in both tool-search modes; the 4.1 integration tests | Reported: `find_tools` calls, argument errors, tool calls and wall time per task |
 
 ## Meaningful search scores (CON-278)
 
@@ -360,3 +361,42 @@ most three current facts the new one may repeat or contradict, or nothing.
   2, out of scope here) these are expected to miss; the count measures the gap.
 - **Fixed before the run:** the case set above and these thresholds. A change to either after the first run is a
   new bar, written down with the reason.
+
+## Server-side tool search (CON-346)
+
+Written on 2026-11-12, before any code or run, copying section 5 of `docs/research/mcp-tool-scaling-2026-11-12.md`
+(CON-343). The compact list shows the four core search tools plus `find_tools`, `call_read`, `call_write` and
+`call_destructive`; the full list shows every tool, as today. The compact list becomes the default only if every gate
+below passes.
+
+- **Arms.** *Full* is the tool list of the commit this change branches from (`release/0.5.0`), descriptions
+  unchanged. *Compact* is the 8-tool list. Each arm runs twice: `ENABLE_TOOL_SEARCH=false` (stands in for Claude
+  Desktop, ChatGPT and Gemini CLI, which load every tool) and `ENABLE_TOOL_SEARCH=true` with Claude Code's
+  ToolSearch the only built-in tool allowed (stands in for Claude Code, Codex, Cursor and VS Code). A `true` run
+  that records no ToolSearch call over its whole task set is invalid and is rerun after fixing the setup, not
+  scored.
+- **Fixed for every arm:** model `claude-sonnet-5-5` at effort `medium`, 3 repetitions per task, at most 12 tool
+  calls, the `test` split scored once, the same commit and machine. A provider error is retried 3 times; a run that
+  still fails scores 0.
+- **Routing set** (`eval/datasets/tool-routing`, built and frozen before any scored run). 60 held-out tasks, 20
+  document, 20 code and 20 memory, each naming the tool that must run (called directly or through a call tool), plus
+  a dev split used only to build the harness. A routing task succeeds when the gold tool runs with valid arguments
+  within the call cap.
+- **Non-inferior within 0.05:** passes only when the lower end of the 90% BCa interval of the paired per-task
+  difference (compact − full) is above −0.05. An interval reaching −0.05 or below fails, whether the change is worse
+  or the run is too small to tell.
+
+**Passes** only when all hold:
+1. **Tool tokens.** The compact `tools/list` plus the server instructions is at most 30% of the full `tools/list`'s
+   tokens, by `o200k_base` and by Anthropic's token-counting endpoint. A unit test checks the `o200k_base` half on
+   every build.
+2. **Input tokens.** With tool search off, the median total input tokens per routing task is at most 80% of the
+   full list's.
+3. **Right answers.** `memory-search` test score and routing task success are each non-inferior within 0.05, in
+   both tool-search modes.
+4. **Gate.** The 4.1 integration tests pass: a call tool refuses a tool of another risk, scopes still apply through
+   the call tools, destructive calls reach `McpApprovalGate`, and every tool is findable by its own name.
+
+- **Reported, not gated:** `find_tools` calls, argument errors, tool calls and wall time per task.
+- **A failure** keeps the full list as the default; the search is redesigned and judged on a fresh routing set. These
+  bars are not changed after a result exists.

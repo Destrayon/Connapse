@@ -9,11 +9,34 @@ audience: developer
 
 Connapse's MCP server, at `/mcp`, offers 22 named tools for knowledge work and 3 generic tools that reach the rest of the API. MCP (the Model Context Protocol) is the standard AI agents use to call outside tools. To connect a client, see [Connect an MCP client](../guides/mcp-clients.md).
 
+## Tool lists
+
+By default an agent's tool list shows eight tools: `container_list`, `search_knowledge`, `list_files` and `get_document`, plus `find_tools` and three call tools. Every other tool on this page is hidden from the list but not from the agent: the agent searches for it with `find_tools` and runs it through the call tool for its risk. The agent decides what it needs; no one sets up groups of tools for it. A short list keeps every chat cheaper, since a client sends the full list with each request, and agents choose better among fewer tools.
+
+| Tool | Parameters | What it does |
+|------|-----------|--------------|
+| `find_tools` | `query` (words such as `delete a container`, or a tool's exact name; empty lists every tool), `limit` (1 to 50, default 10) | Finds the tools and API operations the token may use. The best three come with their arguments schema and the call tool that runs each; the rest are one line each. |
+| `call_read` | `tool` (the exact name `find_tools` gave), `arguments` (a JSON object) | Runs a Read tool. It refuses any tool that changes data. |
+| `call_write` | `tool`, `arguments` | Runs a Write tool: one that creates or changes data without removing it. |
+| `call_destructive` | `tool`, `arguments` | Runs a Destructive or Credential tool. Held for [approval](#approvals) like a direct call. |
+
+A call tool runs the same tool method a direct call would, after the same scope check and the same approval gate, so nothing reachable through it is reachable without those checks. An API operation (the generic tools below) is found and called by its operation id, with its arguments as `{ "parameters": {...}, "body": {...} }`.
+
+**Why one call tool per risk.** A single call tool would have to be marked as possibly destructive, so a client that asks before destructive tools would ask before every hidden read, or, marked read-only, would let a delete through without asking. With one per risk each call tool's read-only and destructive hints stay true: `call_read` is read-only and can never run a tool that writes or deletes, and a client's "ask before destructive actions" setting still applies to `call_destructive` alone. The cost is three call tools instead of one, and an agent that picks the wrong one gets an error naming the right one.
+
+The server instructions name every hidden tool by area, so the agent knows what it can find before it searches.
+
+**Showing every tool.** A client with its own tool search, such as Claude Code, may do better with every tool listed, because it already loads tools on demand and the compact list puts a second search on top of its own. In [our test](../../eval/agent-search/con-346/results.md) with Claude Code's tool search on, agents given every tool used fewer tokens per task (14,175 against 19,106) and scored slightly higher on memory tasks (0.699 against 0.670). With its tool search off, the compact list used a third fewer tokens and scored the same.
+
+The list is chosen per connection, by URL. A client at `/mcp` always gets the compact list. A client that connects to `/mcp/full` sees every tool, without `find_tools` and the call tools. Either way, a token sees only the tools its scopes allow ([Who can connect](#who-can-connect)).
+
 ## Who can connect
 
 `/mcp` admits the Owner and Admin roles and agent keys. An agent key or personal access token goes in the `X-Api-Key` header; an MCP client that supports OAuth can sign in instead, and receives the `knowledge:read` and `knowledge:write` scopes it asks for.
 
-The tool list a client sees is filtered by the caller's scopes: a tool the token can't call isn't listed. Named read tools need `knowledge:read` and named write tools need `knowledge:write`. The generic tools are listed when the token holds a scope that some operation reachable through them needs.
+The tool list a client sees is filtered by the caller's scopes, with every tool shown or with the compact list: a tool the token can't call isn't listed. Named read tools need `knowledge:read` and named write tools need `knowledge:write`, which every delete needs too. The generic tools are listed when the token holds a scope that some operation reachable through them needs.
+
+On the compact list, `find_tools` and each call tool are listed only when the token may use at least one tool behind them. A `knowledge:read` token or agent key, for example, sees `find_tools` and `call_read` but not `call_write` or `call_destructive`. `find_tools` never returns a tool the token can't call, and a call tool refuses one if the agent names it anyway.
 
 A browser request to `/mcp` must come from a loopback origin or one listed in `Cors:AllowedOrigins`, or it gets `403`. Clients outside a browser send no `Origin` header and aren't affected.
 

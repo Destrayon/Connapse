@@ -27,4 +27,9 @@
     <ProjectReference Include="..\..\src\Connapse.Web\Connapse.Web.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The one MCP connect the test rule allows (CON-218), shared rather than copied. -->
+    <Compile Include="..\Connapse.Integration.Tests\McpTestClient.cs" Link="McpTestClient.cs" />
+  </ItemGroup>
+
 </Project>

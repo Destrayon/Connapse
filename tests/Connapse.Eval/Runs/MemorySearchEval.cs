@@ -32,7 +32,25 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
     public const string RegisteredEffort = "medium";
 
     public sealed record Options(string Config, string Split, string Model, string Effort, int Repetitions, int? LimitTasks, int Workers, string? OutPath,
-        string? AgentDir = null);
+        string? AgentDir = null, string? ToolList = null, bool? ToolSearch = null);
+
+    /// <summary>The tool lists a CON-346 arm serves the agent from the real MCP server; unset, the agent sees only <see cref="SearchTools"/>.</summary>
+    public static readonly string[] ToolLists = ["full", "compact"];
+
+    /// <summary>The <c>--tool-list</c> value checked, or an <see cref="ArgumentException"/>.</summary>
+    public static string? ParseToolList(string? value) =>
+        value is null || ToolLists.Contains(value, StringComparer.Ordinal)
+            ? value
+            : throw new ArgumentException($"--tool-list must be {string.Join(" or ", ToolLists)}, not {value}");
+
+    /// <summary>The <c>--tool-search</c> value: on, off, or unset (Claude Code's own default).</summary>
+    public static bool? ParseToolSearch(string? value) => value switch
+    {
+        null => null,
+        "on" => true,
+        "off" => false,
+        _ => throw new ArgumentException($"--tool-search must be on or off, not {value}"),
+    };
 
     /// <summary>One task's runs, in repetition order.</summary>
     public sealed record TaskResult(SearchTask Task, IReadOnlyList<(AgentRun Run, RunScore Score)> Runs);
@@ -52,6 +70,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         if (options.LimitTasks is int limit)
             tasks = [.. tasks.Take(limit)];
         List<EvalDocument> corpus = ReadCorpus(Path.Combine(root, "corpus.jsonl"));
+        using FreeMemoryFloor floor = FreeMemoryFloor.Start(options.ToolList is null ? null : ToolRoutingEval.FreeMemoryFloorMb, log, ct);
+        ct = floor.Token;
 
         SystemConfig config = SystemConfig.Load(paths.EvalRoot, "connapse", options.Config);
         EmbeddingDiskCache embeddings = new(Path.Combine(paths.CacheRoot, "embeddings"));
@@ -61,25 +81,35 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         RequireCompleteIndex(indexed, corpus.Count, docMap.Count);
         log.WriteLine($"{corpus.Count} documents indexed");
 
-        McpToolbox tools = new(system.Services, McpToolbox.Reader(Guid.NewGuid(), "memory-search-eval"), SearchTools, Pinned);
+        // A CON-346 arm serves the real server's tool list, signed in as the eval admin; otherwise the two search tools alone.
+        using HttpClient? admin = options.ToolList is null ? null : system.CreateAdminClient();
+        await using ServerToolbox? server = admin is null ? null
+            : await ServerToolbox.ConnectAsync(admin, ServerToolbox.PathOf(options.ToolList == "full"), Pinned, ct);
+        IToolbox tools = server ?? (IToolbox)new McpToolbox(system.Services, McpToolbox.Reader(Guid.NewGuid(), "memory-search-eval"), SearchTools, Pinned);
+        if (server is not null)
+            log.WriteLine($"{options.ToolList} list: {server.Tools.Count} tools");
         DocumentIndex index = new(docMap, corpus.ToDictionary(d => d.Id, d => d.FileName!, StringComparer.Ordinal));
         await using ToolBridge bridge = new();
         await bridge.StartAsync(ct);
-        ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir);
+        ClaudeCliAgent agent = new(bridge, options.Model, options.Effort, agentDir, toolSearch: options.ToolSearch);
         await AnswerAndReportAsync(agent, tools, SystemPrompt(container), tasks, index, options, RegisteredTasks, log, ct);
         return 0;
     }
 
     /// <summary>Runs every task's repetitions, then writes the report and, with <c>--out</c>, its run log.</summary>
-    public static async Task AnswerAndReportAsync(ClaudeCliAgent agent, McpToolbox tools, string prompt, IReadOnlyList<SearchTask> tasks, DocumentIndex index,
+    public static async Task AnswerAndReportAsync(ClaudeCliAgent agent, IToolbox tools, string prompt, IReadOnlyList<SearchTask> tasks, DocumentIndex index,
         Options options, int registeredTasks, TextWriter log, CancellationToken ct)
     {
         List<(SearchTask Task, int Rep)> jobs = [.. tasks.SelectMany(t => Enumerable.Range(0, options.Repetitions).Select(r => (t, r)))];
         ConcurrentDictionary<(string, int), (AgentRun, RunScore)> done = new();
         int finished = 0;
+        // CON-346 arms retry a provider error, as eval/pass-bars.md registers; earlier suites score it 0 at once.
+        int attempts = options.ToolList is null ? 1 : ToolRoutingEval.ProviderAttempts;
         await Parallel.ForEachAsync(jobs, new ParallelOptions { MaxDegreeOfParallelism = options.Workers, CancellationToken = ct }, async (job, token) =>
         {
             AgentRun run = await agent.RunAsync(tools, prompt, job.Task.Question, token);
+            for (int attempt = 1; attempt < attempts && run.Outcome == AgentOutcome.Error; attempt++)
+                run = await agent.RunAsync(tools, prompt, job.Task.Question, token);
             RunScore score = MemorySearchScoring.Score(job.Task, run, index);
             done[(job.Task.Id, job.Rep)] = (run, score);
             int n = Interlocked.Increment(ref finished);
@@ -159,7 +189,45 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
         int incomplete = results.Count(r => r.Runs.Count != options.Repetitions);
         if (incomplete > 0)
             reasons.Add($"{incomplete} tasks are missing runs");
+        if (InvalidToolSearchArm(options.ToolSearch, results.SelectMany(r => r.Runs).Select(r => r.Run)))
+            reasons.Add("tool search was on but no run called ToolSearch, so the arm is invalid and is rerun");
         return reasons;
+    }
+
+    /// <summary>
+    /// A tool-search-on arm whose agents never called ToolSearch over the whole task set measured nothing about tool
+    /// search, so <c>eval/pass-bars.md</c> (CON-346) calls it invalid.
+    /// </summary>
+    public static bool InvalidToolSearchArm(bool? toolSearch, IEnumerable<AgentRun> runs) =>
+        toolSearch == true && !runs.Any(r => r.ToolSearchCalls > 0);
+
+    /// <summary>The CON-346 measures over every run: what each tool list cost the agent, and how often its calls failed.</summary>
+    public static JsonObject ToolMeasures(IReadOnlyList<AgentRun> runs)
+    {
+        List<EffectiveCall> calls = [.. runs.SelectMany(r => EffectiveCall.Of(r.Calls))];
+        int n = Math.Max(1, runs.Count);
+        return new JsonObject
+        {
+            ["runs"] = runs.Count,
+            ["findToolsCallsPerRun"] = Round(runs.Sum(r => r.Calls.Count(c => c.Name == Connapse.Web.Mcp.McpToolSearch.FindName)) / (double)n),
+            ["toolSearchCallsPerRun"] = Round(runs.Sum(r => r.ToolSearchCalls) / (double)n),
+            ["toolCallsPerRun"] = Round(runs.Sum(r => r.Calls.Count) / (double)n),
+            ["failedCallsPerRun"] = Round(calls.Count(c => c.Failed) / (double)n),
+            ["medianInputTokens"] = Median(runs.Select(r => (double)InputTokens(r.Usage))),
+            ["medianSeconds"] = Round(Median(runs.Select(r => r.Seconds))),
+        };
+    }
+
+    /// <summary>Every input token the model read: fresh, written to cache and read from cache.</summary>
+    public static long InputTokens(TokenUsage usage) => usage.Input + usage.CacheWrite + usage.CacheRead;
+
+    public static double Median(IEnumerable<double> values)
+    {
+        List<double> sorted = [.. values.Order()];
+        if (sorted.Count == 0)
+            return 0;
+        int mid = sorted.Count / 2;
+        return sorted.Count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     }
 
     public static JsonObject Report(Options options, IReadOnlyList<TaskResult> results, int registeredTasks = RegisteredTasks)
@@ -184,6 +252,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             ["model"] = options.Model,
             ["effort"] = options.Effort,
             ["repetitions"] = options.Repetitions,
+            ["toolList"] = options.ToolList,
+            ["toolSearch"] = options.ToolSearch,
             ["tasks"] = results.Count,
             ["all"] = Group(results),
             ["memorySet"] = Group(m),
@@ -201,6 +271,8 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
             },
             ["outcomes"] = Outcomes(results.SelectMany(r => r.Runs)),
             ["tokens"] = Tokens(results.SelectMany(r => r.Runs)),
+            ["toolUse"] = ToolMeasures([.. results.SelectMany(r => r.Runs).Select(r => r.Run)]),
+            ["perTask"] = ToolRoutingEval.PerTask(results.Select(r => (r.Task.Id, Mean(r.Runs, s => s.Score)))),
             ["conforming"] = nonconforming.Count == 0,
             ["diagnosticOnly"] = new JsonArray([.. nonconforming.Select(r => (JsonNode)r)]),
         };
@@ -263,7 +335,11 @@ public sealed class MemorySearchEval(RepoPaths paths, HttpClient http, TextWrite
                         ["tool"] = c.Name,
                         ["input"] = JsonSerializer.SerializeToNode(c.Input),
                         ["output"] = c.Output,
+                        ["isError"] = c.IsError,
                     })]),
+                    ["toolSearchCalls"] = run.ToolSearchCalls,
+                    ["inputTokens"] = InputTokens(run.Usage),
+                    ["seconds"] = Round(run.Seconds),
                     ["error"] = run.Error,
                 }.ToJsonString();
             }

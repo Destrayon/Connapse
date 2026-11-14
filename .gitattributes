@@ -64,6 +64,7 @@
 
 # Committed eval data is checksummed in eval/MANIFEST.json; keep its bytes identical on every OS.
 eval/datasets/**/*.jsonl text eol=lf
+eval/datasets/tool-routing/*.json text eol=lf
 eval/datasets/tables/**/*.md text eol=lf
 eval/datasets/tables/**/*.csv text eol=lf
 # Verify snapshots (#790): stable line endings so a Windows checkout and the Linux runner

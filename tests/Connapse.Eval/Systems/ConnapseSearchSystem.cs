@@ -67,6 +67,9 @@ public sealed class ConnapseSearchSystem : ISystemUnderTest, IIndexCachingSystem
     /// <summary>The in-process host's services, for reading back what ingestion produced.</summary>
     public IServiceProvider Services => _host.Services;
 
+    /// <summary>A client of the in-process server signed in as the harness's admin (CON-346).</summary>
+    public HttpClient CreateAdminClient() => _host.CreateAdminClient();
+
     /// <summary>The container an indexed dataset went into, and its Connapse-to-dataset document IDs.</summary>
     public (Guid ContainerId, IReadOnlyDictionary<string, string> DocMap) ContainerOf(string dataset) =>
         (_datasets[dataset].ContainerId, _datasets[dataset].DocMap);

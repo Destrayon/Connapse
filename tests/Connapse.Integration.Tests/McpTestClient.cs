@@ -10,11 +10,17 @@ namespace Connapse.Integration.Tests;
 /// </summary>
 public static class McpTestClient
 {
-    /// <summary>Connects to the host's /mcp endpoint over streamable HTTP, sending whatever credentials <paramref name="http"/> carries.</summary>
-    public static Task<McpClient> ConnectAsync(HttpClient http, bool ownsHttpClient = true) =>
+    /// <summary>The endpoint that lists every tool directly, so tests of one tool can see it (CON-346).</summary>
+    public const string Full = "mcp/full";
+
+    /// <summary>The default endpoint, whose list shows the core tools plus find_tools and the call tools.</summary>
+    public const string Compact = "mcp";
+
+    /// <summary>Connects over streamable HTTP, sending whatever credentials <paramref name="http"/> carries.</summary>
+    public static Task<McpClient> ConnectAsync(HttpClient http, bool ownsHttpClient = true, string path = Full) =>
         McpClient.CreateAsync(
             new HttpClientTransport(
-                new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
+                new HttpClientTransportOptions { Endpoint = new Uri(http.BaseAddress!, path), TransportMode = HttpTransportMode.StreamableHttp },
                 http,
                 ownsHttpClient: ownsHttpClient),
             new McpClientOptions { DiscoverProbeTimeout = Timeout.InfiniteTimeSpan });

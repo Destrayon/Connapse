@@ -151,6 +151,11 @@ internal static class Rules
             // A JSON argument, and the dispatcher the generic connapse_api_* tools call: it runs the
             // API's own route, so those tools share every rule the API applies (CON-20).
             || t == typeof(System.Text.Json.JsonElement)
-            || t.FullName == "Connapse.Web.Services.GenericApi.ApiDispatcher";
+            || t.FullName == "Connapse.Web.Services.GenericApi.ApiDispatcher"
+            // find_tools and the call tools (CON-346) run another tool after that tool's own authorization and
+            // approval gate, so they add no rule of their own for a tool to depend on.
+            || t.FullName == "Connapse.Web.Mcp.McpToolSearch"
+            // The SDK's request context: transport plumbing, which the call tools pass on to the tool they run.
+            || (t.IsGenericType && t.GetGenericTypeDefinition().FullName == "ModelContextProtocol.Server.RequestContext`1");
     }
 }

@@ -78,11 +78,13 @@ public static class MemorySearchScoring
             && MemoryEval.Named(answer, task.Answer) >= 0
             && (task.StaleAnswer is null || MemoryEval.Named(answer, task.StaleAnswer) < 0);
         bool sawGold = run.Calls.SelectMany(c => index.Seen(c.Output)).Any(task.Gold.Contains);
-        ToolTrace? firstSearch = run.Calls.FirstOrDefault(c => c.Name == Search);
+        // A search run through call_read counts as a search (CON-346).
+        IReadOnlyList<EffectiveCall> calls = EffectiveCall.Of(run.Calls);
+        EffectiveCall? firstSearch = calls.FirstOrDefault(c => c.Tool == Search);
         double mrr = firstSearch is null ? 0 : ReciprocalRank(index.Ranked(firstSearch.Output), task.Gold, 10);
 
         return new RunScore(score, stale, answerRight, sawGold, mrr,
-            run.Calls.Count(c => c.Name == Search), run.Calls.Count,
+            calls.Count(c => c.Tool == Search), run.Calls.Count,
             run.Usage.Input, run.Usage.Output, run.Usage.CacheRead);
     }
 

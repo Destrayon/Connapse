@@ -1,0 +1,140 @@
+{
+  "docsContainer": "eval-routing-docs",
+  "codeContainer": "eval-routing-code",
+  "memorySpace": "routing-memory",
+  "documents": [
+    {
+      "path": "/policies/travel.md",
+      "text": "# Travel policy\n\nBook flights at least 14 days ahead. Economy class for trips under 6 hours. Hotels up to $220 a night in tier-1 cities. Submit receipts within 30 days.\n"
+    },
+    {
+      "path": "/policies/expenses.md",
+      "text": "# Expense policy\n\nMeals are reimbursed up to $75 a day. Client dinners need a manager's approval in advance. Mileage is paid at the federal rate.\n"
+    },
+    {
+      "path": "/handbook/onboarding.md",
+      "text": "# Onboarding\n\nNew hires get a laptop on day one, meet their buddy in week one and finish security training within 10 days.\n"
+    },
+    {
+      "path": "/handbook/benefits.md",
+      "text": "# Benefits\n\nHealth cover starts on the first day. The 401(k) match is 4%. Parental leave is 16 weeks.\n"
+    },
+    {
+      "path": "/engineering/deploy.md",
+      "text": "# Deploying\n\nDeploys go out Tuesday and Thursday. Run the smoke suite before promoting a build. Rollbacks use the previous image tag.\n"
+    },
+    {
+      "path": "/engineering/oncall.md",
+      "text": "# On-call\n\nThe on-call rotation is weekly and hands over on Monday at 10:00. Page the secondary after 15 minutes without an acknowledgement.\n"
+    },
+    {
+      "path": "/notes/2026-11-02.md",
+      "text": "# Notes 2026-11-02\n\nDecided to move the billing service to the new cluster in December.\n"
+    },
+    {
+      "path": "/notes/2026-11-05.md",
+      "text": "# Notes 2026-11-05\n\nThe Orion migration slipped a week because of the vendor contract.\n"
+    }
+  ],
+  "code": [
+    {
+      "path": "billing/ledger.py",
+      "text": "\"\"\"The general ledger.\"\"\"\n\n\nclass Ledger:\n    def __init__(self):\n        self.entries = []\n\n    def post(self, account, amount):\n        \"\"\"Record an amount against an account.\"\"\"\n        self.entries.append((account, amount))\n\n    def balance(self, account):\n        return sum(a for acc, a in self.entries if acc == account)\n"
+    },
+    {
+      "path": "billing/tax.py",
+      "text": "\"\"\"Sales tax.\"\"\"\n\nRATES = {\"TX\": 0.0625, \"CA\": 0.0725, \"NY\": 0.04}\n\n\ndef compute_tax(state, amount):\n    return round(amount * RATES.get(state, 0.0), 2)\n"
+    },
+    {
+      "path": "billing/invoice.py",
+      "text": "\"\"\"Invoices.\"\"\"\nfrom billing.ledger import Ledger\nfrom billing.tax import compute_tax\n\n\nclass Invoice:\n    def __init__(self, customer, state, lines):\n        self.customer = customer\n        self.state = state\n        self.lines = lines\n\n    def total(self):\n        subtotal = sum(price * qty for price, qty in self.lines)\n        return subtotal + compute_tax(self.state, subtotal)\n\n    def issue(self, ledger: Ledger):\n        ledger.post(\"receivables:\" + self.customer, self.total())\n        return self.total()\n"
+    },
+    {
+      "path": "billing/refunds.py",
+      "text": "\"\"\"Refunds.\"\"\"\nfrom billing.ledger import Ledger\n\n\ndef refund(ledger: Ledger, customer, amount):\n    ledger.post(\"receivables:\" + customer, -amount)\n"
+    },
+    {
+      "path": "api/handlers.py",
+      "text": "\"\"\"HTTP handlers.\"\"\"\nfrom billing.invoice import Invoice\nfrom billing.ledger import Ledger\n\nLEDGER = Ledger()\n\n\ndef create_invoice(request):\n    invoice = Invoice(request[\"customer\"], request[\"state\"], request[\"lines\"])\n    return {\"total\": invoice.issue(LEDGER)}\n\n\ndef customer_balance(request):\n    return {\"balance\": LEDGER.balance(\"receivables:\" + request[\"customer\"])}\n"
+    },
+    {
+      "path": "tests/test_invoice.py",
+      "text": "from billing.invoice import Invoice\nfrom billing.ledger import Ledger\n\n\ndef test_issue_posts_total():\n    ledger = Ledger()\n    total = Invoice(\"acme\", \"TX\", [(100.0, 2)]).issue(ledger)\n    assert ledger.balance(\"receivables:acme\") == total\n"
+    },
+    {
+      "path": "Shop/Services/IOrderService.cs",
+      "text": "namespace Shop.Services;\n\npublic interface IOrderService\n{\n    Order PlaceOrder(Cart cart);\n}\n"
+    },
+    {
+      "path": "Shop/Services/OrderService.cs",
+      "text": "namespace Shop.Services;\n\npublic sealed class OrderService(PaymentGateway payments, InventoryClient inventory) : IOrderService\n{\n    public Order PlaceOrder(Cart cart)\n    {\n        inventory.Reserve(cart);\n        string receipt = payments.Charge(cart.CustomerId, cart.Total);\n        return new Order(cart.CustomerId, cart.Total, receipt);\n    }\n}\n"
+    },
+    {
+      "path": "Shop/Services/PaymentGateway.cs",
+      "text": "namespace Shop.Services;\n\npublic class PaymentGateway\n{\n    public virtual string Charge(string customerId, decimal amount) => $\"rcpt-{customerId}-{amount}\";\n}\n"
+    },
+    {
+      "path": "Shop/Services/InventoryClient.cs",
+      "text": "namespace Shop.Services;\n\npublic class InventoryClient\n{\n    public void Reserve(Cart cart)\n    {\n    }\n}\n"
+    },
+    {
+      "path": "Shop/Controllers/OrdersController.cs",
+      "text": "namespace Shop.Controllers;\n\nusing Shop.Services;\n\npublic sealed class OrdersController(IOrderService orders)\n{\n    public Order Post(Cart cart) => orders.PlaceOrder(cart);\n}\n"
+    },
+    {
+      "path": "Shop/Models/Order.cs",
+      "text": "namespace Shop;\n\npublic sealed record Order(string CustomerId, decimal Total, string Receipt);\n\npublic sealed record Cart(string CustomerId, decimal Total);\n"
+    }
+  ],
+  "facts": [
+    {
+      "subject": "Halcyon",
+      "attribute": "database",
+      "value": "MySQL 8",
+      "validFrom": "2025-01-10",
+      "validTo": "2026-03-01"
+    },
+    {
+      "subject": "Halcyon",
+      "attribute": "database",
+      "value": "PostgreSQL 16",
+      "validFrom": "2026-03-01",
+      "validTo": null
+    },
+    {
+      "subject": "Halcyon",
+      "attribute": "tech lead",
+      "value": "Dana Reyes",
+      "validFrom": "2025-06-01",
+      "validTo": null
+    },
+    {
+      "subject": "Orion",
+      "attribute": "region",
+      "value": "us-east-2",
+      "validFrom": "2026-02-15",
+      "validTo": null
+    },
+    {
+      "subject": "Orion",
+      "attribute": "owner",
+      "value": "Platform team",
+      "validFrom": "2026-01-05",
+      "validTo": null
+    },
+    {
+      "subject": "billing service",
+      "attribute": "cluster",
+      "value": "prod-west",
+      "validFrom": "2025-09-01",
+      "validTo": null
+    },
+    {
+      "subject": "Kestrel",
+      "attribute": "release cadence",
+      "value": "every two weeks",
+      "validFrom": "2026-04-01",
+      "validTo": null
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "suite": "tool-routing",
+  "toolList": "compact",
+  "toolSearch": false,
+  "listedTools": 8,
+  "split": "dev",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "repetitions": 3,
+  "tasks": 12,
+  "success": 1,
+  "groups": {
+    "code": 1,
+    "document": 1,
+    "memory": 1
+  },
+  "perTask": {
+    "d01-container_create": 1,
+    "d02-delete_file": 1,
+    "d03-append_to_file": 1,
+    "d04-container_stats": 1,
+    "d05-code_find_symbol": 1,
+    "d06-code_references": 1,
+    "d07-code_impact": 1,
+    "d08-code_repo_map": 1,
+    "d09-memory_recall": 1,
+    "d10-memory_remember": 1,
+    "d11-memory_timeline": 1,
+    "d12-memory_forget": 1
+  },
+  "outcomes": {
+    "Answered": 36
+  },
+  "toolUse": {
+    "runs": 36,
+    "findToolsCallsPerRun": 1.0278,
+    "toolSearchCallsPerRun": 0,
+    "toolCallsPerRun": 2.3056,
+    "failedCallsPerRun": 0,
+    "medianInputTokens": 22316,
+    "medianSeconds": 6.1788
+  },
+  "conforming": false,
+  "diagnosticOnly": [
+    "split is dev, not test",
+    "12 tasks, not 60"
+  ],
+  "subscription": {
+    "atFirstRun": "allowed_warning (seven_day 89%)",
+    "atLastRun": "allowed_warning (seven_day 89%)"
+  }
+}

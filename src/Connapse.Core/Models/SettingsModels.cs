@@ -665,4 +665,3 @@ public record UploadSettings
     /// </summary>
     public bool PdfLayoutOnOcrPages { get; set; } = true;
 }
-
