@@ -12,13 +12,7 @@ runs:
     with:
       global-json-file: global.json
 
-  # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
-  # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
-  - name: Cache layout model
-    uses: actions/cache@v4
-    with:
-      path: .models
-      key: pdf-models-250dbad1-d57a942a
+  - uses: ./.github/actions/pdf-models
 
   - uses: ./.github/actions/restore
     with:

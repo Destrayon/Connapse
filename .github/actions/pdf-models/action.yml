@@ -1,0 +1,22 @@
+name: PDF models
+description: Restore the PDF models the Ingestion build downloads into .models/, and save them from pushes only.
+runs:
+  using: composite
+  steps:
+  # The PDF models (layout #642, table structure #652) are downloaded by the Ingestion build into .models/; keyed
+  # by their SHA-256 prefixes so a new model version downloads once and every other run restores it.
+  # Only pushes save (CON-351): every PR saving its own 119 MB copy under refs/pull/N/merge, where no other PR can
+  # read it, filled the repo's 10 GB cache and helped evict main's copy, which every PR reads.
+  - name: Cache PDF models
+    if: github.event_name != 'pull_request'
+    uses: actions/cache@v4
+    with:
+      path: .models
+      key: pdf-models-250dbad1-d57a942a
+
+  - name: Restore PDF models
+    if: github.event_name == 'pull_request'
+    uses: actions/cache/restore@v4
+    with:
+      path: .models
+      key: pdf-models-250dbad1-d57a942a
