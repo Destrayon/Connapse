@@ -28,7 +28,7 @@ The server instructions name every hidden tool by area, so the agent knows what 
 
 **Showing every tool.** A client with its own tool search, such as Claude Code, may do better with every tool listed, because it already loads tools on demand and the compact list puts a second search on top of its own. In [our test](../../eval/agent-search/con-346/results.md) with Claude Code's tool search on, agents given every tool used fewer tokens per task (14,175 against 19,106) and scored slightly higher on memory tasks (0.699 against 0.670). With its tool search off, the compact list used a third fewer tokens and scored the same.
 
-The list is chosen per connection, not per token. A client that connects to `/mcp/full` sees every tool, without `find_tools` and the call tools. A client at `/mcp` gets the server default: the compact list, unless an administrator chose **Every tool** under **Settings** → **MCP** or set `Mcp:ToolList` to `full`. Either way, a token sees only the tools its scopes allow ([Who can connect](#who-can-connect)).
+The list is chosen per connection, by URL. A client at `/mcp` always gets the compact list. A client that connects to `/mcp/full` sees every tool, without `find_tools` and the call tools. Either way, a token sees only the tools its scopes allow ([Who can connect](#who-can-connect)).
 
 ## Who can connect
 

@@ -2,7 +2,6 @@ using System.Reflection;
 using Connapse.Web.Mcp;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using ModelContextProtocol.Server;
 
 namespace Connapse.Web.Tests.Mcp;
@@ -11,9 +10,6 @@ namespace Connapse.Web.Tests.Mcp;
 [Trait("Category", "Unit")]
 public class McpToolListTests
 {
-    private static IConfiguration Config(string? toolList = null) =>
-        new ConfigurationBuilder().AddInMemoryCollection(toolList is null ? [] : [new(McpToolList.SettingKey, toolList)]).Build();
-
     private static HttpContext Request(string path) => new DefaultHttpContext { Request = { Path = path } };
 
     /// <summary>Every tool name in the web assembly that declares a risk.</summary>
@@ -23,21 +19,14 @@ public class McpToolListTests
         .Select(m => m.GetCustomAttribute<McpServerToolAttribute>()!.Name!);
 
     [Theory]
-    [InlineData("/mcp", null, false)]
-    [InlineData("/mcp", "compact", false)]
-    [InlineData("/mcp", "FULL", true)]
-    [InlineData("/mcp/full", null, true)]
-    [InlineData("/MCP/Full/x", null, true)]
-    [InlineData("/mcp/fuller", null, false)]
-    public void IsFull_PathOrSetting(string path, string? setting, bool full) =>
-        McpToolList.IsFull(Request(path), Config(setting)).Should().Be(full);
+    [InlineData("/mcp", false)]
+    [InlineData("/mcp/full", true)]
+    [InlineData("/MCP/Full/x", true)]
+    [InlineData("/mcp/fuller", false)]
+    public void IsFull_FollowsThePath(string path, bool full) => McpToolList.IsFull(Request(path)).Should().Be(full);
 
     [Fact]
-    public void IsFull_NoHttpContext_FollowsSetting()
-    {
-        McpToolList.IsFull(null, Config()).Should().BeFalse();
-        McpToolList.IsFull(null, Config("full")).Should().BeTrue();
-    }
+    public void IsFull_NoHttpContext_IsCompact() => McpToolList.IsFull(null).Should().BeFalse();
 
     [Theory]
     [InlineData("search_knowledge", false, true)]
@@ -68,11 +57,11 @@ public class McpToolListTests
     public async Task ConfigureSession_CompactGetsCompactInstructions_FullKeepsDefault()
     {
         var compact = new McpServerOptions { ServerInstructions = "default" };
-        await McpToolList.ConfigureSession(Request("/mcp"), compact, Config());
+        await McpToolList.ConfigureSession(Request("/mcp"), compact, CancellationToken.None);
         compact.ServerInstructions.Should().Be(McpToolList.CompactInstructions);
 
         var full = new McpServerOptions { ServerInstructions = "default" };
-        await McpToolList.ConfigureSession(Request("/mcp/full"), full, Config());
+        await McpToolList.ConfigureSession(Request("/mcp/full"), full, CancellationToken.None);
         full.ServerInstructions.Should().Be("default");
     }
 }

@@ -142,8 +142,7 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
     options.ServerInfo = new() { Name = "Connapse", Version = assemblyVersion };
     options.ServerInstructions = Connapse.Web.Mcp.McpServerConfig.McpServerInstructions;
 })
-.WithHttpTransport(transport => transport.ConfigureSessionOptions = (http, options, ct) =>
-    Connapse.Web.Mcp.McpToolList.ConfigureSession(http, options, http.RequestServices.GetRequiredService<IConfiguration>()))
+.WithHttpTransport(transport => transport.ConfigureSessionOptions = Connapse.Web.Mcp.McpToolList.ConfigureSession)
 .WithToolsFromAssembly()
 .WithRequestFilters(filters => filters.AddListToolsFilter(next => async (context, ct) =>
     await context.Services!.GetRequiredService<Connapse.Web.Mcp.McpToolListFilter>().ApplyAsync(context, await next(context, ct))))
@@ -292,8 +291,6 @@ builder.Services.Configure<LlmSettings>(
     builder.Configuration.GetSection("Knowledge:LLM"));
 builder.Services.Configure<UploadSettings>(
     builder.Configuration.GetSection("Knowledge:Upload"));
-builder.Services.Configure<McpSettings>(
-    builder.Configuration.GetSection(McpSettings.SectionName));
 
 // Add rate limiting
 builder.Services.AddConnapseRateLimiting(builder.Configuration);

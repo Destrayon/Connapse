@@ -6,12 +6,11 @@ namespace Connapse.Web.Mcp;
 
 /// <summary>
 /// Which tools <c>tools/list</c> shows (CON-346). The compact list shows the four question-answering tools plus
-/// <c>find_tools</c> and the call tools; every other tool is found by search. <c>Mcp:ToolList = full</c>, or a
-/// connection to <c>/mcp/full</c>, shows every tool directly and hides the search and call tools instead.
+/// <c>find_tools</c> and the call tools; every other tool is found by search. A
+/// connection to <c>/mcp/full</c> shows every tool directly and hides the search and call tools instead.
 /// </summary>
 public static class McpToolList
 {
-    public const string SettingKey = "Mcp:ToolList";
     public const string FullPath = "/mcp/full";
 
     /// <summary>The tools the compact list shows besides the search and call tools.</summary>
@@ -39,18 +38,17 @@ public static class McpToolList
         """;
 
     /// <summary>Whether this request gets every tool directly rather than the compact list.</summary>
-    public static bool IsFull(HttpContext? http, IConfiguration configuration) =>
-        (http is not null && http.Request.Path.StartsWithSegments(FullPath, StringComparison.OrdinalIgnoreCase))
-        || string.Equals(configuration[SettingKey], "full", StringComparison.OrdinalIgnoreCase);
+    public static bool IsFull(HttpContext? http) =>
+        http is not null && http.Request.Path.StartsWithSegments(FullPath, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a tool appears in <c>tools/list</c> for the given list.</summary>
     public static bool Shows(string name, bool full) =>
         full ? !McpToolSearch.Names.Contains(name) : Core.Contains(name) || McpToolSearch.Names.Contains(name);
 
     /// <summary>Sets the instructions for the list this session gets.</summary>
-    public static Task ConfigureSession(HttpContext http, McpServerOptions options, IConfiguration configuration)
+    public static Task ConfigureSession(HttpContext http, McpServerOptions options, CancellationToken cancellationToken)
     {
-        if (!IsFull(http, configuration))
+        if (!IsFull(http))
             options.ServerInstructions = CompactInstructions;
         return Task.CompletedTask;
     }
@@ -61,11 +59,11 @@ public static class McpToolList
 /// already drops each tool whose scope the caller lacks; this drops <c>find_tools</c> and the call tools when
 /// nothing behind them is usable. Hidden tools can still be called by name, and each still checks its caller.
 /// </summary>
-public sealed class McpToolListFilter(IHttpContextAccessor http, IConfiguration configuration, McpToolSearch search)
+public sealed class McpToolListFilter(IHttpContextAccessor http, McpToolSearch search)
 {
     public async Task<ListToolsResult> ApplyAsync(RequestContext<ListToolsRequestParams> context, ListToolsResult result)
     {
-        bool full = McpToolList.IsFull(http.HttpContext, configuration);
+        bool full = McpToolList.IsFull(http.HttpContext);
         var shown = result.Tools.Where(t => McpToolList.Shows(t.Name, full)).ToList();
         // An anonymous registry reads every schema (Mcp:AllowAnonymousDiscovery), the search tools included.
         if (!full && context.User?.Identity?.IsAuthenticated == true)

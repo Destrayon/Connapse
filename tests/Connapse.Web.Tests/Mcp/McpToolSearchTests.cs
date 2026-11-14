@@ -306,8 +306,7 @@ public class McpToolSearchTests
     private Task<ListToolsResult> ApplyListFilter(ClaimsPrincipal user, string path)
     {
         var http = new HttpContextAccessor { HttpContext = new DefaultHttpContext { User = user, Request = { Path = path } } };
-        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
-        var filter = new McpToolListFilter(http, configuration, Search);
+        var filter = new McpToolListFilter(http, Search);
         var server = Substitute.For<McpServer>();
         server.ServerOptions.Returns(new McpServerOptions { ToolCollection = _tools });
         var context = new RequestContext<ListToolsRequestParams>(server, new JsonRpcRequest { Method = "tools/list" }, new ListToolsRequestParams())

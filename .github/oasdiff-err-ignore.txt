@@ -48,5 +48,3 @@ POST /api/sources removed the enum value `Filesystem` of the request property `p
 POST /api/sources removed `#/components/schemas/SourceScopeFilesystemFolderScope` from the `scope` request property `oneOf` list
 GET /api/v1/connections removed the enum value `Filesystem` from the `query` request parameter `provider`
 POST /api/v1/connections removed the enum value `Filesystem` of the request property `provider/oneOf[#/components/schemas/ConnectionProvider]/`
-# CON-346: the mcp settings category is new in 0.5.0, which has not shipped; a client reads only the category it asked for, so a new anyOf member breaks none.
-GET /api/settings/{category} added `#/components/schemas/McpSettings` to the response body `anyOf` list for the response status `200`

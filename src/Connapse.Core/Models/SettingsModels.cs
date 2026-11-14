@@ -665,20 +665,3 @@ public record UploadSettings
     /// </summary>
     public bool PdfLayoutOnOcrPages { get; set; } = true;
 }
-
-
-/// <summary>
-/// What MCP clients see at <c>/mcp</c> (CON-346): the compact list, a few tools plus a tool search, or every tool.
-/// A connection to <c>/mcp/full</c> gets every tool whatever this says.
-/// </summary>
-public record McpSettings
-{
-    public const string SectionName = "Mcp";
-    public const string Category = "mcp";
-    public const string Compact = "compact";
-    public const string Full = "full";
-
-    /// <summary><c>compact</c> (the default) or <c>full</c>.</summary>
-    [AllowedValues(Compact, Full)]
-    public string ToolList { get; set; } = Compact;
-}

@@ -10196,12 +10196,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/UploadSettings"
-                    },
-                    {
-                      "$ref": "#/components/schemas/McpSettings"
                     }
                   ],
-                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, mcp: McpSettings."
+                  "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
                 }
               }
             }
@@ -10277,12 +10274,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/UploadSettings"
-                  },
-                  {
-                    "$ref": "#/components/schemas/McpSettings"
                   }
                 ],
-                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings, mcp: McpSettings."
+                "description": "The category's settings: embedding: EmbeddingSettings, chunking: ChunkingSettings, search: SearchSettings, llm: LlmSettings, upload: UploadSettings."
               }
             }
           },
@@ -19542,14 +19536,6 @@
           "Expired",
           "Used"
         ]
-      },
-      "McpSettings": {
-        "type": "object",
-        "properties": {
-          "toolList": {
-            "type": "string"
-          }
-        }
       },
       "MemoryCaller": {
         "required": [

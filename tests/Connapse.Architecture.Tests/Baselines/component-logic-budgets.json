@@ -224,10 +224,10 @@
     "IsEmpty": false
   },
   "Pages/Settings.razor": {
-    "CodeLines": 65,
+    "CodeLines": 58,
     "Injects": 1,
-    "Complexity": 9,
-    "MarkupLogic": 21,
+    "Complexity": 8,
+    "MarkupLogic": 18,
     "IsEmpty": false
   },
   "Pages/SourceEdit.razor": {
@@ -354,13 +354,6 @@
     "Injects": 2,
     "Complexity": 21,
     "MarkupLogic": 9,
-    "IsEmpty": false
-  },
-  "Settings/McpSettingsTab.razor": {
-    "CodeLines": 14,
-    "Injects": 0,
-    "Complexity": 3,
-    "MarkupLogic": 1,
     "IsEmpty": false
   },
   "Settings/SamlSignInSettingsTab.razor": {

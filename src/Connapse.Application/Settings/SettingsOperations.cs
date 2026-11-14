@@ -244,7 +244,6 @@ public static class SettingsCategories
         new SettingsCategory<SearchSettings>("search", "search"),
         new SettingsCategory<LlmSettings>("llm", "llm"),
         new SettingsCategory<UploadSettings>("upload", "upload"),
-        new SettingsCategory<McpSettings>(McpSettings.Category, McpSettings.Category),
     ];
 
     /// <summary>

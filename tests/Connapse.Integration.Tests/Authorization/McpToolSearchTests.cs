@@ -43,26 +43,6 @@ public class McpToolSearchTests(SharedWebAppFixture fixture)
     }
 
     [Fact]
-    public async Task CompactEndpoint_ServerSettingSavedAsFull_ShowsEveryToolWithoutARestart()
-    {
-        try
-        {
-            (await fixture.AdminClient.PutAsJsonAsync($"/api/settings/{McpSettings.Category}",
-                new McpSettings { ToolList = McpSettings.Full })).EnsureSuccessStatusCode();
-            await using var full = await AdminTokenAsync(["knowledge:read"], requiresApproval: false, McpTestClient.Compact);
-
-            (await full.ListToolsAsync()).Select(t => t.Name).Should().NotContain(McpToolSearch.Names);
-        }
-        finally
-        {
-            (await fixture.AdminClient.DeleteAsync($"/api/v1/settings/{McpSettings.Category}")).EnsureSuccessStatusCode();
-        }
-
-        await using var compact = await AdminTokenAsync(["knowledge:read"], requiresApproval: false, McpTestClient.Compact);
-        (await compact.ListToolsAsync()).Select(t => t.Name).Should().Contain([McpToolSearch.FindName, McpToolSearch.CallReadName]);
-    }
-
-    [Fact]
     public async Task FullList_EverySchemaUsesOnlyKeywordsTheCallToolsCheck()
     {
         await using var mcp = await Surfaces.McpAsync(fixture);

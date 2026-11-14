@@ -119,8 +119,7 @@ public partial class SettingsOperationTests
     {
         SettingsCategories.All.Select(c => (c.Name, c.Key, c.Type)).Should().Equal(
             ("embedding", "embedding", typeof(EmbeddingSettings)), ("chunking", "chunking", typeof(ChunkingSettings)),
-            ("search", "search", typeof(SearchSettings)), ("llm", "llm", typeof(LlmSettings)), ("upload", "upload", typeof(UploadSettings)),
-            ("mcp", "mcp", typeof(McpSettings)));
+            ("search", "search", typeof(SearchSettings)), ("llm", "llm", typeof(LlmSettings)), ("upload", "upload", typeof(UploadSettings)));
     }
 
     [Theory]

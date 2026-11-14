@@ -73,7 +73,6 @@ These are read once at startup, so a change needs a restart. None of them is on 
 | `DataDirectory`: Where Connapse keeps generated keys and state | — | `DataDirectory` | string | `"appdata"` | Yes | No |
 | `Cors:AllowedOrigins`: Browser origins allowed to call the API and `/mcp`, besides loopback | — | `Cors__AllowedOrigins__0`, `__1`, … | string[] | empty | Yes | No |
 | `Mcp:AllowAnonymousDiscovery`: Let MCP clients list tools before signing in | — | `Mcp__AllowAnonymousDiscovery` | bool | `false` | Yes | No |
-| `Mcp:ToolList`: `compact` shows eight tools and finds the rest with `find_tools`; `full` shows every tool at `/mcp` too. `/mcp/full` shows every tool either way ([Tool lists](mcp-tools.md#tool-lists)) | **Settings** → **MCP** | `Mcp__ToolList` | string | `compact` | No | No |
 | `Hangfire:IngestionWorkerCount`: Files ingested at once, and parser processes kept | — | `Hangfire__IngestionWorkerCount` | int | `4` | Yes | No |
 | `Hangfire:MaxPoolSize`: Most database connections the job queue may hold | — | `Hangfire__MaxPoolSize` | int | `30` | Yes | No |
 | `Hangfire:DisableServer`: Queue jobs but run none on this instance | — | `Hangfire__DisableServer` | bool | `false` | Yes | No |
