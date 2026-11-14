@@ -1,4 +1,5 @@
 - {Id: AWSSDK2000, Title: AWS SDK collection property is null, Category: AWSSDK.Nullability, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
+- {Id: AWSSDK3000, Title: AWS SDK target framework is no longer supported, Category: AWSSDK.Packaging, DefaultSeverity: Warning, IsEnabledByDefault: true, EffectiveSeverities: [Error], IsEverSuppressed: false}
 - {Id: CA1000, Title: Do not declare static members on generic types, Category: Design, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: CA1001, Title: Types that own disposable fields should be disposable, Category: Design, DefaultSeverity: Note, IsEnabledByDefault: true, EffectiveSeverities: [Note], IsEverSuppressed: false}
 - {Id: CA1002, Title: Do not expose generic lists, Category: Design, DefaultSeverity: Warning, IsEnabledByDefault: false, EffectiveSeverities: [None], IsEverSuppressed: true}
