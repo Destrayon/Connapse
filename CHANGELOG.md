@@ -33,6 +33,7 @@ Set `CONNAPSE_VERSION=v0.4.2`, then pull and start as in [Upgrade Connapse](docs
 - PDFium 159.0.8138 → 159.0.8152 (Linux, macOS and Windows packages), the library that renders PDF pages (#1240, supersedes #1243).
 - Anthropic SDK 13.3.0 → 13.8.0 (#1240, supersedes #1245).
 - AngleSharp 1.9.0 → 1.10.3, the HTML parser (CON-352, #1248).
+- Microsoft.AspNetCore.Authentication.JwtBearer 10.0.7 → 10.0.15, a servicing patch for sign-in token checks, with the four Microsoft.IdentityModel packages it needs 8.18.0 → 8.19.2 (#1240, supersedes #1250).
 
 ## [v0.4.1] - 2026-11-10
 
