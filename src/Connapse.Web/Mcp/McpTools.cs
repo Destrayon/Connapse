@@ -290,13 +290,20 @@ public partial class McpTools
         [Description("Original file name with extension")] string fileName = "",
         [Description("Destination folder path (e.g., '/docs/2026/')")] string? path = null,
         [Description("Chunking strategy: Semantic, FixedSize, or Recursive. Default: Semantic")] string? strategy = null,
-        [Description("Several files instead of one: JSON array of {\"filename\":\"name.txt\", \"content\":\"...\", \"encoding\":\"text|base64\", \"folderPath\":\"/optional/\"}. Max 100. Use instead of fileName, content, textContent, path and strategy.")] string? files = null,
+        [Description("Several files instead of one: JSON array of {\"filename\":\"name.txt\", \"content\":\"...\", \"encoding\":\"text|base64\", \"folderPath\":\"/optional/\"}, sent as the array itself or as a string holding it. Max 100. Use instead of fileName, content, textContent, path and strategy.")] System.Text.Json.JsonElement? files = null,
         CancellationToken ct = default)
     {
-        if (!string.IsNullOrEmpty(files))
-            return content is not null || textContent is not null || !string.IsNullOrEmpty(fileName) || path is not null || strategy is not null
-                ? "Error: Provide either 'files' or a single file's 'fileName', 'content'/'textContent', 'path' and 'strategy', not both."
-                : await UploadFilesAsync(bulkUpload, getContainer, http, containerId, files, ct);
+        if (FilesGiven(files) is { } given)
+        {
+            if (content is not null || textContent is not null || !string.IsNullOrEmpty(fileName) || path is not null || strategy is not null)
+                return "Error: Provide either 'files' or a single file's 'fileName', 'content'/'textContent', 'path' and 'strategy', not both.";
+            return given.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.Array => await UploadFilesAsync(bulkUpload, getContainer, http, containerId, given.GetRawText(), ct),
+                System.Text.Json.JsonValueKind.String => await UploadFilesAsync(bulkUpload, getContainer, http, containerId, given.GetString()!, ct),
+                _ => FilesShapeError,
+            };
+        }
 
         if (string.IsNullOrEmpty(fileName))
             return "Error: 'fileName' is required (or 'files' for several files).";
@@ -453,6 +460,21 @@ public partial class McpTools
         CancellationToken ct = default) =>
         UploadFilesAsync(bulkUpload, getContainer, http, containerId, files, ct);
 
+    /// <summary>What an agent is told when 'files' isn't a list of file objects (CON-350).</summary>
+    internal const string FilesShapeError =
+        "Error: 'files' must be a JSON array of file objects, each {\"filename\":\"name.txt\", \"content\":\"...\", "
+        + "\"encoding\":\"text|base64\", \"folderPath\":\"/optional/\"}; send the array itself or a string holding it. "
+        + "For one file, use 'fileName' with 'content' or 'textContent' instead.";
+
+    /// <summary>The 'files' value when one was given: absent, null and an empty string all mean the single-file form.</summary>
+    private static System.Text.Json.JsonElement? FilesGiven(System.Text.Json.JsonElement? files) => files switch
+    {
+        null => null,
+        { ValueKind: System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined } => null,
+        { ValueKind: System.Text.Json.JsonValueKind.String } s when string.IsNullOrEmpty(s.GetString()) => null,
+        _ => files,
+    };
+
     private static async Task<string> UploadFilesAsync(
         BulkUploadFiles bulkUpload, GetContainer getContainer, IHttpContextAccessor http, string containerId, string files, CancellationToken ct)
     {
@@ -467,7 +489,7 @@ public partial class McpTools
         }
         catch
         {
-            return "Error: 'files' must be a valid JSON array of file objects.";
+            return FilesShapeError;
         }
 
         if (items.Count == 0)

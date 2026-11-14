@@ -46,6 +46,7 @@ public class DeletionBatchTests(SharedWebAppFixture fixture)
             // One agent call asks for all ten.
             var asked = Json(await agent.CallToolAsync("request_deletions", new Dictionary<string, object?> { ["items"] = items }));
             asked.GetProperty("state").GetString().Should().Be("pending");
+            asked.GetProperty("isYours").GetBoolean().Should().BeTrue("the token that asked is reading its own batch (CON-350)");
             asked.GetProperty("items").GetArrayLength().Should().Be(10);
             Guid batchId = asked.GetProperty("id").GetGuid();
 
@@ -62,6 +63,7 @@ public class DeletionBatchTests(SharedWebAppFixture fixture)
 
             var status = Json(await agent.CallToolAsync("deletion_status", new Dictionary<string, object?> { ["batchId"] = batchId.ToString() }));
             status.GetProperty("state").GetString().Should().Be("done");
+            status.GetProperty("isYours").GetBoolean().Should().BeTrue("the token that asked is reading its own batch (CON-350)");
             status.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("state").GetString()).Should().AllBe("deleted");
             foreach (string file in files.Concat(inFolder))
                 (await http.GetAsync($"/api/containers/{container}/files/{file}")).StatusCode.Should().Be(HttpStatusCode.NotFound);

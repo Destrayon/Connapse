@@ -31,7 +31,8 @@ public sealed record DeletionBatchItemView(
 
 /// <summary>
 /// A batch of deletions. <paramref name="State"/> is pending, expired, denied, running or done; <paramref name="Message"/>
-/// says what the agent should do next. <paramref name="IsYours"/> is whether the viewer owns it and so may decide it.
+/// says what the agent should do next. <paramref name="IsYours"/> is whether the viewer owns it: the owner, who may decide it, or
+/// the token that asked for it, reading its own batch (CON-350).
 /// </summary>
 public sealed record DeletionBatchView(
     Guid Id, string State, DateTime CreatedAt, DateTime ExpiresAt, DateTime? DecidedAt, string? Reason,
@@ -151,7 +152,7 @@ public static class DeletionTargets
 
     private static string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
-    public static DeletionBatchView View(DeletionBatchEntity batch, DateTime now, Guid? viewer = null)
+    public static DeletionBatchView View(DeletionBatchEntity batch, DateTime now, Guid? viewer = null, string? viewerToken = null)
     {
         bool expired = batch.Status == DeletionBatchStatus.Pending && batch.ExpiresAt <= now;
         var items = batch.Items.OrderBy(i => i.Position)
@@ -181,7 +182,7 @@ public static class DeletionTargets
                 + "not-approved items another way: ask again if they still need to go."),
         };
         return new DeletionBatchView(batch.Id, state, batch.CreatedAt, batch.ExpiresAt, batch.DecidedAt, batch.DecisionReason, items, message,
-            viewer is Guid v && v == batch.OwnerUserId, batch.TokenKey);
+            (viewer is Guid v && v == batch.OwnerUserId) || (viewerToken is not null && viewerToken == batch.TokenKey), batch.TokenKey);
     }
 }
 
@@ -236,9 +237,10 @@ public sealed class RequestDeletions(
             return Fail(DeletionBatchOutcome.Invalid,
                 "Nothing was asked for, because some items can't be deleted. Fix or drop them and ask again: " + string.Join("; ", problems) + ".", "items");
 
-        var batch = await batches.CreateAsync(McpApprovalClaims.TokenKey(context.User), owner, resolved, ct);
+        string tokenKey = McpApprovalClaims.TokenKey(context.User);
+        var batch = await batches.CreateAsync(tokenKey, owner, resolved, ct);
         await audit.LogAsync("deletion_batch.requested", "deletion_batch", batch.Id.ToString(), new { Items = resolved.Count }, ct);
-        return Attempt<DeletionBatchView, DeletionBatchOutcome>.Succeed(DeletionTargets.View(batch, clock.GetUtcNow().UtcDateTime));
+        return Attempt<DeletionBatchView, DeletionBatchOutcome>.Succeed(DeletionTargets.View(batch, clock.GetUtcNow().UtcDateTime, viewerToken: tokenKey));
     }
 
     private async Task<(NewDeletionItem? Item, string? Problem)> ResolveAsync(OperationContext context, Guid owner, DeletionRequestItem request, CancellationToken ct)
@@ -361,7 +363,7 @@ public sealed class GetDeletionBatchStatus(IDeletionBatchStore batches, TimeProv
                 return NotFound(id);
 
             var now = clock.GetUtcNow();
-            var view = DeletionTargets.View(batch, now.UtcDateTime);
+            var view = DeletionTargets.View(batch, now.UtcDateTime, viewerToken: tokenKey);
             if (view.State is not ("pending" or "running") || now >= deadline)
                 return Attempt<DeletionBatchView, DeletionBatchOutcome>.Succeed(view);
 
