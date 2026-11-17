@@ -60,6 +60,8 @@ Use this when you want to put a Connapse server on a network other people can re
 
    `client_max_body_size` is Connapse's default upload limit of 256 MiB plus 1 MiB for the form around the file. Raise both together if you raise one. A proxy's own limit below Connapse's refuses a file before Connapse sees it.
 
+   Keep `/oauth/clients/cli.json` reachable through the proxy, from the Connapse server's own address too. `connapse auth login` names that file as its client, and when Connapse can't tell the request came in over https it fetches the file through the proxy. A proxy with an IP allowlist that blocks the server then makes sign-in fail with "Unknown or unregistered client." followed by the URL and the HTTP status the fetch got, such as 403.
+
    Connapse keeps a large upload in its temp folder while it arrives, and again while parsing it, so leave free disk there of about twice the size of the largest uploads running at once.
 
 5. Bind the web port to the proxy only. Create `docker-compose.prod.yml` next to `docker-compose.yml`:

@@ -157,11 +157,11 @@
         }
 
         // Resolve and validate client
-        clientInfo = await OAuthClientService.ResolveClientAsync(ClientId!, $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}");
+        (clientInfo, string? fetchFailure) = await OAuthClientService.ResolveClientWithReasonAsync(ClientId!, $"{HttpContext.Request.Scheme}://{HttpContext.Request.Host}");
         if (clientInfo is null)
         {
             isError = true;
-            errorMessage = "Unknown or unregistered client.";
+            errorMessage = OAuthClientService.UnknownClientMessage(ClientId!, fetchFailure, HttpContext.Request.Host.Host, HttpContext.Request.Host.Port);
             return;
         }
 

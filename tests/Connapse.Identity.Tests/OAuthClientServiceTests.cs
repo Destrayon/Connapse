@@ -1,8 +1,10 @@
+using System.Net;
 using System.Text.Json;
 using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Connapse.Identity.Tests;
@@ -395,6 +397,140 @@ public class OAuthClientServiceTests
 
         client!.ApplicationType.Should().Be("native");
         client.RedirectUris.Should().Equal("http://localhost:53682/callback");
+    }
+
+    // -- Client file fetch failures (CON-356) --
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, 403, "Forbidden")]
+    [InlineData(HttpStatusCode.NotFound, 404, "NotFound")]
+    public async Task ResolveClientWithReasonAsync_ClientFileErrorStatus_NamesUrlAndStatus(
+        HttpStatusCode status, int code, string name)
+    {
+        using var db = CreateDbContext();
+        const string clientId = "https://kb.example.com/oauth/clients/cli.json";
+        var logger = new RecordingLogger<OAuthClientService>();
+        var sut = new OAuthClientService(db, new HttpClient(new StatusHandler(status)), logger);
+
+        // The server sees itself as http behind the proxy, so the https CLI address is fetched rather than answered.
+        var resolution = await sut.ResolveClientWithReasonAsync(clientId, "http://kb.example.com");
+
+        resolution.Client.Should().BeNull();
+        resolution.FetchFailure.Should().Contain(clientId).And.Contain($"HTTP {code} ({name})");
+        logger.Warnings.Should().ContainSingle()
+            .Which.Should().Contain(clientId).And.Contain($"HTTP {code} ({name})");
+    }
+
+    [Fact]
+    public async Task ResolveClientWithReasonAsync_ErrorHeadersThenStalledBody_StillNamesUrlAndStatus()
+    {
+        using var db = CreateDbContext();
+        const string clientId = "https://kb.example.com/oauth/clients/cli.json";
+        var logger = new RecordingLogger<OAuthClientService>();
+        // A body that never finishes: waiting for it would run into the client timeout and lose the 403.
+        using var httpClient = new HttpClient(new StalledBodyHandler(HttpStatusCode.Forbidden)) { Timeout = TimeSpan.FromSeconds(2) };
+        var sut = new OAuthClientService(db, httpClient, logger);
+
+        var resolution = await sut.ResolveClientWithReasonAsync(clientId, "http://kb.example.com");
+
+        resolution.Client.Should().BeNull();
+        resolution.FetchFailure.Should().Contain(clientId).And.Contain("HTTP 403 (Forbidden)");
+        logger.Warnings.Should().ContainSingle().Which.Should().Contain("HTTP 403 (Forbidden)");
+    }
+
+    private sealed class StalledBodyHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(status) { Content = new StreamContent(new NeverEndingStream()) });
+    }
+
+    private sealed class NeverEndingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("Read asynchronously.");
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, "HTTP 403 (Forbidden)")]
+    [InlineData(HttpStatusCode.NotFound, "HTTP 404 (NotFound)")]
+    public async Task UnknownClientMessage_CliFileFetchFailed_NamesUrlStatusAndProxyHint(HttpStatusCode status, string expected)
+    {
+        using var db = CreateDbContext();
+        const string clientId = "https://kb.example.com/oauth/clients/cli.json";
+        var sut = CreateService(db, new HttpClient(new StatusHandler(status)));
+        var resolution = await sut.ResolveClientWithReasonAsync(clientId, "http://kb.example.com");
+
+        string message = OAuthClientService.UnknownClientMessage(clientId, resolution.FetchFailure, "kb.example.com", null);
+
+        message.Should().StartWith("Unknown or unregistered client.")
+            .And.Contain(clientId)
+            .And.Contain(expected)
+            .And.Contain("reverse proxy");
+    }
+
+    [Fact]
+    public void UnknownClientMessage_NothingFetched_IsThePlainMessage() =>
+        OAuthClientService.UnknownClientMessage("some-unregistered-id", null, "kb.example.com", null)
+            .Should().Be("Unknown or unregistered client.");
+
+    // A signed-in user chooses the client_id, so the page must not echo the outcome of fetching an arbitrary URL:
+    // that would let them probe loopback ports or other hosts the server can reach.
+    [Theory]
+    [InlineData("https://app.example.com/client.json")]
+    [InlineData("http://127.0.0.1:8080/admin")]
+    [InlineData("http://localhost:6379/oauth/clients/cli.json")]
+    [InlineData("https://internal.lan/oauth/clients/cli.json")]
+    [InlineData("https://kb.example.com:9200/oauth/clients/cli.json")]
+    [InlineData("https://kb.example.com/oauth/clients/cli.json?x=1")]
+    public void UnknownClientMessage_NotThisServersCliFile_HidesTheFetchOutcome(string clientId) =>
+        OAuthClientService.UnknownClientMessage(
+                clientId, $"Fetching the client file {clientId} returned HTTP 403 (Forbidden).", "kb.example.com", null)
+            .Should().Be("Unknown or unregistered client.");
+
+    [Theory]
+    [InlineData("https://kb.example.com/oauth/clients/cli.json", "KB.example.com", null)]
+    [InlineData("https://kb.example.com:8443/oauth/clients/cli.json", "kb.example.com", 8443)]
+    [InlineData("https://kb.example.com/oauth/clients/cli.json", "kb.example.com", 8080)]
+    public void UnknownClientMessage_ThisServersCliFile_ShowsTheFetchOutcome(string clientId, string host, int? port) =>
+        OAuthClientService.UnknownClientMessage(
+                clientId, $"Fetching the client file {clientId} returned HTTP 403 (Forbidden).", host, port)
+            .Should().Contain("HTTP 403 (Forbidden)").And.Contain("reverse proxy");
+
+    private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(status));
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
+
+        public IEnumerable<string> Warnings =>
+            Entries.Where(e => e.Level == LogLevel.Warning).Select(e => e.Message);
     }
 
     private sealed class RecordingHandler(string? body = null) : HttpMessageHandler

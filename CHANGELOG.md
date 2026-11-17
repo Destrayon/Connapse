@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The sign-in page says why it couldn't load the CLI's client file** (CON-356). When Connapse fetched its own `/oauth/clients/cli.json` for `connapse auth login` through a reverse proxy and the fetch failed, the page said only "Unknown or unregistered client." It now adds the file's URL and the HTTP status that came back, and notes that the proxy must let the Connapse server reach that file. Other apps' client files still get the plain message, so the page can't be used to probe addresses the server can reach. The server logs a warning with the URL and status for any client file. Reported in discussion #1202.
+
 ## [v0.4.2] - 2026-11-15
 
 v0.4.2 finishes the approval change v0.4.1 started: every knowledge delete an agent's token holds for approval, one item or many, becomes a batch that Connapse carries out once you approve it, so agents no longer repeat a held delete. It also folds the multi-file MCP tools into the single-file ones.

@@ -65,25 +65,47 @@ public class OAuthClientService(
 
     // -- Client ID Metadata Document --
 
-    public async Task<OAuthClientInfo?> FetchMetadataDocumentAsync(string clientIdUrl, CancellationToken ct = default)
+    public async Task<OAuthClientInfo?> FetchMetadataDocumentAsync(string clientIdUrl, CancellationToken ct = default) =>
+        (await FetchMetadataDocumentWithReasonAsync(clientIdUrl, ct)).Client;
+
+    /// <summary>
+    /// Fetches a Client ID Metadata Document and, when that fails, says why: the URL it fetched and the HTTP status
+    /// that came back, or what was wrong with the document. A proxy that blocks the server's own request for its
+    /// CLI document otherwise surfaces only as an unknown client.
+    /// </summary>
+    public async Task<ClientResolution> FetchMetadataDocumentWithReasonAsync(string clientIdUrl, CancellationToken ct = default)
     {
         if (!Uri.TryCreate(clientIdUrl, UriKind.Absolute, out var uri))
-            return null;
+            return ClientResolution.Unknown;
 
         // HTTPS required, except HTTP allowed for loopback (RFC 8252 §8.3)
         if (!IsMetadataDocumentClientId(uri))
         {
-            return null;
+            return ClientResolution.Unknown;
         }
 
+        bool headersArrived = false;
         try
         {
-            var response = await httpClient.GetAsync(uri, ct);
+            // Headers only: a proxy that sends 403 headers and then stalls the body must still be reported as a 403,
+            // so the status is checked before any content is read.
+            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+            headersArrived = true;
             if (!response.IsSuccessStatusCode)
-                return null;
+            {
+                int status = (int)response.StatusCode;
+                logger.LogWarning(
+                    "Client ID metadata document fetch from {Url} returned HTTP {StatusCode} ({StatusName})",
+                    LogSanitizer.Sanitize(clientIdUrl), status, response.StatusCode);
+                return ClientResolution.FetchFailed(
+                    $"Fetching the client file {clientIdUrl} returned HTTP {status} ({response.StatusCode}).");
+            }
 
-            string json = await response.Content.ReadAsStringAsync(ct);
-            var doc = JsonDocument.Parse(json);
+            // HttpClient.Timeout stops covering the request once the headers are in, so the body gets its own limit.
+            using var bodyCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            bodyCts.CancelAfter(MetadataBodyReadTimeout);
+            string json = await response.Content.ReadAsStringAsync(bodyCts.Token);
+            using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
             var docClientId = root.GetProperty("client_id").GetString();
@@ -91,7 +113,8 @@ public class OAuthClientService(
             {
                 logger.LogWarning("Client ID metadata document client_id mismatch: expected {Expected}, got {Actual}",
                     LogSanitizer.Sanitize(clientIdUrl), LogSanitizer.Sanitize(docClientId));
-                return null;
+                return ClientResolution.FetchFailed(
+                    $"The client file {clientIdUrl} names a different client_id than its own address.");
             }
 
             string clientName = root.GetProperty("client_name").GetString() ?? "Unknown";
@@ -100,37 +123,54 @@ public class OAuthClientService(
                 .Select(e => e.GetString()!)
                 .ToList();
 
-            return new OAuthClientInfo(clientIdUrl, clientName, redirectUris, "native");
+            return new ClientResolution(new OAuthClientInfo(clientIdUrl, clientName, redirectUris, "native"), null);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Failed to fetch client ID metadata document from {Url}", LogSanitizer.Sanitize(clientIdUrl));
-            return null;
+            return ClientResolution.FetchFailed(ex switch
+            {
+                HttpRequestException or OperationCanceledException when !headersArrived =>
+                    $"Fetching the client file {clientIdUrl} failed before any response came back.",
+                HttpRequestException or OperationCanceledException =>
+                    $"Fetching the client file {clientIdUrl} returned a success status, but its content didn't arrive.",
+                _ => $"The client file {clientIdUrl} is not a valid client description.",
+            });
         }
     }
+
+    /// <summary>How long the body of a client metadata document may take once its headers have arrived.</summary>
+    private static readonly TimeSpan MetadataBodyReadTimeout = TimeSpan.FromSeconds(10);
 
     // -- Resolve client (metadata doc or DB lookup) --
 
     /// <param name="serverBaseUrl">This server's own scheme and host, as it publishes its CLI document under; the
     /// CLI's client_id for this server resolves from it without a fetch, over http too.</param>
-    public async Task<OAuthClientInfo?> ResolveClientAsync(string clientId, string? serverBaseUrl = null, CancellationToken ct = default)
+    public async Task<OAuthClientInfo?> ResolveClientAsync(string clientId, string? serverBaseUrl = null, CancellationToken ct = default) =>
+        (await ResolveClientWithReasonAsync(clientId, serverBaseUrl, ct)).Client;
+
+    /// <summary>
+    /// <see cref="ResolveClientAsync"/>, plus why a client whose metadata document was fetched couldn't be resolved.
+    /// </summary>
+    public async Task<ClientResolution> ResolveClientWithReasonAsync(string clientId, string? serverBaseUrl = null, CancellationToken ct = default)
     {
         if (IsFirstPartyCliClientId(clientId, serverBaseUrl))
-            return FirstPartyCliClient(clientId);
+            return new ClientResolution(FirstPartyCliClient(clientId), null);
 
         // URL-formatted client_id = Client ID Metadata Document
         if (Uri.TryCreate(clientId, UriKind.Absolute, out var uri) && IsMetadataDocumentClientId(uri))
         {
-            return await FetchMetadataDocumentAsync(clientId, ct);
+            return await FetchMetadataDocumentWithReasonAsync(clientId, ct);
         }
 
         // Otherwise, look up in registered clients
         var entity = await GetByClientIdAsync(clientId, ct);
         if (entity is null)
-            return null;
+            return ClientResolution.Unknown;
 
         var redirectUris = JsonSerializer.Deserialize<List<string>>(entity.RedirectUris) ?? [];
-        return new OAuthClientInfo(entity.ClientId, entity.ClientName, redirectUris, entity.ApplicationType);
+        return new ClientResolution(
+            new OAuthClientInfo(entity.ClientId, entity.ClientName, redirectUris, entity.ApplicationType), null);
     }
 
     // -- Redirect URI Validation --
@@ -182,6 +222,42 @@ public class OAuthClientService(
     public static bool IsFirstPartyCliClientId(string clientId, string? serverBaseUrl) =>
         !string.IsNullOrEmpty(serverBaseUrl)
         && string.Equals(clientId, serverBaseUrl + FirstPartyCliPath, StringComparison.Ordinal);
+
+    /// <summary>
+    /// The sign-in page's error for a client it couldn't resolve. Only when the client is this server's own CLI
+    /// document, reached under the host the request came in on, does it add why the fetch failed and that a reverse
+    /// proxy must let the server reach it, the usual cause behind a proxy with an IP allowlist. Any other URL gets
+    /// the plain message: a signed-in user picks the client_id, so echoing the outcome of fetching an arbitrary URL
+    /// (a loopback port, say) would let them probe services the server can reach. The server log has the details.
+    /// </summary>
+    /// <param name="requestHost">The host the sign-in request came in on, without its port.</param>
+    /// <param name="requestPort">The port the sign-in request came in on, when the Host header named one.</param>
+    public static string UnknownClientMessage(string clientId, string? fetchFailure, string? requestHost, int? requestPort)
+    {
+        const string unknown = "Unknown or unregistered client.";
+        if (fetchFailure is null || !IsOwnCliDocumentUrl(clientId, requestHost, requestPort))
+            return unknown;
+
+        return $"{unknown} {fetchFailure} If a reverse proxy sits in front of Connapse, it must let the Connapse server itself reach {FirstPartyCliPath}.";
+    }
+
+    /// <summary>
+    /// Whether <paramref name="clientId"/> is exactly this server's CLI document path on the request's own host:
+    /// same host, the request's port or the scheme's default one, and no query or fragment.
+    /// </summary>
+    private static bool IsOwnCliDocumentUrl(string clientId, string? requestHost, int? requestPort)
+    {
+        if (string.IsNullOrEmpty(requestHost)
+            || !Uri.TryCreate(clientId, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.AbsolutePath, FirstPartyCliPath, StringComparison.Ordinal)
+            || uri.Query.Length > 0 || uri.Fragment.Length > 0
+            || !string.Equals(uri.Host, requestHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return requestPort is null ? uri.IsDefaultPort : uri.Port == requestPort || uri.IsDefaultPort;
+    }
 
     private static OAuthClientInfo FirstPartyCliClient(string clientId) =>
         new(clientId, FirstPartyCliName, [.. FirstPartyCliRedirectUris], "native");
@@ -239,3 +315,14 @@ public record OAuthClientInfo(
     string ClientName,
     List<string> RedirectUris,
     string ApplicationType);
+
+/// <summary>
+/// A resolved client, or none. <see cref="FetchFailure"/> says why when the client's metadata document was fetched
+/// and the fetch or the document failed: it names the URL and, for an error response, the HTTP status.
+/// </summary>
+public record ClientResolution(OAuthClientInfo? Client, string? FetchFailure)
+{
+    public static readonly ClientResolution Unknown = new(null, null);
+
+    public static ClientResolution FetchFailed(string reason) => new(null, reason);
+}
