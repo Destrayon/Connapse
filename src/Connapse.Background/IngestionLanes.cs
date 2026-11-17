@@ -18,9 +18,9 @@ namespace Connapse.Background;
 /// scanned PDF is large in bytes for little text, and is merely sent to the lane with fewer workers.
 /// </para>
 /// <para>
-/// The parser pool stays sized by <c>Hangfire:IngestionWorkerCount</c> alone: with the defaults, large documents
-/// can hold at most two of its four hosts, and adding hosts for the large lane would cost memory for parses that
-/// mostly wait on embedding anyway.
+/// The parser pool stays sized by <c>Hangfire:IngestionWorkerCount</c> alone, since adding hosts for the large lane
+/// would cost memory for parses that mostly wait on embedding anyway. It keeps one of its hosts out of large files'
+/// reach instead, so a pool that memory held to two hosts is not filled by the large lane.
 /// </para>
 /// </remarks>
 /// <param name="Workers">Documents below the threshold ingested at once (<c>Hangfire:IngestionWorkerCount</c>).</param>
@@ -42,7 +42,7 @@ public sealed record IngestionLanes(
     /// <summary>
     /// 2 MiB. A text PDF of a few dozen pages is well under it; the 492-page reports that caused CON-354 are above.
     /// </summary>
-    public const long DefaultLargeDocumentBytes = 2L * 1024 * 1024;
+    public const long DefaultLargeDocumentBytes = Ingestion.Isolation.ParserProcessPool.DefaultLargeDocumentBytes;
 
     public static IngestionLanes FromConfiguration(IConfiguration configuration) => new(
         PositiveSetting(configuration, "Hangfire:IngestionWorkerCount", DefaultWorkers),

@@ -184,6 +184,22 @@ public class PostgresDocumentStore : IDocumentStore
         return entity is null ? null : MapToModel(entity);
     }
 
+    public async Task<long?> StoredByteSizeAsync(string documentId, CancellationToken ct = default)
+    {
+        if (!Guid.TryParse(documentId, out var guid))
+            return null;
+
+        await using var context = await _factory.CreateDbContextAsync(ct);
+        var row = await context.Documents
+            .AsNoTracking()
+            .Where(d => d.Id == guid)
+            .Select(d => new { d.SourceId, d.ContentHash, d.SizeBytes })
+            .FirstOrDefaultAsync(ct);
+
+        // The pipeline writes the bytes it read and their hash together, so a hash means the size is a byte count.
+        return row is not null && (row.SourceId is null || row.ContentHash.Length > 0) ? row.SizeBytes : null;
+    }
+
     public async Task<IReadOnlyList<Document>> ListAsync(
         Guid containerId,
         string? pathPrefix = null,

@@ -41,8 +41,8 @@ public sealed class LargeDocumentLaneTests
 
         var sizes = new ConcurrentDictionary<Guid, long>();
         var documents = Substitute.For<IDocumentStore>();
-        documents.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(call => Doc(Guid.Parse(call.Arg<string>()), sizes[Guid.Parse(call.Arg<string>())]));
+        documents.StoredByteSizeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call => sizes.TryGetValue(Guid.Parse(call.Arg<string>()), out long bytes) ? bytes : (long?)null);
         var lifecycle = Substitute.For<IDocumentLifecycle>();
         lifecycle.EnqueuedAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(1);
         lifecycle.RecordJobAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -100,8 +100,8 @@ public sealed class LargeDocumentLaneTests
         var storage = new MemoryStorage();
         var sizes = new ConcurrentDictionary<Guid, long>();
         var documents = Substitute.For<IDocumentStore>();
-        documents.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(call => Doc(Guid.Parse(call.Arg<string>()), sizes[Guid.Parse(call.Arg<string>())]));
+        documents.StoredByteSizeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call => sizes.TryGetValue(Guid.Parse(call.Arg<string>()), out long bytes) ? bytes : (long?)null);
         var lifecycle = Substitute.For<IDocumentLifecycle>();
         lifecycle.EnqueuedAsync(Arg.Any<Guid>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(1);
 
@@ -123,6 +123,16 @@ public sealed class LargeDocumentLaneTests
 
         Queue(underJob).Should().Be(JobQueues.Ingestion);
         Queue(atJob).Should().Be(JobQueues.IngestionLarge);
+
+        // A source sync knows the new version's size; the stored one is still the last version's.
+        Guid grown = Guid.NewGuid(); sizes[grown] = 10;
+        string grownJob = (await queue.EnqueueAsync(new IngestionJob(grown.ToString(), new IngestionOptions(), SizeBytes: 5000)))!;
+        Queue(grownJob).Should().Be(JobQueues.IngestionLarge);
+
+        // No size known to be a byte count, as for a Confluence page not yet ingested: the general lane.
+        Guid unknown = Guid.NewGuid();
+        string unknownJob = (await queue.EnqueueAsync(new IngestionJob(unknown.ToString(), new IngestionOptions())))!;
+        Queue(unknownJob).Should().Be(JobQueues.Ingestion);
     }
 
     private static async Task<Guid> EnqueueAsync(
@@ -135,9 +145,6 @@ public sealed class LargeDocumentLaneTests
         jobId.Should().NotBeNull();
         return id;
     }
-
-    private static Document Doc(Guid id, long bytes) =>
-        new(id.ToString(), Guid.NewGuid().ToString(), "f.pdf", "application/pdf", "/f.pdf", bytes, DateTime.UtcNow, []);
 
     /// <summary>Large documents run until released; small ones finish at once.</summary>
     private sealed class FakeIngestion : IIngestionJobs

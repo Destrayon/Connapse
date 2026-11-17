@@ -38,10 +38,11 @@ public sealed class HangfireIngestionQueue(IBackgroundJobClient bgClient, IServi
         IngestionOptions options = job.Options with { Generation = generation.Value };
 
         // Large documents get their own queue and workers, so they can never take the workers small uploads need
-        // (CON-354). A retry or a model wait reschedules on the lane the job is already on.
-        Document? document = await scope.ServiceProvider.GetRequiredService<IDocumentStore>()
-            .GetAsync(job.DocumentId, cancellationToken);
-        string jobId = document is not null && lanes.IsLarge(document.SizeBytes)
+        // (CON-354). A retry or a model wait reschedules on the lane the job is already on. A size not known to be a
+        // byte count goes to the general lane.
+        long? size = job.SizeBytes ?? await scope.ServiceProvider.GetRequiredService<IDocumentStore>()
+            .StoredByteSizeAsync(job.DocumentId, cancellationToken);
+        string jobId = size is { } bytes && lanes.IsLarge(bytes)
             ? bgClient.Enqueue<IIngestionJobs>(j => j.IngestLargeAsync(job.DocumentId, options, default))
             : bgClient.Enqueue<IIngestionJobs>(j => j.IngestAsync(job.DocumentId, options, default));
 
