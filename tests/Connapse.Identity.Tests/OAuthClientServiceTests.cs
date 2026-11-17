@@ -431,7 +431,7 @@ public class OAuthClientServiceTests
         var sut = CreateService(db, new HttpClient(new StatusHandler(status)));
         var resolution = await sut.ResolveClientWithReasonAsync(clientId, "http://kb.example.com");
 
-        string message = OAuthClientService.UnknownClientMessage(clientId, resolution.FetchFailure);
+        string message = OAuthClientService.UnknownClientMessage(clientId, resolution.FetchFailure, "kb.example.com", null);
 
         message.Should().StartWith("Unknown or unregistered client.")
             .And.Contain(clientId)
@@ -441,14 +441,31 @@ public class OAuthClientServiceTests
 
     [Fact]
     public void UnknownClientMessage_NothingFetched_IsThePlainMessage() =>
-        OAuthClientService.UnknownClientMessage("some-unregistered-id", null)
+        OAuthClientService.UnknownClientMessage("some-unregistered-id", null, "kb.example.com", null)
             .Should().Be("Unknown or unregistered client.");
 
-    [Fact]
-    public void UnknownClientMessage_OtherAppsFileFailed_HasNoCliProxyHint() =>
+    // A signed-in user chooses the client_id, so the page must not echo the outcome of fetching an arbitrary URL:
+    // that would let them probe loopback ports or other hosts the server can reach.
+    [Theory]
+    [InlineData("https://app.example.com/client.json")]
+    [InlineData("http://127.0.0.1:8080/admin")]
+    [InlineData("http://localhost:6379/oauth/clients/cli.json")]
+    [InlineData("https://internal.lan/oauth/clients/cli.json")]
+    [InlineData("https://kb.example.com:9200/oauth/clients/cli.json")]
+    [InlineData("https://kb.example.com/oauth/clients/cli.json?x=1")]
+    public void UnknownClientMessage_NotThisServersCliFile_HidesTheFetchOutcome(string clientId) =>
         OAuthClientService.UnknownClientMessage(
-                "https://app.example.com/client.json", "Fetching the client file https://app.example.com/client.json returned HTTP 404 (NotFound).")
-            .Should().Contain("HTTP 404").And.NotContain("reverse proxy");
+                clientId, $"Fetching the client file {clientId} returned HTTP 403 (Forbidden).", "kb.example.com", null)
+            .Should().Be("Unknown or unregistered client.");
+
+    [Theory]
+    [InlineData("https://kb.example.com/oauth/clients/cli.json", "KB.example.com", null)]
+    [InlineData("https://kb.example.com:8443/oauth/clients/cli.json", "kb.example.com", 8443)]
+    [InlineData("https://kb.example.com/oauth/clients/cli.json", "kb.example.com", 8080)]
+    public void UnknownClientMessage_ThisServersCliFile_ShowsTheFetchOutcome(string clientId, string host, int? port) =>
+        OAuthClientService.UnknownClientMessage(
+                clientId, $"Fetching the client file {clientId} returned HTTP 403 (Forbidden).", host, port)
+            .Should().Contain("HTTP 403 (Forbidden)").And.Contain("reverse proxy");
 
     private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler
     {

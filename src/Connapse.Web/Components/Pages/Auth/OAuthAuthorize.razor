@@ -161,7 +161,7 @@
         if (clientInfo is null)
         {
             isError = true;
-            errorMessage = OAuthClientService.UnknownClientMessage(ClientId!, fetchFailure);
+            errorMessage = OAuthClientService.UnknownClientMessage(ClientId!, fetchFailure, HttpContext.Request.Host.Host, HttpContext.Request.Host.Port);
             return;
         }
 

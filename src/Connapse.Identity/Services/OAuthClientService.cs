@@ -209,24 +209,39 @@ public class OAuthClientService(
         && string.Equals(clientId, serverBaseUrl + FirstPartyCliPath, StringComparison.Ordinal);
 
     /// <summary>
-    /// The sign-in page's error for a client it couldn't resolve. When the client file was fetched, it adds why the
-    /// fetch failed; when that file is a Connapse CLI document, it adds that a reverse proxy must let the server
-    /// reach it, the usual cause behind a proxy with an IP allowlist.
+    /// The sign-in page's error for a client it couldn't resolve. Only when the client is this server's own CLI
+    /// document, reached under the host the request came in on, does it add why the fetch failed and that a reverse
+    /// proxy must let the server reach it, the usual cause behind a proxy with an IP allowlist. Any other URL gets
+    /// the plain message: a signed-in user picks the client_id, so echoing the outcome of fetching an arbitrary URL
+    /// (a loopback port, say) would let them probe services the server can reach. The server log has the details.
     /// </summary>
-    public static string UnknownClientMessage(string clientId, string? fetchFailure)
+    /// <param name="requestHost">The host the sign-in request came in on, without its port.</param>
+    /// <param name="requestPort">The port the sign-in request came in on, when the Host header named one.</param>
+    public static string UnknownClientMessage(string clientId, string? fetchFailure, string? requestHost, int? requestPort)
     {
         const string unknown = "Unknown or unregistered client.";
-        if (fetchFailure is null)
+        if (fetchFailure is null || !IsOwnCliDocumentUrl(clientId, requestHost, requestPort))
             return unknown;
 
-        string message = $"{unknown} {fetchFailure}";
-        if (Uri.TryCreate(clientId, UriKind.Absolute, out var uri)
-            && string.Equals(uri.AbsolutePath, FirstPartyCliPath, StringComparison.Ordinal))
+        return $"{unknown} {fetchFailure} If a reverse proxy sits in front of Connapse, it must let the Connapse server itself reach {FirstPartyCliPath}.";
+    }
+
+    /// <summary>
+    /// Whether <paramref name="clientId"/> is exactly this server's CLI document path on the request's own host:
+    /// same host, the request's port or the scheme's default one, and no query or fragment.
+    /// </summary>
+    private static bool IsOwnCliDocumentUrl(string clientId, string? requestHost, int? requestPort)
+    {
+        if (string.IsNullOrEmpty(requestHost)
+            || !Uri.TryCreate(clientId, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.AbsolutePath, FirstPartyCliPath, StringComparison.Ordinal)
+            || uri.Query.Length > 0 || uri.Fragment.Length > 0
+            || !string.Equals(uri.Host, requestHost, StringComparison.OrdinalIgnoreCase))
         {
-            message += $" If a reverse proxy sits in front of Connapse, it must let the Connapse server itself reach {FirstPartyCliPath}.";
+            return false;
         }
 
-        return message;
+        return requestPort is null ? uri.IsDefaultPort : uri.Port == requestPort || uri.IsDefaultPort;
     }
 
     private static OAuthClientInfo FirstPartyCliClient(string clientId) =>
