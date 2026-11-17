@@ -421,6 +421,50 @@ public class OAuthClientServiceTests
             .Which.Should().Contain(clientId).And.Contain($"HTTP {code} ({name})");
     }
 
+    [Fact]
+    public async Task ResolveClientWithReasonAsync_ErrorHeadersThenStalledBody_StillNamesUrlAndStatus()
+    {
+        using var db = CreateDbContext();
+        const string clientId = "https://kb.example.com/oauth/clients/cli.json";
+        var logger = new RecordingLogger<OAuthClientService>();
+        // A body that never finishes: waiting for it would run into the client timeout and lose the 403.
+        using var httpClient = new HttpClient(new StalledBodyHandler(HttpStatusCode.Forbidden)) { Timeout = TimeSpan.FromSeconds(2) };
+        var sut = new OAuthClientService(db, httpClient, logger);
+
+        var resolution = await sut.ResolveClientWithReasonAsync(clientId, "http://kb.example.com");
+
+        resolution.Client.Should().BeNull();
+        resolution.FetchFailure.Should().Contain(clientId).And.Contain("HTTP 403 (Forbidden)");
+        logger.Warnings.Should().ContainSingle().Which.Should().Contain("HTTP 403 (Forbidden)");
+    }
+
+    private sealed class StalledBodyHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(status) { Content = new StreamContent(new NeverEndingStream()) });
+    }
+
+    private sealed class NeverEndingStream : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("Read asynchronously.");
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.Forbidden, "HTTP 403 (Forbidden)")]
     [InlineData(HttpStatusCode.NotFound, "HTTP 404 (NotFound)")]

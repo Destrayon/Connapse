@@ -84,9 +84,13 @@ public class OAuthClientService(
             return ClientResolution.Unknown;
         }
 
+        bool headersArrived = false;
         try
         {
-            using var response = await httpClient.GetAsync(uri, ct);
+            // Headers only: a proxy that sends 403 headers and then stalls the body must still be reported as a 403,
+            // so the status is checked before any content is read.
+            using var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
+            headersArrived = true;
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
@@ -97,7 +101,10 @@ public class OAuthClientService(
                     $"Fetching the client file {clientIdUrl} returned HTTP {status} ({response.StatusCode}).");
             }
 
-            string json = await response.Content.ReadAsStringAsync(ct);
+            // HttpClient.Timeout stops covering the request once the headers are in, so the body gets its own limit.
+            using var bodyCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            bodyCts.CancelAfter(MetadataBodyReadTimeout);
+            string json = await response.Content.ReadAsStringAsync(bodyCts.Token);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -121,11 +128,19 @@ public class OAuthClientService(
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Failed to fetch client ID metadata document from {Url}", LogSanitizer.Sanitize(clientIdUrl));
-            return ClientResolution.FetchFailed(ex is HttpRequestException or TaskCanceledException
-                ? $"Fetching the client file {clientIdUrl} failed before any response came back."
-                : $"The client file {clientIdUrl} is not a valid client description.");
+            return ClientResolution.FetchFailed(ex switch
+            {
+                HttpRequestException or OperationCanceledException when !headersArrived =>
+                    $"Fetching the client file {clientIdUrl} failed before any response came back.",
+                HttpRequestException or OperationCanceledException =>
+                    $"Fetching the client file {clientIdUrl} returned a success status, but its content didn't arrive.",
+                _ => $"The client file {clientIdUrl} is not a valid client description.",
+            });
         }
     }
+
+    /// <summary>How long the body of a client metadata document may take once its headers have arrived.</summary>
+    private static readonly TimeSpan MetadataBodyReadTimeout = TimeSpan.FromSeconds(10);
 
     // -- Resolve client (metadata doc or DB lookup) --
 
