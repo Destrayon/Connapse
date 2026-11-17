@@ -135,6 +135,8 @@ You might see: `docker compose ps` shows `web` restarting or exited with code 13
 
 The sign-in page shows this when an app signs in with a client ID that is a web address Connapse won't fetch: an http address other than `localhost`, `127.0.0.1` or `[::1]`. Connapse fetches such a client's description only over https. The CLI's own client ID is the exception, so `connapse auth login` works against an http server from the release after v0.4.0. For any other app, give the server https, as [Add https to a home server](home-network-https.md) shows.
 
+When Connapse did fetch the client's file and the fetch failed, the message goes on to name the file's URL and the HTTP status that came back, and the server logs a warning with the same details. A 403 on `/oauth/clients/cli.json` usually means a reverse proxy, often one with an IP allowlist, is refusing the Connapse server's own request: allow it, as [Run Connapse in production](production.md) notes, or make sure the proxy sends `X-Forwarded-Proto` so Connapse recognizes its own CLI file without fetching it.
+
 ## Error: Web clients must use https redirect URIs
 
 An app registered itself to receive its sign-in at an http address that isn't on your own computer. Connapse only sends a sign-in to an https address or to `localhost`, `127.0.0.1` or `[::1]`. Use the app's local callback, or put the app behind https.

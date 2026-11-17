@@ -1,8 +1,10 @@
+using System.Net;
 using System.Text.Json;
 using Connapse.Identity.Data;
 using Connapse.Identity.Services;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Connapse.Identity.Tests;
@@ -395,6 +397,79 @@ public class OAuthClientServiceTests
 
         client!.ApplicationType.Should().Be("native");
         client.RedirectUris.Should().Equal("http://localhost:53682/callback");
+    }
+
+    // -- Client file fetch failures (CON-356) --
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, 403, "Forbidden")]
+    [InlineData(HttpStatusCode.NotFound, 404, "NotFound")]
+    public async Task ResolveClientWithReasonAsync_ClientFileErrorStatus_NamesUrlAndStatus(
+        HttpStatusCode status, int code, string name)
+    {
+        using var db = CreateDbContext();
+        const string clientId = "https://kb.example.com/oauth/clients/cli.json";
+        var logger = new RecordingLogger<OAuthClientService>();
+        var sut = new OAuthClientService(db, new HttpClient(new StatusHandler(status)), logger);
+
+        // The server sees itself as http behind the proxy, so the https CLI address is fetched rather than answered.
+        var resolution = await sut.ResolveClientWithReasonAsync(clientId, "http://kb.example.com");
+
+        resolution.Client.Should().BeNull();
+        resolution.FetchFailure.Should().Contain(clientId).And.Contain($"HTTP {code} ({name})");
+        logger.Warnings.Should().ContainSingle()
+            .Which.Should().Contain(clientId).And.Contain($"HTTP {code} ({name})");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, "HTTP 403 (Forbidden)")]
+    [InlineData(HttpStatusCode.NotFound, "HTTP 404 (NotFound)")]
+    public async Task UnknownClientMessage_CliFileFetchFailed_NamesUrlStatusAndProxyHint(HttpStatusCode status, string expected)
+    {
+        using var db = CreateDbContext();
+        const string clientId = "https://kb.example.com/oauth/clients/cli.json";
+        var sut = CreateService(db, new HttpClient(new StatusHandler(status)));
+        var resolution = await sut.ResolveClientWithReasonAsync(clientId, "http://kb.example.com");
+
+        string message = OAuthClientService.UnknownClientMessage(clientId, resolution.FetchFailure);
+
+        message.Should().StartWith("Unknown or unregistered client.")
+            .And.Contain(clientId)
+            .And.Contain(expected)
+            .And.Contain("reverse proxy");
+    }
+
+    [Fact]
+    public void UnknownClientMessage_NothingFetched_IsThePlainMessage() =>
+        OAuthClientService.UnknownClientMessage("some-unregistered-id", null)
+            .Should().Be("Unknown or unregistered client.");
+
+    [Fact]
+    public void UnknownClientMessage_OtherAppsFileFailed_HasNoCliProxyHint() =>
+        OAuthClientService.UnknownClientMessage(
+                "https://app.example.com/client.json", "Fetching the client file https://app.example.com/client.json returned HTTP 404 (NotFound).")
+            .Should().Contain("HTTP 404").And.NotContain("reverse proxy");
+
+    private sealed class StatusHandler(HttpStatusCode status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(status));
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
+
+        public IEnumerable<string> Warnings =>
+            Entries.Where(e => e.Level == LogLevel.Warning).Select(e => e.Message);
     }
 
     private sealed class RecordingHandler(string? body = null) : HttpMessageHandler
