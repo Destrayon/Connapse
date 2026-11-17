@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Connapse.Background;
 using Connapse.Background.Jobs;
 using Connapse.Background.Storage;
 using Connapse.Core;
@@ -126,7 +127,8 @@ public class UploadJobStartFailureTests(SharedWebAppFixture fixture)
             services.GetRequiredService<IContainerStore>(),
             services.GetRequiredService<IManagedStorageProvider>(),
             services.GetRequiredService<IFolderStore>(),
-            new HangfireIngestionQueue(failingClient, services.GetRequiredService<IServiceScopeFactory>()),
+            new HangfireIngestionQueue(
+                failingClient, services.GetRequiredService<IServiceScopeFactory>(), services.GetRequiredService<IngestionLanes>()),
             services.GetRequiredService<IDocumentStore>(),
             services.GetRequiredService<IFileTypeValidator>(),
             services.GetRequiredService<IAuditLogger>(),

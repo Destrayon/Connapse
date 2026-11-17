@@ -88,7 +88,23 @@ public sealed class IngestionJobs : IIngestionJobs
 
     [Queue(JobQueues.Ingestion)]
     [AutomaticRetry(Attempts = 0)]
-    public async Task IngestAsync(string documentId, IngestionOptions options, CancellationToken ct)
+    public Task IngestAsync(string documentId, IngestionOptions options, CancellationToken ct) =>
+        IngestCoreAsync(documentId, options, large: false, ct);
+
+    [Queue(JobQueues.IngestionLarge)]
+    [AutomaticRetry(Attempts = 0)]
+    public Task IngestLargeAsync(string documentId, IngestionOptions options, CancellationToken ct) =>
+        IngestCoreAsync(documentId, options, large: true, ct);
+
+    /// <summary>
+    /// Schedules the next run of a document's job on the lane it is already on, so a retry or a model wait never
+    /// moves a large document onto the workers kept for small ones.
+    /// </summary>
+    private string ScheduleOnLane(string documentId, IngestionOptions options, bool large, TimeSpan delay) => large
+        ? _bgClient.Schedule<IIngestionJobs>(j => j.IngestLargeAsync(documentId, options, default), delay)
+        : _bgClient.Schedule<IIngestionJobs>(j => j.IngestAsync(documentId, options, default), delay);
+
+    private async Task IngestCoreAsync(string documentId, IngestionOptions options, bool large, CancellationToken ct)
     {
         if (!Guid.TryParse(documentId, out Guid id))
         {
@@ -113,7 +129,7 @@ public sealed class IngestionJobs : IIngestionJobs
         if (_localModel.Current.HoldsEmbedding)
         {
             // The first upload can beat the model's download by many minutes, which would use up the retries.
-            string waitJobId = _bgClient.Schedule<IIngestionJobs>(j => j.IngestAsync(documentId, options, default), ModelWaitDelay);
+            string waitJobId = ScheduleOnLane(documentId, options, large, ModelWaitDelay);
             if (!await _lifecycle.RecordJobAsync(id, generation, waitJobId, CancellationToken.None))
             {
                 // Superseded, deleted or finished while waiting: without this the wait would reschedule itself for ever.
@@ -168,12 +184,12 @@ public sealed class IngestionJobs : IIngestionJobs
         }
         catch (Exception ex)
         {
-            await HandleTransientFailureAsync(id, documentId, options, ex);
+            await HandleTransientFailureAsync(id, documentId, options, large, ex);
             throw;
         }
     }
 
-    private async Task HandleTransientFailureAsync(Guid id, string documentId, IngestionOptions options, Exception ex)
+    private async Task HandleTransientFailureAsync(Guid id, string documentId, IngestionOptions options, bool large, Exception ex)
     {
         Document? doc = await _docStore.GetAsync(documentId, CancellationToken.None);
         int attempts = doc is null ? MaxAttempts : doc.AttemptCount;
@@ -191,7 +207,7 @@ public sealed class IngestionJobs : IIngestionJobs
             return; // Superseded while this attempt ran; the newer job carries on.
 
         TimeSpan delay = RetryDelays[Math.Min(attempts, RetryDelays.Length) - 1];
-        string retryJobId = _bgClient.Schedule<IIngestionJobs>(j => j.IngestAsync(documentId, options, default), delay);
+        string retryJobId = ScheduleOnLane(documentId, options, large, delay);
         await _lifecycle.RecordJobAsync(id, options.Generation, retryJobId, CancellationToken.None);
 
         _logger.LogWarning(ex,

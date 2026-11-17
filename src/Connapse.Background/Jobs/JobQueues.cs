@@ -6,5 +6,6 @@ namespace Connapse.Background.Jobs;
 public static class JobQueues
 {
     public const string Ingestion = "ingestion";
+    public const string IngestionLarge = "ingestion-large";
     public const string Default = "default";
 }

@@ -23,6 +23,9 @@ public sealed class EmbeddingThrottle(IOptionsMonitor<EmbeddingSettings> setting
     private readonly Lane _ingestion = new();
     private readonly Lane _query = new();
 
+    /// <summary>Texts in one provider request, the unit a slot is held for.</summary>
+    public int RequestSize => Math.Max(1, settings.CurrentValue.BatchSize);
+
     /// <summary>
     /// Waits for a slot in the lane <paramref name="inputType"/> belongs to — documents on the
     /// ingestion lane, everything else on the query lane — and returns a handle that frees it.
@@ -86,10 +89,33 @@ public sealed class ThrottledEmbeddingProvider(IEmbeddingProvider inner, Embeddi
         return await inner.EmbedAsync(text, inputType, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Embeds <paramref name="texts"/> one provider request (<see cref="EmbeddingSettings.BatchSize"/> texts) at a
+    /// time, taking a slot for each request rather than one for the whole call.
+    /// </summary>
+    /// <remarks>
+    /// A semantic-chunked document sends every sentence in one call, thousands for a large PDF. Held for the whole
+    /// call, a slot stayed taken for the hours that took, so two large documents shut every other upload out of the
+    /// ingestion lane (CON-354). Per request, waiting documents take turns: the semaphore serves its waiters in order.
+    /// </remarks>
     public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(
         IEnumerable<string> texts, EmbeddingInputType inputType, CancellationToken ct = default)
     {
-        using var slot = await throttle.AcquireAsync(inputType, ct).ConfigureAwait(false);
-        return await inner.EmbedBatchAsync(texts, inputType, ct).ConfigureAwait(false);
+        IReadOnlyList<string> all = texts as IReadOnlyList<string> ?? texts.ToList();
+        int requestSize = throttle.RequestSize;
+        if (all.Count <= requestSize)
+        {
+            using var slot = await throttle.AcquireAsync(inputType, ct).ConfigureAwait(false);
+            return await inner.EmbedBatchAsync(all, inputType, ct).ConfigureAwait(false);
+        }
+
+        var vectors = new List<float[]>(all.Count);
+        for (int start = 0; start < all.Count; start += requestSize)
+        {
+            string[] request = all.Skip(start).Take(requestSize).ToArray();
+            using var slot = await throttle.AcquireAsync(inputType, ct).ConfigureAwait(false);
+            vectors.AddRange(await inner.EmbedBatchAsync(request, inputType, ct).ConfigureAwait(false));
+        }
+        return vectors;
     }
 }

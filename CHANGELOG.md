@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **The sign-in page says why it couldn't load the CLI's client file** (CON-356). When Connapse fetched its own `/oauth/clients/cli.json` for `connapse auth login` through a reverse proxy and the fetch failed, the page said only "Unknown or unregistered client." It now adds the file's URL and the HTTP status that came back, and notes that the proxy must let the Connapse server reach that file. Other apps' client files still get the plain message, so the page can't be used to probe addresses the server can reach. The server logs a warning with the URL and status for any client file. Reported in discussion #1202.
+- **Large files no longer hold up everyone else's uploads** (CON-354). Files of 2 MiB or more are ingested on two workers of their own, so a bulk upload of big PDFs can no longer take every ingestion worker for hours while small uploads wait at 0 chunks. Smaller files keep the four existing workers to themselves. A file's embedding requests also take turns with other files' requests instead of holding an embedding slot until the whole file is done. `Hangfire__LargeIngestionWorkerCount` and `Hangfire__LargeDocumentBytes` change the split; see [Configuration](docs/reference/configuration.md#server).
 
 ## [v0.4.2] - 2026-11-15
 

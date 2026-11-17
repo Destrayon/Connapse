@@ -171,6 +171,34 @@ public class IngestionJobsTests
     }
 
     [Fact]
+    public async Task IngestLargeAsync_TransientFailureWithAttemptsLeft_RetriesOnTheLargeLane()
+    {
+        // A retry on the general lane would let large documents take the workers kept for small ones (CON-354).
+        DocumentHasAttempts(1);
+        _ingester.IngestByIdAsync(DocumentId, Arg.Any<IngestionOptions>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("embedding provider unreachable"));
+
+        Func<Task> act = () => CreateJobs().IngestLargeAsync(DocumentId, Options(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<HttpRequestException>();
+        _bgClient.Received(1).Create(
+            Arg.Is<Job>(j => j.Method.Name == nameof(IIngestionJobs.IngestLargeAsync)),
+            Arg.Is<ScheduledState>(s => s.EnqueueAt > DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task IngestLargeAsync_ModelNotReady_WaitsOnTheLargeLane()
+    {
+        _localModel.Current.Returns(new LocalModelStatus(LocalModelState.Downloading, "nomic-embed-text"));
+
+        await CreateJobs().IngestLargeAsync(DocumentId, Options(), CancellationToken.None);
+
+        _bgClient.Received(1).Create(
+            Arg.Is<Job>(j => j.Method.Name == nameof(IIngestionJobs.IngestLargeAsync)),
+            Arg.Is<IState>(s => s is ScheduledState));
+    }
+
+    [Fact]
     public async Task IngestAsync_TransientFailureOnLastAttempt_MarksFailedRetryable()
     {
         DocumentHasAttempts(IngestionJobs.MaxAttempts);
