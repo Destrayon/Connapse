@@ -88,7 +88,10 @@ public record ConnectorFile(
     ChunkingStrategy? Strategy = null,
     // The middle man's access keys for a connected custom source's document, written to
     // documents.access_keys so search can rank only what a user may hold. Null for every other source.
-    IReadOnlyList<string>? AccessKeys = null);
+    IReadOnlyList<string>? AccessKeys = null,
+    // True when SizeBytes is a change signature rather than a byte count (Confluence pages, Jira records), so
+    // ingestion does not pick a lane by it (CON-354).
+    bool SizeIsSignature = false);
 
 public record Container(
     string Id,

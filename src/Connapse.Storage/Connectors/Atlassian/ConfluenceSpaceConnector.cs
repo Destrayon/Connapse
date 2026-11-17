@@ -1003,7 +1003,8 @@ public sealed partial class ConfluenceSpaceConnector(
                 ["confluence:url"] = $"{config.Site.SiteUrl}/wiki/pages/viewpage.action?pageId={page.Id}",
             },
             // The container's default chunker, which routes markdown to the document-aware one.
-            Strategy: null);
+            Strategy: null,
+            SizeIsSignature: true);
     }
 
     /// <summary>

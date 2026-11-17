@@ -31,8 +31,13 @@ public interface IIngestionQueue
 /// True for a new version of the file, a reindex or a manual retry, which get a fresh attempt
 /// budget. False for the sync engine re-trying a document that failed, which spends from it.
 /// </param>
+/// <param name="SizeBytes">
+/// The size in bytes of the version this job ingests, when the caller knows it, as a source sync does from its
+/// connector. It picks the ingestion lane (CON-354). Null falls back to the document's stored size.
+/// </param>
 public record IngestionJob(
     string DocumentId,
     IngestionOptions Options,
     string? BatchId = null,
-    bool ResetAttempts = true);
+    bool ResetAttempts = true,
+    long? SizeBytes = null);

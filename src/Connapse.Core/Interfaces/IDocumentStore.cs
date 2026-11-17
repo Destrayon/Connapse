@@ -23,6 +23,13 @@ public interface IDocumentStore
     /// </summary>
     Task<bool> RemoveUnrecordedFileAsync(Guid containerId, string path, Func<CancellationToken, Task> deleteFile, CancellationToken ct = default);
     Task<Document?> GetAsync(string documentId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The document's size in bytes when the stored size is known to be one, or null. A container's document always
+    /// stores its real size. A source's document stores what the connector reported until an ingestion commits, and
+    /// for Confluence pages and Jira records that is a change signature, so it counts only once one has.
+    /// </summary>
+    Task<long?> StoredByteSizeAsync(string documentId, CancellationToken ct = default);
     Task<IReadOnlyList<Document>> ListAsync(Guid containerId, string? pathPrefix = null, int skip = 0, int take = 50, CancellationToken ct = default);
     Task DeleteAsync(string documentId, CancellationToken ct = default);
 

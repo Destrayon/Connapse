@@ -64,16 +64,19 @@ public static class HangfireServiceCollectionExtensions
             // Each running job holds a database connection, so the pool stays small; more ingestion
             // workers than the embedding throttle's ingestion lane only overlaps download and parsing
             // with embedding, and does not load the provider further.
-            int ingestionWorkers = PositiveSetting(configuration, "Hangfire:IngestionWorkerCount", 4);
-
-            services.AddHangfireServer(opt =>
+            IngestionLanes lanes = IngestionLanes.FromConfiguration(configuration);
+            foreach (BackgroundJobServerOptions server in lanes.ServerOptions($"{Environment.MachineName}:{Environment.ProcessId}"))
             {
-                opt.WorkerCount = ingestionWorkers;
-                opt.Queues = [Jobs.JobQueues.Ingestion, Jobs.JobQueues.Default];
-                opt.ServerName = $"{Environment.MachineName}:{Environment.ProcessId}:ingestion";
-            });
+                services.AddHangfireServer(opt =>
+                {
+                    opt.WorkerCount = server.WorkerCount;
+                    opt.Queues = server.Queues;
+                    opt.ServerName = server.ServerName;
+                });
+            }
         }
 
+        services.AddSingleton(IngestionLanes.FromConfiguration(configuration));
         services.AddSingleton<IDashboardAuthorizationFilter, HangfireDashboardAuthFilter>();
 
         // Job-class registrations — Hangfire activator resolves these via this IServiceProvider.
@@ -103,12 +106,4 @@ public static class HangfireServiceCollectionExtensions
         InvisibilityTimeout = TimeSpan.FromMinutes(30),
         UseSlidingInvisibilityTimeout = true
     };
-
-    private static int PositiveSetting(IConfiguration configuration, string key, int defaultValue)
-    {
-        int value = configuration.GetValue<int?>(key) ?? defaultValue;
-        if (value <= 0)
-            throw new InvalidOperationException($"{key} must be a positive integer.");
-        return value;
-    }
 }

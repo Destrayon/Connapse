@@ -20,6 +20,13 @@ public interface IIngestionJobs
     Task IngestAsync(string documentId, IngestionOptions options, CancellationToken ct);
 
     /// <summary>
+    /// <see cref="IngestAsync"/> for a large document, on its own queue and workers so that large
+    /// documents cannot take every ingestion worker (CON-354).
+    /// </summary>
+    [Queue(JobQueues.IngestionLarge)]
+    Task IngestLargeAsync(string documentId, IngestionOptions options, CancellationToken ct);
+
+    /// <summary>
     /// Re-enqueues documents left Queued or Processing whose job is gone — a crashed worker, an
     /// enqueue that failed after the status was written, a job deleted from the dashboard.
     /// </summary>

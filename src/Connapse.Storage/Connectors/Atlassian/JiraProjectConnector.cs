@@ -1200,7 +1200,9 @@ public sealed partial class JiraProjectConnector(
                 ["jira:breadcrumb"] = JiraRecordRenderer.Breadcrumb(projectName, issue.Key, issue.Summary),
                 ["jira:visibility"] = tombstone.Internal ? "internal,restricted" : "restricted",
             },
-            Strategy: null);
+            Strategy: null,
+            // A comment's tombstone carries its updated time where a size would be; an attachment's carries its size.
+            SizeIsSignature: !attachment);
     }
 
     /// <summary>
@@ -1291,7 +1293,8 @@ public sealed partial class JiraProjectConnector(
                 ["jira:breadcrumb"] = JiraRecordRenderer.Breadcrumb(projectName, issue.Key, issue.Summary),
                 ["jira:url"] = $"{config.Site.SiteUrl}/browse/{Uri.EscapeDataString(issue.Key)}",
             },
-            Strategy: ChunkingStrategy.Record);
+            Strategy: ChunkingStrategy.Record,
+            SizeIsSignature: true);
     }
 
     /// <summary>
@@ -1317,7 +1320,8 @@ public sealed partial class JiraProjectConnector(
                 ["jira:visibility"] = Describe(route),
                 ["jira:url"] = $"{config.Site.SiteUrl}/browse/{Uri.EscapeDataString(issue.Key)}?focusedCommentId={comment.Id}",
             },
-            Strategy: null);
+            Strategy: null,
+            SizeIsSignature: true);
     }
 
     /// <summary>For display only: <c>group</c>, <c>role:{name}</c>, <c>restricted</c> (deny-all), <c>internal</c>, comma-joined.</summary>

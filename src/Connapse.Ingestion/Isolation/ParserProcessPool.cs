@@ -66,6 +66,8 @@ public sealed partial class ParserProcessPool : IDisposable
 
     private readonly ILogger<ParserProcessPool> _logger;
     private readonly SemaphoreSlim _slots;
+    private readonly SemaphoreSlim _largeSlots;
+    private readonly long _largeContentBytes;
     private readonly ConcurrentBag<Host> _idle = [];
     private readonly ConcurrentDictionary<Host, byte> _all = new();
     private int _missingHostLogged;
@@ -98,6 +100,11 @@ public sealed partial class ParserProcessPool : IDisposable
         (Slots, _hostMemoryCeilingMb, shared) = Size(available / (1024 * 1024), container is not null, workers);
         UseSharedInference = shared;
         _slots = new SemaphoreSlim(Slots, Slots);
+        LargeSlots = Math.Max(1, Slots - 1);
+        _largeSlots = new SemaphoreSlim(LargeSlots, LargeSlots);
+        _largeContentBytes = long.TryParse(configuration?["Hangfire:LargeDocumentBytes"], out long large) && large > 0
+            ? large
+            : DefaultLargeDocumentBytes;
         HostPath = hostPath ?? Path.Combine(AppContext.BaseDirectory, "Connapse.ParserHost.dll");
 
         _logger.LogInformation(
@@ -220,6 +227,18 @@ public sealed partial class ParserProcessPool : IDisposable
     /// <summary>Hosts that may run at once.</summary>
     internal int Slots { get; }
 
+    /// <summary>
+    /// 2 MiB, the size from which a file is large, here and for the ingestion lanes (<c>Hangfire:LargeDocumentBytes</c>).
+    /// </summary>
+    public const long DefaultLargeDocumentBytes = 2L * 1024 * 1024;
+
+    /// <summary>
+    /// Hosts large files may hold at once: all but one, so a small upload always has a host to go to (CON-354).
+    /// Waiting for a host counts against a parse's deadline, so without the spare one, large files parsing on a pool
+    /// of two could make a small upload fail. A pool of one host cannot spare it.
+    /// </summary>
+    internal int LargeSlots { get; }
+
     private readonly int _hostMemoryCeilingMb;
 
     /// <summary>
@@ -286,9 +305,20 @@ public sealed partial class ParserProcessPool : IDisposable
         // queued behind stuck parses waits out their deadlines before its own starts.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
+        bool large = content.Length >= _largeContentBytes;
         try
         {
-            await _slots.WaitAsync(deadline.Token);
+            if (large)
+                await _largeSlots.WaitAsync(deadline.Token);
+            try
+            {
+                await _slots.WaitAsync(deadline.Token);
+            }
+            catch when (large)
+            {
+                _largeSlots.Release();
+                throw;
+            }
         }
         catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
         {
@@ -379,6 +409,8 @@ public sealed partial class ParserProcessPool : IDisposable
         {
             Return(host, settings);
             _slots.Release();
+            if (large)
+                _largeSlots.Release();
         }
     }
 

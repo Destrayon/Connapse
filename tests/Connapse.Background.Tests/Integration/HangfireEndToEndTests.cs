@@ -43,10 +43,11 @@ public sealed class HangfireEndToEndTests
 
         var services = new ServiceCollection();
         services.AddSingleton(lifecycle);
+        services.AddSingleton(Substitute.For<IDocumentStore>());
         await using var provider = services.BuildServiceProvider();
 
         var queue = new HangfireIngestionQueue(
-            new BackgroundJobClient(), provider.GetRequiredService<IServiceScopeFactory>());
+            new BackgroundJobClient(), provider.GetRequiredService<IServiceScopeFactory>(), new IngestionLanes(4));
 
         string? jobId = await queue.EnqueueAsync(new IngestionJob(
             DocumentId: documentId.ToString(),
@@ -77,7 +78,8 @@ public sealed class HangfireEndToEndTests
         await using var provider = services.BuildServiceProvider();
 
         var bgClient = Substitute.For<IBackgroundJobClient>();
-        var queue = new HangfireIngestionQueue(bgClient, provider.GetRequiredService<IServiceScopeFactory>());
+        var queue = new HangfireIngestionQueue(
+            bgClient, provider.GetRequiredService<IServiceScopeFactory>(), new IngestionLanes(4));
 
         string documentId = Guid.NewGuid().ToString();
         string? jobId = await queue.EnqueueAsync(

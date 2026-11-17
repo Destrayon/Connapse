@@ -848,7 +848,9 @@ public class SourceSyncService(
                     // The whole reason ownership had to become explicit: a synced document
                     // belongs to the source, not to any container.
                     Owner = OwnerRef.ForSource(source.Id),
-                }), ct);
+                },
+                // The document's stored size is still the last version's, so the lane comes from the connector's.
+                SizeBytes: file.SizeIsSignature ? null : file.SizeBytes), ct);
 
             count++;
         }

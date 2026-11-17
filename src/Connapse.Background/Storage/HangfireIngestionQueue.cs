@@ -16,7 +16,7 @@ namespace Connapse.Background.Storage;
 /// Singleton, because the sync engine — itself a singleton — holds one; the scoped lifecycle and
 /// database context are resolved per call.
 /// </remarks>
-public sealed class HangfireIngestionQueue(IBackgroundJobClient bgClient, IServiceScopeFactory scopeFactory)
+public sealed class HangfireIngestionQueue(IBackgroundJobClient bgClient, IServiceScopeFactory scopeFactory, IngestionLanes lanes)
     : IIngestionQueue
 {
     public async Task<string?> EnqueueAsync(IngestionJob job, CancellationToken cancellationToken = default)
@@ -36,7 +36,15 @@ public sealed class HangfireIngestionQueue(IBackgroundJobClient bgClient, IServi
         // enqueue itself throws, the document stays Queued with no job recorded, which is what the
         // stuck-job sweep looks for.
         IngestionOptions options = job.Options with { Generation = generation.Value };
-        string jobId = bgClient.Enqueue<IIngestionJobs>(j => j.IngestAsync(job.DocumentId, options, default));
+
+        // Large documents get their own queue and workers, so they can never take the workers small uploads need
+        // (CON-354). A retry or a model wait reschedules on the lane the job is already on. A size not known to be a
+        // byte count goes to the general lane.
+        long? size = job.SizeBytes ?? await scope.ServiceProvider.GetRequiredService<IDocumentStore>()
+            .StoredByteSizeAsync(job.DocumentId, cancellationToken);
+        string jobId = size is { } bytes && lanes.IsLarge(bytes)
+            ? bgClient.Enqueue<IIngestionJobs>(j => j.IngestLargeAsync(job.DocumentId, options, default))
+            : bgClient.Enqueue<IIngestionJobs>(j => j.IngestAsync(job.DocumentId, options, default));
 
         await lifecycle.RecordJobAsync(documentId, generation.Value, jobId, cancellationToken);
         return jobId;

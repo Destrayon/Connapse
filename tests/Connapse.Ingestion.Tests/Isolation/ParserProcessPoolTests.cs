@@ -300,6 +300,33 @@ public sealed class ParserProcessPoolTests : IDisposable
     }
 
     [Fact]
+    public async Task ParseAsync_LargeFilesOnEveryHost_SmallFileStillGetsOne()
+    {
+        // CON-354: two large files on a pool of two hosts used to leave a small upload waiting out its deadline.
+        using var pool = new ParserProcessPool(
+            new ConfigurationBuilder().AddInMemoryCollection(
+            [
+                new("Hangfire:IngestionWorkerCount", "2"),
+                new("Hangfire:LargeDocumentBytes", "1000"),
+            ]).Build(),
+            hostPath: TestHostPath,
+            availableMemoryBytes: 64L * 1024 * 1024 * 1024);
+        pool.Slots.Should().Be(2);
+        string large = new('x', 1000);
+        var stuck = new[]
+        {
+            ParseAsync(pool, "Test.Spin", large, timeout: TimeSpan.FromSeconds(8)),
+            ParseAsync(pool, "Test.Spin", large, timeout: TimeSpan.FromSeconds(8)),
+        };
+
+        var small = await ParseAsync(pool, "Test.ProcessId", timeout: TimeSpan.FromSeconds(5));
+
+        small.Content.Should().NotBeEmpty();
+        foreach (var parse in stuck)
+            await parse.Invoking(t => t).Should().ThrowAsync<PermanentIngestionException>();
+    }
+
+    [Fact]
     public async Task Host_WhoseParentDiesMidParse_ExitsInsteadOfSpinningOn()
     {
         // A stand-in parent: another host, idle on its stdin until it is killed.
