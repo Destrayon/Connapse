@@ -29,7 +29,10 @@ public class McpUploadFolderPathTests(SharedWebAppFixture fixture)
 
         string text = Text(await mcp.CallToolAsync("upload_file", new Dictionary<string, object?>
         {
-            ["containerId"] = containerId, ["fileName"] = "a.md", ["textContent"] = "# A", ["path"] = path,
+            ["containerId"] = containerId,
+            ["fileName"] = "a.md",
+            ["textContent"] = "# A",
+            ["path"] = path,
         }));
 
         text.Should().Contain("uploaded to /docs/guides/a.md");
@@ -64,7 +67,9 @@ public class McpUploadFolderPathTests(SharedWebAppFixture fixture)
 
         string result = Surfaces.Result(await mcp.CallToolAsync("upload_file", new Dictionary<string, object?>
         {
-            ["containerId"] = containerId, ["fileName"] = "docs/guides/a.md", ["textContent"] = "# A",
+            ["containerId"] = containerId,
+            ["fileName"] = "docs/guides/a.md",
+            ["textContent"] = "# A",
         }));
 
         result.Should().Be("error:validation");
