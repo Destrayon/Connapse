@@ -100,7 +100,7 @@ public static class OAuthEndpoints
             };
         })
         .AllowAnonymous()
-        .RequireRateLimiting(RateLimitingExtensions.AuthPolicy)
+        .RequireRateLimiting(RateLimitingExtensions.TokenPolicy)
         .AddEndpointFilter(RequireFormContentType)
         .DisableAntiforgery()
         .Produces<OAuthTokenResponse>()

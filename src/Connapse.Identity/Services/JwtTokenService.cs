@@ -50,6 +50,7 @@ public class JwtTokenService(
             UserId = userId,
             TokenHash = refreshTokenHash,
             ExpiresAt = DateTime.UtcNow.AddDays(settings.RefreshTokenLifetimeDays),
+            FamilyId = Guid.NewGuid(),
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -79,10 +80,16 @@ public class JwtTokenService(
             return null;
         }
 
-        if (existingToken.RevokedAt is not null)
+        var settings = jwtSettings.CurrentValue;
+
+        // A token rotated moments ago is redeemed again when two sessions sharing one sign-in refresh together, or
+        // a client never got the response; while its family is still live that is not theft, and the caller gets
+        // a token pair of its own in the same family (CON-360).
+        bool redeemedAgain = existingToken.RevokedAt is not null;
+        if (redeemedAgain && !await MayRedeemAgainAsync(existingToken, settings, cancellationToken))
         {
             logger.LogWarning("Attempted to use revoked refresh token for user {UserId} — revoking token family", existingToken.UserId);
-            await RevokeTokenFamilyAsync(existingToken.ReplacedByTokenHash, cancellationToken);
+            await RevokeTokenFamilyAsync(existingToken, cancellationToken);
             return null;
         }
 
@@ -103,8 +110,6 @@ public class JwtTokenService(
         // Generate new token pair
         var newRefreshToken = GenerateRefreshToken();
         var newRefreshTokenHash = ComputeSha256Hash(newRefreshToken);
-
-        var settings = jwtSettings.CurrentValue;
 
         // Build claims for the user
         var claims = new List<Claim>
@@ -140,6 +145,8 @@ public class JwtTokenService(
         // caller) so it matches the AS metadata document per RFC 9068 §2.2.
         var accessToken = GenerateAccessToken(claims, existingToken.Resource, issuer);
 
+        // A token from before families were recorded starts one named after itself at its first rotation.
+        Guid familyId = existingToken.FamilyId ?? existingToken.Id;
         var newRefreshTokenEntity = new RefreshTokenEntity
         {
             UserId = existingToken.UserId,
@@ -148,6 +155,7 @@ public class JwtTokenService(
             Resource = existingToken.Resource,
             Scope = existingToken.Scope,
             ExpiresAt = DateTime.UtcNow.AddDays(settings.RefreshTokenLifetimeDays),
+            FamilyId = familyId,
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -157,16 +165,36 @@ public class JwtTokenService(
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         if (existingToken.ClientId is { } lockedClient)
             await OAuthClientLock.AcquireAsync(dbContext, lockedClient, cancellationToken);
-        DateTime revokedAt = DateTime.UtcNow;
-        int retired = await dbContext.RefreshTokens
-            .Where(t => t.Id == existingToken.Id && t.RevokedAt == null)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(t => t.RevokedAt, revokedAt)
-                .SetProperty(t => t.ReplacedByTokenHash, newRefreshTokenHash), cancellationToken);
-        if (retired == 0)
+        if (redeemedAgain)
         {
-            logger.LogWarning("Refresh token for user {UserId} was revoked while it was being refreshed", existingToken.UserId);
-            return null;
+            // Checked again under the lock: a revoke that committed since the check above leaves nothing live.
+            if (!await FamilyIsLiveAsync(familyId, cancellationToken))
+            {
+                logger.LogWarning("Refresh token family for user {UserId} was revoked while it was being refreshed", existingToken.UserId);
+                return null;
+            }
+        }
+        else
+        {
+            DateTime revokedAt = DateTime.UtcNow;
+            int retired = await dbContext.RefreshTokens
+                .Where(t => t.Id == existingToken.Id && t.RevokedAt == null)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.RevokedAt, revokedAt)
+                    .SetProperty(t => t.ReplacedByTokenHash, newRefreshTokenHash)
+                    .SetProperty(t => t.FamilyId, familyId), cancellationToken);
+            if (retired == 0)
+            {
+                // Another refresh of the same token committed first: the second of two at once is let through like a
+                // reuse in the interval. A revoke that committed first leaves nothing to let through (CON-360).
+                var current = await dbContext.RefreshTokens.AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.Id == existingToken.Id, cancellationToken);
+                if (current is null || !await MayRedeemAgainAsync(current, settings, cancellationToken))
+                {
+                    logger.LogWarning("Refresh token for user {UserId} was revoked while it was being refreshed", existingToken.UserId);
+                    return null;
+                }
+            }
         }
 
         dbContext.RefreshTokens.Add(newRefreshTokenEntity);
@@ -237,21 +265,69 @@ public class JwtTokenService(
     }
 
     /// <summary>
-    /// Walks the ReplacedByTokenHash chain forward and revokes all descendant tokens.
-    /// Called when a revoked refresh token is replayed (potential token theft).
+    /// Whether a revoked token may be redeemed again: it was retired by a rotation (not a revoke) within the reuse
+    /// interval, and its family still holds a live token, which no revoke or theft detection leaves (CON-360).
     /// </summary>
-    private async Task RevokeTokenFamilyAsync(string? tokenHash, CancellationToken ct)
+    private async Task<bool> MayRedeemAgainAsync(RefreshTokenEntity token, JwtSettings settings, CancellationToken ct)
     {
-        while (!string.IsNullOrEmpty(tokenHash))
+        int seconds = Math.Clamp(settings.RefreshTokenReuseIntervalSeconds, 0, JwtSettings.MaxRefreshTokenReuseIntervalSeconds);
+        return seconds > 0
+            && token.ReplacedByTokenHash is not null
+            && token.RevokedAt is { } revokedAt
+            && DateTime.UtcNow - revokedAt <= TimeSpan.FromSeconds(seconds)
+            && token.FamilyId is { } familyId
+            && await FamilyIsLiveAsync(familyId, ct);
+    }
+
+    private Task<bool> FamilyIsLiveAsync(Guid familyId, CancellationToken ct)
+    {
+        DateTime now = DateTime.UtcNow;
+        return dbContext.RefreshTokens.AnyAsync(
+            t => t.FamilyId == familyId && t.RevokedAt == null && t.ExpiresAt > now, ct);
+    }
+
+    /// <summary>
+    /// Revokes every token descended from the same sign-in as a replayed token (potential token theft). A token
+    /// from before families were recorded has its ReplacedByTokenHash chain walked forward instead.
+    /// </summary>
+    private async Task RevokeTokenFamilyAsync(RefreshTokenEntity replayed, CancellationToken ct)
+    {
+        DateTime now = DateTime.UtcNow;
+        if (replayed.FamilyId is { } familyId)
+        {
+            int revoked = await dbContext.RefreshTokens
+                .Where(t => t.FamilyId == familyId && t.RevokedAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
+            logger.LogWarning("Revoked {Count} refresh tokens in family {FamilyId}", revoked, familyId);
+            return;
+        }
+
+        // Rotated links are already revoked, so the walk passes them rather than stopping at the first.
+        string? tokenHash = replayed.ReplacedByTokenHash;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (!string.IsNullOrEmpty(tokenHash) && seen.Add(tokenHash))
         {
             var token = await dbContext.RefreshTokens
                 .FirstOrDefaultAsync(t => t.TokenHash == tokenHash, ct);
-
-            if (token is null || token.RevokedAt is not null)
+            if (token is null)
                 break;
 
-            token.RevokedAt = DateTime.UtcNow;
-            logger.LogWarning("Revoked refresh token in family chain: {TokenHash}", tokenHash[..8]);
+            if (token.RevokedAt is null)
+            {
+                token.RevokedAt = now;
+                logger.LogWarning("Revoked refresh token in family chain: {TokenHash}", tokenHash[..8]);
+            }
+
+            // A token rotated after families were recorded carries one: revoke the rest of it in one go.
+            if (token.FamilyId is { } laterFamily)
+            {
+                await dbContext.SaveChangesAsync(ct);
+                await dbContext.RefreshTokens
+                    .Where(t => t.FamilyId == laterFamily && t.RevokedAt == null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
+                return;
+            }
+
             tokenHash = token.ReplacedByTokenHash;
         }
 

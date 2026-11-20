@@ -19,6 +19,11 @@ public class RefreshTokenEntity
     // refreshed access token keeps exactly them (#934). Null for a sign-in's token, which has none.
     public string? Scope { get; set; }
 
+    // Every token rotated from one sign-in shares this id, so reuse detection can revoke them all, including a
+    // second line of tokens issued when a just-rotated token was redeemed again (CON-360). Null on a token that has
+    // never been rotated since this was added.
+    public Guid? FamilyId { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     // Navigation properties

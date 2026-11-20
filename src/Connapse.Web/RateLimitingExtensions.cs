@@ -14,6 +14,8 @@ public sealed class RateLimitingSettings
 {
     public int AuthPermitLimit { get; set; } = 10;
     public int AuthWindowSeconds { get; set; } = 60;
+    public int TokenPermitLimit { get; set; } = 120;
+    public int TokenWindowSeconds { get; set; } = 60;
     public int ApiPermitLimit { get; set; } = 200;
     public int ApiWindowSeconds { get; set; } = 60;
     public int McpPermitLimit { get; set; } = 600;
@@ -23,6 +25,7 @@ public sealed class RateLimitingSettings
 public static class RateLimitingExtensions
 {
     public const string AuthPolicy = "auth";
+    public const string TokenPolicy = "oauth-token";
     public const string ApiPolicy = "api";
     public const string McpPolicy = "mcp";
 
@@ -110,6 +113,21 @@ public static class RateLimitingExtensions
                 opt.QueueLimit = 0;
                 opt.AutoReplenishment = true;
             });
+
+            // Token policy: /oauth/token, per IP. Each grant there spends a secret no one can guess (a refresh
+            // token, or a code with its PKCE verifier), so it needs no password-guessing limit, and the auth
+            // policy's one shared window turned a burst of MCP clients renewing their sign-ins into 429s, which
+            // they answer by asking the person to sign in again (CON-360).
+            options.AddPolicy(TokenPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey: $"token:{httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}",
+                    factory: _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = settings.TokenPermitLimit,
+                        Window = TimeSpan.FromSeconds(settings.TokenWindowSeconds),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    }));
 
             // API policy: per-user limit for authenticated endpoints
             options.AddPolicy(ApiPolicy, httpContext =>

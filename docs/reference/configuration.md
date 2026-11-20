@@ -81,12 +81,14 @@ These are read once at startup, so a change needs a restart. None of them is on 
 
 ### `RateLimiting`
 
-Each limit allows `PermitLimit` requests per `WindowSeconds`. The API limit counts per user, the MCP limit per agent, and the auth limit per IP address; anonymous API calls also count per IP address against the auth limit. A caller over a limit gets `429`.
+Each limit allows `PermitLimit` requests per `WindowSeconds`. The API limit counts per user, the MCP limit per agent, the token limit (`POST /oauth/token`, where MCP clients renew their sign-in) per IP address, and the auth limit per IP address; anonymous API calls also count per IP address against the auth limit. A caller over a limit gets `429`.
 
 | Setting | UI path | Env var | Type | Default | Restart? | Secret? |
 |---------|---------|---------|------|---------|----------|---------|
 | `AuthPermitLimit` | — | `RateLimiting__AuthPermitLimit` | int | `10` | Yes | No |
 | `AuthWindowSeconds` | — | `RateLimiting__AuthWindowSeconds` | int | `60` | Yes | No |
+| `TokenPermitLimit` | — | `RateLimiting__TokenPermitLimit` | int | `120` | Yes | No |
+| `TokenWindowSeconds` | — | `RateLimiting__TokenWindowSeconds` | int | `60` | Yes | No |
 | `ApiPermitLimit` | — | `RateLimiting__ApiPermitLimit` | int | `200` | Yes | No |
 | `ApiWindowSeconds` | — | `RateLimiting__ApiWindowSeconds` | int | `60` | Yes | No |
 | `McpPermitLimit` | — | `RateLimiting__McpPermitLimit` | int | `600` | Yes | No |
@@ -227,7 +229,8 @@ The settings marked **Providers** are filled in by the setup steps on the **Prov
 |---------|---------|---------|------|---------|----------|---------|
 | `Secret`: Key that signs access tokens; at least 32 characters. Generated into the data directory when empty. | — | `Identity__Jwt__Secret` | string? | — | Yes | Yes |
 | `AccessTokenLifetimeMinutes`: How long an access token from `POST /api/v1/auth/token` lasts. | — | `Identity__Jwt__AccessTokenLifetimeMinutes` | int | `60` | No | No |
-| `RefreshTokenLifetimeDays`: How long a refresh token lasts. | — | `Identity__Jwt__RefreshTokenLifetimeDays` | int | `7` | No | No |
+| `RefreshTokenLifetimeDays`: How long a refresh token lasts unused. Each refresh issues a new one good for this long again, so a client in use stays signed in. | — | `Identity__Jwt__RefreshTokenLifetimeDays` | int | `30` | No | No |
+| `RefreshTokenReuseIntervalSeconds`: How long a refresh token that was just exchanged may be exchanged again, so two sessions sharing one sign-in that refresh together both stay signed in. After it, a reused token is treated as stolen and every token descended from the same sign-in is revoked. 0 turns it off; at most 60. | — | `Identity__Jwt__RefreshTokenReuseIntervalSeconds` | int | `30` | No | No |
 | `Issuer`: The `iss` claim on issued tokens. | — | `Identity__Jwt__Issuer` | string | `"Connapse"` | No | No |
 | `Audience`: The `aud` claim on issued tokens. | — | `Identity__Jwt__Audience` | string | `"Connapse"` | No | No |
 

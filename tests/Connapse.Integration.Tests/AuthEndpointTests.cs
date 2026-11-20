@@ -203,7 +203,7 @@ public class AuthEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task RefreshToken_UsedTokenCannotBeReused_Returns401()
+    public async Task RefreshToken_UsedTokenReusedAfterTheReuseInterval_Returns401()
     {
         var initial = await GetTokenAsync(SharedWebAppFixture.AdminEmail, SharedWebAppFixture.AdminPassword);
 
@@ -211,6 +211,16 @@ public class AuthEndpointTests : IAsyncLifetime
         var firstRefresh = await _anonClient.PostAsJsonAsync(
             "/api/v1/auth/token/refresh", new RefreshTokenRequest(initial.RefreshToken));
         firstRefresh.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Within the reuse interval the same token may be redeemed again (CON-360); move its rotation past it.
+        using (var scope = _fixture.Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Connapse.Identity.Data.ConnapseIdentityDbContext>();
+            string hash = Connapse.Web.Endpoints.OAuthEndpoints.ComputeSha256Hex(initial.RefreshToken);
+            var row = db.RefreshTokens.Single(t => t.TokenHash == hash);
+            row.RevokedAt = DateTime.UtcNow.AddMinutes(-2);
+            await db.SaveChangesAsync();
+        }
 
         // Second refresh with the same (now revoked) token: should fail
         var secondRefresh = await _anonClient.PostAsJsonAsync(
