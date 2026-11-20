@@ -169,10 +169,13 @@ public class JwtTokenService(
         await AcquireFamilyLockAsync(familyId, cancellationToken);
         if (redeemedAgain)
         {
-            // Checked again under the lock: a revoke that committed since the check above leaves nothing live.
-            if (!await FamilyIsLiveAsync(familyId, cancellationToken))
+            // Checked again under the lock: a revoke that committed since the check above leaves nothing live, and
+            // waiting on the lock may have carried the request past the reuse interval.
+            var current = await dbContext.RefreshTokens.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == existingToken.Id, cancellationToken);
+            if (current is null || !await MayRedeemAgainAsync(current, settings, cancellationToken))
             {
-                logger.LogWarning("Refresh token family for user {UserId} was revoked while it was being refreshed", existingToken.UserId);
+                logger.LogWarning("Refresh token for user {UserId} could no longer be redeemed again once the lock was held", existingToken.UserId);
                 return null;
             }
         }
