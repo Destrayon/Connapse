@@ -165,6 +165,8 @@ public class JwtTokenService(
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         if (existingToken.ClientId is { } lockedClient)
             await OAuthClientLock.AcquireAsync(dbContext, lockedClient, cancellationToken);
+        // Orders this refresh against a theft revoke of the same family, so the revoke sees the token saved here.
+        await AcquireFamilyLockAsync(familyId, cancellationToken);
         if (redeemedAgain)
         {
             // Checked again under the lock: a revoke that committed since the check above leaves nothing live.
@@ -279,6 +281,12 @@ public class JwtTokenService(
             && await FamilyIsLiveAsync(familyId, ct);
     }
 
+    private Task AcquireFamilyLockAsync(Guid familyId, CancellationToken ct)
+    {
+        string key = "refresh-family:" + familyId.ToString("N");
+        return dbContext.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", ct);
+    }
+
     private Task<bool> FamilyIsLiveAsync(Guid familyId, CancellationToken ct)
     {
         DateTime now = DateTime.UtcNow;
@@ -295,9 +303,16 @@ public class JwtTokenService(
         DateTime now = DateTime.UtcNow;
         if (replayed.FamilyId is { } familyId)
         {
+            // Taken in the refresh's order, so a refresh of this family that is mid-way commits first and its new
+            // token is revoked here, and one that starts later finds the family revoked.
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+            if (replayed.ClientId is { } lockedClient)
+                await OAuthClientLock.AcquireAsync(dbContext, lockedClient, ct);
+            await AcquireFamilyLockAsync(familyId, ct);
             int revoked = await dbContext.RefreshTokens
                 .Where(t => t.FamilyId == familyId && t.RevokedAt == null)
                 .ExecuteUpdateAsync(s => s.SetProperty(t => t.RevokedAt, now), ct);
+            await transaction.CommitAsync(ct);
             logger.LogWarning("Revoked {Count} refresh tokens in family {FamilyId}", revoked, familyId);
             return;
         }
