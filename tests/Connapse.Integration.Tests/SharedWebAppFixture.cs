@@ -99,6 +99,7 @@ public sealed class SharedWebAppFixture : IAsyncLifetime
 
                 // Disable rate limiting for integration tests — all requests share one IP
                 builder.UseSetting("RateLimiting:AuthPermitLimit", "100000");
+                builder.UseSetting("RateLimiting:TokenPermitLimit", "100000");
                 builder.UseSetting("RateLimiting:ApiPermitLimit", "100000");
                 builder.UseSetting("RateLimiting:McpPermitLimit", "100000");
 

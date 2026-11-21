@@ -251,6 +251,9 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
                 .HasColumnName("scope")
                 .HasMaxLength(1024);
 
+            entity.Property(e => e.FamilyId)
+                .HasColumnName("family_id");
+
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasDefaultValueSql("now()");
@@ -258,6 +261,9 @@ public class ConnapseIdentityDbContext(DbContextOptions<ConnapseIdentityDbContex
             entity.HasIndex(e => e.TokenHash)
                 .HasDatabaseName("ix_refresh_tokens_token_hash")
                 .IsUnique();
+
+            entity.HasIndex(e => e.FamilyId)
+                .HasDatabaseName("ix_refresh_tokens_family_id");
 
             entity.HasOne(e => e.User)
                 .WithMany(u => u.RefreshTokens)
