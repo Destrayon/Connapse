@@ -7,10 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.3] - 2026-11-20
+
+v0.4.3 keeps MCP clients signed in through weeks of normal use, stops large files from holding up everyone else's uploads, and makes a failed CLI sign-in say why.
+
+### Upgrading from v0.4.2
+
+Set `CONNAPSE_VERSION=v0.4.3`, then pull and start as in [Upgrade Connapse](docs/self-host/upgrade.md). There is no change to `docker-compose.yml`. One migration adds a nullable `family_id` column to `refresh_tokens`; it runs when the app starts. Clients signed in before the upgrade stay signed in.
+
 ### Fixed
 
-- **The sign-in page says why it couldn't load the CLI's client file** (CON-356). When Connapse fetched its own `/oauth/clients/cli.json` for `connapse auth login` through a reverse proxy and the fetch failed, the page said only "Unknown or unregistered client." It now adds the file's URL and the HTTP status that came back, and notes that the proxy must let the Connapse server reach that file. Other apps' client files still get the plain message, so the page can't be used to probe addresses the server can reach. The server logs a warning with the URL and status for any client file. Reported in discussion #1202.
-- **Large files no longer hold up everyone else's uploads** (CON-354). Files of 2 MiB or more are ingested on two workers of their own, so a bulk upload of big PDFs can no longer take every ingestion worker for hours while small uploads wait at 0 chunks. Smaller files keep the four existing workers to themselves. A file's embedding requests also take turns with other files' requests instead of holding an embedding slot until the whole file is done, and large files always leave one parser process free for small ones. `Hangfire__LargeIngestionWorkerCount` and `Hangfire__LargeDocumentBytes` change the split; see [Configuration](docs/reference/configuration.md#server).
+- **MCP clients stay signed in across weeks of normal use** (CON-360, #1256). A client's sign-in renews itself quietly, and now lasts 30 days unused instead of 7 (`Identity__Jwt__RefreshTokenLifetimeDays`). Two sessions that share a sign-in, as Claude Code sessions do, and renew it at the same moment both stay signed in: a refresh token that was just exchanged still works for 30 seconds (`Identity__Jwt__RefreshTokenReuseIntervalSeconds`, at most 60, `0` turns it off). Before, the second renewal was taken for a stolen token and both sessions were signed out. Reusing a token after those 30 seconds still counts as theft, and now revokes every token from that sign-in, not only the next one. `/oauth/token` gets its own limit of 120 requests a minute per IP address (`RateLimiting__TokenPermitLimit`, `RateLimiting__TokenWindowSeconds`); it used to share one window of 10 a minute for the whole server with password sign-in, so a burst of renewals was refused and the clients asked to sign in again. Signing out of the browser doesn't sign MCP clients out, and revoking a client or removing a user still stops its renewals right away. As before, an access token already issued keeps working until it expires, at most 60 minutes later. See [Configuration](docs/reference/configuration.md#identityjwt).
+- **The sign-in page says why it couldn't load the CLI's client file** (CON-356). When Connapse fetched its own `/oauth/clients/cli.json` for `connapse auth login` through a reverse proxy and the fetch failed, the page said only "Unknown or unregistered client." It now adds the file's URL and the HTTP status that came back, and notes that the proxy must let the Connapse server reach that file. Other apps' client files still get the plain message, so the page can't be used to probe addresses the server can reach. The server logs a warning with the URL and status for any client file. Reported in discussion #1202 (#1252).
+- **Large files no longer hold up everyone else's uploads** (CON-354, #1254). Files of 2 MiB or more are ingested on two workers of their own, so a bulk upload of big PDFs can no longer take every ingestion worker for hours while small uploads wait at 0 chunks. Smaller files keep the four existing workers to themselves. A file's embedding requests also take turns with other files' requests instead of holding an embedding slot until the whole file is done, and large files always leave one parser process free for small ones. Two new settings change the split: `Hangfire__LargeIngestionWorkerCount` (default `2`) and `Hangfire__LargeDocumentBytes` (default `2097152`, 2 MiB); see [Configuration](docs/reference/configuration.md#server).
+- **Release images say their own version and commit** (CON-357, #1253). `docker inspect` on a Connapse image showed the version label `24.04`, taken from the Ubuntu base image. Release images now carry `org.opencontainers.image.version` (such as `0.4.3`), `org.opencontainers.image.revision` (the tagged commit) and `org.opencontainers.image.source`. Reported in discussion #1202.
+
+### Tests
+
+- **MCP uploads keep the folder path they're given** (CON-358, #1255). A new integration test checks that `upload_file` with `path`, or with `files` whose items set `folderPath`, puts each file in that folder and creates the folders above it, that two files with the same name in different folders don't collide, and that a `fileName` holding a path is refused rather than flattened. MCP uploads already worked this way; the test keeps it so.
 
 ## [v0.4.2] - 2026-11-15
 
@@ -418,7 +432,8 @@ These change what a search returns rather than making a call fail.
 - Ollama integration for local embeddings
 - Docker Compose deployment
 
-[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/Destrayon/Connapse/compare/v0.4.3...HEAD
+[v0.4.3]: https://github.com/Destrayon/Connapse/compare/v0.4.2...v0.4.3
 [v0.4.2]: https://github.com/Destrayon/Connapse/compare/v0.4.1...v0.4.2
 [v0.4.1]: https://github.com/Destrayon/Connapse/compare/v0.4.0...v0.4.1
 [v0.4.0]: https://github.com/Destrayon/Connapse/compare/v0.3.2...v0.4.0
