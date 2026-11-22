@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.4.3] - 2026-11-20
+## [v0.4.3] - 2026-11-21
 
 v0.4.3 keeps MCP clients signed in through weeks of normal use, stops large files from holding up everyone else's uploads, and makes a failed CLI sign-in say why.
 
