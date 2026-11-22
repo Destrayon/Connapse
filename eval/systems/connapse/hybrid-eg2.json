@@ -1,0 +1,1 @@
+{ "searchMode": "hybrid", "settings": { "Knowledge:Embedding:Model": "embeddinggemma:eg2-text-bf16", "Knowledge:Embedding:Dimensions": "768" } }

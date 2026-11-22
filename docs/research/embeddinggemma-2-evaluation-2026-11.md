@@ -8,14 +8,22 @@ Written on 2026-11-22, before any run. Nothing below this section changes it.
 
 - **Baseline:** `nomic-embed-text` through Ollama, the app's default (`src/Connapse.Web/appsettings.json`), 768
   dimensions, prompts `search_query: ` / `search_document: `, lowercased input.
-- **Candidate:** EmbeddingGemma 2, Ollama tag `embeddinggemma-2:270m-bf16-text`. This is the text-only load (130M
+- **Candidate:** EmbeddingGemma 2, Ollama tag `embeddinggemma-2:270m-bf16-text` (see the amendment below). This is the text-only load (130M
   backbone and 140M embedder), the same text weights as the full 740M model without its vision and audio encoders.
   It runs in bf16, since the model card warns float16 returns NaN or degraded vectors. 768 dimensions, prompts
   `task: search result | query: ` / `title: none | text: ` (its `config_sentence_transformers.json`).
 - **Prompt handling:** Connapse's prompt registry (`EmbeddingPrompts`) knows `embeddinggemma` but not
   `embeddinggemma-2`. To give the candidate its published prompts without changing product code, the eval copies the
-  tag in Ollama as `embeddinggemma:eg2-270m-bf16-text`, which the registry resolves to EmbeddingGemma's prompts.
+  model in Ollama under an `embeddinggemma:` name, which the registry resolves to EmbeddingGemma's prompts.
   Those are the same strings EmbeddingGemma 2 publishes.
+- *Amended 2026-11-22, before any scored run:* Ollama's `-bf16` tags need Apple's MLX runtime and do not run on this
+  Windows/CUDA machine. The candidate is instead Unsloth's BF16 GGUF of the text model
+  (`hf.co/unsloth/embeddinggemma-2-GGUF`, file `embeddinggemma-2-BF16.gguf`, 558 MB), loaded without its `mmproj`
+  file (the image and audio encoders) as `embeddinggemma:eg2-text-bf16`. A check before the runs
+  (`bench/refcheck.json` in the results) compared it with Google's float32 `google/embeddinggemma-2` checkpoint
+  through sentence-transformers 6.3: cosine at least 0.99999 on 20 queries and 40 passages, the same top passage for
+  every query, and the full 744M-parameter load gives the same text vectors as the 271M text-only load (cosine
+  1.0000). So this is EmbeddingGemma 2's text path at the released size, not a cut-down model.
 
 **Eval set.** Suite `v1` minus `cqadupstack-programmers` and `ragbench-techqa`, which took about 9 hours each to index
 on 2026-10-24. That leaves the 13 NanoBEIR datasets and `ragbench-emanual`: 14 datasets, all public. `nanobeir-scidocs`
