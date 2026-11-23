@@ -154,10 +154,13 @@ self-hosted users start, EG2 would roughly double the embedding part of ingest.
 
 Not recommended now. If a later version clears the bar, the move is a full re-embed:
 
-- Vectors from different models are not comparable, so every chunk must be embedded again. Connapse already supports
-  this without downtime: `chunk_vectors.embedding` has no fixed dimension, and each model gets its own partial IVFFlat
-  index keyed by `model_id` (`VectorColumnManager`), so old and new vectors coexist while a container re-embeds and
-  search filters by the active model.
+- Vectors from different models are not comparable, so every chunk must be embedded again. The schema can hold both
+  (`chunk_vectors.embedding` has no fixed dimension, and each model gets its own partial IVFFlat index keyed by
+  `model_id`), but that is not a zero-downtime migration. Search embeds the query only for the configured model, so
+  the moment the setting changes, documents not yet re-embedded drop out of semantic results; hybrid search still
+  finds them through keyword matching. Reindexing also deletes each document's old chunks when it writes the new ones,
+  so switching back to nomic needs another full reindex. A cutover without that gap would need a separately staged
+  index and an atomic switch, which Connapse does not have today.
 - Documents are re-chunked, not just re-embedded, because the default Semantic chunker uses the embedder to place
   boundaries. Plan for at least the original ingest time per container, and up to twice the embedding time on a
   CPU-only install.
