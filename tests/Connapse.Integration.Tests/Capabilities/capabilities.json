@@ -1108,6 +1108,15 @@
       "mcp": "memory_timeline"
     },
     {
+      "id": "project.setup",
+      "capability": "Get the instructions for setting Connapse up for a project",
+      "routes": [
+        "GET /api/project-setup"
+      ],
+      "mcp": "project_setup",
+      "note": "Static text from src/Connapse.Web/Mcp/Instructions/project-setup.md; the setup_project prompt serves the same text."
+    },
+    {
       "id": "memorySpaces.list",
       "capability": "List the memory spaces I may see, with fact counts",
       "routes": [
