@@ -29,6 +29,11 @@
     </PackageReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The project setup instructions the MCP server serves; the connapse CLI serves the same file (CON-363). -->
+    <EmbeddedResource Include="Mcp\Instructions\project-setup.md" LogicalName="Connapse.Web.Mcp.Instructions.project-setup.md" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>

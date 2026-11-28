@@ -144,6 +144,7 @@ var mcpBuilder = builder.Services.AddMcpServer(options =>
 })
 .WithHttpTransport()
 .WithToolsFromAssembly()
+.WithPromptsFromAssembly()
 .AddAuthorizationFilters()
 .WithRequestFilters(filters => filters.AddCallToolFilter(next => (context, ct) =>
     context.Services!.GetRequiredService<Connapse.Web.Mcp.McpApprovalGate>().HandleAsync(context, () => next(context, ct), ct)))

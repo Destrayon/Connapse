@@ -22,8 +22,10 @@
   "operation providers.atlassian.linkingApp.get: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation providers.atlassian.linkingApp.save: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation providers.atlassian.linkingApp.signIn: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
+  "operation project.setup: missing": "Static instructions, not an operation over data: the MCP tool and prompt return an embedded file, and the CLI vendors the same file (CC-19).",
   "operation search.models: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation server.info: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
   "operation sources.unlocated: missing": "No operations layer yet; Phase 2 of #783 adds [Operation] and moves capabilities onto it.",
+  "route project.setup: missing GET /api/project-setup": "No REST route: the text is served over MCP, and the CLI vendors the file from the repo instead of fetching it (CC-19).",
   "route sources.unlocated: missing GET /api/sources/{sourceId:guid}/unlocated": "No REST route: the capability exists only in the web UI."
 }
