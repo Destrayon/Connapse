@@ -8,7 +8,8 @@
 # error text alone: they prove the protocol shape, not that a Connapse tool ran. Real tool calls,
 # and the default authenticated /mcp, are covered by the integration tests (McpAuthorizationTests).
 server:
-  # Connapse doesn't implement completions, resources or prompts.
+  # Connapse doesn't implement completions or resources. Its one prompt, setup_project, passes prompts-list;
+  # the prompts-get-* scenarios ask for the suite's own sample prompts, which a product server doesn't have.
   - completion-complete
   - resources-list
   - resources-read-text
@@ -16,7 +17,6 @@ server:
   - resources-templates-read
   - resources-subscribe
   - resources-unsubscribe
-  - prompts-list
   - prompts-get-simple
   - prompts-get-with-args
   - prompts-get-embedded-resource

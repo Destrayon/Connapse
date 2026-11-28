@@ -36,20 +36,21 @@ Ask both at once, with your recommendation first in each.
 
 If the user chose **MCP**, make sure the project's MCP server talks to the login's server:
 
-4. If this session has a Connapse MCP server whose URL is the login's server, keep it.
-5. Otherwise add one for this project: `claude mcp add --transport http --scope project connapse <server url>/mcp`. That writes `.mcp.json`, which everyone working in the repository shares. Tell the user to run `/mcp` in Claude Code, choose **Authenticate** on `connapse` and sign in with the login's account. Its tools appear in the next session; until then, use the CLI with `--profile` for the steps below.
+4. A URL alone doesn't say who an MCP connection is signed in as: `CONNAPSE_PROFILE` picks the CLI's login, but MCP tools act as whoever authenticated the connection, and several logins can share a server. If this session has a Connapse MCP server whose URL is the login's server, call `connapse_api_read` with `GET /api/v1/auth/me` and compare its email with the login's account from step 1; on Connapse Cloud, also check the connection is in the chosen organization. Keep the server only when both match.
+5. If they don't match, tell the user to run `/mcp` in Claude Code, choose **Authenticate** (or clear it and authenticate again) on that server and sign in with the login's account. If there is no such server, add one for this project: `claude mcp add --transport http --scope project connapse <server url>/mcp`. That writes `.mcp.json`, which everyone working in the repository shares; then have the user authenticate it the same way. New or re-signed tools take effect in the next session.
+6. Until the MCP connection is confirmed to be the chosen login, don't use Connapse's MCP tools for the steps below: use the CLI with `--profile <name>` (and `--org <slug>`), so nothing is read or created as the wrong account.
 
 If the user chose **CLI**:
 
-6. Run `connapse setup claude-code --profile <name>`. It prints Claude Code auto mode settings that tell auto mode the signed-in server is the user's own service, so it stops denying routine Connapse commands. Claude Code reads `autoMode` only from `~/.claude/settings.json`, so merge the printed block there, keeping every other key, and tell the user you did.
+7. Run `connapse setup claude-code --profile <name>`. It prints Claude Code auto mode settings that tell auto mode the signed-in server is the user's own service, so it stops denying routine Connapse commands. Claude Code reads `autoMode` only from `~/.claude/settings.json`, so merge the printed block there, keeping every other key, and tell the user you did.
 
 ## 4. Pick the memory space
 
-A memory space holds the project's memories: dated facts that agents save and recall. A personal space is seen only by its owner; a team space by everyone on the server (or organization).
+A memory space holds the project's memories: dated facts that agents save and recall. A personal space is seen only by its owner; a team space by everyone on the server (or organization). The memories built-in memory would keep (the user's preferences, their feedback, what they're working on) are private, so they always go to a **personal** space. Never make a space team on your own: sharing is the user's decision, and a repository having a remote doesn't mean they made it.
 
-1. If step 1 found a memory space, check that it still exists and use it: `memory_spaces` with `name`, or `connapse api GET "/api/memory/spaces?q=<name>"`.
-2. Otherwise list the spaces (`memory_spaces`, or `connapse api GET /api/memory/spaces`) and reuse one whose name or description says it is this project's.
-3. Otherwise create one named after the project, such as `<project>-memory`, with a description saying it holds memories for this project. Make it **team** if the repository has a shared remote (`git remote -v` lists one), else **personal**. Create it with `memory_space_create`, or `connapse api POST /api/memory/spaces --data '{"name":"<name>","kind":"team","description":"<what it holds>"}'`.
+1. If step 1 found a memory space, check that it still exists and note its kind: `memory_spaces` with `name`, or `connapse api GET "/api/memory/spaces?q=<name>"`. Use it if it is personal. If it is a team space, keep it as the project's **shared** space, for facts meant for everyone on the project, and still pick a personal space below.
+2. Otherwise list the spaces (`memory_spaces` with `kind` "personal", or `connapse api GET "/api/memory/spaces?kind=personal"`) and reuse a personal one whose name or description says it is this project's.
+3. Otherwise create a personal one named after the project, such as `<project>-memory`, with a description saying it holds memories for this project: `memory_space_create` with `kind` "personal", or `connapse api POST /api/memory/spaces --data '{"name":"<name>","kind":"personal","description":"<what it holds>"}'`.
 
 Memories are saved with `memory_remember` (or `connapse memory save <subject> <attribute> <value> --space <name>`) and recalled with `memory_recall` (or `connapse memory recall <query> --space <name>`).
 
@@ -69,7 +70,7 @@ Upload sources with `upload_file` (or `connapse upload <path> --container <name>
 Write down what steps 2 to 5 chose so every later session finds it without asking. Record:
 
 - The access route (CLI or MCP), the login (profile) and its server, and the organization if there is one.
-- The memory space, with one line each on how to recall and save through this project's access route.
+- The personal memory space (and the team space, if step 4 kept one, with what belongs there), with one line each on how to recall and save through this project's access route.
 - Each container with one line on what goes in it.
 
 Put this in a `## Connapse` section of `CLAUDE.md`, replacing any older one. Claude Code loads `CLAUDE.md` into every session, so keep there only what every session needs. If the section would run past about 15 lines (usually because of many containers), keep the login, the memory space and how to use it in `CLAUDE.md`, move the container list to `docs/connapse.md`, and add one line to the section saying to read `docs/connapse.md` before uploading or searching sources.
@@ -80,7 +81,7 @@ Claude Code has its own memory: a `memory` folder inside this project's folder u
 
 1. In `.claude/settings.json`, set `"autoMemoryEnabled": false`.
 2. Find a Python that runs (`python3 --version`, else `python --version`). If neither does, write the script below in Node.js instead, with the same behavior.
-3. Write this script to `.claude/hooks/connapse_memory.py`, filling in the three values at the top:
+3. Write this script to `.claude/hooks/connapse_memory.py`, filling in the values at the top (`SHARED` stays empty unless step 4 kept a team space):
 
    ```python
    """Keep this project's memory in Connapse, not Claude Code's built-in memory.
@@ -92,7 +93,8 @@ Claude Code has its own memory: a `memory` folder inside this project's folder u
    import re
    import sys
 
-   SPACE = "<memory space name>"
+   SPACE = "<personal memory space name>"
+   SHARED = ""  # "<team memory space name>" only if the project already uses one
    ROUTE = "<cli or mcp>"
    TOOLS = "<the prefix your client gives Connapse's tools, such as mcp__connapse__>"
 
@@ -112,10 +114,12 @@ Claude Code has its own memory: a `memory` folder inside this project's folder u
            "# Memory: Connapse only\n\n"
            "Claude Code's built-in memory is off in this project: never read or write the memory "
            "folders under ~/.claude/projects/ or their MEMORY.md index; a hook blocks those calls.\n"
-           f"This project's memories live in the Connapse memory space `{SPACE}`.\n"
+           f"This project's memories live in the personal Connapse memory space `{SPACE}`, which only its owner sees.\n"
            f"- Recall: before relying on remembered context, run {RECALL}.\n"
            f"- Save: run {SAVE}. Save what built-in memory would (the user's preferences, "
            "feedback with its reason, non-obvious project context), not what the repo already records.\n"
+           + (f"- The team space `{SHARED}` is seen by everyone on the project. Save there only facts the "
+              "user wants shared; never their preferences or private feedback.\n" if SHARED else "") +
            "- If Connapse can't be reached, tell the user memory is unavailable; never fall back to local files.\n"
            "CLAUDE.md's Connapse section names the login and the containers for sources."
        )

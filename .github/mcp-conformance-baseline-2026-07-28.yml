@@ -6,14 +6,13 @@
 # As in that list, the runner sends no credentials, so the job allows anonymous discovery and every
 # tools/call is refused for authentication.
 server:
-  # Connapse doesn't implement completions, resources or prompts. caching also checks the hints on
+  # Connapse doesn't implement completions or resources, and has none of the suite's sample prompts. caching also checks the hints on
   # prompts/list and the resources methods; tools/list's hints pass (ttlMs 0, cacheScope private).
   - completion-complete
   - resources-list
   - resources-read-text
   - resources-read-binary
   - resources-templates-read
-  - prompts-list
   - prompts-get-simple
   - prompts-get-with-args
   - prompts-get-embedded-resource
