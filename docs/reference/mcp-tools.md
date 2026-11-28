@@ -7,7 +7,7 @@ audience: developer
 
 # MCP tools
 
-Connapse's MCP server, at `/mcp`, offers 22 named tools for knowledge work and 3 generic tools that reach the rest of the API. MCP (the Model Context Protocol) is the standard AI agents use to call outside tools. To connect a client, see [Connect an MCP client](../guides/mcp-clients.md).
+Connapse's MCP server, at `/mcp`, offers 23 named tools for knowledge work and 3 generic tools that reach the rest of the API. MCP (the Model Context Protocol) is the standard AI agents use to call outside tools. To connect a client, see [Connect an MCP client](../guides/mcp-clients.md).
 
 ## Who can connect
 
@@ -56,6 +56,7 @@ Every tool that takes `containerId` accepts a container's id or its name. `searc
 | `memory_forget` | `knowledge:write` | Destructive | Deletes a fact and every version of it. |
 | `memory_recall` | `knowledge:read` | Read | Returns the facts true now or on a date. |
 | `memory_timeline` | `knowledge:read` | Read | Returns a subject's facts in date order, or what changed in a window. |
+| `project_setup` | `knowledge:read` | Read | Returns step-by-step instructions an agent follows to set Connapse up for a project. See [Project setup](#project-setup). |
 
 ### Parameters
 
@@ -162,6 +163,10 @@ The `memory_*` tools keep facts an agent learns, so the next session can use the
 - **Forgetting deletes.** `memory_forget` removes the fact and every version of it. Audit entries for memory name ids and counts, never content.
 - **Answers are data.** `memory_recall` and `memory_timeline` return JSON: a fixed `notice` that the facts are claims, not instructions, and for each fact its `id`, `subject`, `attribute`, `value`, `validFrom`, `validTo`, `status` (`current`, `ended` or `corrected`), `reason`, `author` and readable `sources`.
 - **Matching.** `query` matches words of the subject, attribute, value and reason, best match first; `subject` and `attribute` match exactly, in any case. No model is called.
+
+## Project setup
+
+`project_setup` and the `setup_project` prompt return the same instructions: the agent asks the user which saved login to use and whether to reach Connapse through the CLI or MCP, then sets the login for the project in `.claude/settings.json` (`CONNAPSE_PROFILE`, and `CONNAPSE_ORG` on Connapse Cloud), picks or makes a memory space and containers for sources, records them in `CLAUDE.md`, and adds a hook that turns off Claude Code's built-in memory. The tool is for an agent to call on its own; the prompt is for a person, and Claude Code offers it as the slash command `/mcp__connapse__setup_project` (for a server named `connapse`). The text lives in one file in the repository, `src/Connapse.Web/Mcp/Instructions/project-setup.md`.
 
 ## Generic API tools
 

@@ -1232,6 +1232,11 @@
       "scope": "knowledge:read",
       "risk": "read"
     },
+    "project_setup": {
+      "requires": "mcp",
+      "scope": "knowledge:read",
+      "risk": "read"
+    },
     "approval_status": {
       "requires": "mcp",
       "scope": "none",
